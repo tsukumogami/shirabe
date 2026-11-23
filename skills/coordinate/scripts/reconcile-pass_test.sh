@@ -1163,6 +1163,18 @@ pass
 jq -e '.visit == "7" and (.facts | type) == "object"' "$SDIR/coordinate-reconcile/visit.json" >/dev/null 2>&1
 check "and the work file still holds the visit" $? "$(cat "$SDIR/coordinate-reconcile/visit.json" 2>&1)"
 grep -q 'could not be written\|the plan could not be read' "$CASE/stderr"; check "and the pass says which write failed" $? "$(cat "$CASE/stderr")"
+
+# The record reaches jq through a file, not an argument: Linux caps one
+# argument at 131072 bytes, and a long-lived record outgrows that.
+new_case big-record
+record "[$(hold with-pr "$PR12")]"
+jq -c '.deferrals += [range(600) | {row: {deferral: ("d\(.) " + ("x" * 250)), reason: "r", raised: "2026-09-25T10:00Z",
+                                           disposition: "closed: moot"}, source: "record"}]' "$CASE/read.out" > "$CASE/read.x" \
+    && mv "$CASE/read.x" "$CASE/read.out"
+[ "$(wc -c < "$CASE/read.out")" -gt 131072 ]; check "a record over 131072 bytes" $? "$(wc -c < "$CASE/read.out")"
+pass
+jq -e '.record.deferrals | length == 600' "$SDIR/coordinate-reconcile/visit.json" >/dev/null 2>&1
+check "the first pass stores it whole in the work file" $? "$RC $(head -3 "$CASE/stderr")"
 grep -v '^[[:space:]]*#' "$P" | grep -n 'save "\$(' && bad "every save takes a document whose jq status was checked" || ok "every save takes a document whose jq status was checked"
 
 echo "== the token =="

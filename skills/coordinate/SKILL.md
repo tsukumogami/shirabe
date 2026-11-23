@@ -482,7 +482,18 @@ configuration, and it's the same for either role. Your record holds your role,
 - Brief a successor with the role your record holds; a successor never changes
   it. A brief you write for it by hand files its rules under a
   `## Standing rules` heading, as the brief-intake paragraph under The Record
-  says.
+  says. Hand a roadmap run over from the `wait` hub, or from
+  `roadmap_close_step` when no milestone is left open: add
+  `successor_input.json` to your run's context (a brief input with its
+  `topic`, which `<roadmap name>-successor-<n>` suits, and no role, scope or
+  repository), then run `dispatch-worker.sh --session <run> --successor`. A
+  successor dispatch needs no unit: it reads no pick fact, so an owed verdict,
+  a pause, a parked decision or an empty roadmap doesn't stop it. It builds
+  the invocation from your run's own facts,
+  `/shirabe:coordinate <ROADMAP> --role <role>`, with `<role>` read from your
+  record's Run `role` row (none exits 1, naming the command that sets it), and
+  keeps the pending successor on your Run `successor` row until the
+  successor's opener takes your run over and clears it.
 
 **Manager**
 
@@ -761,6 +772,17 @@ states never ask you to do these steps by hand.
   worker is gone and never wrote a handoff comment, it goes with no link,
   the seal checks that the worker is over, the pass records an entry in
   place of the link, and the row goes with `state-holding.sh --retire`.
+  When no pull request of it merged either, the verdict says `pr none`
+  beside `handoff none`, and `--retire` also releases a leg-bound row's
+  leg by abandoning its request.
+  A unit that ends with no pull request (a report-only spike, a worker
+  stopped before it pushed, an open that failed) goes through the same
+  states, stopped or removed, with its handoff comment on the unit's
+  issue: the seal reads its holding's branch, if it names one, and refuses
+  when GitHub shows a commit on it beyond the default branch. The verdict
+  says `pr none` with a `branch` line beside the link, and `--retire`
+  removes the row merged or not and releases a leg-bound row's leg with the
+  handoff link in the abandon's rationale.
   Before the destroy the pass writes the unit's `cost` entry into the record,
   posting it on the unit's pull request or issue only where that repository
   opts in (`references/unit-cost.md`), which can add up to two minutes, so a

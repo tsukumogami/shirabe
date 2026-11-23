@@ -129,6 +129,11 @@ eq "the check's fingerprint is template-fingerprint.sh's" "$(bash "$REPO/skills/
 grep -q 'template-fingerprint.sh' "$REPO/skills/coordinate/scripts/coord-log.sh" \
     && pass "  ... and coord-log.sh fingerprints a run with the same script" || fail "  ... and coord-log.sh fingerprints a run with the same script"
 
+# --list prints the set the digest hashes: the script a gate names and what it
+# sources through $HERE, and nothing no gate reaches. It reads no table.
+LISTED=$(bash "$CHECK" --template "$TPL" --compiled "$T/c0.json" --list | paste -sd' ' -)
+eq "--list prints the files the gate digest covers" "gate.sh lib/common.sh" "$LISTED"
+
 echo '{"compat": 0}' > "$TABLE"
 eq "a malformed table can't be decided" 2 "$(run "$T/c0.json")"
 eq "an unreadable compiled template can't be decided" 2 "$(run "$T/missing.json")"

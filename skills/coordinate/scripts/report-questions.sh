@@ -139,6 +139,10 @@ if [ "$HOLDING" = 1 ]; then
     EP=$(printf '%s' "$ROW" | jq -r '.entry_point // ""')
     SECTION=$(bash "$HERE/state-decision.sh" --session "$SESSION" --list) || lib_die2 "cannot read the Decisions section"
 fi
+# jq reads the section from this file (--slurpfile secs, bound as $sec), never
+# from an argument: a long-running record's section outgrows the 128 KiB one
+# argument may hold on Linux, and jq would not start (shirabe#2042).
+printf '%s' "$SECTION" > "$T/section.json" || lib_die2 "cannot write the Decisions section"
 # Whether an entry was opened from <source> (a source without its stamp), settled or not.
 opened_from() { printf '%s' "$SECTION" | jq -e --arg p "$1 [" 'any(.entries[]; .source | startswith($p))' >/dev/null; }
 
@@ -337,7 +341,7 @@ if [ "$HOLDING" = 1 ] && printf '%s' "$SECTION" | jq -e '(.archived // []) | len
                 esac
             done < "$T/marked"
             jq -s -c 'map({kind, text, edited: false})' "$T/entries.jsonl" > "$T/entries.json" || lib_die2 "an entry key is not JSON"
-            jq -e -L "$HERE" --argjson sec "$SECTION" --argjson c "$CITED" 'include "state-schema";
+            jq -e -L "$HERE" --slurpfile secs "$T/section.json" --argjson c "$CITED" 'include "state-schema"; $secs[0] as $sec |
                 [.[] | select(.kind == "decisions") | .text | d_archive_rows[] | .decision] as $held
                 | all(($sec.archived // [])[] | select(. as $a | $c | index($a) != null) | tostring; . as $n | $held | index($n) != null)' \
                 "$T/entries.json" > /dev/null || rm -f "$T/entries.json"
@@ -346,7 +350,7 @@ if [ "$HOLDING" = 1 ] && printf '%s' "$SECTION" | jq -e '(.archived // []) | len
             bash "$HERE/state-entry.sh" --session "$SESSION" --list > "$T/entries.json" 2> "$T/ra.err" \
                 || { lib_scrub < "$T/ra.err" >&2; echo >&2; lib_die2 "cannot read the record's entries"; }
         fi
-        OWNED=$(jq -c -L "$HERE" --arg topic "$TOPIC" --argjson sec "$SECTION" --argjson c "$CITED" 'include "state-schema";
+        OWNED=$(jq -c -L "$HERE" --arg topic "$TOPIC" --slurpfile secs "$T/section.json" --argjson c "$CITED" 'include "state-schema"; $secs[0] as $sec |
             ([.[] | select(.kind == "decisions" and (.edited | not))] | reverse) as $arch
             | [($sec.archived // [])[] | select(. as $a | $c | index($a) != null) | tostring as $n
                | (first($arch[] | .text | d_archive_rows[] | select(.decision == $n)) // null)
@@ -356,8 +360,9 @@ if [ "$HOLDING" = 1 ] && printf '%s' "$SECTION" | jq -e '(.archived // []) | len
 fi
 # A citation is honored only on an item of the Questions part, and only for
 # the reporting worker's own entry, in the body or archived.
-jq -R -s -c --rawfile addr "$T/addressed" --argjson sec "$SECTION" --arg topic "$TOPIC" --argjson holding "$HOLDING" --argjson owned "$OWNED" '
-    ($addr | split("\n") | map(select(length > 0) | tonumber)) as $a
+jq -R -s -c --rawfile addr "$T/addressed" --slurpfile secs "$T/section.json" --arg topic "$TOPIC" --argjson holding "$HOLDING" --argjson owned "$OWNED" '
+    $secs[0] as $sec
+    | ($addr | split("\n") | map(select(length > 0) | tonumber)) as $a
     | split("\n") | map(select(length > 0)) | to_entries
     | map(.key as $k | (.value | split("\t")) as $f | ($f[2:] | join("\t")) as $text
         | ([$text | capture("\\(decision (?<n>[1-9][0-9]*)\\)") | .n] | first) as $c

@@ -2117,5 +2117,180 @@ rm -f "$ST/ctx/dispatch_topic"
 eq  "gate: no dispatch_topic is 2" 2 "$(gate)"
 fi
 
+# --- --successor: the run's own successor ------------------------------------------------------------------
+#
+# docs/designs/DESIGN-coordinate-successor-role.md, Decisions 1, 2 and 4.
+# The mode reads successor_input.json and the run's facts, never pick: its
+# scope from coord-log.sh run-facts and vars (a stand-in here, through
+# DC_COORD_LOG), its role from the record's Run role row, and it writes the
+# Run successor row around the launch. Its own stand-in for the stored set's
+# script (SUCC_ROW, a Run successor row its --list prints) logs each
+# --successor write.
+if section "" "--successor: the run's own successor"; then
+cat >"$T/coord-log-succ.sh" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+    run-facts) [ "${CL_FACTS_RC:-0}" = 0 ] || exit "$CL_FACTS_RC"
+               printf '{"scope":"%s","name":"plugin-system","repo":"acme/widgets"}\n' "${CL_SCOPE:-roadmap}" ;;
+    vars) printf '{"SCOPE":"%s","ROADMAP":"%s","HOST_REPO":"acme/widgets"}\n' "${CL_SCOPE:-roadmap}" "${CL_ROADMAP-docs/roadmaps/ROADMAP-plugin-system.md}" ;;
+    *) exit 64 ;;
+esac
+EOF
+cat >"$T/state-stored-set-succ.sh" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1-}" != --list ]; then
+    printf 'state-stored-set %s\n' "$*" >>"$ST/calls.log"
+    exit "${SUCC_WRITE_RC:-0}"
+fi
+jq -nc --arg r "${RECORD_ROLE:-}" --arg s "${SUCC_ROW:-}" '{run: ([{key: "coordinator", value: "lane-coord", set_by: "lane-coord", set: "2026-09-26T08:00Z"}]
+    + (if $r == "" then [] else [{key: "role", value: $r, set_by: "the human", set: "2026-09-26T08:00Z"}] end)
+    + (if $s == "" then [] else [{key: "successor", value: $s, set_by: "coord", set: "2026-09-26T08:00Z"}] end)), standing: [], work: []}'
+EOF
+chmod +x "$T/coord-log-succ.sh" "$T/state-stored-set-succ.sh"
+SUCC_INPUT='{"topic": "plugin-system-successor-1", "authority": "You are working for the owner on acme/widgets.",
+  "goal": "Continue this roadmap from where its record stands.",
+  "checkpoints": ["The run is taken over and its first reconcile is reported."], "acceptance": ["The first report names this run."]}'
+SBRIEF="$W/.niwa/dispatch-briefs/plugin-system-successor-1.md"
+SUCC_GOAL='Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role manager` in acme/widgets.'
+# Split like PA_S, so the public-content check reads no session name here.
+SUCC_S=plugin_system_successor_1-""1a2b3c4d
+# sreset [successor input]: the stand-ins reset, the successor input in
+# context, and every worker input (brief_input.json, dispatch_topic,
+# coord/pick.json) removed, so the mode can't lean on them.
+sreset() {
+    reset "$INPUT_DELIVER"
+    rm -f "$ST/ctx/brief_input.json" "$ST/ctx/dispatch_topic" "$ST/ctx/coord/pick.json"
+    printf '%s' "${1:-$SUCC_INPUT}" >"$ST/ctx/successor_input.json"
+    export NIWA_NAME=$SUCC_S RECORD_ROLE=manager
+    unset CL_FACTS_RC CL_SCOPE CL_ROADMAP SUCC_ROW SUCC_WRITE_RC
+}
+srun() { (cd "$W/inst" && DC_COORD_LOG="$T/coord-log-succ.sh" DC_RECORD_STATE="$T/state-stored-set-succ.sh" bash "$S" --session coord --successor "$@"); }
+nothing_written() { # nothing_written <label>: no row write, launch, leg or brief
+    eq "$1: nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|request create|--successor' "$ST/calls.log")"
+    if [ -e "$SBRIEF" ]; then bad "$1: no brief" "$SBRIEF"; else ok "$1: no brief"; fi
+}
+
+sreset
+OUT=$(srun 2>"$T/err"); RC=$?
+eq  "successor: exit 0" 0 "$RC"
+eq  "successor: prints the session name" "session=$SUCC_S" "$OUT"
+SW1=$(grep -n 'state-stored-set --session coord --successor dispatching plugin-system-successor-1 --by coord$' "$ST/calls.log" | head -1 | cut -d: -f1)
+LAUNCH=$(grep -n '^niwa dispatch' "$ST/calls.log" | head -1 | cut -d: -f1)
+SW2=$(grep -n 'state-stored-set --session coord --successor dispatched plugin-system-successor-1 --by coord$' "$ST/calls.log" | head -1 | cut -d: -f1)
+if [ -n "$SW1" ] && [ -n "$LAUNCH" ] && [ "$SW1" -lt "$LAUNCH" ]; then ok "successor: the row is written dispatching before the launch"; else bad "successor: the row is written dispatching before the launch" "$(calls)"; fi
+if [ -n "$SW2" ] && [ -n "$LAUNCH" ] && [ "$SW2" -gt "$LAUNCH" ]; then ok "successor: ... and dispatched after"; else bad "successor: ... and dispatched after" "$(calls)"; fi
+eq  "successor: one launch" 1 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+eq  "successor: no holding, leg or request" "" "$(grep -E 'record write|request create' "$ST/calls.log")"
+has "successor: --skill shirabe:coordinate" "$(grep '^niwa dispatch' "$ST/calls.log")" "[--skill] [shirabe:coordinate]"
+has "successor: --name the topic" "$(grep '^niwa dispatch' "$ST/calls.log")" "[--name] [plugin-system-successor-1]"
+eq  "successor: the brief's Goal line, built from the run's facts and role row" "$SUCC_GOAL" "$(grep '^Run `/shirabe:coordinate ' "$SBRIEF")"
+has "successor: the prompt carries the same line" "$(cat "$ST/prompt")" "$SUCC_GOAL"
+has "successor: ... and the brief's path" "$(cat "$ST/prompt")" "Read $SBRIEF for your complete task brief"
+eq  "successor: the invocation line is the brief's only line naming a role" "$SUCC_GOAL" "$(grep -iwE 'managers?|directors?' "$SBRIEF")"
+has "successor: the brief reports to the record's address" "$(cat "$SBRIEF")" 'addressed to `lane-coord`'
+has "successor: ... and names this run as its dispatcher" "$(cat "$SBRIEF")" "--dispatched-by coord"
+
+# A director's run renders --role director, whatever the input says.
+sreset "$(jq -c '.role = "manager" | .successor = false' <<<"$SUCC_INPUT")"; export RECORD_ROLE=director
+OUT=$(srun 2>"$T/err"); RC=$?
+eq  "successor: a director's run exits 0" 0 "$RC"
+eq  "successor: ... rendering the record's role" 'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role director` in acme/widgets.' "$(grep '^Run `/shirabe:coordinate ' "$SBRIEF")"
+
+# Pick is never read: a pick.json holding every unit (a pause on all, an
+# owed verdict) changes nothing.
+sreset
+printf '%s' "$PICK_ROADMAP" | jq -c '.paused_all = "s1" | .units |= map(.verdict_owed = true)' >"$ST/ctx/coord/pick.json"
+OUT=$(srun 2>"$T/err"); RC=$?
+eq  "successor: a pick that holds every unit doesn't stop it" "0 session=$SUCC_S" "$RC $OUT"
+
+# The input may give entry_args and repo only as the run's own.
+sreset "$(jq -c '.entry_args = ["docs/roadmaps/ROADMAP-plugin-system.md"] | .repo = "acme/widgets"' <<<"$SUCC_INPUT")"
+OUT=$(srun 2>"$T/err"); eq "successor: entry_args and repo equal to the run's are taken" 0 "$?"
+sreset "$(jq -c '.entry_args = ["docs/roadmaps/ROADMAP-other.md"]' <<<"$SUCC_INPUT")"
+srun >/dev/null 2>"$T/err"; eq "successor: another roadmap in entry_args exits 1" 1 "$?"
+has "successor: ... naming both" "$(cat "$T/err")" 'ROADMAP-other.md'
+has "successor: ... and the run's" "$(cat "$T/err")" '["docs/roadmaps/ROADMAP-plugin-system.md"]'
+nothing_written "successor: another roadmap"
+sreset "$(jq -c '.repo = "acme/other"' <<<"$SUCC_INPUT")"
+srun >/dev/null 2>"$T/err"; eq "successor: another repo exits 1" 1 "$?"
+has "successor: ... naming both" "$(cat "$T/err")" 'the input gives "acme/other", and this run'"'"'s host is acme/widgets'
+nothing_written "successor: another repo"
+
+# Refusals before anything is written: no role row, a role_change, another
+# entry point, facts that can't be read, a discipline run, a roadmap that
+# fails its pattern.
+sreset; export RECORD_ROLE=
+srun >/dev/null 2>"$T/err"; eq "successor: no role row exits 1" 1 "$?"
+has "successor: ... naming the command that sets it" "$(cat "$T/err")" "state-stored-set.sh --session coord --run role"
+nothing_written "successor: no role row"
+sreset "$(jq -c '.role_change = "director"' <<<"$SUCC_INPUT")"
+srun >/dev/null 2>"$T/err"; eq "successor: a role_change exits 1" 1 "$?"
+has "successor: ... naming the field" "$(cat "$T/err")" "role_change:"
+nothing_written "successor: a role_change"
+sreset "$(jq -c '.entry_point = "deliver"' <<<"$SUCC_INPUT")"
+srun >/dev/null 2>"$T/err"; eq "successor: another entry point exits 1" 1 "$?"
+nothing_written "successor: another entry point"
+for rc in 1 2; do
+    sreset; export CL_FACTS_RC=$rc
+    srun >/dev/null 2>"$T/err"; eq "successor: run-facts exiting $rc exits 1" 1 "$?"
+    has "successor: ... saying the facts can't be read" "$(cat "$T/err")" "this run's facts can't be read"
+    nothing_written "successor: run-facts exiting $rc"
+done
+sreset; export CL_SCOPE=discipline
+srun >/dev/null 2>"$T/err"; eq "successor: a discipline run exits 1" 1 "$?"
+nothing_written "successor: a discipline run"
+for bad_rm in -x docs/roadmaps/plugin-system.md; do
+    sreset; export CL_ROADMAP=$bad_rm
+    srun >/dev/null 2>"$T/err"; eq "successor: a ROADMAP of [$bad_rm] exits 1" 1 "$?"
+    nothing_written "successor: a ROADMAP of [$bad_rm]"
+done
+sreset "$(jq -c 'del(.goal)' <<<"$SUCC_INPUT")"
+srun >/dev/null 2>"$T/err"; eq "successor: an input the renderer refuses exits 1" 1 "$?"
+has "successor: ... with the renderer's reason" "$(cat "$T/err")" "goal: required"
+nothing_written "successor: an input the renderer refuses"
+
+# The row as it stands: a failed or stranded row of this topic exits 3; one
+# of another topic lets a new attempt through.
+for st in dispatch-failed stranded; do
+    sreset; export SUCC_ROW="$st plugin-system-successor-1 2026-09-26"
+    srun >/dev/null 2>"$T/err"; eq "successor: a $st row of this topic exits 3" 3 "$?"
+    nothing_written "successor: a $st row of this topic"
+    sreset; export SUCC_ROW="$st plugin-system-successor-0 2026-09-26"
+    OUT=$(srun 2>"$T/err"); eq "successor: a $st row of another topic takes a new attempt" "0 session=$SUCC_S" "$? $OUT"
+done
+# A live session on the topic exits 5; the writer refusing the row exits 2.
+sreset; printf '[{"name":"x","path":"/p","session_name":"%s"}]\n' "$SUCC_S" >"$ST/sessions.json"
+srun >/dev/null 2>"$T/err"; eq "successor: a live session on the topic exits 5" 5 "$?"
+nothing_written "successor: a live session on the topic"
+sreset; export SUCC_WRITE_RC=65
+srun >/dev/null 2>"$T/err"; eq "successor: a refused row write exits 2" 2 "$?"
+eq  "successor: ... launching nothing" "" "$(grep '^niwa dispatch' "$ST/calls.log")"
+sreset; export SUCC_WRITE_RC=10
+srun >/dev/null 2>"$T/err"; eq "successor: a record that refuses the write exits 8" 8 "$?"
+# A failed launch: the row reads dispatch-failed.
+sreset; export NIWA_MODE=fail
+srun >/dev/null 2>"$T/err"; eq "successor: a failed launch exits 4" 4 "$?"
+has "successor: ... the row rewritten dispatch-failed" "$(calls)" "--successor dispatch-failed plugin-system-successor-1 --by coord"
+lacks "successor: ... and never dispatched" "$(calls)" "--successor dispatched "
+# The run's lock, held by a live process, exits 7.
+sreset
+mkdir -p "$W/.niwa/dispatch-briefs"; printf '%s\n' "$$" >"$W/.niwa/dispatch-briefs/.successor.coord.lock"
+srun >/dev/null 2>"$T/err"; eq "successor: another run holding the run's lock exits 7" 7 "$?"
+rm -f "$W/.niwa/dispatch-briefs/.successor.coord.lock"
+# --successor goes alone.
+for other in --rebrief --releg "--releg-imported plugin-api"; do
+    sreset
+    # shellcheck disable=SC2086
+    (cd "$W/inst" && bash "$S" --session coord --successor $other >/dev/null 2>&1); eq "successor: with $other is a usage error" 2 "$?"
+done
+
+# On the worker path the field is dropped: a worker input naming it
+# dispatches as it would without it.
+reset "$(jq -c '.successor = true' <<<"$INPUT_DELIVER")"
+OUT=$(run 2>"$T/err"); RC=$?
+eq  "successor: a worker input carrying successor still dispatches" "0 session=$PA_S" "$RC $OUT"
+unset RECORD_ROLE NIWA_MODE
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

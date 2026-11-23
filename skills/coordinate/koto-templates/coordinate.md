@@ -1863,7 +1863,7 @@ states:
         description: stopped after the worker's session was stopped by its id; removed when its instance and job are already gone, torn down outside the teardown pass; kept when the worker stays.
       handoff:
         type: string
-        description: With stopped or removed, the link to the comment on the unit's pull request or issue that holds what existed only in the worker's head (https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>); teardown_handoff refuses a stopped without one. A removed may leave it out when the worker is gone and never wrote one; teardown_handoff then checks that the worker is over and the pass records an entry in place of the link.
+        description: With stopped or removed, the link to the comment on the unit's pull request or issue that holds what existed only in the worker's head (https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>); teardown_handoff refuses a stopped without one. A unit that ended with no pull request puts it on the unit's issue. A removed may leave it out when the worker is gone and never wrote one; teardown_handoff then checks that the worker is over and the pass records an entry in place of the link.
     transitions:
       - target: teardown_inventory
         when:
@@ -2403,9 +2403,10 @@ and `record/reasoning`):
 - found (bare): this run's own session holds the rotation; the run reconciles.
 - first: the discipline has no earlier rotation anywhere: `record_open`.
 - predecessor `<session>`: the latest earlier rotation ended, and its state is
-  carried into this run (`predecessor_carry`).
+  carried into this run (`predecessor_carry`). One opened from another
+  template, an older plugin's, is carried the same way.
 - unreadable `<session>`: the latest earlier rotation fails a rule (its name,
-  provenance, discipline or host, an open window, another rotation already
+  discipline or host, an open window, another rotation already
   carried it, or a record that doesn't read back): `record_conflict`, carrying
   nothing.
 
@@ -2871,7 +2872,9 @@ the repositories its issues land in.
 Its `grant` is what the worker is dispatched holding: the authorities for the
 landing steps the brief hands it to take itself (`merge-pr`, `close-issue`,
 `cut-release`), left out for a worker you hand none, and `own` for your
-successor (entry point `coordinate`), which passes your own grant. A manager
+successor (entry point `coordinate`), which passes your own grant; the
+`--successor` mode (`dispatch-worker.sh --session <run> --successor`, from
+`wait`) sets `own` itself for the successor it dispatches. A manager
 you dispatch as a lane gets none. The script passes it to `niwa dispatch` as `--grant`,
 with your instance as `--parent-from`, when niwa takes those flags, and the
 brief's authority line names exactly what the launch asked for, or says the
@@ -2977,9 +2980,8 @@ First, every time you are here, check that this run has reconciled on this
 host: `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session {{SESSION_NAME}} --check`.
 Exit 3 means it was imported to this host and hasn't reconciled here since:
 tick `moved` before anything else, and take the event you came with on the
-tick after the reconcile. The check reads what the run holds (its import facts
-against those its sealed report was read under), so it holds after a restart
-and whichever state the import found the run in.
+tick after the reconcile. The check reads what the run holds, so it holds
+after a restart.
 
 Tick on each message or notification and name the `event`, with the `unit` it is
 about; never poll. `progress` for a worker's checkpoint report that only says
@@ -3089,6 +3091,9 @@ worker's message behind it may be that ring: the tick it brings is refused. Stop
 nothing more, write nothing, and don't re-arm the watch or arm a new one. Report
 the newest session's name to whoever launched this session, and end your turn.
 Nothing is lost: the newest session holds the record and the legs.
+
+**Handing over:** `dispatch-worker.sh --session {{SESSION_NAME}} --successor`,
+needing no unit (see Roles).
 
 **A usage-limit stop is not a pause.** Nobody sets it and nobody resumes it:
 the account's reset does, so write no Standing row for one. It shows as a
@@ -4074,6 +4079,16 @@ Claude Code lists no job for its session, that session's job reads finished,
 and every koto session that ran in the instance is cancelled or has had no
 event for 10 minutes. A live worker refuses; a session log that can't be read
 seals nothing; tick again. A `stopped` with no link is still refused.
+
+A unit that ended with no pull request (a report-only unit, a worker stopped
+before it pushed, an open that failed), stopped or removed, is sealed ready
+when its handoff link is a comment on the unit's issue and its holding names
+no branch, or one GitHub shows with no commit beyond the default branch. The
+verdict says `pr none` beside the link, with `branch none` or the branch. A
+branch with a commit beyond its base, an unmerged pull request's included,
+is refused, as is a link anywhere but the issue. `--retire` then removes the
+row merged or not, and abandons a leg-bound row's request with the handoff
+link as its rationale.
 
 ## promote
 

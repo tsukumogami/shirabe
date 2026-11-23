@@ -300,6 +300,9 @@ repo; doc docs/designs/current/DESIGN-t.md Accepted; expect "Accepted DESIGN und
 repo; doc docs/designs/DESIGN-t.md Accepted;         expect "Accepted DESIGN in docs/designs/" 45 t none
 repo; doc docs/designs/DESIGN-t.md Accepted;         expect "a DESIGN outside current/ is not executed, even with intent" 45 t continue
 repo; doc docs/designs/DESIGN-t.md Proposed;         expect "Proposed DESIGN" 46 t none
+repo; doc docs/designs/DESIGN-t.md Draft;            expect "Draft DESIGN" 46 t none
+repo; doc docs/designs/DESIGN-t.md Draft; doc docs/prds/PRD-t.md Accepted
+expect "a Draft DESIGN routes to the design, not the PRD boundary" 46 t none
 repo; doc docs/prds/PRD-t.md Accepted;               expect "Accepted PRD" 47 t none
 repo; doc docs/prds/PRD-t.md Draft;                  expect "Draft PRD" 48 t none
 repo; doc docs/briefs/BRIEF-t.md Accepted;           expect "Accepted BRIEF" 49 t none

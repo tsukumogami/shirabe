@@ -573,6 +573,23 @@ run facts "$SESSION" light
     && pass "a reproducing test that gained a line after the red is edited, floor full" \
     || fail "after the red: $(fact '{tests_edited, floor}')"
 
+# The same two gathers, at two heads, both stay in the history; the facts key
+# holds only the second.
+HIST="$(store review_facts.jsonl)"
+[ -f "$HIST" ] && [ "$(wc -l < "$HIST" | tr -d ' ')" = 2 ] \
+    && pass "two gathers leave two lines in review_facts.jsonl" \
+    || fail "review_facts.jsonl has $( [ -f "$HIST" ] && wc -l < "$HIST" | tr -d ' ' || echo no) lines after two gathers"
+[ "$(sed -n 2p "$HIST" | jq -c .)" = "$(jq -c . "$(store review_facts.json)")" ] \
+    && pass "the history's last line is the latest facts" \
+    || fail "the last history line differs from review_facts.json"
+[ "$(sed -n 1p "$HIST" | jq -r .head)" != "$(sed -n 2p "$HIST" | jq -r .head)" ] \
+    && [ "$(sed -n 1p "$HIST" | jq -r '"\(.tests_edited) \(.floor)"')" = "false standard" ] \
+    && pass "the first gather keeps its own head and facts" \
+    || fail "first history line: $(sed -n 1p "$HIST")"
+[ "$(sed -n 1p "$HIST" | jq -r '[has("lines"), has("files"), has("classes"), has("tests_changed"), has("tests_edited"), has("criteria_changed"), has("unclassified"), has("floor"), has("rules_fired"), has("head")] | all')" = true ] \
+    && pass "each history line carries lines, files, classes, the test and criteria flags, floor, rules fired and head" \
+    || fail "a history line lacks a field: $(sed -n 1p "$HIST")"
+
 # A rules copy stored before the tests_edited rule existed keeps its own floor:
 # the fact is recorded, but no rule in that copy fires on it.
 fixture te-old-rules

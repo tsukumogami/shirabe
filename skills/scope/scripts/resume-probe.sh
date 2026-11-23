@@ -70,7 +70,7 @@
 #                                                              -> executed_report
 #     45  a settled DESIGN (Accepted, Planned or Current; either location),
 #         which is also where an executed topic without intent lands
-#     46  a Proposed DESIGN                                    -> resume_draft
+#     46  a Draft or Proposed DESIGN                           -> resume_draft
 #     47  a settled PRD (Accepted, In Progress or Done)        -> resume_boundary
 #     48  a Draft PRD                                          -> resume_draft
 #     49  an Accepted or Done BRIEF                            -> setup
@@ -714,7 +714,7 @@ slot5() {
         need_status "$d"
         case "$S" in
             Accepted|Planned|Current) row 45 design-boundary ;;
-            Proposed) row 46 design-draft ;;
+            Proposed|Draft) row 46 design-draft ;;
         esac
     done
 

@@ -151,6 +151,11 @@ case "${1:-} ${2:-}" in
         [ -e "$KOTO_STORE/requests/${3:-none}.gone" ] && { echo "koto stub: request_not_found ${3:-}" >&2; exit 2; }
         cat "$KOTO_STORE/requests/${3:-none}.json" 2>/dev/null || { echo "koto stub: no request ${3:-}" >&2; exit 1; }
         ;;
+    "request abandon-request")
+        # Served for --retire's release of a gone worker's leg (shirabe#1833):
+        # the call is logged above, and KOTO_ABANDON_FAIL fails it.
+        if [ -n "${KOTO_ABANDON_FAIL:-}" ]; then echo "koto stub: abandon failed ${3:-}" >&2; exit 1; fi
+        ;;
     "template compile")
         [ -z "${KOTO_COMPILE_FAIL:-}" ] || { echo "koto stub: compile failed" >&2; exit 1; }
         printf '%s\n' "$KOTO_STORE/cache/${KOTO_COMPILED_HASH:-0000}.json"

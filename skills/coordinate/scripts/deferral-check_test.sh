@@ -132,6 +132,17 @@ OUT=$(check); eq "filed #<n> naming no issue is open" "deferral-open 1" "$OUT"
 tok_shape "deferral-open is in koto's capture alphabet" "$OUT"
 seed "$(with_deferrals "$(def 'filed #13')")"
 eq "filed #<n> naming a pull request is open" "deferral-open 1" "$(check)"
+# The open rows reach jq through a file, not an argument: Linux caps one
+# argument at 131072 bytes, and a long-running record's open deferrals grow
+# past that. Each row's text is 200 three-byte characters after its cut.
+jq -nc '[range(240) | {deferral: ("d\(.)-" + ("漢" * 200)), reason: "r", raised: "2026-09-25T10:00Z", disposition: ""}]' > "$T/many.json"
+record_json roadmap plugin-system | jq -c --slurpfile d "$T/many.json" '.deferrals = $d[0]' > "$T/many-rec.json"
+seed "$(cat "$T/many-rec.json")"
+eq "240 open deferrals, over 131072 bytes, are open" "deferral-open 240" "$(check)"
+D="$KOTO_STORE/context/$S/coord/dispatch_check.json"
+jq -c .open_deferrals "$D" > "$T/many-open.json"
+[ "$(wc -c < "$T/many-open.json")" -gt 131072 ] && ok "  ... the open rows are over 131072 bytes" || bad "  ... the open rows are over 131072 bytes" "$(wc -c < "$T/many-open.json") bytes; $(head -3 "$T/err")"
+eq "  ... and the detail lists every one" 240 "$(jq length "$T/many-open.json")"
 seed "$(with_deferrals "$(def 'filed #0')")"
 eq "filed #0 is open" "deferral-open 1" "$(check)"
 seed "$(with_deferrals "$(def 'carried 2026-09-25T08:30Z: last run')" "$(def '')")"

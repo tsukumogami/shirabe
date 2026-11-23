@@ -734,6 +734,36 @@ eq "role_change_by: one of 80 characters renders" 0 "$?"
 refused "role_change_by: an address other than reports_to" "$(variant rcb-other "$COORD"' | .held_rerender = true | .role = "director" | .role_change_by = "lane-other"')" \
     'role_change_by: must be reports_to, the dispatching run'"'"'s own address, not "lane-other"'
 
+# --- a successor's brief ----------------------------------------------------------------
+#
+# docs/designs/DESIGN-coordinate-successor-role.md, Decisions 3 and 5. The
+# script-only `successor` field marks the brief of a run's own successor,
+# which dispatch-worker.sh --successor writes: it renders as the same brief
+# without it, its invocation line its one line naming a role, and every
+# coordinate brief's keep-alive line names niwa rather than a role.
+rm -rf "$BRIEFS"
+SUCC_IN=$(variant succ-field "$COORD"' | .role = "manager" | .entry_args = ["docs/roadmaps/ROADMAP-plugin-system.md"] | .grant = [] | .successor = true | .goal = "Continue the plugin-system roadmap from where its record stands."')
+SUCC_B=$(bash "$S" --input "$SUCC_IN" --stdout); eq "successor: a successor brief renders" 0 "$?"
+eq "successor: its Goal line carries the record's role" \
+    'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role manager` in acme/widgets.' "$(role_lines "$SUCC_B")"
+jq 'del(.successor)' "$SUCC_IN" > "$T/succ-none.json"
+eq "successor: the field changes nothing the brief renders" "$SUCC_B" "$(bash "$S" --input "$T/succ-none.json" --stdout)"
+eq "successor: the invocation line is the brief's only line naming manager or director" \
+    'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role manager` in acme/widgets.' \
+    "$(printf '%s\n' "$SUCC_B" | grep -iwE 'managers?|directors?')"
+has "successor: a coordinate brief's keep-alive line names niwa" "$(section "$SUCC_B" Keep-alive)" "niwa schedules your keep-alive at dispatch. Don't schedule one."
+lacks "successor: ... and never the workspace manager" "$SUCC_B" "workspace manager"
+has "successor: a lane brief's keep-alive line names niwa too" "$(section "$LB" Keep-alive)" "niwa schedules your keep-alive at dispatch. Don't schedule one."
+has "successor: a worker brief keeps its keep-alive line" "$(section "$B" Keep-alive)" "The workspace manager schedules your keep-alive at dispatch. Don't schedule one."
+refused "successor: false"            "$(variant succ-false "$COORD"' | .role = "manager" | .successor = false')"         'successor: true or absent, never false'
+refused "successor: a string"         "$(variant succ-str "$COORD"' | .role = "manager" | .successor = "yes"')"         'successor: true or absent, never "yes"'
+refused "successor: on a worker entry point" "$(variant succ-worker '.successor = true')"                           'successor: only on a coordinate brief, not on deliver: true'
+refused "successor: beside held_rerender" "$(variant succ-held "$COORD"' | .role = "manager" | .held_rerender = true | .successor = true')" \
+    'successor: a successor brief is a new dispatch, never beside held_rerender or role_change_by'
+refused "successor: beside role_change_by" "$(variant succ-rcb "$COORD"' | .role = "director" | .role_change_by = "coord-alpha" | .successor = true')" \
+    'successor: a successor brief is a new dispatch, never beside held_rerender or role_change_by'
+refused "successor: with no role"     "$(variant succ-norole "$COORD"' | .successor = true')"                          'role: required on a successor brief, manager or director, and missing'
+
 (cd "$T/nowhere" && bash "$S" --input "$BASE" >/dev/null 2>&1); eq "no workspace root is exit 2" 2 "$?"
 bash "$S" --input "$BASE" --workspace-root "$T/nowhere" >/dev/null 2>&1; eq "a root without workspace.toml is exit 2" 2 "$?"
 

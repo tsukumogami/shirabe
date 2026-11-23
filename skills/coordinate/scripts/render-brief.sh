@@ -127,6 +127,15 @@
 #                                 longer than 80 characters (the opener's
 #                                 limit for --role-change-by) or isn't
 #                                 reports_to
+#   successor           coordinate only, written by dispatch-worker.sh
+#                                 --successor and never by hand: true on the
+#                                 brief of this run's own successor, whose
+#                                 scope dispatch-worker.sh builds from the
+#                                 run's facts. dispatch-worker.sh deletes it
+#                                 from every other input. Refused beside
+#                                 held_rerender or role_change_by, and a
+#                                 successor brief requires role. It changes
+#                                 nothing the brief renders
 #   launch              optional  how niwa dispatch launches the worker, an
 #                                 object with one or more of: model, one of
 #                                 balanced, fast or powerful (niwa's
@@ -338,6 +347,13 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
           else "role: must be manager or director, not \(shown(.role))" end )
       elif .held_rerender == true then empty
       else "role: required on a coordinate brief, manager or director, and missing (dispatch-worker.sh writes it)" end ),
+    ( if has("successor") then
+        ( if .successor != true then "successor: true or absent, never \(shown(.successor))"
+          elif has("held_rerender") or has("role_change_by")
+          then "successor: a successor brief is a new dispatch, never beside held_rerender or role_change_by"
+          elif (has("role") | not) then "role: required on a successor brief, manager or director, and missing (dispatch-worker.sh writes it)"
+          else empty end )
+      else empty end ),
     ( if has("role_change_by") then
         ( if (has("role") | not) or .held_rerender != true
           then "role_change_by: only with role on a held_rerender coordinate brief, not \(shown(.role_change_by))"
@@ -349,7 +365,7 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
           else empty end )
       else empty end )
   else
-    ( ["role", "held_rerender", "role_change_by"][] as $k | select($in | has($k))
+    ( ["role", "held_rerender", "role_change_by", "successor"][] as $k | select($in | has($k))
       | "\($k): only on a coordinate brief, not on \($ep): \(shown($in[$k]))" )
   end ),
 ( if ([.. | strings | select(uuid)] | length) > 0 then "input: a value carries a UUID-shaped token; a session id never goes in a brief" else empty end )
@@ -666,7 +682,11 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
     else empty end ),
   "## Keep-alive",
   "",
-  "The workspace manager schedules your keep-alive at dispatch. Don'"'"'t schedule one."
+  # A coordinate brief names niwa here, so its invocation line is the only
+  # line naming a role; a worker brief keeps its wording, and its golden
+  # files.
+  ( if .entry_point == "coordinate" then "niwa schedules your keep-alive at dispatch. Don'"'"'t schedule one."
+    else "The workspace manager schedules your keep-alive at dispatch. Don'"'"'t schedule one." end )
   ]
 | join("\n")
 '

@@ -176,8 +176,10 @@ hw --topic alpha --retire >/dev/null 2>"$T/err"; eq "--retire refuses a holding 
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
 hw --topic alpha --strand >/dev/null 2>"$T/err"; eq "--strand marks a message-path holding" 0 $?
 eq "  ... stranded, the rest of the row as it was" "stranded message feat/x" "$(live | jq -r '.holdings[0] | "\(.dispatch_status) \(.return_path) \(.branch)"')"
+: >"$KOTO_STORE/calls"
 hw --topic alpha --retire >/dev/null 2>"$T/err"; eq "--retire removes a stranded row" 0 $?
 eq "  ... and only it" "beta gamma" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+eq "  ... and abandons no request (shirabe#1833)" "" "$(grep 'request abandon-request' "$KOTO_STORE/calls")"
 hw --strand >/dev/null 2>&1; eq "--strand without --topic is a usage error" 64 $?
 
 echo "== retired after a removed teardown (shirabe#1593) =="
@@ -253,21 +255,86 @@ hr --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a dispatch
 grep -q 'confirms no removed teardown' "$T/err" && ok "  ... and says why" || bad "  ... and says why" "$(cat "$T/err")"
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
 echo "teardown-pass: teardown-confirmed: removed outside the run: the instance and the job were already gone, and the run's removed pass archived what survived; the archive is whole" >"$CHECK_MSG"
+: >"$KOTO_STORE/calls"
 hr --topic delta --retire >/dev/null 2>"$T/err"; rc=$?
 [ "$rc" = 0 ] && ok "--retire removes a dispatched holding whose worker was torn down outside its own teardown pass" \
     || bad "--retire removes a dispatched holding whose worker was torn down outside its own teardown pass" "exit $rc: $(cat "$T/err")"
 eq "  ... and only it" "alpha gamma" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+# A leg-bound row's request is abandoned, and the entry says the leg was
+# released (shirabe#1833). It says nothing about a merge: this check's reason
+# doesn't say nothing merged, and a row never marked merged may have merged
+# outside the land path.
+grep -q '^request abandon-request req_7 ' "$KOTO_STORE/calls" && ok "  ... and abandons its leg's request req_7" \
+    || bad "  ... and abandons its leg's request req_7" "$(grep request "$KOTO_STORE/calls")"
 eq "  ... and leaves an entry saying the teardown was not the run's own" \
-    "entry|Holding delta (unit $(holding delta | jq -r .unit)) $OUTSIDE_ENTRY" \
+    "entry|Holding delta (unit $(holding delta | jq -r .unit)) $OUTSIDE_ENTRY The retirement released its leg req_7:work-on." \
     "$(koto context get "$SR" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
 hr --topic gamma --retire >/dev/null 2>"$T/err"; rc=$?
 [ "$rc" = 0 ] && ok "--retire removes a merged holding whose removed teardown outside the run is confirmed" \
     || bad "--retire removes a merged holding whose removed teardown outside the run is confirmed" "exit $rc: $(cat "$T/err")"
 eq "  ... and only it" "alpha" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
-eq "  ... and leaves the same entry" \
-    "entry|Holding gamma (unit $(holding gamma | jq -r .unit)) $OUTSIDE_ENTRY" \
+grep -q '^request abandon-request req_9 ' "$KOTO_STORE/calls" && ok "  ... and abandons its leg's request req_9" \
+    || bad "  ... and abandons its leg's request req_9" "$(grep request "$KOTO_STORE/calls")"
+eq "  ... and leaves the same entry, with the leg released and no unmerged clause" \
+    "entry|Holding gamma (unit $(holding gamma | jq -r .unit)) $OUTSIDE_ENTRY The retirement released its leg req_9:work-on." \
     "$(koto context get "$SR" record/entries/000002 | jq -r '"\(.kind)|\(.text)"')"
 eq "  ... the writes go to the session, nothing to GitHub" "" "$(gh_writes)"
+# An abandon that fails doesn't undo the retirement: the row still goes, the
+# exit is 0, and stderr and the entry say how to release the leg by hand.
+seed "$(record_json roadmap plugin-system | jq -c --argjson a "$(holding alpha)" \
+    --argjson e "$(holding epsilon '{"return_path": "leg req_5:work-on", "entry_point": "/shirabe:work-on"}')" '.holdings = [$a, $e]')"
+: >"$KOTO_STORE/calls"
+KOTO_ABANDON_FAIL=1 hr --topic epsilon --retire >/dev/null 2>"$T/err"; rc=$?
+eq "--retire whose leg's abandon fails still exits 0" 0 "$rc"
+eq "  ... and the row is gone" "alpha" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+grep -q '^request abandon-request req_5 ' "$KOTO_STORE/calls" && ok "  ... and the abandon was asked" \
+    || bad "  ... and the abandon was asked" "$(grep request "$KOTO_STORE/calls")"
+grep -q '^state-holding: .*req_5' "$T/err" && ok "  ... and stderr names the request" || bad "  ... and stderr names the request" "$(cat "$T/err")"
+eq "  ... and the entry says the release failed and how to finish it" \
+    "entry|Holding epsilon (unit $(holding epsilon | jq -r .unit)) $OUTSIDE_ENTRY The release of its leg req_5:work-on failed; abandon it with koto request abandon-request req_5." \
+    "$(koto context get "$SR" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
+: >"$CHECK_MSG"
+
+echo "== retired after a unit that ended with no pull request (shirabe#1075) =="
+# The run's own teardown pass tore the unit down, and its check confirms it
+# with a reason that ends saying nothing of it merged and naming the handoff
+# (a `pr none` verdict). The row goes, merged or not; a leg-bound one's
+# request is abandoned with the handoff link in its rationale, and the entry
+# says the unit ended with no pull request. A confirmed reason without the
+# ending still retires only a merged row.
+HLINK="https://github.com/acme/widgets/issues/591#issuecomment-1005"
+NOPR_ENTRY="retired after its teardown pass: the unit ended with no pull request merged, and its handoff comment is on its issue."
+seed "$(record_json roadmap plugin-system | jq -c --argjson a "$(holding alpha)" \
+    --argjson z "$(holding zeta '{"return_path": "leg req_6:work-on", "entry_point": "/shirabe:work-on", "branch": ""}')" \
+    --argjson e "$(holding eta '{"branch": ""}')" '.holdings = [$a, $z, $e]')"
+SNAP=$(session_snapshot "$SR")
+echo 0 >"$CHECK_RC"
+echo "teardown-pass: teardown-confirmed: the instance and the job are gone and the archive is whole" >"$CHECK_MSG"
+hr --topic zeta --retire >/dev/null 2>"$T/err"; eq "--retire refuses an unmerged holding whose confirmed teardown doesn't say nothing merged" 65 $?
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+echo "teardown-pass: teardown-confirmed: the instance and the job are gone and the archive is whole; no pull request of it merged; handoff $HLINK" >"$CHECK_MSG"
+echo 1 >"$CHECK_RC"
+hr --topic zeta --retire >/dev/null 2>"$T/err"; eq "--retire refuses one whose teardown isn't confirmed" 65 $?
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+echo 0 >"$CHECK_RC"
+: >"$KOTO_STORE/calls"
+hr --topic zeta --retire >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && ok "--retire removes a leg-bound holding that ended with no pull request" \
+    || bad "--retire removes a leg-bound holding that ended with no pull request" "exit $rc: $(cat "$T/err")"
+eq "  ... and only it" "alpha eta" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+eq "  ... and abandons its leg's request with the handoff link as the rationale" \
+    "request abandon-request req_6 --rationale zeta was retired after its unit ended with no pull request; handoff $HLINK" \
+    "$(grep '^request abandon-request' "$KOTO_STORE/calls")"
+eq "  ... and its entry says the unit ended with no pull request" \
+    "entry|Holding zeta (unit $(holding zeta | jq -r .unit)) $NOPR_ENTRY The retirement released its leg req_6:work-on." \
+    "$(koto context get "$SR" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
+: >"$KOTO_STORE/calls"
+hr --topic eta --retire >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && ok "--retire removes a message-path holding that ended with no pull request" \
+    || bad "--retire removes a message-path holding that ended with no pull request" "exit $rc: $(cat "$T/err")"
+eq "  ... abandoning nothing" "" "$(grep 'request abandon-request' "$KOTO_STORE/calls")"
+eq "  ... with the entry alone" "entry|Holding eta (unit $(holding eta | jq -r .unit)) $NOPR_ENTRY" \
+    "$(koto context get "$SR" record/entries/000002 | jq -r '"\(.kind)|\(.text)"')"
 : >"$CHECK_MSG"
 
 echo "== a dispatch-failed holding retired (shirabe#1612) =="
@@ -390,5 +457,141 @@ eq "  ... and the row is gone" "" "$(session_state "$SF" | jq -r '.holdings | ma
 eq "  ... and the session holds the entry" \
     "entry|Holding delta (unit $(holding delta | jq -r .unit)) retired: its dispatch failed, and no niwa session or unfinished Claude job exists for it." \
     "$(koto context get "$SF" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
+
+echo "== six leg-bound holdings whose workers were removed outside the run, nothing merged (shirabe#1833) =="
+# A takeover carries six dispatched, leg-bound holdings whose workers were
+# torn down outside the run before any pull request of theirs merged: no niwa
+# instance, no Claude job, and the worker's koto session long idle. Two are
+# scope legs, three work-on legs and one a review-fix worker whose unit was
+# reassigned. Each goes through the route the run has: the teardown hand-off
+# seals its verdict (the real teardown-handoff.sh --seal, removed mode, no
+# handoff link), then --retire asks the real teardown-pass.sh check. Each
+# holding retires, its leg's request is abandoned, and its entry says the
+# pull request had not merged and the leg was released. --strand of such a
+# row still refuses. The plugin tree holds the real hand-off, pass and
+# libraries; the hand-off's `read`, which needs the engine's capture and
+# seals, is a stand-in that prints the verdict the seal stored, as read does
+# for a ready one, and refuses as read does for a refused one.
+TT="$(cd -P "$T" && pwd -P)/gone-workers"
+TS="$TT/plugin/skills/coordinate/scripts"
+TB="$TT/bin"
+TW="$TT/ws"
+mkdir -p "$TS" "$TB" "$TW/.niwa" "$TT/home" "$TT/claude" "$TT/koto-sessions"
+: >"$TW/.niwa/workspace.toml"
+: >"$TW/.niwa/instance.json"
+cp "$HERE/teardown-pass.sh" "$HERE/dispatch-common.sh" "$HERE/archive-common.sh" "$TS/"
+cp "$HERE/teardown-handoff.sh" "$TS/teardown-handoff.real.sh"
+cat >"$TS/teardown-handoff.sh" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1-}" = read ]; then
+    [ "$(sed -n 1p "$TH_ST/ctx/teardown_handoff" 2>/dev/null)" = ready ] \
+        || { echo "teardown-handoff: the teardown verdict is a refusal" >&2; exit 1; }
+    sed 1d "$TH_ST/ctx/teardown_handoff"
+    printf 'keyseal keyseal:7:%064d\n' 0
+    exit 0
+fi
+exec bash "$(dirname "$0")/teardown-handoff.real.sh" "$@"
+EOF
+# The inventory answers absent (5): niwa lists no instance for the topic.
+cat >"$TS/teardown-verdict.sh" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" = read ] || exit 64
+printf 'absent\ntopic %s\n' "$(cat "$TH_ST/topic")"
+exit 5
+EOF
+# coord-log.sh: a file seal stores the file under ctx/<key>; a token seal is
+# printed back sealed; the latest entry into teardown and its evidence,
+# `teardown: removed` with no handoff link.
+cat >"$TS/coord-log.sh" <<'EOF'
+#!/usr/bin/env bash
+cmd="$1"; shift
+A_file="" A_key="" A_token=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --session|--name|--where|--state|--after) shift 2 ;;
+        --key) A_key=$2; shift 2 ;;
+        --file) A_file=$2; shift 2 ;;
+        --token) A_token=$2; shift 2 ;;
+        *) exit 64 ;;
+    esac
+done
+case "$cmd" in
+    seal)
+        if [ -n "$A_file" ]; then
+            cp "$A_file" "$TH_ST/ctx/$A_key"
+            printf 'sealed:7:%064d\n' 0
+        else
+            printf '%s sealed:8:%064d\n' "$A_token" 0
+        fi ;;
+    capture) printf 'sealed:6:%064d\n' 0 ;;
+    entry) echo "4 wait" ;;
+    evidence) printf '{"seq":5,"timestamp":"t","fields":{"teardown":"removed"}}\n' ;;
+    *) exit 64 ;;
+esac
+EOF
+# The hand-off's record read: the holding's row.
+cat >"$TS/state-holding.sh" <<'EOF'
+#!/usr/bin/env bash
+cat "$TH_ST/row.json"
+EOF
+# niwa and Claude Code list nothing, and GitHub lists no merged pull request
+# from any of the branches.
+printf '#!/usr/bin/env bash\n[ "$1" = list ] && { echo "[]"; exit 0; }\nexit 64\n' >"$TB/niwa"
+printf '#!/usr/bin/env bash\n[ "$1" = agents ] && { echo "[]"; exit 0; }\nexit 64\n' >"$TB/claude"
+printf '#!/usr/bin/env bash\n[ "$1 $2" = "pr list" ] && { echo "[]"; exit 0; }\nexit 64\n' >"$TB/gh"
+chmod +x "$TS"/*.sh "$TB"/*
+export TH_ST="$TT/state"
+mkdir -p "$TH_ST/ctx"
+gone_env() { export NIWA="$TB/niwa" CLAUDE_CLI="$TB/claude" GH="$TB/gh" HOME="$TT/home" \
+    TEARDOWN_CLAUDE_HOME="$TT/claude" TEARDOWN_KOTO_SESSIONS="$TT/koto-sessions" TH_ST; }
+# gone <topic> <request> <leg> <entry point> <unit> <pull request cell>: one
+# dispatched leg-bound holding, its worker's instance path recorded by its
+# koto session, which last moved long ago.
+GONE_ROWS="[]"
+gone() {
+    local inst="$TW/tsuku+$1-1a2b3c4d" row
+    row=$(holding "$1" "$(jq -nc --arg rp "leg $2:$3" --arg ep "$4" --arg u "$5" --arg pr "$6" --arg b "feat/$1" \
+        '{return_path: $rp, entry_point: $ep, unit: $u, pull_request: $pr, branch: $b}')")
+    GONE_ROWS=$(jq -c --argjson r "$row" '. + [$r]' <<<"$GONE_ROWS")
+    mkdir -p "$TT/koto-sessions/wk-$1"
+    printf '{"schema_version":1,"workflow":"wk-%s","execution_dir":"%s/public/shirabe"}\n{"seq":1}\n{"seq":2,"timestamp":"2026-09-20T09:00:00.000Z","type":"transitioned"}\n' \
+        "$1" "$inst" >"$TT/koto-sessions/wk-$1/koto-wk-$1.state.jsonl"
+}
+gone scopeauth req_21 scope /shirabe:scope "Feature 4" ""
+gone scopecache req_22 scope /shirabe:scope "Feature 5" ""
+gone workdocs req_23 work-on /shirabe:work-on "Feature 6" "[#801](https://github.com/acme/widgets/pull/801)"
+gone workindex req_24 work-on /shirabe:work-on "Feature 7" "[#802](https://github.com/acme/widgets/pull/802)"
+gone worksearch req_25 work-on /shirabe:work-on "Feature 8" ""
+gone reviewfix req_26 work-on /shirabe:work-on "Feature 9" "[#803](https://github.com/acme/widgets/pull/803)"
+seed "$(record_json roadmap plugin-system | jq -c --argjson g "$GONE_ROWS" '.holdings = $g')"
+: >"$KOTO_STORE/calls"
+(cd "$TW" && gone_env && hw --topic scopeauth --strand) >/dev/null 2>"$T/err"
+eq "--strand still refuses a leg-bound holding whose worker is gone" 65 $?
+N=0
+for topic in scopeauth scopecache workdocs workindex worksearch reviewfix; do
+    N=$((N + 1))
+    REQ=$(jq -r --arg t "$topic" '.[] | select(.worker == $t) | .return_path' <<<"$GONE_ROWS")
+    REQ=${REQ#leg }
+    printf '%s' "$topic" >"$TH_ST/topic"
+    jq -c --arg t "$topic" '.[] | select(.worker == $t)' <<<"$GONE_ROWS" >"$TH_ST/row.json"
+    rm -f "$TH_ST/ctx/teardown_handoff"
+    printf '%s' "$topic" | koto context add "$SR" teardown_topic
+    SEAL=$(cd "$TW" && gone_env && bash "$TS/teardown-handoff.sh" --seal --session "$SR" 2>"$T/seal.err")
+    case "$SEAL" in "handoff-ready keyseal:"*) ok "$topic: the hand-off seals a ready verdict" ;;
+        *) bad "$topic: the hand-off seals a ready verdict" "$SEAL $(sed -n 2p "$TH_ST/ctx/teardown_handoff" 2>/dev/null) $(cat "$T/seal.err")" ;; esac
+    (cd "$TW" && gone_env && STATE_HOLDING_TEARDOWN_PASS="$TS/teardown-pass.sh" hw --topic "$topic" --retire) >/dev/null 2>"$T/err"
+    rc=$?
+    [ "$rc" = 0 ] && ok "$topic: --retire ends the holding of a worker removed outside the run, nothing merged" \
+        || bad "$topic: --retire ends the holding of a worker removed outside the run, nothing merged" "exit $rc: $(cat "$T/err")"
+    live | jq -e --arg t "$topic" '.holdings | any(.worker == $t) | not' >/dev/null \
+        && ok "  ... and its row is gone" || bad "  ... and its row is gone" "$(live | jq -c '.holdings | map(.worker)')"
+    grep -q "^request abandon-request ${REQ%%:*} " "$KOTO_STORE/calls" && ok "  ... and its leg's request ${REQ%%:*} is abandoned" \
+        || bad "  ... and its leg's request ${REQ%%:*} is abandoned" "$(grep request "$KOTO_STORE/calls")"
+    ENTRY=$(koto context get "$SR" "record/entries/$(printf '%06d' "$N")" 2>/dev/null | jq -r '.text // ""')
+    case "$ENTRY" in *"Holding $topic "*"had not merged"*"released its leg $REQ"*) ok "  ... and its entry says what was found and that the leg was released" ;;
+        *) bad "  ... and its entry says what was found and that the leg was released" "[$ENTRY]" ;; esac
+done
+eq "  ... every one of the six is gone" "" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+eq "  ... and nothing is written on GitHub" "" "$(gh_writes)"
 
 done_tests state-holding

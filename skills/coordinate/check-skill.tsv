@@ -56,8 +56,8 @@ walk	coordinate-template-structure_engine_test.sh	koto-templates/*.md
 # runs on CI only (CI set) and SKIPs anywhere check-skill.sh runs it;
 # rule-sources_engine_test.sh, brief-intake_engine_test.sh,
 # discipline-carry_engine_test.sh, review-round-telemetry_engine_test.sh,
-# driver-check_engine_test.sh and directive-ceiling_engine_test.sh were each
-# measured alone in one run.
+# driver-check_engine_test.sh, directive-ceiling_engine_test.sh and
+# successor-handover_engine_test.sh were each measured alone in one run.
 cost	driver-check_engine_test.sh	527
 cost	coordinate_1_engine_test.sh	271
 cost	state-carry_test.sh	262
@@ -75,6 +75,7 @@ cost	teardown-inventory_test.sh	154
 cost	land-check_test.sh	141
 cost	state-confirm_test.sh	139
 cost	roadmap-status_test.sh	135
+cost	successor-handover_engine_test.sh	134
 cost	pause_engine_test.sh	118
 cost	reconcile-check_test.sh	113
 cost	state-stored-set_test.sh	112

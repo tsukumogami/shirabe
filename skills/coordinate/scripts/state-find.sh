@@ -128,14 +128,15 @@ fi
 # (any root session starting coordinate-<slug>- whose next sixteen characters
 # are a stamp earlier than this run's), holding record/meta, with the latest
 # stamp. It is the predecessor only when its name is coordinate-<slug>-<stamp>
-# whole, it passes coord-log.sh provenance, its DISCIPLINE and HOST_REPO
-# variables are this run's, its rotation has ended by the window rule (the
-# opener never sends an open one here), no later session of the discipline
-# already names it as its predecessor, and its record reads back (record/meta
-# and every section through state-schema.jq's checks). Two at one stamp are
-# unreadable too.
+# whole, its DISCIPLINE and HOST_REPO variables are this run's, its rotation
+# has ended by the window rule (the opener never sends an open one here), no
+# later session of the discipline already names it as its predecessor, and its
+# record reads back (record/meta and every section through state-schema.jq's
+# checks). Two at one stamp are unreadable too. One that fails coord-log.sh
+# provenance (opened from another template) and no rule here is still the
+# predecessor, its reason saying so, as a roadmap start carries such a run.
 session_find() {
-    local self=$SELF stamp slug prefix c cands other p top
+    local self=$SELF stamp slug prefix c cands other p top OTHER_TEMPLATE
     slug=$(bash "$HERE/coord-log.sh" slug --scope "$SCOPE" --name "$NAME") || lib_die2 "cannot derive the scope's slug"
     prefix="coordinate-$slug-"
     if [ -n "$self" ]; then
@@ -180,9 +181,15 @@ session_find() {
     if ! [[ $c =~ ^coordinate-${slug}-[0-9]{8}T[0-9]{6}Z$ ]]; then
         VERDICT=unreadable; REASON="$c is not named coordinate-$slug-<YYYYMMDDTHHMMSSZ>"; finish
     fi
-    if ! bash "$HERE/coord-log.sh" provenance --session "$c" > /dev/null 2>&1; then
-        VERDICT=unreadable; REASON="$c fails provenance: it wasn't opened from this plugin's coordinate template"; finish
-    fi
+    # Provenance is not a rule here. A rotation opened from another template
+    # (an older plugin's, or one at another plugin root) is carried, as a
+    # roadmap start carries a run that fails it (state-read.sh
+    # rs_resume_candidate): the carry reads its record back through
+    # state-schema.jq's checks and copies it through the write core, so it
+    # never runs that template. The rules below still bind it.
+    OTHER_TEMPLATE=
+    bash "$HERE/coord-log.sh" provenance --session "$c" > /dev/null 2>&1 \
+        || OTHER_TEMPLATE="; it was opened from another template than this plugin's, so only its record is carried"
     bash "$HERE/coord-log.sh" vars --session "$c" > "$T/cvars.json" 2> /dev/null || { VERDICT=unreadable; REASON="$c's variables can't be read"; finish; }
     if [ "$(jq -r '.DISCIPLINE // ""' "$T/cvars.json")" != "$NAME" ]; then
         VERDICT=unreadable; REASON="$c is a rotation of another discipline, $(jq -r '.DISCIPLINE // "none"' "$T/cvars.json")"; finish
@@ -220,7 +227,7 @@ session_find() {
         VERDICT=unreadable; REASON="$c's record doesn't read back as this discipline's: $(lib_scrub < "$T/pred.err" | head -1)"; finish
     fi
     rotation_dates "$c"
-    VERDICT=predecessor; REASON="the latest earlier rotation, $c, ended"; finish
+    VERDICT=predecessor; REASON="the latest earlier rotation, $c, ended$OTHER_TEMPLATE"; finish
 }
 
 if [ "$SCOPE" = discipline ]; then

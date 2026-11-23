@@ -844,6 +844,18 @@
         "Transcript runs doc-check.sh --moment post_create --phase 7 on docs/plans/PLAN-cache-layer.md at 7.4b"
       ],
       "release": true
+    },
+    {
+      "id": 54,
+      "name": "plan-refuses-draft-design-in-phase-1",
+      "prompt": "/plan docs/designs/DESIGN-half-written.md --plan-version=v1 -- The DESIGN's frontmatter and body Status both read Draft: /design stopped after Phase 4, so Security Considerations and Consequences still hold only the stub marker line and there is no decision or rationale in the frontmatter.",
+      "expected_output": "This is a direct /plan invocation with no parent session, so Phase 1 transitions nothing and applies the hard-stop table. The DESIGN's status is Draft, which isn't Accepted. The skill STOPs in Phase 1 with the 'Draft' table row's message: the design is still a draft and has to be finished with /design and reviewed and Accepted before any issues are created. It doesn't run shirabe transition, doesn't edit the DESIGN, doesn't fill in the stubbed sections itself, and writes no PLAN and files no issues.",
+      "files": [],
+      "expectations": [
+        "Transcript STOPs in Phase 1 with the 'Draft' row's message, saying the design is still a draft and must be finished and reviewed first",
+        "Transcript does NOT invoke shirabe transition or change the DESIGN's status",
+        "Transcript does NOT write the stubbed sections, a PLAN, or any issue"
+      ]
     }
   ]
 }

@@ -83,6 +83,26 @@
 # doesn't confirm, and an unmerged one whose confirmed teardown isn't a
 # removed one, with the check's reason.
 #
+# A leg-bound holding retired through that marker (Return path `leg
+# <req>:<leg>`), its worker removed outside the run before or after anything
+# merged (shirabe#1833), also has its leg released: once the write succeeds,
+# `koto request abandon-request <req>` (KOTO_BIN names koto, as for every
+# koto call here). A refused write abandons nothing. The entry adds that the
+# pull request had not merged, when the check's reason ends `no pull request
+# of it merged` (a `pr none` verdict), and that the retirement released its
+# leg. An abandon that fails doesn't undo the
+# retirement: it is said on stderr and in the entry, with the command to
+# finish it, and the exit is still 0.
+#
+# --retire also removes a holding whose unit ended with no pull request
+# (shirabe#1075): a report-only unit, or a worker stopped before it pushed.
+# The check confirms its teardown with a reason that ends `; no pull request
+# of it merged` (a `pr none` verdict), and the row goes, merged or not, with an
+# entry saying the unit ended with no pull request merged and its handoff
+# comment is on its issue. A leg-bound one has its leg released as above.
+# Whenever the check's reason carries `; handoff <url>`, the abandon's
+# rationale names that link.
+#
 # --retire also removes a `dispatch-failed` holding (shirabe#1612): a launch
 # that failed leaves its row, and once the run has moved past the dispatch state
 # for that topic (a run continued by a takeover, say) nothing else removes it,
@@ -121,7 +141,7 @@ set -uo pipefail
 
 PROG=state-holding
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= TOPIC= ROWFILE= MODE= PUSHED=
+SESSION= SCOPE= NAME= REPO= TOPIC= ROWFILE= MODE= PUSHED= OUTSIDE_TEXT= MERGED=0 NOPR_END=0
 SKIP_CHECKS=0
 
 usage() { sed -n '/^# Usage:/,/^# The session gives/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -311,8 +331,20 @@ strand|retire)
                         *"teardown-confirmed: removed outside the run: "*)
                             # Nothing else in the record says the teardown
                             # wasn't the run's own, so the retirement says it.
-                            jq -r '"Holding \(.worker) (unit \(.unit)) retired after a teardown that was not this run'"'"'s own: its instance and job were removed outside the run'"'"'s teardown pass, which archived only what survived and removed nothing."' \
-                                <<< "$ROW" > "$T/retire-entry" || lib_die2 "jq failed"
+                            # The entry is finished after the write, once the
+                            # leg's release is known (shirabe#1833).
+                            OUTSIDE_TEXT=$(jq -r '"Holding \(.worker) (unit \(.unit)) retired after a teardown that was not this run'"'"'s own: its instance and job were removed outside the run'"'"'s teardown pass, which archived only what survived and removed nothing."' \
+                                <<< "$ROW") || lib_die2 "jq failed"
+                            ;;
+                        *"teardown-confirmed: "*"; no pull request of it merged"*)
+                            # A unit that ended with no pull request, its
+                            # teardown pass confirmed (shirabe#1075): the
+                            # check's reason ends saying nothing of it merged,
+                            # which only a `pr none` verdict gives. It goes
+                            # merged or not, its leg released after the write.
+                            NOPR_END=1
+                            OUTSIDE_TEXT=$(jq -r '"Holding \(.worker) (unit \(.unit)) retired after its teardown pass: the unit ended with no pull request merged, and its handoff comment is on its issue."' \
+                                <<< "$ROW") || lib_die2 "jq failed"
                             ;;
                         *)
                             [ "$MERGED" = 1 ] \
@@ -381,10 +413,55 @@ if [ "$OVERRIDE" = 1 ]; then
 fi
 bash "$HERE/state-write.sh" "$@"
 RC=$?
+[ "$RC" = 0 ] || exit "$RC"
+# A holding torn down outside the run, or one whose unit ended with no pull
+# request (shirabe#1075): once the row is gone, a leg-bound one's open
+# request is abandoned, as dispatch-worker.sh abandons a spent
+# leg, so nothing waits on a worker that is gone (shirabe#1833). Only after
+# the write: a refused write leaves the leg alone. A failed abandon doesn't
+# undo the retirement; it is said on stderr and in the entry.
+if [ -n "$OUTSIDE_TEXT" ]; then
+    RP=$(jq -r '.return_path // "" | strings' <<< "$ROW")
+    # The Return path shape state-schema.jq's check_cell admits.
+    RE_LEG_RP='^leg ([a-z0-9_][a-z0-9_-]{0,63}):([a-z0-9_-]+)$'
+    LEG_CLAUSE=
+    # The rationale names the handoff link when the check's reason carries
+    # one (`; handoff <url>`, a `pr none` verdict with a link; shirabe#1075).
+    RATIONALE="$TOPIC was retired after its worker was removed outside the run"
+    [ "$NOPR_END" = 1 ] && RATIONALE="$TOPIC was retired after its unit ended with no pull request"
+    RE_HANDOFF='; handoff (https://github\.com/[^ ]+#issuecomment-[0-9]+)'
+    [[ $CHECK_OUT =~ $RE_HANDOFF ]] && RATIONALE="$RATIONALE; handoff ${BASH_REMATCH[1]}"
+    if [[ $RP =~ $RE_LEG_RP ]]; then
+        LREQ=${BASH_REMATCH[1]} LLEG="${BASH_REMATCH[1]}:${BASH_REMATCH[2]}"
+        if "$KOTO" request abandon-request "$LREQ" \
+            --rationale "$RATIONALE" </dev/null >/dev/null; then
+            LEG_CLAUSE="the retirement released its leg $LLEG"
+        else
+            echo "$PROG: could not abandon request $LREQ, the leg $LLEG of retired holding $TOPIC; abandon it with koto request abandon-request $LREQ" >&2
+            LEG_CLAUSE="the release of its leg $LLEG failed; abandon it with koto request abandon-request $LREQ"
+        fi
+    fi
+    # Whether anything merged comes from the check, whose reason ends `no pull
+    # request of it merged` for a `pr none` verdict; the row can't say, since
+    # one merged outside the land path is never marked merged.
+    NOMERGE=0
+    case "$CHECK_OUT" in *"; no pull request of it merged"*) NOMERGE=1 ;; esac
+    # A unit that ended with no pull request already says so.
+    [ "$NOPR_END" = 1 ] && NOMERGE=0
+    if [ "$NOMERGE" = 1 ] && [ -n "$LEG_CLAUSE" ]; then
+        OUTSIDE_TEXT="$OUTSIDE_TEXT Its pull request had not merged, and $LEG_CLAUSE."
+    elif [ "$NOMERGE" = 1 ]; then
+        OUTSIDE_TEXT="$OUTSIDE_TEXT Its pull request had not merged."
+    elif [ -n "$LEG_CLAUSE" ]; then
+        # A sentence of its own: both clauses start with "the".
+        OUTSIDE_TEXT="$OUTSIDE_TEXT The${LEG_CLAUSE#the}."
+    fi
+    printf '%s\n' "$OUTSIDE_TEXT" > "$T/retire-entry" || lib_die2 "cannot write the retirement's entry"
+fi
 # The record keeps no history of a removed row, so a dispatch-failed holding's
 # retirement (shirabe#1612), and one torn down outside the run (shirabe#1196),
 # is also told as an entry in the account.
-[ "$RC" = 0 ] && [ -s "$T/retire-entry" ] || exit "$RC"
+[ -s "$T/retire-entry" ] || exit 0
 if [ "$OVERRIDE" = 1 ]; then
     ADDR_ARGS=(--scope "$SCOPE" --name "$NAME" --repo "$REPO")
 else

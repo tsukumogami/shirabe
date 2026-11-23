@@ -9,7 +9,7 @@
     {
       "name": "shirabe",
       "description": "Structured workflow skills for AI coding agents",
-      "version": "0.50.1-dev",
+      "version": "0.53.2-dev",
       "author": {
         "name": "tsukumogami"
       },

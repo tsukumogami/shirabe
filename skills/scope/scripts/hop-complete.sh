@@ -6,6 +6,10 @@
 #   (b) a surviving downstream document declares this hop under its `absorbed:`
 #       frontmatter key, as a whole entry.
 #
+# A design hop's own artifact counts under limb (a) only at a finished status
+# (Proposed, Accepted, Planned, Current or Superseded). A design at Draft, or at
+# any status not on that list, is still being written and is not complete.
+#
 # Reads only the artifact tree. Never reads key work/state.md of scope-<topic>.
 #
 # Exit statuses are three, not two, and the third carries weight: 0 complete,
@@ -210,6 +214,35 @@ is_artifact() {
   return 0
 }
 
+# A design is written at Draft from /design's first phase and moves to Proposed
+# only once its review has run, so a Draft design on disk is a hop in progress
+# and must not credit the hop. The status is read the way resume-probe.sh's
+# status_of reads it (a trailing ` #` comment, surrounding space and one pair of
+# quotes stripped), and the test is an allowlist of finished statuses rather
+# than a test for Draft: `draft`, a quoted "Draft " or any spelling this read
+# normalises differently from YAML then fails closed, as not complete.
+#
+# Sets DESIGN_STATUS for the caller's message, so it must run in the main shell,
+# never inside a pipeline or a `$(...)`. awk reads all of frontmatter's output
+# and prints at END rather than exiting on the match, so the writer is never cut
+# off (see verdict_is).
+DESIGN_STATUS=""
+design_finished() {
+  DESIGN_STATUS=$(frontmatter "$1" | awk '
+    !found && /^status:/ {
+      v = substr($0, 8)
+      sub(/[[:space:]]+#.*$/, "", v)
+      sub(/^[[:space:]]+/, "", v); sub(/[[:space:]]+$/, "", v)
+      if (v ~ /^".*"$/ || v ~ /^'"'"'.*'"'"'$/) v = substr(v, 2, length(v) - 2)
+      found = 1
+    }
+    END { printf "%s", v }')
+  case "$DESIGN_STATUS" in
+    Proposed|Accepted|Planned|Current|Superseded) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # A reimplementation of the validator's frontmatter splitter
 # (crates/shirabe-validate/src/frontmatter.rs, `split_frontmatter`). Every rule
 # below exists because the two parsers disagreeing on one input is a defeat, not
@@ -280,13 +313,28 @@ absorbed_entries() {
 # what a linter will suggest -- collapses them into one path that exists nowhere,
 # so every design hop refuses and both limbs go with it. If the design hop ever
 # stops needing two locations, delete the second path rather than adding quotes.
+#
+# A design present at a canonical path but not finished is reported and the
+# other path is still read, since the two locations are one path to Phase 2.
+# When neither holds a finished design, an unfinished one ends the decision here
+# as not complete: the hop's own artifact says the design is still being
+# written, whatever a downstream document declares.
 WANT_SCHEMA="$(schema_for "$HOP")"
+UNFINISHED=0
 for p in $(canonical "$HOP"); do
   if is_artifact "$ROOT/$p" "$WANT_SCHEMA"; then
+    if [ "$HOP" = design ] && ! design_finished "$ROOT/$p"; then
+      echo "incomplete: $p is a design still at ${DESIGN_STATUS:-no status}"
+      UNFINISHED=1
+      continue
+    fi
     echo "complete: artifact present at $p"
     exit 0
   fi
 done
+if [ "$UNFINISHED" -eq 1 ]; then
+  exit 1
+fi
 
 case "$HOP" in
   brief)  DOWNSTREAM="prd design plan" ;;

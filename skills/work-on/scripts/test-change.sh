@@ -961,6 +961,33 @@ capped() {
     head -c "$2" "$1.visible"
 }
 
+# load_renames <base>: $TMP/renames, one <new path>\t<old path> line for each
+# file the unit renamed, from the same full-tree rename detection
+# test_classify uses. A held item is a rename's new path, and git applies a
+# pathspec before it pairs renames, so a diff limited to the new path shows a
+# new file with every line added and the lines the edit removed nowhere.
+load_renames() {
+    local st p1 p2
+    : > "$TMP/renames"
+    G diff --name-status -z -M "$1" HEAD > "$TMP/renames.z" 2>>"$ERRLOG" || return 0
+    while IFS= read -r -d '' st; do
+        IFS= read -r -d '' p1 || break
+        p2=""
+        case "$st" in
+            R*|C*) IFS= read -r -d '' p2 || break ;;
+        esac
+        case "$st" in
+            R*) printf '%s\t%s\n' "$p2" "$p1" >> "$TMP/renames" ;;
+        esac
+    done < "$TMP/renames.z"
+}
+
+# renamed_from <item>: the old path of a renamed item, or nothing. Reads the
+# $TMP/renames load_renames wrote.
+renamed_from() {
+    P="$1" awk -F '\t' '$1 == ENVIRON["P"] { print $2; exit }' "$TMP/renames"
+}
+
 # brief_hunks <paths-file> <out-file> <cut-file>: the edited hunks of the
 # paths (one per line), made visible. When they fit in BRIEF_HUNKS_MAX bytes,
 # <out-file> is the diff as it is and <cut-file> is empty. Otherwise each
@@ -968,19 +995,29 @@ capped() {
 # keeps its whole lines up to it and a `[cut: ...]` line says where it
 # stopped; every later file gets a `[cut: ...]` line in place of its diff; and
 # <cut-file> lists each path whose diff isn't there in full. A seat must never
-# take a part of a diff for all of it.
+# take a part of a diff for all of it. A renamed item's diff names its old
+# path as well (load_renames), so it shows as the rename it is.
 brief_hunks() {
-    local paths="$1" out="$2" cutf="$3" base="${H_UNIT_BASE:-$H_BASE}" item size part
+    local paths="$1" out="$2" cutf="$3" base="${H_UNIT_BASE:-$H_BASE}" item old size part
     local room=$BRIEF_HUNKS_MAX kept=0 total=0
-    local -a pa=()
-    while IFS= read -r item; do pa[${#pa[@]}]="$item"; done < "$paths"
+    local -a pa=() spec=() one=()
+    load_renames "$base"
+    while IFS= read -r item; do
+        pa[${#pa[@]}]="$item"
+        spec[${#spec[@]}]="$item"
+        old=$(renamed_from "$item")
+        [ -z "$old" ] || spec[${#spec[@]}]="$old"
+    done < "$paths"
     : > "$cutf"
-    G diff -M "$base" HEAD -- "${pa[@]}" > "$TMP/hunks" 2>>"$ERRLOG"
+    G diff -M "$base" HEAD -- "${spec[@]}" > "$TMP/hunks" 2>>"$ERRLOG"
     visible < "$TMP/hunks" > "$out"
     [ "$(wc -c < "$out" | tr -d ' ')" -gt "$BRIEF_HUNKS_MAX" ] || return 0
     : > "$out"
     for item in "${pa[@]}"; do
-        G diff -M "$base" HEAD -- "$item" > "$TMP/hunk.one" 2>>"$ERRLOG"
+        one=("$item")
+        old=$(renamed_from "$item")
+        [ -z "$old" ] || one[1]="$old"
+        G diff -M "$base" HEAD -- "${one[@]}" > "$TMP/hunk.one" 2>>"$ERRLOG"
         visible < "$TMP/hunk.one" > "$TMP/hunk.vis"
         size=$(wc -c < "$TMP/hunk.vis" | tr -d ' ')
         total=$((total + size))
@@ -1028,7 +1065,7 @@ cmd_seat() {
     # The items and the hunks come first, so the seat line can record what
     # the brief cut.
     compute_items "$s"
-    local tab item digest cut_args="" whole_arg="" cut_note=""
+    local tab item old digest cut_args="" read_args="" whole_arg="" cut_note=""
     tab=$(printf '\t')
     : > "$TMP/paths"
     : > "$TMP/cut"
@@ -1051,7 +1088,14 @@ cmd_seat() {
     drop_lock
 
     if [ -s "$TMP/cut" ]; then
-        while IFS= read -r item; do cut_args="$cut_args $(printf '%q' "$item")"; done < "$TMP/cut"
+        # The accept names the cut items; the read names a renamed item's
+        # old path too, so it shows the rename and the lines it removed.
+        while IFS= read -r item; do
+            cut_args="$cut_args $(printf '%q' "$item")"
+            read_args="$read_args $(printf '%q' "$item")"
+            old=$(renamed_from "$item")
+            [ -z "$old" ] || read_args="$read_args $(printf '%q' "$old")"
+        done < "$TMP/cut"
         whole_arg=" --read-whole$cut_args"
         cut_note="
 The edited hunks in this brief are cut: together they are past its limit of
@@ -1059,7 +1103,7 @@ $BRIEF_HUNKS_MAX bytes. A [cut: ...] line in the data marks where a file's diff
 stops, or says it is not shown. Before you accept, read the whole diff of
 every cut file from the run's work tree:
 
-  git -C $(printf '%q' "$H_WORKTREE") diff -M ${H_UNIT_BASE:-$H_BASE} HEAD --$cut_args
+  git -C $(printf '%q' "$H_WORKTREE") diff -M ${H_UNIT_BASE:-$H_BASE} HEAD --$read_args
 
 An accept counts only when it states that read with --read-whole naming each
 cut file, as the accept command below does; give it only once you have read

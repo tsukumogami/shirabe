@@ -2356,7 +2356,7 @@ A Draft artifact this chain owns exists for the topic. Offer the
 
 <!-- details -->
 
-The probe's row names the draft (a Draft PLAN, a Proposed DESIGN, a Draft PRD,
+The probe's row names the draft (a Draft PLAN, a Draft or Proposed DESIGN, a Draft PRD,
 or a Draft BRIEF). If a router handoff key `handoff/scope.md` exists in
 `explore-{{TOPIC}}`, say that it exists and was not consumed, and
 offer its problem statement as context for the choice.

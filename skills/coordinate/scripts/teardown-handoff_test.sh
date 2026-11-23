@@ -14,6 +14,12 @@
 # doesn't exist; two jobs in the instance; and an instance name that isn't a
 # plain name.
 #
+# A unit that ends with no pull request (shirabe#1075), its handoff on the
+# unit's issue: a holding with no branch, an empty branch and a branch GitHub
+# doesn't have seal `pr none` beside a `branch` line; a branch with commits
+# beyond its base, a link anywhere but the issue, no link, and a unit that
+# names no issue refuse; a branch read that fails stops the seal.
+#
 # The job line follows the job's own state file and the listing's pid, never
 # the listing's state, which Claude Code 2.1.309 reports as working for every
 # job. A job listed working with no pid or a dead one, whose state file reads
@@ -618,7 +624,173 @@ has "removed, no handoff comment, a worker session log that can't be read: says 
 nfixture
 printf '{"teardown":"removed","handoff":"not a link"}' >"$ST/teardown-ev"
 refused "removed with a malformed handoff link" "the handoff link is not a GitHub comment link"
+
+# A worker torn down outside the pass before any pull request of it merged
+# (shirabe#1833): removed, no link, nothing merged from the branch. Once the
+# worker is shown to be over, the verdict says `pr none` beside `handoff none`.
+nfixture
+printf '[]\n' >"$ST/merged.json"
+cseal
+eq  "removed, no handoff comment, nothing merged: exit 0" 0 "$RC"
+case "$OUT" in "handoff-ready keyseal:7:"*) ok "removed, no handoff comment, nothing merged: prints handoff-ready" ;; *) bad "removed, no handoff comment, nothing merged: prints handoff-ready" "$OUT $(cat "$T/seal.err")" ;; esac
+eq  "removed, no handoff comment, nothing merged: the verdict says pr none and handoff none" \
+    "ready|topic w5|removed yes|instance - $RINST|job $RJOB $RSID|transcript $RPD/$RSID.jsonl|pr none|handoff none|dispatch -|inventory sealed:6:$(printf '%064d' 0)" \
+    "$(verdict | tr '\n' '|' | sed 's/|$//')"
+eq  "removed, no handoff comment, nothing merged: nothing else ran" "" "$(cat "$ST/calls")"
+# The same with the worker's koto session moved a minute ago: live, refused.
+nfixture
+printf '[]\n' >"$ST/merged.json"
+export DC_NOW=$((NOW_EPOCH + 60))
+refused "removed, no handoff comment, nothing merged, the worker's koto session moved a minute ago" "the worker's koto session wk-rm is still live: its last event is 60s old"
+unset DC_NOW
+# The same unit whose holding names no branch (shirabe#1075): the worker never
+# cut one, so there is nothing to list, and the verdict is the same.
+nfixture
+printf '[]\n' >"$ST/merged.json"
+jq -c '.branch = ""' "$ST/row.json" >"$ST/r.tmp" && mv "$ST/r.tmp" "$ST/row.json"
+cseal
+eq  "removed, no branch, no handoff comment: the verdict says pr none and handoff none" \
+    "ready|topic w5|removed yes|instance - $RINST|job $RJOB $RSID|transcript $RPD/$RSID.jsonl|pr none|handoff none|dispatch -|inventory sealed:6:$(printf '%064d' 0)" \
+    "$(verdict | tr '\n' '|' | sed 's/|$//')"
+# And with a handoff comment on its issue: ready, `branch none` beside it.
+nfixture
+printf '[]\n' >"$ST/merged.json"
+jq -c '.branch = ""' "$ST/row.json" >"$ST/r.tmp" && mv "$ST/r.tmp" "$ST/row.json"
+printf '{"teardown":"removed","handoff":"https://github.com/acme/widgets/issues/591#issuecomment-1005"}' >"$ST/teardown-ev"
+printf '{"issue_url":"https://api.github.com/repos/acme/widgets/issues/591","body":"findings"}\n' >"$ST/comment-1005.json"
+cseal
+eq  "removed, no branch, a handoff comment on the issue: ready with branch none and pr none" \
+    "ready|topic w5|removed yes|instance - $RINST|job $RJOB $RSID|transcript $RPD/$RSID.jsonl|branch none|pr none|handoff https://github.com/acme/widgets/issues/591#issuecomment-1005|dispatch -|inventory sealed:6:$(printf '%064d' 0)" \
+    "$(verdict | tr '\n' '|' | sed 's/|$//')"
+# A removed unit whose evidence carries a link, with nothing merged, refuses
+# as before.
+nfixture
+printf '[]\n' >"$ST/merged.json"
+printf '{"teardown":"removed","handoff":"%s"}' "$URL" >"$ST/teardown-ev"
+refused "removed with a handoff link, nothing merged" "no pull request from feat/w5 in acme/widgets is merged"
 rm -rf "$RPD"
+# A stopped unit with nothing merged refuses as before, link or none.
+fixture
+printf '[]\n' >"$ST/merged.json"
+refused "stopped, nothing merged" "no pull request from feat/w5 in acme/widgets is merged"
+fixture
+printf '[]\n' >"$ST/merged.json"
+printf '{"teardown":"stopped"}' >"$ST/teardown-ev"
+refused "stopped, no handoff link, nothing merged" "no pull request from feat/w5 in acme/widgets is merged"
+
+# --- a unit that ends with no pull request (shirabe#1075) --------------------------------------
+#
+# A report-only unit, or a worker stopped before it pushed: nothing merged,
+# and the handoff comment is on the unit's issue (#591). This gh answers the
+# branch reads from $ST/branch, `absent` (GitHub has no such branch) or the
+# number of commits it runs ahead of the default branch, and $ST/branch-fail
+# fails them; every read is logged to $ST/reads.
+BIN3="$T/bin-branch"
+mkdir -p "$BIN3"
+cat >"$BIN3/gh" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1 $2" = "pr list" ]; then printf 'pr list\n' >>"$ST/reads"; cat "$ST/merged.json"; exit 0; fi
+case "$1 ${2-}" in
+    "api repos/"*/issues/comments/*)
+        printf '%s\n' "$2" >>"$ST/reads"
+        f="$ST/comment-${2##*/}.json"
+        [ -f "$f" ] && { cat "$f"; exit 0; }
+        echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
+    "api repos/acme/widgets/git/ref/heads/"*)
+        printf '%s\n' "$2" >>"$ST/reads"
+        [ -f "$ST/branch-fail" ] && { echo "gh: Bad Gateway (HTTP 502)" >&2; exit 1; }
+        [ "$(cat "$ST/branch")" = absent ] && { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+        echo "refs/heads/${2#repos/acme/widgets/git/ref/heads/}"; exit 0 ;;
+    "api repos/acme/widgets")
+        printf '%s\n' "$2" >>"$ST/reads"; echo main; exit 0 ;;
+    "api repos/acme/widgets/compare/"*)
+        printf '%s\n' "$2" >>"$ST/reads"; cat "$ST/branch"; exit 0 ;;
+esac
+printf 'gh %s\n' "$*" >>"$ST/calls"; exit 64
+EOF
+chmod +x "$BIN3/gh"
+export GH="$BIN3/gh"
+IURL="https://github.com/acme/widgets/issues/591#issuecomment-1005"
+# ofixture <branch> <ahead>: fixture, nothing merged, the holding's branch
+# (empty for none), the branch read's answer, and a handoff on the issue.
+ofixture() {
+    fixture
+    printf '[]\n' >"$ST/merged.json"
+    jq -c --arg b "$1" '.branch = $b' "$ST/row.json" >"$ST/r.tmp" && mv "$ST/r.tmp" "$ST/row.json"
+    printf '%s\n' "$2" >"$ST/branch"
+    printf '{"teardown":"stopped","handoff":"%s"}' "$IURL" >"$ST/teardown-ev"
+    printf '{"issue_url":"https://api.github.com/repos/acme/widgets/issues/591","body":"findings, and why no pull request"}\n' >"$ST/comment-1005.json"
+    : >"$ST/reads"
+}
+OTAIL="handoff $IURL|dispatch dsp-01|inventory sealed:6:$(printf '%064d' 0)"
+OHEAD="ready|topic w5|instance tsuku+w5 $INST|job $JOB $SID|transcript $TR"
+
+# No branch: ready, with branch none and pr none; no pull request is listed.
+ofixture "" absent
+OUT=$(seal); RC=$?
+case "$RC $OUT" in "0 handoff-ready keyseal:7:"*) ok "no branch, a handoff on the issue: ready" ;; *) bad "no branch, a handoff on the issue: ready" "$OUT $(cat "$T/seal.err")" ;; esac
+eq  "no branch: the verdict says branch none and pr none beside the handoff" "$OHEAD|branch none|pr none|$OTAIL" "$(verdict | tr '\n' '|' | sed 's/|$//')"
+eq  "no branch: only the handoff comment is read" "repos/acme/widgets/issues/comments/1005" "$(tr '\n' '|' <"$ST/reads" | sed 's/|$//')"
+eq  "no branch: nothing else ran" "" "$(cat "$ST/calls")"
+
+# An empty branch, pushed with nothing beyond the default branch: ready.
+ofixture feat/w5 0
+OUT=$(seal); RC=$?
+case "$RC $OUT" in "0 handoff-ready keyseal:7:"*) ok "an empty branch, a handoff on the issue: ready" ;; *) bad "an empty branch, a handoff on the issue: ready" "$OUT $(cat "$T/seal.err")" ;; esac
+eq  "an empty branch: the verdict names the branch beside pr none" "$OHEAD|branch acme/widgets feat/w5|pr none|$OTAIL" "$(verdict | tr '\n' '|' | sed 's/|$//')"
+eq  "an empty branch: the branch is read against the default branch" \
+    "pr list|repos/acme/widgets/git/ref/heads/feat/w5|repos/acme/widgets|repos/acme/widgets/compare/main...feat/w5|repos/acme/widgets/issues/comments/1005" \
+    "$(tr '\n' '|' <"$ST/reads" | sed 's/|$//')"
+
+# A branch GitHub doesn't have (never pushed; the inventory read the
+# instance durable): ready, and no compare is made.
+ofixture feat/w5 absent
+OUT=$(seal); RC=$?
+case "$RC $OUT" in "0 handoff-ready keyseal:7:"*) ok "a branch never pushed: ready" ;; *) bad "a branch never pushed: ready" "$OUT $(cat "$T/seal.err")" ;; esac
+has "a branch never pushed: the verdict names the branch" "$(verdict)" "branch acme/widgets feat/w5"
+eq  "a branch never pushed: no compare" "pr list|repos/acme/widgets/git/ref/heads/feat/w5|repos/acme/widgets/issues/comments/1005" "$(tr '\n' '|' <"$ST/reads" | sed 's/|$//')"
+
+# A branch with unique commits (an unmerged pull request's, say) is refused.
+ofixture feat/w5 3
+refused "a branch with commits beyond its base" "no pull request from feat/w5 in acme/widgets is merged, and feat/w5 holds 3 commits beyond acme/widgets's default branch"
+eq  "a branch with commits beyond its base: the comment isn't read" "" "$(grep comments "$ST/reads")"
+
+# A branch read that fails stops the seal (exit 2, tick again).
+ofixture feat/w5 0
+: >"$ST/branch-fail"
+OUT=$(seal); RC=$?
+eq  "a branch read that fails: exit 2" 2 "$RC"
+has "a branch read that fails: says why" "$(cat "$T/seal.err")" "the branch feat/w5 in acme/widgets could not be read: gh: Bad Gateway (HTTP 502)"
+eq  "a branch read that fails: no verdict" "" "$(verdict)"
+
+# A branch name the API path can't take as it is refuses.
+ofixture 'feat/../w5' 0
+refused "a branch name with a .. component" "the branch name [feat/../w5] is not one this check reads"
+
+# The link must be on the unit's issue.
+ofixture "" absent
+printf '{"teardown":"stopped","handoff":"%s"}' "$URL" >"$ST/teardown-ev"
+refused "no branch, a handoff on a pull request" "the holding names no branch, and the handoff link is not a comment on the unit's issue acme/widgets#591"
+ofixture "" absent
+printf '{"teardown":"stopped","handoff":"https://github.com/acme/tools/issues/591#issuecomment-1005"}' >"$ST/teardown-ev"
+refused "no branch, a handoff on an issue of another repository" "the handoff link is not a comment on the unit's issue acme/widgets#591"
+ofixture "" absent
+printf '{"teardown":"stopped"}' >"$ST/teardown-ev"
+refused "no branch, no handoff link" "the holding names no branch, and teardown: stopped carried no handoff link"
+ofixture "" absent
+jq -c '.unit = "spike-koto-547"' "$ST/row.json" >"$ST/r.tmp" && mv "$ST/r.tmp" "$ST/row.json"
+refused "no branch, a unit that names no issue" "the holding names no branch, and the unit names no issue in acme/widgets for its handoff comment"
+# The comment is still read back: one that doesn't exist refuses.
+ofixture "" absent
+rm "$ST/comment-1005.json"
+refused "no branch, a handoff comment that doesn't exist" "the handoff comment doesn't exist"
+# A merged pull request still takes the merged route, the branch unread.
+ofixture feat/w5 3
+printf '[{"number":600,"mergeCommit":{"oid":"%s"},"headRepositoryOwner":{"login":"acme"}}]\n' "$MERGE" >"$ST/merged.json"
+OUT=$(seal); RC=$?
+case "$RC $OUT" in "0 handoff-ready keyseal:7:"*) ok "merged, a handoff on the issue: ready" ;; *) bad "merged, a handoff on the issue: ready" "$OUT $(cat "$T/seal.err")" ;; esac
+eq  "merged: the verdict names the pull request, no branch line" "$OHEAD|pr acme/widgets#600 $MERGE|$OTAIL" "$(verdict | tr '\n' '|' | sed 's/|$//')"
+export GH="$BIN/gh"
 
 # --- ready: the holding read doesn't grow with the entries (shirabe#1315) ---------------------
 #

@@ -35,10 +35,14 @@
 # Usage:
 #   check-template-compat.sh --template T [--base-table F] [--compiled J]
 #   check-template-compat.sh --template T --print [--compiled J]
+#   check-template-compat.sh --template T --list [--compiled J]
 #
 # --compiled is the compiled template JSON (koto template compile's output);
 # without it the template is compiled with koto. --print prints the computed
-# {"fingerprint","gate_scripts"} for an author to record.
+# {"fingerprint","gate_scripts"} for an author to record. --list prints the
+# files the gate_scripts digest covers, one per line, as paths relative to
+# the scripts directory beside the template's skill, so another check can
+# read the same set the digest hashes without computing it a second way.
 #
 # Exit 0 the table holds; 1 a rule fails (one `check-template-compat: <rule>:`
 # line per failure on stderr); 2 the check couldn't decide (no koto, an
@@ -49,13 +53,14 @@ PROG=check-template-compat
 usage() { sed -n '/^# Usage:/,/^# Exit/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 die2() { echo "$PROG: $*" >&2; exit 2; }
 
-TEMPLATE= BASE= COMPILED= PRINT=0
+TEMPLATE= BASE= COMPILED= PRINT=0 LIST_ONLY=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --template) [ $# -ge 2 ] || usage; TEMPLATE=$2; shift 2 ;;
         --base-table) [ $# -ge 2 ] || usage; BASE=$2; shift 2 ;;
         --compiled) [ $# -ge 2 ] || usage; COMPILED=$2; shift 2 ;;
         --print) PRINT=1; shift ;;
+        --list) LIST_ONLY=1; shift ;;
         *) usage ;;
     esac
 done
@@ -104,6 +109,10 @@ $LIST
 EOF
     LIST=$NEXT
 done
+if [ "$LIST_ONLY" = 1 ]; then
+    printf '%s\n' "$SEEN" | grep -v '^$' | LC_ALL=C sort
+    exit 0
+fi
 GATE_SCRIPTS=$(printf '%s\n' "$SEEN" | grep -v '^$' | LC_ALL=C sort | while IFS= read -r rel; do
     printf '%s %s\n' "$rel" "$(sha256 < "$SCRIPTS_DIR/$rel")"
 done | sha256)
