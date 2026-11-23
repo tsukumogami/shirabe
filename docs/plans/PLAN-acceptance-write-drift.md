@@ -305,7 +305,35 @@ the fixture override above and read it back with `koto overrides list`.
 
 ### Step 7: /review-plan refuses to write into a live /plan session
 
-Run directly while the plan session is live, /review-plan writes and removes no key and offers a read-only review.
+**Goal**: Run directly on a plan whose `plan-<topic>` session is live,
+`/review-plan` writes no key into that session and removes none: it says the
+`/plan` run owns the session and runs its own review, and offers a read-only
+review printed to the conversation. Run on an absent or finished session, or as
+`/plan`'s own Phase 6 sub-operation, it behaves as today. The step also leaves
+the shared branch's skill checks green: `skills/execute/requires.tsv` declares
+every koto command `ci-fix-tests.sh` calls, which step 5 missed. Covers PRD R23.
+
+**Acceptance Criteria**:
+
+- [ ] `skills/review-plan/references/phases/phase-0-setup.md` and its SKILL.md
+  say that a direct run finding `skill-session.sh status plan-<topic>` at
+  `live` stops before any write, naming the `/plan` run as the session's owner,
+  and that the sub-operation case (`plan_topic` in its args) is unchanged.
+- [ ] An eval in `skills/review-plan/evals/` runs `/review-plan` directly on a
+  topic whose `plan-<topic>` session is live and asserts no `work/review.md` or
+  `work/review_loopback.md` is written and no key is removed; a second case on
+  a finished session asserts the verdict is written as before.
+- [ ] `scripts/check-skill-requires.sh` passes for `skills/execute`, with
+  every koto subcommand `ci-fix-tests.sh` runs declared in
+  `skills/execute/requires.tsv`.
+
+**Check**: Run `bash scripts/check-skill.sh review-plan` and
+`bash scripts/check-skill.sh execute` and see both pass, including the
+requires check; read the new eval cases' assertions against the phase-0 text.
+
+**Dependencies**: Step 6
+
+**Files**: `skills/review-plan/SKILL.md`, `skills/review-plan/references/phases/phase-0-setup.md`, `skills/review-plan/evals/evals.json`, `skills/execute/requires.tsv`
 
 ## Implementation Sequence
 
