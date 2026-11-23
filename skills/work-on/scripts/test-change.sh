@@ -57,7 +57,10 @@
 #             task that went back and still reached no panel); the template
 #             routes that to done_blocked. Exit 2 when the verdict record,
 #             the retry record or koto's log can't be read, or --due-items
-#             can't decide.
+#             can't decide. A pass (exit 0) stores the commit it classified
+#             at, 40 hex, as the context key `counted_head`, the one write a
+#             pass makes; /execute's ci-fix-tests.sh reads it to tell which
+#             commits the panels' record covers. A write that fails is 66.
 #   covered   read-only: exit 0 when no named item is held. red-first.sh
 #             check-green asks it for an observation pair
 #             (`observation:before`, `observation:after`), which is held with
@@ -147,6 +150,8 @@ RULE_IDS="test-change/held"
 SCHEMA=shirabe-test-change/v1
 LEDGER=test_change_ledger.jsonl
 RECORD_KEY=red_first.json
+COUNTED_HEAD_KEY=counted_head
+ITEMS_HEAD=""
 KIND_KEY=fix_kind.jsonl
 RULES_KEY=review_level_rules.tsv
 TEXT_MAX=300
@@ -507,6 +512,7 @@ compute_items() {
     tab=$(printf '\t')
     [ -d "$H_WORKTREE" ] || undecided "the run's work tree [$H_WORKTREE] is gone"
     head=$(G rev-parse -q --verify "HEAD^{commit}" 2>>"$ERRLOG") || undecided "HEAD names no commit in $H_WORKTREE"
+    ITEMS_HEAD=$head
     ctx_get "$s" "$RULES_KEY" "$TMP/rules" || die66 "could not read $RULES_KEY"
     [ -s "$TMP/rules" ] || undecided "no rules copy ($RULES_KEY) is stored; review_level_choice stores it"
 
@@ -552,6 +558,17 @@ uncommitted() {
 # escaped <file>: control characters other than newline shown as ^X, so a
 # crafted path or line can't rewrite what the terminal shows.
 escaped() { LC_ALL=C cat -v "$1"; }
+
+# record_counted_head <session>: a passing status stores the commit it counted
+# at as `counted_head`, so a later reader (/execute's ci-fix-tests.sh) can tell
+# which commits the panels' record covered. Nothing here reads it back to
+# decide. Only a status that read the work tree has a head to store; a failed
+# write exits 66, so the gate holds rather than pass with no record.
+record_counted_head() {
+    [ -n "$ITEMS_HEAD" ] || return 0
+    printf '%s' "$ITEMS_HEAD" > "$TMP/counted_head"
+    ctx_put "$1" "$COUNTED_HEAD_KEY" "$TMP/counted_head" || die66 "could not write $COUNTED_HEAD_KEY"
+}
 
 # ------------------------------------------------------------------- init ----
 
@@ -796,6 +813,7 @@ cmd_status() {
         else
             echo "counted: no edited test or observation needs a panel's judgment"
         fi
+        record_counted_head "$s"
         exit 0
     fi
     local spent=0
@@ -821,6 +839,7 @@ cmd_status() {
         exit 1
     fi
     rf_deliver
+    record_counted_head "$s"
     exit 0
 }
 

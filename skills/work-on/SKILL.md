@@ -684,7 +684,9 @@ leg, since one leg answers one session.
   `scripts/red-first-routes_test.sh` are its harnesses.
 - `scripts/test-change.sh init|classify|note|status|covered|record`
   — the held test change (`references/red-first.md`), the only writer of the
-  `test_change_ledger.jsonl` context key. koto runs `init --entry` in
+  `test_change_ledger.jsonl` context key. A passing `status` also records
+  the head it counted at as `counted_head`, which `/execute`'s
+  `ci-fix-tests.sh` reads. koto runs `init --entry` in
   `fix_determination`'s action and `status` as `pass_counting`'s and
   `ci_pass_counting`'s `tests_counted` gate and `pr_precheck`'s
   `tests_still_counted` (finding `test-change/held`); the agent runs `note` while

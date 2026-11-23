@@ -259,6 +259,11 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/shared-deferral-record_test.sh
 
+      # ci_monitor's ci_fix_tests_judged gate: ci-fix-tests.sh over a koto
+      # stand-in and real git, so every case runs on 3.2.
+      - name: Run CI fix tests judgment tests
+        run: bash skills/execute/scripts/ci-fix-tests_test.sh
+
       # The coordinated envelope's shape, read from the compiled
       # execute-coordinated.md: every edge into `merged` from
       # coord_merge_confirm alone, non-overridable context-matches gates on

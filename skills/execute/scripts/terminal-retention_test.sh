@@ -578,14 +578,38 @@ fi
 
 TO_CI="settled_branch_record drift_facts worktree_sync spawn_and_await pr_finalization plan_completion ci_monitor"
 
+# A child that only holds context: the step whose counting gate passed at the
+# fixture's HEAD, so ci_monitor's ci_fix_tests_judged lets failing_fixed
+# route, as it does when no CI fix edited a test.
+cat > "$WORKDIR/counted-child.md" <<'EOF'
+---
+name: counted-child
+version: "1.0"
+description: A child session that only holds context.
+initial_state: idle
+states:
+  idle:
+    terminal: true
+---
+
+## idle
+
+Idle.
+EOF
+
 # at_ci_monitor <slug> [MERGE] — a session standing at ci_monitor with the
 # settled branch and the expected head recorded, as the skipped states and the
-# push would have left them.
+# push would have left them, and one child whose counting gate recorded the
+# fixture's HEAD as counted_head. A control case (no --no-cleanup on the
+# deciding tick) removes the child first: koto keeps a parent that still has
+# a child, which is not what the control is about.
 at_ci_monitor() {
     init_orchestrator "$1" "${2:-false}"
     walk "execute-$1" $TO_CI
     printf 'impl/probe' | k context add "execute-$1" settled_branch >/dev/null 2>&1
     printf '%s' "$HEAD_SHA" | k context add "execute-$1" expected_head >/dev/null 2>&1
+    k init "execute-$1.step-1" --template "$WORKDIR/counted-child.md" --parent "execute-$1" >/dev/null 2>&1
+    (cd "$FIXREPO" && git rev-parse HEAD) | k context add "execute-$1.step-1" counted_head >/dev/null 2>&1
     if [ "$(state_of "execute-$1")" != "ci_monitor" ]; then
         echo "FAIL: the walk to ci_monitor stopped at $(state_of "execute-$1")" >&2
         exit 1
@@ -824,6 +848,7 @@ else
 fi
 gh_fixture no-merge-ctl
 at_ci_monitor payload-ready-ctl false
+k session cleanup execute-payload-ready-ctl.step-1 >/dev/null 2>&1
 decide execute-payload-ready-ctl '{"ci_outcome":"pending"}' ""
 expect_control "ready_awaiting_merge" execute-payload-ready-ctl ready-awaiting-merge
 
@@ -848,6 +873,7 @@ fi
 gh_fixture merged-ctl
 at_ci_monitor payload-merged-ctl true
 k next execute-payload-merged-ctl --with-data '{"ci_outcome":"failing_fixed"}' --no-cleanup >/dev/null 2>&1
+k session cleanup execute-payload-merged-ctl.step-1 >/dev/null 2>&1
 decide execute-payload-merged-ctl '{"merge_exec":"called","merge_line":"merge-called:squash:'"$HEAD_SHA"'"}' ""
 expect_control "merged" execute-payload-merged-ctl merged
 

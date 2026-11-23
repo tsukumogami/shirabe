@@ -2204,6 +2204,12 @@ states:
     #                  (panel-retry-budget.sh --remaining reports none left),
     #                  or the run already went back once with no panel on
     #                  record, a docs or task route that never reaches one.
+    #                  A pass (exit 0) records the head it counted at as the
+    #                  context key counted_head, here and at pr_precheck and
+    #                  ci_pass_counting alike. /execute's ci_monitor reads
+    #                  the newest one its children and fix rounds recorded
+    #                  (ci-fix-tests.sh) to tell whether a CI fix changed a
+    #                  test no panel judged.
     #
     # A held run sends itself back with `declined`: implementation, whose
     # clear_on_entry drops the panels' stale results, then the panels again,

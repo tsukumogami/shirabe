@@ -5,7 +5,7 @@ stateDiagram-v2
     ci_monitor --> merge_readiness : gates.monitor_owned_pr.exit_code: 0, gates.owned_pr_merged.exit_code: 0
     ci_monitor --> merge_readiness : gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 0, gates.owned_merge_state_clean.exit_code: 0, gates.owned_pr_merged.exit_code: 1
     ci_monitor --> escalate_dirty_merge_state : gates.monitor_owned_pr.exit_code: 0, gates.owned_merge_state_clean.exit_code: 1, gates.owned_pr_merged.exit_code: 1
-    ci_monitor --> merge_readiness : ci_outcome: failing_fixed, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0, gates.owned_pr_merged.exit_code: 1
+    ci_monitor --> merge_readiness : ci_outcome: failing_fixed, gates.ci_fix_tests_judged.exit_code: 0, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0, gates.owned_pr_merged.exit_code: 1
     ci_monitor --> merge_readiness : ci_outcome: pending, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0, gates.owned_pr_merged.exit_code: 1
     ci_monitor --> done_blocked : ci_outcome: failing_unresolvable, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0, gates.owned_pr_merged.exit_code: 1
     ci_monitor --> done_blocked : gates.monitor_owned_pr.exit_code: 3
@@ -67,6 +67,9 @@ stateDiagram-v2
     merged --> [*]
     paused_for_review --> [*]
     ready_awaiting_merge --> [*]
+    note left of ci_monitor
+        gate: ci_fix_tests_judged
+    end note
     note left of ci_monitor
         gate: monitor_owned_pr
     end note

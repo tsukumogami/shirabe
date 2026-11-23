@@ -22,6 +22,10 @@
 #                                               owned_ci_passing,
 #                                               owned_merge_state_clean and
 #                       owned_pr_merged         a MERGED PR routes on it alone
+#                       ci_fix_tests_judged     failing_fixed holds while a test
+#                                               changed after the newest
+#                                               counted head (the real
+#                                               ci-fix-tests.sh)
 #   worktree_sync       current_with_main       now check-branch-output.sh --synced
 #
 # This file checks three things:
@@ -247,7 +251,42 @@ rc=0
 [ -f "\$f" ] && rc=\$(cat "\$f")
 exit "\$rc"
 EOF
+# ci_monitor's ci_fix_tests_judged runs the real ci-fix-tests.sh, with the
+# classifier and the shipped rules it reads beside it, against real sessions.
+mkdir -p "$FAKE_ROOT/scripts/lib" "$FAKE_ROOT/skills/work-on/references"
+cp "$SCRIPT_DIR/ci-fix-tests.sh" "$FAKE_ROOT/skills/execute/scripts/"
+cp "$REAL_ROOT/scripts/lib/test-classify.sh" "$FAKE_ROOT/scripts/lib/"
+cp "$REAL_ROOT/skills/work-on/references/review-level-rules.tsv" "$FAKE_ROOT/skills/work-on/references/"
 chmod +x "$FAKE_ROOT"/skills/work-on/scripts/* "$FAKE_ROOT"/skills/execute/scripts/*
+
+# The run's children, as ci-fix-tests.sh reads them: execute-x (the gate
+# command's execute-{{PLAN_SLUG}}, PLAN_SLUG being x) and its step-1 child,
+# whose counting gate passed at the branch's head so far.
+cat > "$WORKDIR/plain.md" <<'EOF'
+---
+name: plain
+version: "1.0"
+description: A session that only holds context.
+initial_state: idle
+states:
+  idle:
+    terminal: true
+---
+
+## idle
+
+Idle.
+EOF
+# counted <session> [<parent>]: a session (a child of <parent> when given)
+# whose counted_head is the repository's HEAD now.
+counted() {
+    (cd "$REPO" && koto init "$1" --template "$WORKDIR/plain.md" ${2:+--parent "$2"}) >/dev/null 2>&1
+    (cd "$REPO" && git rev-parse HEAD | koto context add "$1" counted_head) >/dev/null 2>&1
+}
+(cd "$REPO" && mkdir -p tests && printf '#!/bin/sh\ntrue\n' > tests/a_test.sh && printf 'v1\n' > app.sh \
+    && git add -A && git commit -q -m "feat: the branch's work") >/dev/null 2>&1
+(cd "$REPO" && koto init execute-x --template "$WORKDIR/plain.md") >/dev/null 2>&1
+counted execute-x.step-1 execute-x
 
 set_rc() { printf '%s\n' "$2" > "$RC_DIR/$1"; }
 reset_rc() { rm -f "$RC_DIR"/*; }
@@ -529,6 +568,39 @@ for v in failing_fixed pending; do
 done
 drive ci_monitor '{"ci_outcome":"failing_unresolvable","rationale":"upstream outage"}' owned_ci_passing=1 owned_merge_state_clean=0 owned_pr_merged=1
 expect_step "ci_outcome: failing_unresolvable on red CI" execute:ci
+
+# ci_monitor, a CI fix that edits a test (shirabe#1730): ci_fix_tests_judged
+# holds failing_fixed until a fix round's panels judged it and its counting
+# gate recorded counted_head at HEAD. The gate is the real ci-fix-tests.sh.
+CI_TRANS=$(section "$(extract_state ci_monitor)" transitions)
+n=$(printf '%s\n' "$CI_TRANS" | awk '
+    /^      - target:/ { t = $3; g = 0; f = 0 }
+    /gates.ci_fix_tests_judged.exit_code: 0$/ { g = 1 }
+    /ci_outcome: failing_fixed$/ { f = 1 }
+    t == "merge_readiness" && g && f { c++; t = "" }
+    END { print c + 0 }')
+m=$(printf '%s\n' "$CI_TRANS" | grep -c 'gates.ci_fix_tests_judged')
+[ "$n" -eq 1 ] && [ "$m" -eq 1 ] && pass "only the failing_fixed edge needs ci_fix_tests_judged at 0 ($n, $m)" \
+    || fail "ci_fix_tests_judged: $n failing_fixed edges need it, $m edges name it; want 1 and 1"
+case "$(gate_command ci_monitor ci_fix_tests_judged)" in
+    *'skills/execute/scripts/ci-fix-tests.sh" execute-{{PLAN_SLUG}}') pass "ci_fix_tests_judged runs ci-fix-tests.sh on the run's session" ;;
+    *) fail "ci_fix_tests_judged runs [$(gate_command ci_monitor ci_fix_tests_judged)]" ;;
+esac
+FIXED='{"ci_outcome":"failing_fixed","rationale":"x"}'
+(cd "$REPO" && printf 'v2\n' > app.sh && git commit -q -am "fix: a production-only CI fix") >/dev/null 2>&1
+drive ci_monitor "$FIXED" owned_ci_passing=1 owned_merge_state_clean=0 owned_pr_merged=1
+expect "failing_fixed on a production-only fix" merge_readiness
+(cd "$REPO" && printf 'false\n' >> tests/a_test.sh && git commit -q -am "fix: a CI fix that edits a test") >/dev/null 2>&1
+drive ci_monitor "$FIXED" owned_ci_passing=1 owned_merge_state_clean=0 owned_pr_merged=1
+holds "failing_fixed on a fix that edits a test" ci_monitor ci_fix_tests_judged
+drive ci_monitor '{"ci_outcome":"pending","rationale":"x"}' owned_ci_passing=1 owned_merge_state_clean=0 owned_pr_merged=1
+expect "pending with the test unjudged (the gate holds only failing_fixed)" merge_readiness
+drive ci_monitor "" owned_ci_passing=0 owned_merge_state_clean=0 owned_pr_merged=1
+expect "green CI with the test unjudged (the gate holds only failing_fixed)" merge_readiness
+# The fix round reached done: its counting gate recorded counted_head at HEAD.
+counted execute-x.step-1-fix-1 execute-x
+drive ci_monitor "$FIXED" owned_ci_passing=1 owned_merge_state_clean=0 owned_pr_merged=1
+expect "failing_fixed once the fix round's counted head is HEAD" merge_readiness
 
 # ci_monitor, a PR someone else merged while the run watched CI (#917): it
 # routes to merge_readiness with no evidence, whatever the CI and merge-state

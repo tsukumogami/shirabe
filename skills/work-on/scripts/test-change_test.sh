@@ -17,7 +17,8 @@
 #   init       writes the header once: a second init exits 1, --entry exits 0
 #              and writes nothing; an impl_base that isn't where the unit
 #              started is refused; a ledger with lines but no header is refused
-#   status     exits 0 for added-only tests; with no panel recorded, exits 1
+#   status     exits 0 for added-only tests, and a pass stores HEAD as
+#              counted_head while a hold leaves it as it was; with no panel recorded, exits 1
 #              holding every edited test as due (`<path> due: no panel has
 #              judged it`) with finding test-change/held and no word of a
 #              seat; a panel's judgment at the test's content counts it; a
@@ -256,6 +257,8 @@ has "a test that only gained lines is added" "added	tests/other_test.sh	" "$OUT"
 run status "$S"
 eq "added-only: status exits 0" 0 "$RC"
 has "added-only: counted" "counted: no edited test or observation needs a panel's judgment" "$OUT"
+eq "added-only: a pass records counted_head at HEAD" "$(git rev-parse HEAD)" "$(cat "$STORE/$S/counted_head" 2>/dev/null)"
+CLS_COUNTED=$(git rev-parse HEAD)
 eq "added-only: no acceptance recorded" 0 "$(ledger "$S" | jq -r 'select(.event == "accept")' | wc -l | tr -d ' ')"
 
 sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
@@ -269,6 +272,7 @@ eq "an edit: status exits 1" 1 "$RC"
 has "an edit: held as due" "held: tests/greet_test.sh due: no panel has judged it" "$OUT"
 has "a deletion: held as due" "held: tests/other_test.sh due: no panel has judged it" "$OUT"
 has "the hold prints finding test-change/held" '"rule_id":"test-change/held"' "$OUT"
+eq "a hold leaves counted_head where the last pass put it" "$CLS_COUNTED" "$(cat "$STORE/$S/counted_head" 2>/dev/null)"
 
 S=ren
 start "$S"
@@ -335,12 +339,15 @@ has "no panel recorded: the hold prints finding test-change/held" '"rule_id":"te
 hasnt "no panel recorded: nothing says to mint a seat" "mint" "$OUT"
 hasnt "no panel recorded: nothing says to commission a seat" "commission" "$OUT"
 hasnt "no panel recorded: no seat is named" "seat" "$OUT"
+[ ! -e "$STORE/$S/counted_head" ] && ok "a hold before any pass records no counted_head" \
+    || bad "a hold before any pass records no counted_head" "counted_head is [$(cat "$STORE/$S/counted_head")]"
 eq "status wrote no line" 2 "$(ledger "$S" | wc -l | tr -d ' ')"
 
 judge "$S" "$R" tests/greet_test.sh
 run status "$S"
 eq "a panel's corrects at the test's content: status exits 0" 0 "$RC"
 has "the panels' judgment counts it" "counted: the panels judged every edited test" "$OUT"
+eq "a counted edit records counted_head at HEAD, 40 hex" "$(git rev-parse HEAD)" "$(cat "$STORE/$S/counted_head" 2>/dev/null)"
 
 printf '# changed again\n' >> tests/greet_test.sh
 git commit -q -am "test: touch the judged test"
