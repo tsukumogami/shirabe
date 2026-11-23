@@ -110,11 +110,17 @@ const GIT_SAFE: [&str; 6] = [
     "log.showSignature=false",
 ];
 
-/// The environment every `git` call carries. With no lazy fetch, a partial
-/// clone missing an object never runs the promisor remote's transport
+/// The environment every `git` call carries, so a partial clone missing an
+/// object never runs the promisor remote's transport
 /// (`remote.<name>.uploadpack`, `core.sshCommand` or a remote helper), which
-/// the `-c` flags above don't stop.
-const GIT_ENV: [(&str, &str); 1] = [("GIT_NO_LAZY_FETCH", "1")];
+/// the `-c` flags above don't stop. `GIT_NO_LAZY_FETCH` stops the fetch, but
+/// only git 2.44 and the May 2024 maintenance releases honour it; an older
+/// git ignores it. An empty `GIT_ALLOW_PROTOCOL` allows no transport at all,
+/// whatever the repository's `protocol.*.allow` says, so the fetch fails
+/// before it runs anything on any git. Both are set: the first keeps the
+/// fetch from starting where git honours it, and the second covers a git
+/// that doesn't.
+const GIT_ENV: [(&str, &str); 2] = [("GIT_NO_LAZY_FETCH", "1"), ("GIT_ALLOW_PROTOCOL", "")];
 
 #[derive(Args)]
 pub struct CompactionArgs {

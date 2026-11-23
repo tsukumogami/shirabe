@@ -76,7 +76,10 @@ a compaction, and nothing from the hook input ever reaches their output.
 Neither makes a `gh` call; branch and pull request come from the entry, which
 `note` filled at its last write. Every `git` call runs with
 `-c core.fsmonitor=false -c core.hooksPath=/dev/null -c log.showSignature=false`
-and with `GIT_NO_LAZY_FETCH=1` set in its environment, and the `git log` call
+and with `GIT_NO_LAZY_FETCH=1` and an empty `GIT_ALLOW_PROTOCOL` set in its
+environment (the second allows no transport at all, so it covers a git that
+ignores the lazy-fetch variable, which only git 2.44 and the May 2024
+maintenance releases honour), and the `git log` call
 also passes `--no-show-signature`, so a repository's fsmonitor, hooks or
 signature program (`gpg.program`, which `git log` runs when the repository
 sets `log.showSignature` and the tip is signed) never run from a hook, and

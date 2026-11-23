@@ -5,7 +5,8 @@
 //! Every run clears the environment and puts only stand-ins on `PATH`: a koto
 //! stub that answers `context history`, `context list` and `status` from
 //! files under `$KOTO_STUB` (it never touches a koto store), a `gh` stub that
-//! logs each call, and a `git` wrapper that logs its arguments and runs the
+//! logs each call, and a `git` wrapper that logs its arguments (and, in a
+//! second log, its `GIT_NO_LAZY_FETCH` and `GIT_ALLOW_PROTOCOL`) and runs the
 //! real git on throwaway repositories.
 
 use std::fs;
@@ -121,7 +122,10 @@ impl Fx {
         write_exec(
             &dir.join("bin/git"),
             &format!(
-                "#!/bin/bash\nprintf '%s\\n' \"$*\" >>\"$GIT_LOG\"\nexec '{}' \"$@\"\n",
+                "#!/bin/bash\nprintf '%s\\n' \"$*\" >>\"$GIT_LOG\"\n\
+printf 'GIT_NO_LAZY_FETCH=%s GIT_ALLOW_PROTOCOL=%s\\n' \
+\"${{GIT_NO_LAZY_FETCH-<unset>}}\" \"${{GIT_ALLOW_PROTOCOL-<unset>}}\" >>\"$GIT_LOG.env\"\n\
+exec '{}' \"$@\"\n",
                 git.display()
             ),
         );
@@ -505,9 +509,11 @@ fn a_repository_signature_program_fsmonitor_or_hook_never_runs() {
     assert!(!marker.exists(), "a repository program ran");
 }
 
-#[test]
-fn a_promisor_remote_program_never_runs_through_a_lazy_fetch() {
-    let fx = Fx::new();
+/// Build `pc`: a partial clone whose promisor remote's upload-pack is
+/// `mark.sh`, and whose branch tip is a commit missing from the object store,
+/// so reading the tip makes git fetch it. Returns the marker `mark.sh`
+/// writes.
+fn partial_clone(fx: &Fx) -> PathBuf {
     let marker = fx.p("marker");
     let prog = fx.p("mark.sh");
     write_exec(
@@ -517,9 +523,6 @@ fn a_promisor_remote_program_never_runs_through_a_lazy_fetch() {
             marker.display()
         ),
     );
-    // A partial clone whose promisor remote's upload-pack is the marker, and
-    // whose branch tip is a commit missing from the object store, so reading
-    // the tip makes git fetch it.
     fs::create_dir_all(fx.p("pc")).unwrap();
     fx.init_repo("pc", BRANCH);
     fx.commit("pc", AFTER_NOTE);
@@ -542,6 +545,13 @@ fn a_promisor_remote_program_never_runs_through_a_lazy_fetch() {
         fx.git_ok("pc", &["config", k, v]);
     }
     fs::remove_file(fx.p("pc/.git/objects").join(&tip[..2]).join(&tip[2..])).unwrap();
+    marker
+}
+
+#[test]
+fn a_promisor_remote_program_never_runs_through_a_lazy_fetch() {
+    let fx = Fx::new();
+    let marker = partial_clone(&fx);
 
     // The fixture can fire: the same `git log` without GIT_NO_LAZY_FETCH runs
     // the promisor remote's program.
@@ -568,6 +578,16 @@ fn a_promisor_remote_program_never_runs_through_a_lazy_fetch() {
         fs::read_to_string(&marker)
     );
     assert!(out.contains(KS) && out.contains(UNKNOWN), "{out}");
+    // The unknown line would also come from a refused repo line falling back
+    // to `plain`, so the record shows the hook did read the tip in `pc`.
+    let log = fs::read_to_string(fx.p("git.log")).unwrap_or_default();
+    assert!(
+        log.contains(&format!(
+            "-C {} log -1 --no-show-signature",
+            fx.p("pc").display()
+        )),
+        "the repo line's git log never ran: {log}"
+    );
     fx.entry(&good_entry());
     let out = fx.run("pre-compact", "pc");
     assert!(
@@ -576,6 +596,105 @@ fn a_promisor_remote_program_never_runs_through_a_lazy_fetch() {
         fs::read_to_string(&marker)
     );
     assert!(out.contains(KS) && out.contains(UNKNOWN), "{out}");
+}
+
+/// An empty `GIT_ALLOW_PROTOCOL` keeps the promisor remote's transport from
+/// running on its own, with no `GIT_NO_LAZY_FETCH`, as on a git that ignores
+/// that variable: over the file transport (`remote.origin.uploadpack`), ssh
+/// (`core.sshCommand`) and a remote helper the repository allows
+/// (`ext::` with `protocol.ext.allow=always`). Each probe is the hook's own
+/// `git log` call.
+#[test]
+fn an_empty_git_allow_protocol_alone_keeps_the_promisor_transport_from_running() {
+    let fx = Fx::new();
+    let marker = partial_clone(&fx);
+    let prog_s = fx.p("mark.sh").display().to_string();
+    let ext_url = format!("ext::{prog_s} %S x");
+    let refname = format!("refs/heads/{BRANCH}");
+    let args = [
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "log.showSignature=false",
+        "log",
+        "-1",
+        "--no-show-signature",
+        "--format=%ct",
+        refname.as_str(),
+        "--",
+    ];
+    let variants: Vec<(&str, Vec<(&str, &str)>)> = vec![
+        ("upload-pack over file", vec![]),
+        (
+            "core.sshCommand over ssh",
+            vec![
+                ("remote.origin.url", "ssh://example.invalid/x"),
+                ("core.sshCommand", prog_s.as_str()),
+            ],
+        ),
+        (
+            "remote helper over ext",
+            vec![
+                ("remote.origin.url", ext_url.as_str()),
+                ("protocol.ext.allow", "always"),
+            ],
+        ),
+    ];
+    for (what, config) in variants {
+        for (k, v) in config {
+            fx.git_ok("pc", &["config", k, v]);
+        }
+        // The fixture can fire: with neither variable, the call runs the
+        // transport's program.
+        let _ = fx
+            .git_cmd("pc")
+            .env_remove("GIT_NO_LAZY_FETCH")
+            .env_remove("GIT_ALLOW_PROTOCOL")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(marker.exists(), "{what}: the fixture's program never ran");
+        fs::remove_file(&marker).unwrap();
+        let out = fx
+            .git_cmd("pc")
+            .env_remove("GIT_NO_LAZY_FETCH")
+            .env("GIT_ALLOW_PROTOCOL", "")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{what}: the tip was read: {out:?}");
+        assert!(
+            !marker.exists(),
+            "{what}: the transport ran: {:?}",
+            fs::read_to_string(&marker)
+        );
+    }
+}
+
+/// Every hook `git` call runs with `GIT_NO_LAZY_FETCH=1` and an empty
+/// `GIT_ALLOW_PROTOCOL`, whatever the hook inherited.
+#[test]
+fn every_git_call_carries_no_lazy_fetch_and_no_allowed_protocol() {
+    let fx = Fx::new();
+    let inherited = [
+        ("GIT_NO_LAZY_FETCH", "0"),
+        ("GIT_ALLOW_PROTOCOL", "file:ssh:ext"),
+    ];
+    let path = ["kbin", "bin", "tools"];
+    let _ = fx.run_with("pre-compact", "repo", &path, &fx.input(), &inherited);
+    fx.entry(&entry_with_repo(&fx.p("repo").display().to_string()));
+    let _ = fx.run_with("pre-compact", "plain", &path, &fx.input(), &inherited);
+    fs::remove_file(fx.entry_path()).unwrap();
+    let _ = fx.run_with("pre-compact", "other", &path, &fx.input(), &inherited);
+    let calls = fs::read_to_string(fx.p("git.log")).unwrap();
+    let envs = fs::read_to_string(fx.p("git.log.env")).unwrap();
+    assert!(calls.lines().count() >= 4, "{calls}");
+    assert_eq!(envs.lines().count(), calls.lines().count(), "{envs}");
+    for line in envs.lines() {
+        assert_eq!(line, "GIT_NO_LAZY_FETCH=1 GIT_ALLOW_PROTOCOL=", "{envs}");
+    }
 }
 
 // --- the entry's repository -----------------------------------------------------------
