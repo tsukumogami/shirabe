@@ -59,6 +59,10 @@ case "${1:-} ${2:-}" in
 esac
 case "${1:-} ${2:-}" in
     "session dir")
+        # A session real koto holds always has its directory; a session the
+        # stand-in holds only context for gets one when it is named, so the
+        # record's write lock has somewhere to go.
+        [ -d "$KOTO_STORE/context/${3:-none}" ] && mkdir -p "$KOTO_STORE/sessions/${3:-none}"
         printf '%s\n' "$KOTO_STORE/sessions/${3:-none}"
         ;;
     "session list")
