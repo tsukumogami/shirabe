@@ -697,9 +697,15 @@ test_every_list_names_a_workflow_and_scripts() {
                 workflow:*) ;;
                 cost:*)
                     set -- $t
-                    if [ "$#" -ne 3 ] || ! [ -f "$SCRIPT_DIR/../$2" ] || ! printf '%s' "$3" | grep -Eq '^[0-9]+$'; then
-                        bad="$bad $suite(bad cost line: $t)"
+                    cost_ok=1
+                    if [ "$#" -ne 3 ] || ! [ -f "$SCRIPT_DIR/../$2" ]; then
+                        cost_ok=0
+                    else
+                        case "$3" in
+                            ''|*[!0-9]*) cost_ok=0 ;;
+                        esac
                     fi
+                    [ "$cost_ok" -eq 1 ] || bad="$bad $suite(bad cost line: $t)"
                     ;;
                 *:*) bad="$bad $suite(unknown directive: $t)" ;;
                 *) [ -f "$SCRIPT_DIR/../$t" ] || bad="$bad $suite(no such script: $t)" ;;
