@@ -18,7 +18,10 @@
 # includes every fix round, since a round is started under the run's parent.
 # For each child with a `counted_head` context key (test-change.sh status
 # writes it when a counting gate passes) it reads the commit. The newest is
-# the one with the fewest commits between it and HEAD. It then classifies the
+# the one with the fewest commits between it and HEAD, not the latest
+# recorded: every head must be an ancestor of HEAD (else exit 2), and on the
+# shared branch's linear history the closest one is the last counted. It then
+# classifies the
 # diff from that commit to HEAD with scripts/lib/test-classify.sh, using the
 # `review_level_rules.tsv` copy stored in the same child's session, or the
 # rules /work-on ships when that child has none.
