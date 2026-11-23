@@ -421,7 +421,7 @@ drun() {
             || { bad "$1: #12 is paused" "$(cat "$T/w.err")"; return 1; }
     fi
     st=$(tick --with-data '{"reconciled":"reported"}')
-    [ "$(jq -r '.state // empty' <<< "$st")" = pick ] || { bad "$1: the run reaches pick" "$(printf '%s' "$st" | head -c 1500) $(cat "$T/tick.err")"; return 1; }
+    [ "$(jq -r '.state // empty' <<< "$st")" = pick ] || { bad "$1: the run reaches pick" "${st:0:1500} $(cat "$T/tick.err")"; return 1; }
     if [ "$3" = parked ]; then
         [ "$(at --with-data '{"choice":"await_decision","unit":"#12","rationale":"its fix is the human'"'"'s call"}')" = decision_raise ] &&
             write_as_agent state-decision.sh --open --question "#12: retry the deploy job, or pin its runner?" \
