@@ -57,8 +57,9 @@
 # far_redeliver run the first time it runs in a session, and records
 # <session-dir>/probe/far_shown so every later call prints nothing; for any
 # other run it prints nothing. work-on.md runs it on entry to reproduce and to
-# implementation, capturing it as PROBE_FAR_RULE_FIX and PROBE_FAR_RULE, so
-# the first of the two a run enters carries the rule and no retry, return or
+# implementation, capturing it as PROBE_FAR_RULE_FIX and PROBE_FAR_RULE
+# (reproduce only when red-first.sh has-red says the state will stop), so the
+# first of the two a run stops in carries the rule and no retry, return or
 # second state repeats it. It prints only once the record of the print holds,
 # and always exits 0.
 #

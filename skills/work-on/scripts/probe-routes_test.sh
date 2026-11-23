@@ -6,9 +6,10 @@
 # The fixture holds the SHIPPED blocks and directives of offload_canary, its
 # markers, probe_draw, the probe's markers, reproduce, implementation,
 # pr_precheck, probe_near, pr_creation and ci_monitor, with the gates that
-# read GitHub or other session keys stubbed to pass (reproduce's red_recorded
-# passes once the case writes red-ok into the session directory). A stub
-# fix_determination routes to implementation, or to reproduce when the case
+# read GitHub or other session keys stubbed to pass. reproduce's red_recorded
+# gate and action are the shipped ones, reading the fix_kind.jsonl and
+# red_first.json keys a case writes with mark_fix and record_red. A stub
+# fix_determination routes to implementation, or to reproduce when mark_fix
 # wrote `fix` into the session directory, in the tick that enters it; a stub
 # changed_paths_record passes through to pr_precheck, and a stub analysis
 # passes through to offload_canary, the loop a scope change takes.
@@ -121,6 +122,12 @@ for pair in "implementation:PROBE_FAR_RULE" "reproduce:PROBE_FAR_RULE_FIX"; do
         && pass "$st runs probe.sh far-text into $v with capture_allow_empty" \
         || fail "$st's action: $(grep -A4 'default_action' <<<"$B")"
 done
+RA=$(extract_state reproduce | awk '/^      command:/ { print; exit }')
+case "$RA" in
+    *'red-first.sh" has-red "{{SESSION_NAME}}" && exit 0; '*'probe.sh" far-text '*)
+        pass "reproduce's action asks red-first.sh has-red before it takes the far rule" ;;
+    *) fail "reproduce's action doesn't ask has-red first: $RA" ;;
+esac
 PN=$(extract_state probe_near)
 grep -q 'probe.sh" near-text "{{SESSION_DIR}}"' <<<"$PN" && grep -q '^      capture_stdout_as: PROBE_NEAR_RULE$' <<<"$PN" \
     && grep -q '^      capture_allow_empty: true$' <<<"$PN" && [ "$(targets_of probe_near)" = pr_creation ] \
@@ -256,9 +263,6 @@ build() {
     local file=$1 keep=$2 s blocks="" t stubs="" body
     for s in $SHIPPED; do
         case $s in
-            reproduce) blocks="$blocks$(stub_block "$(extract_state $s)" red_recorded=1 \
-                | sed 's|^        command: "exit 1"$|        command: '"'"'test -f "{{SESSION_DIR}}/red-ok"'"'"'|')
-" ;;
             implementation) blocks="$blocks$(stub_block "$(extract_state $s)" on_feature_branch_impl=0)
 " ;;
             pr_precheck) blocks="$blocks$(stub_block "$(extract_state $s)" branch_docs_visibility=0 tests_still_counted=0)
@@ -347,7 +351,19 @@ to_pr() {
     submit '{"implementation_status":"complete"}'
     D_PRC=$(directive_of)
 }
-deliveries() { records "$SESS" 'select(.kind == "rule_delivered" and ."koto.rule.via" == "directive")' | grep -c .; }
+# mark_fix: the unit is a fix, as fix_determination's resolve records it,
+# and the stub fix_determination routes to reproduce. record_red: a red in
+# red_first.json, the record red_recorded and red-first.sh has-red read.
+mark_fix() {
+    : > "$SDIR/fix"
+    printf '{"ts":"t","event":"determine","kind":"fix","source":"label:bug"}\n' \
+        | (cd "$REPO" && koto context add "$SESS" fix_kind.jsonl) >/dev/null 2>&1
+}
+record_red() {
+    printf '{"schema":"shirabe-red-first/v1","red":{"base":"%s","exit":1}}\n' "$BASE" \
+        | (cd "$REPO" && koto context add "$SESS" red_first.json) >/dev/null 2>&1
+}
+deliveries() { records "$SESS" 'select(.kind == "rule_delivered" and ."koto.rule.via" == "directive" and ."koto.rule.id" == "probe/ack-value")' | grep -c .; }
 entered() {
     [ -f "$JOURNAL" ] || { echo 0; return; }
     jq -c --arg s "$1" --arg st "$2" 'select(.kind == "state_entered" and .session == $s and ."koto.state" == $st)' \
@@ -484,18 +500,29 @@ check "far change: pr_creation's directive doesn't carry it" "$(directive_of | g
 check "far change: still one directive delivery at pr_creation" "$(deliveries)" 1
 # A fix: reproduce, the first state it stops in, carries it; its holds and the
 # move on to implementation show it no more.
-start "$FIX" && preset far "$V" && : > "$SDIR/fix" && to_choice
+start "$FIX" && preset far "$V" && mark_fix && to_choice
 check "far fix: the first tick stops at reproduce" "$(state_of)" reproduce
 check "far fix: reproduce's directive carries the rule" "$(printf '%s' "$D_RLC" | grep -cF -- "$(full_text "$V")")" 1
 tick
 check "far fix: a tick that holds at reproduce shows no rule" "$(state_of)/$(directive_of | grep -cF -- "$V")" "reproduce/0"
-: > "$SDIR/red-ok"
+record_red
 tick
 check "far fix: once the red is recorded, implementation shows no rule" "$(state_of)/$(directive_of | grep -cF -- "$V")" "implementation/0"
 check "far fix: one directive delivery, at reproduce" \
-    "$(records "$SESS" 'select(.kind == "rule_delivered") | ."koto.state"' | tr -d '"' | tr '\n' ' ')" "reproduce "
+    "$(records "$SESS" 'select(.kind == "rule_delivered" and ."koto.rule.id" == "probe/ack-value") | ."koto.state"' | tr -d '"' | tr '\n' ' ')" "reproduce "
+# A far fix whose red was recorded before reproduce (during analysis): the
+# gate passes on entry and the run goes straight on, so reproduce leaves the
+# rule unspent and implementation delivers it, once.
+start "$FIX" && preset far "$V" && mark_fix && record_red && to_choice
+check "far fix, red first: the first tick passes reproduce and stops at implementation" \
+    "$(entered "$SESS" reproduce)/$(state_of)" "1/implementation"
+check "far fix, red first: implementation's directive carries the rule" "$(printf '%s' "$D_RLC" | grep -cF -- "$(full_text "$V")")" 1
+submit '{"implementation_status":"partial_tests_failing_retry"}'
+check "far fix, red first: a retry shows it no more" "$(state_of)/$(directive_of | grep -cF -- "$V")" "implementation/0"
+check "far fix, red first: one directive delivery, at implementation" \
+    "$(records "$SESS" 'select(.kind == "rule_delivered" and ."koto.rule.id" == "probe/ack-value") | ."koto.state"' | tr -d '"' | tr '\n' ' ')" "implementation "
 # A near fix: reproduce and implementation never carry the rule.
-start "$FIX" && preset near "$V" && : > "$SDIR/fix" && to_choice
+start "$FIX" && preset near "$V" && mark_fix && to_choice
 check "near fix: reproduce's directive doesn't carry the rule" "$(state_of)/$(directive_of | grep -cF -- "$V")" "reproduce/0"
 
 # --- misses, the hold, and the created edges ---------------------------------------

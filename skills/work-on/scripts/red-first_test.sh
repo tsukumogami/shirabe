@@ -24,6 +24,8 @@
 #              --flag=value, a lone --) record it as given
 #   check-red  passes for a non-fix, a red or a before-observation; holds a
 #              fix with neither, printing finding red-first/no-red
+#   has-red    check-red's decision with nothing printed: 1 where it holds,
+#              0 for a red and for a change
 #   check-green  passes for a non-fix and for a green at HEAD; holds with no
 #              green, a failed green, and a green at an older head; holds an
 #              observation pair with a `refused:` line saying observations
@@ -141,6 +143,9 @@ run check-red "$S"
 eq "check-red with no red: exit 1" 1 "$RC"
 has "check-red with no red: a hold line" "hold: the unit is a fix and has neither a red nor a before-observation" "$OUT"
 has "check-red with no red: finding red-first/no-red" '"rule_id":"red-first/no-red"' "$OUT"
+run has-red "$S"
+eq "has-red with no red: exit 1" 1 "$RC"
+eq "has-red with no red: prints nothing" "" "$OUT"
 
 # --- red: refusals before the command runs ----------------------------------------
 cat > tests/empty_name_test.sh <<'EOF'
@@ -226,6 +231,8 @@ eq "a new red drops the green" null "$(record "$S" | jq -c .green)"
 
 run check-red "$S"
 eq "check-red with a red: exit 0" 0 "$RC"
+run has-red "$S"
+eq "has-red with a red: exit 0, nothing printed" "0|" "$RC|$OUT"
 
 # --- symlinks ----------------------------------------------------------------------
 git checkout -q -b links
@@ -311,6 +318,8 @@ run check-green c1
 eq "check-green for a change: exit 0" 0 "$RC"
 run check-red c1
 eq "check-red for a change: exit 0" 0 "$RC"
+run has-red c1
+eq "has-red for a change: exit 0" 0 "$RC"
 
 # --- observations ------------------------------------------------------------------
 new_session o1

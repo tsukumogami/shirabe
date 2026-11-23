@@ -32,12 +32,14 @@ routes the run through one of three marker states:
 Each arm takes a third of the draws. The value is three lowercase letters and
 six digits, drawn for the run and never reused.
 
-The far arms' rule is printed once per run. `reproduce` and `implementation`
-each run `probe.sh far-text` on entry, which prints the rule the first time it
-runs in a session and nothing after, so the first of the two states the run
-stops in carries it (a change stops at `implementation` first, a fix at
-`reproduce`), and no retry, return to `implementation` or later visit repeats
-it.
+The far arms' rule is printed once per run. `implementation` runs
+`probe.sh far-text` on entry, and so does `reproduce` when it is going to stop
+(`red-first.sh has-red` says its red_recorded gate would hold). far-text prints
+the rule the first time it runs in a session and nothing after, so the first of
+the two states the run stops in carries it: `implementation` for a change,
+`reproduce` for a fix, and `implementation` for a fix whose red was recorded
+before `reproduce`, which passes straight through. No retry, return to
+`implementation` or later visit repeats it.
 
 A run that can't be drawn, for any reason, is in no arm and goes on exactly as
 if the probe were off: every directive it reads is the one a run without the

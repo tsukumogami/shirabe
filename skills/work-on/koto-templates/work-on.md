@@ -1015,18 +1015,24 @@ states:
     # this state's directive. koto records the print as a rule_delivered event
     # (via directive). Every later entry, and every run not on a far arm,
     # captures the empty string and records nothing, so implementation's copy
-    # stays empty for a fix. The command ends in `|| true` because a failing
-    # default action would hold the run here. A red recorded before reproduce
-    # is first entered (during analysis) lets the state pass through, and then
-    # the rule is spent without being shown; the guide's reader takes a run's
-    # last delivery before its first check, and finds none for such a run.
+    # stays empty for a fix.
+    #
+    # The rule is taken here only when the state is going to stop. A red or a
+    # before-observation recorded before reproduce is first entered (during
+    # analysis) lets red_recorded pass on entry, and the run goes straight on
+    # to implementation without this directive being shown. So the action
+    # first asks red-first.sh has-red, the red_recorded gate's own decision
+    # (check-red's, with no finding or delivery record): when it says the gate
+    # passes, the action prints nothing and leaves the rule unspent, and
+    # implementation's far-text delivers it. The command always exits 0,
+    # because a failing default action would hold the run here.
     directive_rules:
       - rule_id: probe/ack-value
         check: probe_ack
         extent: full
         when_set: PROBE_FAR_RULE_FIX
     default_action:
-      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" && "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" far-text "{{SESSION_DIR}}" || true'
+      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" || exit 0; test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/red-first.sh" && "{{PLUGIN_ROOT}}/skills/work-on/scripts/red-first.sh" has-red "{{SESSION_NAME}}" && exit 0; "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" far-text "{{SESSION_DIR}}" || true'
       capture_stdout_as: PROBE_FAR_RULE_FIX
       capture_allow_empty: true
     # A fix records its red here, before implementation: the check run on
@@ -1079,7 +1085,9 @@ states:
     # rule's full text, captured as PROBE_FAR_RULE, ends this directive on the
     # first entry. probe.sh far-text prints it once per session, so a retry,
     # a panel's return or a fix's arrival from reproduce (which already
-    # delivered it) captures the empty string and records nothing.
+    # delivered it) captures the empty string and records nothing. A fix that
+    # passed through reproduce with its red already recorded left the rule
+    # unspent, and gets it here.
     directive_rules:
       - rule_id: probe/ack-value
         check: probe_ack
