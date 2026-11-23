@@ -75,8 +75,12 @@ accepts it. It reads what any review reads and writes nothing anywhere a
 `/plan` run or a later review would look:
 
 - Run 0.2 to 0.5 as written: they only read `plan-<topic>`'s keys.
-- Skip 0.6b: `review-events.sh round-started` adds to the `review/round` key
-  in `plan-<topic>`, so the round is not recorded.
+- In 0.6b, allocate `<verdicts-dir>` as written, and skip the
+  `review-events.sh round-started` call: it adds to the `review/round` key in
+  `plan-<topic>`, so the round is not recorded. The categories hand their
+  verdict blocks back to this conversation as on any run; with the round
+  unrecorded, nothing is written to `<verdicts-dir>`, and it is removed when
+  the review ends.
 - Run Phases 1 to 4b as on any review, and Phase 5's synthesis up to the
   `review_result` block. Print that block and its summary to the
   conversation instead of writing a verdict key.
@@ -85,7 +89,8 @@ accepts it. It reads what any review reads and writes nothing anywhere a
   incremented.
 
 A seat's packet is materialized into a `skill-session.sh scratch` directory
-as 0.4 says; that directory is private to this run and outside the session.
+as 0.4 says. Both scratch directories are private to this run and outside the
+session; remove them when the review ends (`rm -rf --`).
 
 ### 0.2 Validate Required Artifacts Exist
 
