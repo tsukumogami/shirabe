@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   A /work-on run that verifies a compiled-language change leaves its build
   tree in the worktree, and nothing in the workflow removes it, so teams that
@@ -25,7 +25,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-build-output](docs/briefs/BRIEF-build-output.md); carried in Absorbed Brief.
 

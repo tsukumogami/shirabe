@@ -200,5 +200,5 @@ may clean before the runner waits on a live removal (R12).
 - tsukumogami/shirabe#1885 (the build-output scope, head 1951eeec)
 - tsukumogami/shirabe#1881 (the shirabe#1230 design, head 3674726)
 - tsukumogami/shirabe#1230
-- `docs/prds/PRD-build-output.md`, `docs/designs/DESIGN-build-output.md`,
+- `docs/prds/PRD-build-output.md`, `docs/designs/current/DESIGN-build-output.md`,
   `docs/plans/PLAN-build-output.md` at 1951eeec
