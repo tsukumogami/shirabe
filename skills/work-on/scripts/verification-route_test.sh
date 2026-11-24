@@ -650,6 +650,14 @@ runs_page "$HEAD_SHA" 1 "[$(run_obj 508 9 1 completed failure)]"
 jobs_at 508 1 "[$(job_obj completed success 'skill-gate-suites (ubuntu-latest, 1)'), $(job_obj completed failure 'skill-gate-suites (ubuntu-latest, 2)'), $(job_obj completed success 'skill-gate-suites (ubuntu-latest, 3)'), $(job_obj completed success 'skill-gate-suites (ubuntu-latest, 4)'), $(job_obj completed skipped)]"
 read_case "a skill-gate skipped after a failed suite slice is not passed" 1 \
     "check check-skill:coordinate, job $JOB, commit $HEAD_SHA" "concluded skipped"
+# What GitHub actually reports: a job skipped because a needed job failed
+# never expands its matrix, so its one job carries the bare name `skill-gate`
+# and no job named `skill-gate (ubuntu-latest)` exists in the run.
+gh_reset s-read
+runs_page "$HEAD_SHA" 1 "[$(run_obj 509 9 1 completed failure)]"
+jobs_at 509 1 "[$(job_obj completed success 'skill-gate-suites (ubuntu-latest, 1)'), $(job_obj completed failure 'skill-gate-suites (ubuntu-latest, 2)'), $(job_obj completed success 'skill-gate-suites (ubuntu-latest, 3)'), $(job_obj completed success 'skill-gate-suites (ubuntu-latest, 4)'), $(job_obj completed skipped 'skill-gate')]"
+read_case "a skill-gate skipped under its bare name, with no matrix leg, is not passed" 1 \
+    "check check-skill:coordinate, job $JOB, commit $HEAD_SHA" "completed with no job of that name"
 gh_reset s-read
 runs_page "$HEAD_SHA" 1 "[$(run_obj 505 9 1 completed success)]"
 touch "$FAKE_GH/api/$(api_name "$(runs_path "$HEAD_SHA" 1)").fail"

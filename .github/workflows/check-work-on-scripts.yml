@@ -25,6 +25,8 @@ on:
       # The macOS leg reaches bash 3.2 through the runner, which reads this
       # suite's scripts from its list, so a change to either has to re-run it.
       - 'scripts/check-bash-floor.sh'
+      - 'scripts/run-suites.sh'
+      - 'scripts/lib/suite-slice.sh'
       - 'scripts/bash-floor/work-on.list'
       # The engine-backed suites run the newest koto 0.x, checked against the floor.
       - '.tsuku.toml'
@@ -90,6 +92,8 @@ on:
       - 'references/worktree-discipline.md'
       - 'scripts/review-packet.sh'
       - 'scripts/check-bash-floor.sh'
+      - 'scripts/run-suites.sh'
+      - 'scripts/lib/suite-slice.sh'
       - 'scripts/bash-floor/work-on.list'
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'

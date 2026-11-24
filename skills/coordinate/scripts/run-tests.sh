@@ -40,14 +40,20 @@ for arg in "$@"; do
 done
 
 # The suites this run selects, in glob order, then this job's slice of them.
-ALL=$(for t in "$HERE"/*_test.sh; do
-    [ -e "$t" ] || continue
-    case "$t" in
-        *_engine_test.sh) [ "$ENGINE" = 1 ] || continue ;;
-        *) [ "$ENGINE" = 1 ] && continue ;;
-    esac
-    printf '%s\n' "$t"
-done)
+# A function, not a loop written inside $(...): bash 3.2 can't parse a case
+# pattern without its opening parenthesis inside a command substitution.
+list_suites() {
+    local t
+    for t in "$HERE"/*_test.sh; do
+        [ -e "$t" ] || continue
+        case "$t" in
+            *_engine_test.sh) [ "$ENGINE" = 1 ] || continue ;;
+            *) [ "$ENGINE" = 1 ] && continue ;;
+        esac
+        printf '%s\n' "$t"
+    done
+}
+ALL=$(list_suites)
 TOTAL=$(printf '%s\n' "$ALL" | awk 'NF > 0' | wc -l | tr -d ' ')
 SELECTED=$(printf '%s\n' "$ALL" | bash "$HERE/../../../scripts/lib/suite-slice.sh" run-tests.sh) || exit $?
 if [ "$LIST" = 1 ]; then
