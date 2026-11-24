@@ -132,6 +132,9 @@ case "$1 $2" in
         [ -f "$ST/ctx/$4" ] || exit 1
         cat "$ST/ctx/$4"
         ;;
+    "context exists")
+        [ -f "$ST/ctx/$4" ] || exit 1
+        ;;
     "context add")
         case "$4" in legs/*) [ "${KOTO_LEG_PUT_FAIL:-}" = 1 ] && exit 1 ;; esac
         mkdir -p "$(dirname "$ST/ctx/$4")"
@@ -851,6 +854,21 @@ nothing_written "verdict owed, unit"
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 1"')"
 printf '%s' "$PICK_ROADMAP" | jq -c '(.units[] | select(.unit == "Feature 2")).verdict_owed = true' >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "verdict owed: another unit's owed verdict doesn't hold this one" 0 "$?"
+# On roadmap/v4 pick-facts.sh frees Milestone 2, which depends on Milestone 1,
+# while Milestone 1's verdict is owed (it reads done, takes_work false); the
+# refusal stays Milestone 1's own.
+PICK_V4='{"scope":"roadmap","name":"plugin-system","host":"acme/widgets","units":[
+  {"unit":"Milestone 1","number":1,"title":"Loader","status":"In progress","done":true,"takes_work":false,"blocked":false,"blocked_by":[],"verdict_owed":true},
+  {"unit":"Milestone 2","number":2,"title":"Registry","status":"Not started","done":false,"takes_work":true,"blocked":false,"blocked_by":[],"blocker_landed":true,"verdict_owed":false}]}'
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Milestone 2: Registry"')"
+printf '%s' "$PICK_V4" >"$ST/ctx/coord/pick.json"
+run >/dev/null 2>&1; eq "verdict owed: on v4, a dispatch of Milestone 2 over Milestone 1's owed verdict goes through" 0 "$?"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Milestone 1"')"
+printf '%s' "$PICK_V4" >"$ST/ctx/coord/pick.json"
+ERR=$(run 2>&1 >/dev/null); RC=$?
+eq  "verdict owed: on v4, a dispatch of Milestone 1 itself exits 10" 10 "$RC"
+has "verdict owed: ... naming the owed verdict" "$ERR" "a verdict is owed on this milestone"
+nothing_written "verdict owed, v4 unit"
 fi
 
 if section "deliver" "the brief's reporting address"; then
@@ -1151,6 +1169,59 @@ has "rebrief, leg-bound: the spent request is abandoned" "$(calls)" "koto reques
 lacks "rebrief, leg-bound: the brief no longer names the leg" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "--koto-leg"
 has "rebrief, leg-bound: moved to the message path, it carries the link command" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" \
     'link-dispatcher.sh" <session> --dispatched-by coord`'
+fi
+
+if section "scope" "--rebrief of a leg-bound worker, then the land step's round"; then
+# The worker recorded its round in the session bound to its leg; a re-brief
+# moves the holding to the message path, and the land step's evidence read
+# (board-lib.sh bl_review_evidence, run here over this suite's stand-ins)
+# still finds that round in the session, with no result block in a report.
+# A message-path worker no re-brief moved off a leg has no stamped key, so
+# its report stays its only source.
+LANDLIB="$T/landlib"
+rm -rf "$LANDLIB"; mkdir -p "$LANDLIB"
+for f in "$DW/skills/coordinate/scripts/"*; do ln -s "$f" "$LANDLIB/"; done
+rm -f "$LANDLIB/state-holding.sh"; cp "$T/state-holding.sh" "$LANDLIB/state-holding.sh"
+land_round() { (HERE=$LANDLIB PROG=land-round KOTO_BIN=koto; . "$LANDLIB/board-lib.sh"; bl_review_evidence coord acme/widgets 12); }
+ROUND=$(jq -nc --arg h aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa '{reviewed_head: $h, seats: [
+    {seat: "architect", model: "sonnet", run: "agent-r1", verdict: "pass"},
+    {seat: "maintainer", model: "sonnet", run: "agent-r2", verdict: "pass"},
+    {seat: "pragmatic", model: "sonnet", run: "agent-r3", verdict: "pass"}]}')
+for how in key request; do
+    reset "$INPUT_SCOPE"
+    run >/dev/null 2>&1
+    jq -c '.pull_request = "[#12](https://github.com/acme/widgets/pull/12)"' "$ST/rows/plugin-api.json" >"$ST/r" && mv "$ST/r" "$ST/rows/plugin-api.json"
+    # The child's name reached the leg key (wait-target.sh records it), or
+    # only the request still names it.
+    if [ "$how" = key ]; then
+        jq -c '.child = "scope-plugin-api"' "$ST/ctx/legs/req_1/scope" >"$ST/k" && mv "$ST/k" "$ST/ctx/legs/req_1/scope"
+    else
+        jq -nc '{request_id: "req_1", request_state: "open", legs: {scope: {name: "scope", disposition: "open", bound_child: "scope-plugin-api"}}}' >"$ST/request_get.json"
+    fi
+    printf '%s\n' "$ROUND" >"$ST/ctx/review_round.json"
+    printf 'plugin-api' >"$ST/ctx/report_topic"
+    run --rebrief >/dev/null 2>&1; RC=$?
+    eq  "rebrief then land ($how): exit 0" 0 "$RC"
+    eq  "rebrief then land ($how): the holding is on the message path" message "$(row return_path)"
+    eq  "rebrief then land ($how): the leg key keeps the bound session" scope-plugin-api "$(jq -r '.child // ""' "$ST/ctx/legs/req_1/scope")"
+    EV=$(land_round 2>"$T/land.err")
+    eq  "rebrief then land ($how): the round is read from the worker's session" "session scope-plugin-api" \
+        "$(jq -r '"\(.source) \(.session)"' <<<"$EV" 2>/dev/null)"
+    eq  "rebrief then land ($how): and it is a well-formed round" "ok " "$(jq -r '"\(.status) \(.reason // "")"' <<<"$EV")"
+done
+# A message-path worker no re-brief moved off a leg: no stamped key, so the
+# session's round isn't its evidence; its report stays the source.
+reset "$INPUT_SCOPE"
+run >/dev/null 2>&1
+jq -c '.pull_request = "[#12](https://github.com/acme/widgets/pull/12)" | .return_path = "message"' "$ST/rows/plugin-api.json" >"$ST/r" && mv "$ST/r" "$ST/rows/plugin-api.json"
+jq -c '.child = "scope-plugin-api"' "$ST/ctx/legs/req_1/scope" >"$ST/k" && mv "$ST/k" "$ST/ctx/legs/req_1/scope"
+printf '%s\n' "$ROUND" >"$ST/ctx/review_round.json"
+EV=$(land_round 2>"$T/land.err")
+lacks "never re-briefed: the bound session is not read" "$EV" '"source":"session"'
+# Another worker's stamped key is never this worker's evidence.
+jq -c '.topic = "someone-else" | .rebriefed = "2026-01-01T00:00:00Z"' "$ST/ctx/legs/req_1/scope" >"$ST/k" && mv "$ST/k" "$ST/ctx/legs/req_1/scope"
+EV=$(land_round 2>"$T/land.err")
+lacks "another worker's stamped key: not read" "$EV" '"source":"session"'
 fi
 
 if section "deliver" "--rebrief from the importing run"; then

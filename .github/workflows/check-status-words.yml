@@ -1,0 +1,33 @@
+name: Check status words
+
+# A roadmap milestone's status is read through the properties in
+# skills/roadmap/references/milestone-statuses.json, by
+# crates/shirabe-validate/src/statuses.rs and by lib_status in
+# skills/coordinate/scripts/state-common.sh. scripts/check-status-words.sh
+# fails when a comparison against Done, Shipped, Closed, Completed or Verified
+# appears anywhere else in skills/ or crates/ without a record in
+# scripts/check-status-words.allow.
+#
+# It runs on every pull request, with no paths filter: the comparison it
+# looks for can be added to any file under skills/ or crates/, and the search
+# takes seconds. Linux only: it reads files and runs nothing else.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check-status-words:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test the check
+        run: bash scripts/check-status-words_test.sh
+
+      - name: Check for status-word comparisons outside the shared readers
+        run: bash scripts/check-status-words.sh

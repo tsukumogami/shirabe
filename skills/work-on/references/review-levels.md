@@ -165,7 +165,10 @@ The classes and thresholds live in
 [`review-level-rules.tsv`](review-level-rules.tsv), and changing one is a
 change to that file only. The floor is the highest level any rule yields,
 `light` when none does. A path can be in several classes, and each one
-counts. The shipped classes:
+counts. A fix round (`fix-round.sh`) has one more rule, outside the file: the
+last floor of the run it fixes, named `fix_round_parent`, so a round on a
+shared branch, whose diff is the fix alone, never reviews below the run. The
+shipped classes:
 
 | Class | Paths | Floor |
 |-------|-------|-------|

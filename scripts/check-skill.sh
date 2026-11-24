@@ -66,7 +66,13 @@
 # Selecting suites (--changed). The changed paths are `git diff --name-only
 # --no-renames <merge-base>` plus untracked files, where the merge-base is
 # HEAD's with the default branch (origin/HEAD's target, else origin/main,
-# else main), as the verification gate computes it. Selection is opt-in: a
+# else main), as the verification gate computes it. In a /work-on fix round
+# the gate sets SHIRABE_VERIFY_BASE to the round's base head for a skill the
+# round's own diff touches (run-verification.sh's header): when it is set and
+# names a commit by its hex id, the diff is from it instead of the merge-base,
+# and a line says so; anything else is ignored with a line saying that, and
+# the merge-base is used. Only the base changes; what follows is the same.
+# CHECK_SKILL_CHANGED, when set, still wins. Selection is opt-in: a
 # skill with no check-skill.tsv runs every suite, unless every changed path is
 # under an evals/ (the rule below). Otherwise each changed path is classified,
 # and any path that selects every suite settles the run:
@@ -176,6 +182,12 @@
 #                      the last whole summary. The variable is unset before any
 #                      check runs, so no suite can write the summary itself.
 #                      Unset, nothing is written and nothing else changes.
+#   SHIRABE_VERIFY_BASE
+#                      With --changed, the commit the changed paths are diffed
+#                      against in place of the merge-base (see "Selecting
+#                      suites"). The verification gate's supervisor sets it in
+#                      a fix round. Unset before any check runs, like
+#                      SHIRABE_SUITE_SUMMARY.
 #   KOTO_SESSIONS_BASE, KOTO_TICK_SESSION, KOTO_SESSION_*
 #                      Cleared before any check runs: a koto session running
 #                      this script passes its own store and session to it, and
@@ -221,6 +233,11 @@ SKILL="$1"
 SUMMARY="${SHIRABE_SUITE_SUMMARY:-}"
 unset SHIRABE_SUITE_SUMMARY
 [ "$LIST" = 0 ] || SUMMARY=""
+# The base --changed diffs against in a fix round (see the header). Taken here
+# and unset for the same reason: a suite that runs this script on a fixture
+# repository must diff against that repository's merge-base.
+VERIFY_BASE="${SHIRABE_VERIFY_BASE:-}"
+unset SHIRABE_VERIFY_BASE
 
 if ! grep -Eq '^[a-z0-9][a-z0-9-]*$' <<<"$SKILL" \
     || [ "$(printf '%s\n' "$SKILL" | wc -l | tr -d ' ')" != "1" ]; then
@@ -452,6 +469,11 @@ changed_paths() {
         return 0
     fi
     local base mb
+    if [ -n "$VERIFY_BASE" ]; then
+        { git diff --name-only --no-renames "$VERIFY_BASE" -- && git ls-files --others --exclude-standard; } \
+            | sort -u
+        return 0
+    fi
     base=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)
     if [ -z "$base" ]; then
         if git rev-parse --verify -q "origin/main^{commit}" >/dev/null 2>&1; then
@@ -913,6 +935,19 @@ order_suites() {
 }
 
 if [ "$CHANGED" = 1 ]; then
+    # SHIRABE_VERIFY_BASE counts only when it names a commit here, by its hex
+    # id, so nothing it holds can reach git as an option.
+    if [ -n "$VERIFY_BASE" ] && [ -z "${CHECK_SKILL_CHANGED+set}" ]; then
+        if grep -Eq '^[0-9a-f]{7,64}$' <<<"$VERIFY_BASE" \
+            && git rev-parse --verify -q "${VERIFY_BASE}^{commit}" >/dev/null; then
+            echo "check-skill: --changed diffs against SHIRABE_VERIFY_BASE $VERIFY_BASE, not the merge-base"
+        else
+            echo "check-skill: SHIRABE_VERIFY_BASE [$VERIFY_BASE] is not a commit here; --changed diffs against the merge-base"
+            VERIFY_BASE=""
+        fi
+    else
+        VERIFY_BASE=""
+    fi
     select_suites
     if [ -z "$ALL_REASON" ]; then
         kept=()
