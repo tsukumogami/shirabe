@@ -656,4 +656,77 @@ if needs_takeover "12: the role check on a takeover"; then
     done
 fi
 
+# ---- 13. a discipline successor started after its rotation's window -----------------------
+# A director's rotation dispatches its successor, and its window ends
+# yesterday. The successor started from the brief's tokens opens the next
+# rotation rather than taking the ended one over, and predecessor_carry's
+# state-open.sh --carry carries the record and the role director. The carried
+# successor row is cleared only when the new run's koto/links/dispatched-by/
+# names the run that set it: a start with --dispatched-by naming the
+# predecessor clears it; a start with no --dispatched-by (the next rotation
+# opened by hand), or one naming another run, keeps it as it stood.
+#
+# end_window <session>: the rotation's window ended yesterday, as the agent
+# writes it.
+end_window() {
+    local y
+    y=$(day -1)
+    (cd "$T/work" && koto context get "$1" record/rotation) | jq -c --arg e "$y" '.end = $e | if .start > $e then .start = $e else . end' > "$T/rot.json" \
+        && (cd "$T/work" && bash "$PS/state-stored-set.sh" --session "$1" --rotation "$T/rot.json" > /dev/null 2> "$T/w.err")
+}
+OTHER=${D:-${A:-}}
+for c in ci-after-clear:clear ci-after-hand:hand ci-after-other:other; do
+    name=${c%%:*} kind=${c#*:}
+    [ "$kind" != other ] || [ -n "$OTHER" ] || { bad "13 other: an earlier case's run to name" "cases 1 and 7 opened none"; continue; }
+    ns_reset
+    drun "$name" director open || continue
+    P=$S
+    successor "$name-successor-1"
+    eq "13 $kind: the successor is dispatched" "0 dispatched $name-successor-1 $TODAY" "$SRC $(succ_value)"
+    ROW=$(succ_row | jq -c 'map({value, set_by})')
+    end_window "$P"
+    eq "13 $kind: the rotation's window ended yesterday" "0 $(day -1)" "$? $( (cd "$T/work" && koto context get "$P" record/rotation) | jq -r .end)"
+    case "$kind" in
+        clear) opener_from "$name-successor-1" "$B_ID" --dispatched-by "$P"; ID=$B_ID ;;
+        hand) opener_from "$name-successor-1" "$C_ID"; ID=$C_ID ;;
+        other) opener_from "$name-successor-1" "$C_ID" --dispatched-by "$OTHER"; ID=$C_ID ;;
+    esac
+    SN=$(line session)
+    if [ "$ORC" != 0 ] || [ -z "$SN" ] || [ "$SN" = "$P" ] || [ -n "$(line outcome)" ]; then
+        bad "13 $kind: the start opens the next rotation, a new run" "$ORC [$OUT] $(cat "$T/open.err")"
+        continue
+    fi
+    ok "13 $kind: the start opens the next rotation, a new run"
+    eq "13 $kind: ... printing role=director" director "$(line role)"
+    S=$SN WD=$T/work2
+    LINKS=$( (cd "$WD" && koto context list "$SN" --prefix koto/links/dispatched-by/) | jq -r 'map(ltrimstr("koto/links/dispatched-by/")) | join(" ")')
+    case "$kind" in
+        clear) eq "13 clear: the new run's dispatched-by link names the predecessor" "$P" "$LINKS" ;;
+        hand) eq "13 hand: the new run has no dispatched-by link" "" "$LINKS" ;;
+        other) eq "13 other: the new run's dispatched-by link names another run" "$OTHER" "$LINKS" ;;
+    esac
+    eq "13 $kind: its find leads to predecessor_carry" predecessor_carry "$(at)"
+    CLAUDE_CODE_SESSION_ID=$ID write_as_agent state-open.sh --carry --role director
+    eq "13 $kind: state-open.sh --carry exits 0 printing carried=<predecessor>" "0 $P" "$? $(sed -n 's/^carried=//p' "$T/w.out")"
+    if [ "$kind" = clear ]; then
+        CLAUDE_CODE_SESSION_ID=$ID write_as_agent state-open.sh --carry --role director
+        eq "13 clear: the carry run again reads as carried, the row still gone" "0 $P []" "$? $(sed -n 's/^carried=//p' "$T/w.out") $(succ_row "$SN" "$WD")"
+    fi
+    eq "13 $kind: ... and the carry reaches reconcile" reconcile "$(at --with-data '{"carry":"carried"}')"
+    eq "13 $kind: the next rotation names the predecessor" "$P" "$( (cd "$WD" && koto context get "$SN" record/rotation) | jq -r .predecessor)"
+    eq "13 $kind: ... and holds role director" director "$(run_rows "$SN" "$WD" | jq -r '[.[] | select(.key == "role") | .value][0] // "none"')"
+    if [ "$kind" = clear ]; then
+        eq "13 clear: the carried successor row is cleared" "[]" "$(succ_row "$SN" "$WD")"
+        eq "13 clear: ... told as an entry" 1 "$( (cd "$WD" && bash "$PS/state-entry.sh" --session "$SN" --list 2>/dev/null) \
+            | jq --arg v "dispatched $name-successor-1 $TODAY" '[.[] | select(.text | startswith("Run successor \($v) cleared by"))] | length')"
+    else
+        eq "13 $kind: the carried successor row is kept, its value and Set by unchanged" "$ROW" "$(succ_row "$SN" "$WD" | jq -c 'map({value, set_by})')"
+    fi
+    REC=$(first_record "$SN")
+    case "$REC" in
+        *"\`$SN\`"*"\`acme/widgets\`"*"Role: director.") ok "13 $kind: the next rotation's first Record: line names it and ends Role: director." ;;
+        *) bad "13 $kind: the next rotation's first Record: line names it and ends Role: director." "$REC" ;;
+    esac
+done
+
 echo; echo "successor-handover engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]
