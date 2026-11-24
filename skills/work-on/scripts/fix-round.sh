@@ -185,7 +185,7 @@ if [ -n "$CHILD_PLAN_DOC" ] && [ -n "$PARENT" ]; then
     elif [ ! -d "$PARENT_DIR" ]; then
         die 2 "$PARENT is bound to $PARENT_DIR, which no longer exists; rebind it to its checkout (koto session rebind) and start the round again"
     fi
-    (cd "$PARENT_DIR" && koto context exists "$PARENT" plan_abs >/dev/null 2>&1)
+    (cd "$PARENT_DIR" && koto context exists "$PARENT" plan_abs >/dev/null)
     case $? in
         0)
             PARENT_PLAN_ABS=$(cd "$PARENT_DIR" && koto context get "$PARENT" plan_abs) \
