@@ -578,6 +578,10 @@ def manifest_bytes(tree, profile):
                 out.append(line)
         while out and out[-1] == "":
             out.pop()
+        # A state the tree's template no longer has loads nothing: 0 bytes,
+        # as offload-baseline.sh count --tree counts it.
+        if not out:
+            continue
         total += len(("\n".join(out) + "\n").encode())
     return total
 
