@@ -972,6 +972,20 @@ reads the milestone `verdict_owed` while it stands and lists it as a verdict
 to give, and the dispatch check (`verdict-owed <tag>`, code 49),
 `dispatch-worker.sh` (exit 10) and close-out refuse it.
 
+On a `roadmap/v4` roadmap `--unit` takes `--outcome` and also records the
+milestone Completed in the roadmap: in a pull request of its own, or folded
+into the run's pending roadmap edit when that edit is still open. It prints
+two lines, `verdict-owed <tag>` and then that pull request's URL, or
+`<tag> already reads Completed on ...` when the default branch or the pending
+edit already says so. The row also satisfies the milestone's dependents,
+whatever its Status reads, so pick offers them in the pass the milestone's
+work finished; the milestone itself reads done with `takes_work` false, and
+the refusals above stay its own, never a dependent's. The reconcile pass,
+once per visit, runs `roadmap-status.sh --owe-completed`, which writes the
+same row for every milestone a `roadmap/v4` roadmap reads Completed that has
+none (a roadmap the record took up after its milestones were finished), and
+nothing on v1 to v3; the report lists each one under "Changed since then".
+
 ### The verdict entry
 
 Written with `state-entry.sh --kind milestone-verdict --on none`, at most 16
@@ -1039,8 +1053,9 @@ What was seen: <one paragraph, at most 600 bytes, no URL or link>
 ```
 
 `milestone.sh check-failure <roadmap> <tag> <entry>` checks it against the
-roadmap on the default branch: the milestone must read Done there, and the
-clause must be one of its Evidence clauses. What was seen gets the rework
+roadmap on the default branch: the milestone must read Done there (Completed
+or Verified on a `roadmap/v4` roadmap), and the clause must be one of its
+Evidence clauses. What was seen gets the rework
 row's shape, because the milestone's next brief quotes it.
 
 ### The roadmap edits
@@ -1107,6 +1122,28 @@ as they are, and appends:
 
 It prints the pull request's URL, then `held-dependent <tag> <worker>` for
 each milestone whose Dependencies name this one and that a holding covers.
+
+On a `roadmap/v4` roadmap the status table decides each move, through
+`state-common.sh lib_status_move`, before anything is opened. `--verdict`
+needs no verdict-owed row: it passes the row's `who` as `--worker` when there
+is a row, and the record write that adds its Side effects row removes the
+row. Either verified verdict moves the milestone to Verified (trigger
+`verified`), and changes needed to In progress (`changes-needed`); `--reopen`
+moves a Completed or Verified milestone to In progress (`reopen`). Each edit
+sets the milestone's block Status and its row in the first `## Progress` table
+with a Status column together. A changes-needed verdict prints the
+held-dependent lines a reopen prints, and on v4 both name each dependent a
+holding covers and each one that reads Completed or Verified, the latter as
+`held-dependent <tag> none` when no holding covers it, one line per
+dependent. A move the table doesn't list is refused (65) with the milestone,
+its status and the trigger named, nothing opened and the record unchanged:
+another verdict on a Verified milestone, any verdict or reopen of a Dropped
+one, a reopen of one that's Not started or In progress. The `milestone-done`
+row's How to confirm reads `<tag> Verified (entry <n>)`, and `--confirm`
+waits for a status that closes and satisfies, since the default branch read
+the milestone Completed before the edit. The reconcile pass's
+`--owe-completed` owes nothing for a milestone whose verdict or reopen edit
+is pending. On v1 to v3 none of this changes.
 
 Each edit opens one pull request with the whole entry in its body, so the
 reviewer who approves it reads the judgment, and writes a Side effects row:

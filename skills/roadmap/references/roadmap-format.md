@@ -65,8 +65,11 @@ upstream: docs/strategies/STRATEGY-<name>.md  # optional
 Required fields: `schema`, `status`, `theme`, `scope`. `schema` is
 `roadmap/v3` for a milestone roadmap, which is what `/roadmap` writes (see
 [Milestones](#milestones)); `roadmap/v2` for a milestone roadmap written
-before v3, whose items keep the feature words; or `roadmap/v1` for one in
-the per-feature format below. All three stay valid. Optional:
+before v3, whose items keep the feature words; `roadmap/v4` for a milestone
+roadmap whose milestones read Completed and Verified instead of Done (see
+[roadmap/v4: Completed and Verified](#roadmapv4-completed-and-verified)); or
+`roadmap/v1` for one in the per-feature format below. All four stay valid.
+Optional:
 `upstream` (path to the STRATEGY document that this roadmap sequences
 the work for, when one exists). Each field other than `schema` should
 be 1 paragraph using YAML literal block scalars (`|`).
@@ -229,7 +232,10 @@ and use it consistently.
 ## Milestones
 
 A roadmap whose frontmatter reads `schema: roadmap/v3` or
-`schema: roadmap/v2` is a milestone roadmap: every item in its items
+`schema: roadmap/v2` is a milestone roadmap, and so is one that reads
+`schema: roadmap/v4`, which keeps the v3 words and changes the statuses
+(see [roadmap/v4: Completed and
+Verified](#roadmapv4-completed-and-verified)): every item in its items
 section is a milestone, an outcome someone can exercise end to end, with a
 check someone other than the session that delivers it can judge.
 
@@ -296,7 +302,10 @@ the next field line or the next heading. Write the fields in this order:
   every entry is another milestone's tag or a cross-repo issue reference
   `<owner>/<repo>#<n>`. Soft ordering and the reasons behind an order go
   in the Sequencing Rationale, not here.
-- **Status** -- exactly `Not started`, `In progress`, `Done` or `Dropped`.
+- **Status** -- exactly `Not started`, `In progress`, `Done` or `Dropped`
+  (`Shipped` and `Closed` read as `Done`). A `roadmap/v4` roadmap has its
+  own five; see [roadmap/v4: Completed and
+  Verified](#roadmapv4-completed-and-verified).
 - **Delivered** -- optional; the pull requests that delivered the work,
   added as they merge. It is what landed, never the promise: the Outcome
   stays as written. In a public roadmap it names only public pull requests
@@ -507,6 +516,138 @@ recorded merged pull requests on an `**Outcome:**` line renames that line
 else needs to move: the tables, the Dependency Graph and the coordinator
 read every version.
 
+### roadmap/v4: Completed and Verified
+
+A `roadmap/v4` roadmap has the `roadmap/v3` layout (`## Milestones`,
+`### Milestone <N>:` headings, the same fields and Evidence rule). What
+changes is the Status. On v1 to v3 a milestone reads Done only once its
+verdict merges, so work that has landed and waits on its verdict looks
+unfinished to everyone reading the roadmap. A v4 milestone separates the
+two: Completed when the work has landed, Verified when a verdict says it
+holds.
+
+**Rollout: install before you migrate.** Install the release that reads
+`roadmap/v4` on every host that runs a coordinator before moving any
+roadmap to v4. A coordinator from an earlier release reads a v4 roadmap as
+having no milestones. The release notes,
+[Completed and Verified milestone states](../../../docs/guides/RELEASE-NOTES-completed-verified-states.md),
+give the whole order: install, a dry run of the roadmap migrate command,
+the migration itself, then a populate pass.
+
+#### The five statuses
+
+A v4 milestone's Status is exactly one of `Not started`, `In progress`,
+`Completed`, `Verified` or `Dropped`. Done isn't one of them, and neither
+are Shipped and Closed.
+
+Every tool reads a status through four properties, defined once in
+`references/milestone-statuses.json` (in this skill's directory):
+
+- **satisfies** -- a milestone that depends on this one may start;
+- **closes** -- this milestone needs nothing more for its roadmap to
+  finish;
+- **takes work** -- a coordinator may still dispatch delivery for it;
+- **renders** -- whether populate strikes its table row, and its diagram
+  class.
+
+| Status | satisfies | closes | takes work | renders |
+|---|---|---|---|---|
+| Not started | no | no | yes | unstruck; `ready`, `blocked` or a Needs class |
+| In progress | no | no | yes | unstruck; as Not started |
+| Completed | yes | no | no | unstruck; class `completed` |
+| Verified | yes | yes | no | struck; class `done` |
+| Dropped | no | yes | no | struck; class `dropped` |
+
+So a Completed milestone unblocks its dependents straight away, takes no
+new delivery work, and keeps its roadmap open until a verdict moves it on.
+A Dropped milestone closes but never satisfies: a milestone that depends
+only on a Dropped one stays blocked. On v1 to v3 the same file records
+today's readings: Done (spelled Done, Shipped or Closed) satisfies,
+closes, takes no work and renders struck as `done`; Dropped closes, takes
+no work and renders unstruck with no class of its own.
+
+#### Transitions
+
+A v4 milestone's Status moves only as this table says:
+
+| From | To | Trigger |
+|---|---|---|
+| Not started, In progress | Completed | the milestone's work is finished |
+| Not started, In progress, Completed | Verified | a verified or verified-with-follow-ups verdict |
+| Not started, In progress, Completed | In progress | a changes-needed verdict |
+| Completed, Verified | In progress | a reopen, when a clause of the milestone's Evidence is found failing |
+| Not started, In progress, Completed | Dropped | an author's edit, with a reason |
+
+The tool that would make any other move refuses it, naming the
+milestone, its status and the trigger. A Verified milestone is never
+dropped, and a Dropped one never moves. Verified doesn't wait on the
+milestone's dependencies.
+
+#### The Progress table
+
+A v4 roadmap may keep a table in `## Progress` with one row per
+milestone, beside its dated Progress lines. Its first column names the
+milestone by tag, usually followed by the title, and it has a `Status`
+column:
+
+```markdown
+| Milestone | Status | Verdict |
+|-----------|--------|---------|
+| Milestone 1: Loader | Completed | -- |
+| Milestone 2: Registry | Verified | verified (2026-11-01) |
+```
+
+The first table under `## Progress` whose header has a `Status` column is
+the Progress table. A row names the milestone whose tag its first cell
+starts with, followed by the cell's end, a colon or a space (`Milestone 1`
+never names `Milestone 14`'s row), and `Feature <N>` names the same row as
+`Milestone <N>`. Each edit that changes a milestone's status writes its
+block Status and its Progress row in the same pass, so the two always
+read the same word. A roadmap without a Progress table is valid.
+
+#### What may change while it is Active
+
+On an Active v4 roadmap, a milestone's fields change in place only this
+way:
+
+- **Status and Delivered** -- by the coordinator's edits: Completed and
+  the pull requests that delivered the work when it lands, Verified or In
+  progress from a verdict, In progress from a reopen. Every one writes
+  the block and the Progress row together.
+- **Outcome, Evidence and Left open** -- only through a verdict's
+  follow-ups, or an author's amendment with its Progress line, as in
+  [What may change while it is Active](#what-may-change-while-it-is-active).
+- **Dropped** -- an author's edit with a reason, from any status the
+  transition table allows.
+
+Everything else needs a new roadmap, as on v3.
+
+#### The roadmap's own Done
+
+Setting the roadmap's own status stays the author's edit. A v4 roadmap may
+read Done only once every milestone reads Verified or Dropped (every
+milestone closes); a roadmap whose milestones are all Dropped may read
+Done too. A Completed milestone still owes its verdict, so a roadmap with
+one isn't finished.
+
+#### Validation on roadmap/v4
+
+FC21 runs on a v4 roadmap as on v3, with the five statuses in place of
+v3's four, and adds three findings:
+
+- a milestone Status that isn't one of the five (Done included), naming
+  the milestone and the five words;
+- a roadmap whose status is Done while a milestone doesn't close, one
+  finding per such milestone, naming it and its status;
+- a milestone whose block Status and Progress table row read different
+  words, naming the milestone and both values.
+
+FC07 reconciles the `completed` and `dropped` classes on a v4 diagram the
+way it reconciles `done`: a Completed milestone's node is `completed`, a
+Verified one's `done` and a Dropped one's `dropped`. FC08 counts both in
+the canonical palette on v4, so a Legend needn't name them. On v1 to v3
+neither name is part of the palette, and none of the v4 findings applies.
+
 ## Reserved Sections
 
 Two sections follow Progress. They're structurally part of the
@@ -715,9 +856,10 @@ directory movement based on status -- all roadmaps stay in
 
 The validator runs FC05 (issues-table schema conformance), FC06
 (cross-reference existence), and FC16 (reserved-section shape) on roadmap
-docs, and FC21 (the milestone fields) on a `roadmap/v2` or `roadmap/v3`
-roadmap; see
-[Validation (FC21)](#validation-fc21). See `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md` for the
+docs, and FC21 (the milestone fields) on a `roadmap/v2`, `roadmap/v3` or
+`roadmap/v4` roadmap; see
+[Validation (FC21)](#validation-fc21) and [Validation on
+roadmap/v4](#validation-on-roadmapv4). See `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md` for the
 canonical roadmap profile contract FC05/FC06 enforce.
 
 FC05 and FC06 validate a *present* issues table and FC07 reconciles a
