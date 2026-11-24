@@ -471,8 +471,9 @@ states:
     # coordinator's and never acts. No value targets a terminal or a
     # confirmation, and no arm tests a gate, so every value stays promotable.
     # Inputs: coord/pick_slice.json, pick-slice.jq's slice of coord/pick.json,
-    # and the PARKED_BOUND variable. The slice carries the cap in force (the
-    # record's Run section's, when it has one, over the CAP variable).
+    # and the PARKED_BOUND variable. The slice carries the cap and the parked
+    # bound in force (the record's Run section's `cap` and `parked-bound` rows,
+    # when it has them, over the CAP and PARKED_BOUND variables).
     # pick_facts stores the slice and the facts before it seals its verdict, so
     # a sealed verdict means both are this visit's; its pick_slice_input and
     # pick_input gates only say each exists. The directive reads the full
@@ -2694,9 +2695,10 @@ and drive every worker to landed work.
   worker's Claude jobs on this host have all finished, so nothing runs for it
   while it waits on its pull request, and a worker continuing its unit takes
   the same slot without a cap raise.
-- **The parked bound.** When {{PARKED_BOUND}} or more workers are parked, dispatch
-  nothing new until the human has worked through the merge-order table
-  (`hold`).
+- **The parked bound.** When {{PARKED_BOUND}} or more workers are parked, or the
+  number a Run `parked-bound` row sets in its place (`parked_bound` in
+  coord/pick.json is the bound in force), dispatch nothing new until the human
+  has worked through the merge-order table (`hold`).
 - **Order.** Roadmap features in the roadmap's order; a discipline's units in
   issue-number order; unblocked first. A roadmap feature is unblocked when every
   feature it depends on reads Done and no holding covers it.
