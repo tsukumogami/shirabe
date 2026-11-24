@@ -1062,7 +1062,7 @@ fn validate_features_count(doc: &crate::Doc, min: usize) -> Result<(), Transitio
     use crate::features::{is_feature_heading, RoadmapVersion};
     let version = RoadmapVersion::of(&doc.schema);
 
-    if version == RoadmapVersion::V3 {
+    if version.uses_milestone_words() {
         let section = format!("## {}", version.items_section());
         let count = doc
             .body

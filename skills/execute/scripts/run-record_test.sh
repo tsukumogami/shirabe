@@ -115,6 +115,7 @@ run/node/pr-repo-a-core|repo|\"acme/repo-a\"|push recover carry
 run/node/pr-repo-a-core|pr|11|push recover carry
 run/node/pr-repo-a-core|head|\"$CT_HEAD\"|push recover carry
 run/node/pr-repo-a-core|deferrals|[]|push recover carry
+run/node/pr-repo-a-core|reruns|[]|push recover carry
 run/node/pr-repo-a-core|public_reason|\"verified by hosted CI\"|push recover carry
 run/node/pr-repo-a-core|merged_head|\"$CT_HEAD\"|observe recover carry
 $FU|repo|\"acme/repo-a\"|follow-up recover carry
@@ -178,6 +179,10 @@ expect "a pr given as a string" 66 "refused=invalid key=run/node/pr-repo-a-core 
 for d in '"a reason"' '[""]' '["a\nb"]' '["a","a"]' '[1]'; do
     rec push '{"run/node/pr-repo-a-core":{"repo":"acme/repo-a","pr":11,"head":"'"$CT_HEAD"'","deferrals":'"$d"'}}'
     expect "deferrals [$d]: not distinct non-empty one-line strings" 66 "refused=invalid key=run/node/pr-repo-a-core field=deferrals"
+done
+for d in '"a line"' '[""]' '["a\nb"]' '["a\rb"]' '["a","a"]' '[1]' '{}'; do
+    rec push '{"run/node/pr-repo-a-core":{"repo":"acme/repo-a","pr":11,"head":"'"$CT_HEAD"'","reruns":'"$d"'}}'
+    expect "reruns [$d]: not distinct non-empty one-line strings" 66 "refused=invalid key=run/node/pr-repo-a-core field=reruns"
 done
 for p in '""' '"   "' '"a\nb"' '"a\rb"' '["a"]' '1'; do
     rec push '{"run/node/pr-repo-a-core":{"repo":"acme/repo-a","pr":11,"head":"'"$CT_HEAD"'","public_reason":'"$p"'}}'
@@ -257,6 +262,19 @@ expect "a later push without public_reason" 0 "written=run/node/pr-repo-a-core"
 [ "$(val run/node/pr-repo-a-core | jq -c '[.public_reason, .deferrals, .head]')" = "[\"Verified by the hosted CI run.\",[\"host is busy\"],\"$CT_OTHER\"]" ] \
     && pass "a push without public_reason keeps the recorded one" \
     || fail "after the push without public_reason: $(val run/node/pr-repo-a-core)"
+RERUN_L1='Re-run attempt 1 at `111111111111`: `unit` failed; reason `flaky test`; attempt 2 passed.'
+RERUN_L2='Re-run attempt 1 at `222222222222`: `e2e` timed out; reason `slow host`.'
+rec push "$(jq -cn --arg h "$CT_HEAD" --arg a "$RERUN_L1" --arg b "$RERUN_L2" \
+    '{"run/node/pr-repo-a-core": {head: $h, reruns: [$a, $b]}}')"
+expect "a push recording the node's re-run lines" 0 "written=run/node/pr-repo-a-core"
+[ "$(val run/node/pr-repo-a-core | jq -c '[.reruns, .deferrals, .public_reason]')" \
+    = "$(jq -cn --arg a "$RERUN_L1" --arg b "$RERUN_L2" '[[$a, $b], ["host is busy"], "Verified by the hosted CI run."]')" ] \
+    && pass "reruns are stored in order, beside the kept deferrals and public_reason" \
+    || fail "after the reruns push: $(val run/node/pr-repo-a-core)"
+rec push "{\"run/node/pr-repo-a-core\":{\"head\":\"$CT_HEAD\",\"reruns\":[]}}"
+expect "a push recording no re-run line" 0 "written=run/node/pr-repo-a-core"
+[ "$(val run/node/pr-repo-a-core | jq -c .reruns)" = "[]" ] && pass "an empty reruns list replaces the recorded lines" \
+    || fail "after the empty reruns push: $(val run/node/pr-repo-a-core)"
 rec push '{"run/node/pr-repo-a-cli":{"repo":"acme/repo-b","pr":21,"head":"'"$CT_HEAD"'"}}'
 expect "a push to a repository outside run/setup's repos" 66 "refused=repo-outside key=run/node/pr-repo-a-cli field=repo"
 

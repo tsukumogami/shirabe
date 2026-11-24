@@ -44,6 +44,9 @@ skills/execute/scripts/execute-output-gates-routing_test.sh
 # The deferral record gate: its stub cases need only jq, so they run
 # on 3.2; its engine cases skip without koto.
 skills/execute/scripts/shared-deferral-record_test.sh
+# The re-run record gate: the same split, its stub cases on 3.2 and
+# its engine cases skipped without koto.
+skills/execute/scripts/shared-rerun-record_test.sh
 # Its script cases write through a koto stand-in and need only git
 # and jq, so they run on the macOS leg; its engine cases skip there.
 skills/execute/scripts/drift-facts_test.sh
@@ -60,6 +63,7 @@ skills/execute/scripts/record-coord-follow-up_test.sh
 skills/execute/scripts/worktree-isolation_test.sh
 skills/execute/scripts/node-cut_test.sh
 skills/execute/scripts/node-push_test.sh
+skills/execute/scripts/node-push-rerun-adopt_test.sh
 skills/execute/scripts/child-read_test.sh
 skills/execute/scripts/repo-visibility_test.sh
 skills/execute/scripts/coordinated-visibility_test.sh

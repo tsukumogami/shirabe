@@ -26,6 +26,7 @@ pub mod references;
 pub mod repoint;
 pub mod report;
 pub mod rules;
+pub mod statuses;
 pub mod table;
 pub mod transition;
 pub mod upstream;

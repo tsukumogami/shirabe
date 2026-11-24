@@ -145,7 +145,10 @@ edges() {
 echo "--- the shipped template"
 
 EDGES=$(edges)
-INTO=$(printf '%s\n' "$EDGES" | awk -F'|' '$2 == "verification"')
+# A loop inside verification (its re-run at the timed-out hold) isn't a way in,
+# and a hosted-ci run never reaches that hold, so only edges from other states
+# count and need a twin.
+INTO=$(printf '%s\n' "$EDGES" | awk -F'|' '$1 != "verification" && $2 == "verification"')
 TWINS=$(printf '%s\n' "$EDGES" | awk -F'|' '$2 == "verification_deferred"')
 N_INTO=$(printf '%s\n' "$INTO" | grep -c .)
 N_TWINS=$(printf '%s\n' "$TWINS" | grep -c .)
@@ -373,6 +376,8 @@ build() {
             '    pattern: ^(light|standard|full)?$'
         extract_var VERIFICATION
         extract_var VERIFICATION_DEFERRAL_REASON
+        # issue_type_routing's code_route gate passes the type hint.
+        extract_var ISSUE_TYPE
         printf '%s\n' '  PROBE_NEAR_RULE:' '    description: the probe_near capture pr_creation reads' '    required: false'
         printf '%s\n' 'states:' '  start:'
         if [ "$initial" = pr_creation ]; then

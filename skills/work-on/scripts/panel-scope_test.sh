@@ -733,6 +733,81 @@ edit docs/c.md 1 changed
 run --plan scrutiny "$SESSION"
 expect_full "seats that judged no commit since impl_base" scrutiny "no commit since impl_base"
 
+# A fix round (fix-round.sh) inherits the ledger of the run it follows, marked
+# `inherited`, and records its own impl_base at the head that run left, so
+# every seat's newest record is no later than impl_base. Its plan.md is the
+# fix's, and its context.md is its own issue text, which may differ (a
+# comment added since); what has to match is the criteria section
+# review-level.sh stored, review_level_criteria.txt. Under the same criteria
+# the round judges the fix as a fix diff; with other criteria, without the
+# mark, or with a fix over the threshold it reviews in full.
+# fix_round <name> <inherit:yes|no> <criteria>: SESSION becomes <name>, a
+# round of the current fixture's run whose panels judged HEAD.
+fix_round() {
+    local parent="$SESSION" head
+    head=$(cd "$FX/repo" && git rev-parse HEAD)
+    SESSION="$1"
+    mkdir -p "$SHIM_STORE/$SESSION"
+    printf 'AC: the issue body\n' > "$SHIM_STORE/$parent/review_level_criteria.txt"
+    if [ "$2" = yes ]; then
+        jq --arg from "$parent" --arg base "$head" \
+            --arg crit "$(git hash-object "$SHIM_STORE/$parent/review_level_criteria.txt")" \
+            '.inherited = {from: $from, base: $base, criteria_sha: $crit}' \
+            "$SHIM_STORE/$parent/verdict_ledger.json" > "$SHIM_STORE/$SESSION/verdict_ledger.json"
+        printf 'AC: the issue body\nComment: a reviewer asked for a fix\n' > "$SHIM_STORE/$SESSION/context.md"
+    else
+        cp "$SHIM_STORE/$parent/verdict_ledger.json" "$SHIM_STORE/$SESSION/verdict_ledger.json"
+        cp "$SHIM_STORE/$parent/context.md" "$SHIM_STORE/$SESSION/context.md"
+    fi
+    printf '%s\n' "$head" > "$SHIM_STORE/$SESSION/impl_base"
+    printf '%s\n' "$3" > "$SHIM_STORE/$SESSION/review_level_criteria.txt"
+    printf 'Plan: the fix review asked for\n' > "$SHIM_STORE/$SESSION/plan.md"
+}
+
+fixture tr-inherit
+plan_record scrutiny "$ALL_PASS"
+fix_round tr-inherit-fix-1 yes 'AC: the issue body'
+edit docs/c.md 1 changed
+run --plan scrutiny "$SESSION"
+expect_not_full "a small fix in a round that inherited the run's ledger" scrutiny
+expect_decision "the inheriting round" scrutiny completeness keep
+if jq -e '[.decisions[] | select(.seat == "reverifier") | .fix_review] == [true]' \
+    "$SHIM_STORE/$SESSION/scrutiny_scope.json" >/dev/null 2>&1; then
+    pass "the inheriting round reviews the fix diff with the re-verifier alone"
+else
+    fail "the inheriting round planned $(jq -c '[.decisions[] | {seat, decision, fix_review}]' "$SHIM_STORE/$SESSION/scrutiny_scope.json")"
+fi
+record scrutiny '[{"seat":"reverifier"}]'
+if jq -e '.inherited.from == "tr-inherit"' "$SHIM_STORE/$SESSION/verdict_ledger.json" >/dev/null 2>&1; then
+    pass "recording the round keeps the ledger's inherited mark"
+else
+    fail "the round's ledger lost its inherited mark: $(jq -c '.inherited' "$SHIM_STORE/$SESSION/verdict_ledger.json")"
+fi
+
+fixture tr-inherit-ac
+plan_record scrutiny "$ALL_PASS"
+fix_round tr-inherit-ac-fix-1 yes 'AC: criteria the run was not judged against'
+edit docs/c.md 1 changed
+run --plan scrutiny "$SESSION"
+expect_full "an inheriting round whose criteria changed" scrutiny "acceptance criteria or the plan changed"
+
+fixture tr-inherit-none
+plan_record scrutiny "$ALL_PASS"
+fix_round tr-inherit-none-fix-1 no 'AC: the issue body'
+edit docs/c.md 1 changed
+run --plan scrutiny "$SESSION"
+expect_full "a round holding the run's ledger without the inherited mark" scrutiny "acceptance criteria or the plan changed"
+rm -f "$SHIM_STORE/$SESSION/plan.md"
+run --plan scrutiny "$SESSION"
+expect_full "the same round under the run's own plan" scrutiny "no commit since impl_base"
+
+fixture tr-inherit-big
+plan_record scrutiny "$ALL_PASS"
+fix_round tr-inherit-big-fix-1 yes 'AC: the issue body'
+(cd "$FX/repo" && seq 1 201 > docs/new.txt && git add docs/new.txt && git commit -q -m big) >/dev/null 2>&1
+run --plan scrutiny "$SESSION"
+expect_full "a 201-line fix in an inheriting round" scrutiny "changes 201 lines"
+
 fixture tr-201
 plan_record scrutiny "$ALL_PASS"
 (cd "$FX/repo" && seq 1 201 > docs/new.txt && git add docs/new.txt && git commit -q -m big) >/dev/null 2>&1
@@ -1991,9 +2066,8 @@ engine_to_scrutiny() {
     # The full review level keeps all three panels on the path.
     "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$s" full >/dev/null 2>&1 \
         || { fail "$s: review-level.sh set full failed"; return 1; }
-    # Into fix_determination, whose action binds UNIT_KIND; koto routes on it
-    # from the next tick, to implementation.
-    koto next "$s" --no-cleanup >/dev/null 2>&1
+    # Into fix_determination, whose action records the kind and whose
+    # kind_route gate routes on it in the same tick, to implementation.
     koto next "$s" --no-cleanup >/dev/null 2>&1
     submit "$s" '{"implementation_status":"complete"}'
     [ "$NEXT_STATE" = issue_type_routing ] && submit "$s" '{"issue_type":"code"}'

@@ -636,6 +636,76 @@ it, and whoever operates the backend can read its file bytes and owns
 removing old sessions. Every argument, `--watch` included, shows in a process
 listing while the script runs, so a watch carries no secret.
 
+## Reading the size after a compaction
+
+`scripts/context-size.sh <transcript.jsonl>` reports a session's own size from
+its transcript, correct on the first read after a compaction. It takes the
+transcript's path and reads nothing from the working directory, so it gives
+the same report from an instance, a worktree or the workspace root. Its
+output is line-oriented, so a session can send it to a supervisor as text:
+
+```
+context_tokens: 141822
+boundaries: 2
+boundary_turns: 361 742
+window: 280000
+hard_stop: 350000
+```
+
+- `context_tokens` is the input total (`input_tokens` plus
+  `cache_read_input_tokens` plus `cache_creation_input_tokens`) of the newest
+  assistant message after the latest `compact_boundary` record, or in the
+  whole transcript when there is no boundary.
+- `boundaries` counts the `compact_boundary` records, and `boundary_turns`
+  gives the assistant turn at which each fell, the number of assistant turns
+  before it, or `none`.
+- `window` is `CLAUDE_CODE_AUTO_COMPACT_WINDOW` when that is a positive
+  integer of at most nine digits, `invalid` when it is set to anything else,
+  and `unset` when it isn't set. The reader prints the value as it finds it;
+  an integer under Claude Code's 100,000 minimum still prints, though Claude
+  Code won't use it.
+- `hard_stop` is 1.25 times the window, rounded down, and is printed only
+  when the window is an integer.
+
+An assistant turn is one message id. Claude Code writes a record per content
+block, so records sharing an id count as one turn, and the figure comes from
+that id's last record. A sidechain record is never a turn or a boundary, and
+a `<synthetic>` assistant record (written with no model call behind it) is
+not a turn. A missing usage count reads as 0. A record whose counts aren't
+whole numbers, or whose total reaches 10^15, gives no turn and no figure, so
+the reader never prints a figure the thrash check would refuse; and a line that isn't a JSON object, such as a half-written
+last line, is skipped.
+
+The reader prints integers and the words above only, never transcript text
+or a message id; its error lines name only the path it was given. It exits 0
+with the report, 1 naming the path and cause with no figure (no single
+argument, a missing path, a directory or anything else that isn't a regular
+file, an unreadable or empty file, no assistant usage after the latest
+boundary), and 2 when `jq` isn't on `PATH` or fails.
+
+`scripts/thrash-check.sh [<report-file>]` reads that report, on stdin or from
+a file, and never a transcript, so a supervisor on another host runs it on
+what the session sent. It reports `status: cant_continue` and exits 1 when
+three boundaries fall within 30 assistant turns (a `boundary_turns` entry and
+the one two after it differ by 30 or less: `reason: thrash` with the three
+turns), or when `context_tokens` is above `hard_stop` (`reason: hard_stop`
+with both figures); both reasons print when both hold. Otherwise it prints
+`status: continue` and exits 0. It parses integers only. It refuses a report
+with exit 2 and no status, naming the cause but never a line's text (and the
+line number, for a cause found on one line), when a line isn't of the form
+`key: value`, a key is unknown, repeated or missing, a figure isn't a plain
+whole number of at most fifteen digits, the `boundaries` count differs from
+the turns listed, the turns are out of order, a `hard_stop` line doesn't
+match whether the window is an integer, or the report is over 65,536 bytes
+or holds a NUL byte. The size and the NUL test are taken on the bytes
+received, before any line is read.
+
+The values are the design's: three within 30 sits far from both the one
+thrashing session on hand, which put three boundaries within 2 turns, and
+the tightest healthy three-boundary span, 284 turns. Each role's hard stop is
+1.25 times its window: workers 350K over a 280K window, coordinators 375K
+over 300K.
+
 ## Switching roles on
 
 No role switches compaction on by default until this identity read shows

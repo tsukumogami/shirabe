@@ -21,11 +21,16 @@
 # that gate too while it runs, so a round that ends at `done_blocked` is the
 # parent's failure as well.
 #
-# Usage: fix-round.sh start --from <session>
+# Usage: fix-round.sh start --from <session> [--fresh]
 #
 #   --from   the run that reached `done`, or one of its fix rounds, which
 #            resolves to the run it was started for. Rounds are counted
 #            against that original run, never nested.
+#   --fresh  carry nothing from the run the round follows: no verdicts are
+#            inherited, so every panel of the round reviews in full, and
+#            `fresh: true` is written into the round's fix_round.json, so its
+#            verification runs every selected check rather than carrying the
+#            ones that run passed (run-verification.sh's header).
 #
 # Refused (exit 1, a `refused=<reason>` line on stdout, nothing written):
 #
@@ -41,8 +46,24 @@
 #                    and HEAD is on another, so the round would start from a
 #                    head that isn't the one the run left.
 #
-# Started (exit 0): prints `session=<original>-fix-<n>` and `round=<n>`. The
-# new session's context has `fix_round.json` ({from, round, base}), and the
+# The round inherits the verdicts already given. The ledger of the run the
+# round follows (the last earlier round, else the original run) is copied into
+# the round as its `verdict_ledger.json`, with `inherited` set to {from, base,
+# criteria_sha}, when every commit the ledger recorded is an ancestor of the
+# round's base: the panels judged the head the round starts from, or an
+# ancestor of it. panel-scope.sh then judges the round's fix as a fix diff
+# from the panels' last judged commit, so a small fix gets the re-verifier and
+# the fix-diff review rather than every seat, and a fix over its line
+# threshold still gets every seat. A ledger that recorded a commit the base
+# doesn't contain (a rebase or a reset since) is not inherited, nor is one
+# that can't be read; nothing is inherited with --fresh. Either way the round
+# reviews in full, as a round without a ledger always did.
+# `inherited=<session>` or `inherited=none` says which.
+#
+# Started (exit 0): prints `session=<original>-fix-<n>`, `round=<n>` and the
+# `inherited=` line. The
+# new session's context has `fix_round.json` ({from, round, base}, and
+# `fresh: true` under --fresh), and the
 # original's context has `fix_rounds.jsonl`, one line per round started
 # ({round, session, base, ts}), so the run that reached `done` names every
 # round whose review and verification were recorded for it. `base` is HEAD as
@@ -85,8 +106,16 @@ usage() { sed -n '/^# Usage:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 die() { echo "fix-round: $2" >&2; exit "$1"; }
 refuse() { echo "refused=$1"; echo "fix-round: $2" >&2; exit 1; }
 
-[ $# -eq 3 ] && [ "$1" = start ] && [ "$2" = --from ] || usage
+LEDGER_KEY=verdict_ledger.json
+CRITERIA_KEY=review_level_criteria.txt
+FRESH=0
+[ $# -ge 3 ] && [ "$1" = start ] && [ "$2" = --from ] || usage
 FROM=$3
+case $# in
+    3) ;;
+    4) [ "$4" = --fresh ] || usage; FRESH=1 ;;
+    *) usage ;;
+esac
 [[ $FROM =~ $RE_SESSION ]] || usage
 
 command -v koto >/dev/null || die 2 "the koto CLI is not on PATH"
@@ -151,8 +180,8 @@ ARGS+=(--var "PLUGIN_ROOT=$PLUGIN_ROOT_SELF")
 koto "${ARGS[@]}" >/dev/null || die 2 "koto init $NAME failed"
 
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-jq -nc --arg from "$ORIG" --argjson round "$N" --arg base "$BASE" \
-    '{from: $from, round: $round, base: $base}' | koto context add "$NAME" "$ROUND_KEY" >/dev/null \
+jq -nc --arg from "$ORIG" --argjson round "$N" --arg base "$BASE" --argjson fresh "$FRESH" \
+    '{from: $from, round: $round, base: $base} + (if $fresh == 1 then {fresh: true} else {} end)' | koto context add "$NAME" "$ROUND_KEY" >/dev/null \
     || die 2 "the round $NAME started, but $ROUND_KEY could not be stored in it"
 { [ -n "$ROUNDS" ] && printf '%s\n' "$ROUNDS"
   jq -nc --argjson round "$N" --arg session "$NAME" --arg base "$BASE" --arg ts "$TS" \
@@ -160,5 +189,46 @@ jq -nc --arg from "$ORIG" --argjson round "$N" --arg base "$BASE" \
 } | koto context add "$ORIG" "$ROUNDS_KEY" >/dev/null \
     || die 2 "the round $NAME started, but $ROUNDS_KEY could not be stored in $ORIG"
 
+# The ledger the round inherits: the last earlier round's, else the original's.
+SRC=$ORIG
+[ "$COUNT" -gt 0 ] && SRC=$LAST
+INHERITED=none
+if [ "$FRESH" -eq 0 ] && koto context exists "$SRC" "$LEDGER_KEY"; then
+    LEDGER_JSON=$(koto context get "$SRC" "$LEDGER_KEY") || LEDGER_JSON=""
+    # Every commit the panels recorded: seats' judged_at, the re-verifiers'
+    # heads and the finding records' commits. One the base doesn't contain
+    # means what they judged is gone from the branch.
+    if COMMITS=$(printf '%s' "$LEDGER_JSON" | jq -r 'select(type == "object") | [
+            ((.seats // {})[] | .judged_at?),
+            ((.reverified // {})[] | .head?),
+            ((.findings // {})[] | objects | (.records // [])[] | .commit?) ]
+            | map(select(type == "string")) | unique | .[]') && [ -n "$COMMITS" ]; then
+        OK=1
+        while IFS= read -r c; do
+            case "$c" in *[!0-9a-f]*|"") OK=0; break ;; esac
+            git merge-base --is-ancestor "$c" "$BASE" || { OK=0; break; }
+        done <<EOF
+$COMMITS
+EOF
+        if [ "$OK" -eq 1 ]; then
+            # The acceptance criteria the seats judged against, as
+            # review-level.sh stored them from context.md: the round writes
+            # its own context.md at entry, and only the criteria have to
+            # match, not the rest of the issue text.
+            CRIT_SHA=""
+            if koto context exists "$SRC" "$CRITERIA_KEY"; then
+                CRIT_SHA=$(koto context get "$SRC" "$CRITERIA_KEY" | git hash-object --stdin) \
+                    || die 2 "the round $NAME started, but $CRITERIA_KEY in $SRC could not be read"
+            fi
+            printf '%s' "$LEDGER_JSON" | jq -c --arg from "$SRC" --arg base "$BASE" --arg crit "$CRIT_SHA" \
+                '.inherited = {from: $from, base: $base, criteria_sha: $crit}' \
+                | koto context add "$NAME" "$LEDGER_KEY" >/dev/null \
+                || die 2 "the round $NAME started, but $LEDGER_KEY could not be copied into it"
+            INHERITED=$SRC
+        fi
+    fi
+fi
+
 echo "session=$NAME"
 echo "round=$N"
+echo "inherited=$INHERITED"

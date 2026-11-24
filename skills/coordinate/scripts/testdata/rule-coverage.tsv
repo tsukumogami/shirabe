@@ -45,7 +45,7 @@ C21	skills/coordinate/SKILL.md	-	- **Surface** -- an area a discipline coordinat
 C22	skills/coordinate/SKILL.md	-	**Teardown** -- ending a worker's session
 C23	skills/coordinate/SKILL.md	-	**Unique material** -- anything a session or instance
 C24	skills/coordinate/koto-templates/coordinate.md	pick	An active worker is one whose unit isn't merged or abandoned
-C25	skills/coordinate/koto-templates/coordinate.md	surface	A parked worker is one with a verified, ready pull request
+C25	skills/coordinate/koto-templates/coordinate.md	surface	a ready pull request whose checks passed, waiting only
 C26	skills/coordinate/koto-templates/coordinate.md	quiet_check	A worker is quiet when neither a message nor a push
 C27	skills/coordinate/koto-templates/coordinate.md	quiet_check	One silent check earns a status message	changed: stalled is no longer a named state; quiet-check.sh counts silent checks from the session log
 C28	skills/coordinate/koto-templates/coordinate.md	-	whose check confirms the change in the	changed: the seven prose steps became a koto state graph with wait as a hub

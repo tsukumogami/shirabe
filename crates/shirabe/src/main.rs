@@ -26,6 +26,7 @@ use shirabe_validate::{
 use shirabe_validate::{check_pr_writing_style, suppressed_terms};
 
 mod compaction;
+mod migrate;
 mod plan_outlines;
 mod populate;
 mod pr_body_hook;
@@ -150,6 +151,12 @@ enum RoadmapCommands {
     /// `--issues` to create one GitHub issue per feature and key both
     /// sections on those issues; `--no-issues` names the default explicitly.
     Populate(populate::PopulateArgs),
+    /// Move a `roadmap/v2` or `roadmap/v3` roadmap to `roadmap/v4`. Each
+    /// milestone at Done, Shipped or Closed becomes Verified when its latest
+    /// verdict line in Progress is verified (with or without follow-ups) and
+    /// Completed otherwise; a v2 `## Features` layout becomes `## Milestones`.
+    /// Prints one line per milestone; `--dry-run` writes nothing.
+    Migrate(migrate::MigrateArgs),
 }
 
 #[derive(clap::Args)]
@@ -438,9 +445,18 @@ fn exit_for_parse_error(err: clap::Error) -> ExitCode {
     // `exit` does -- the exit code is the contract.
     let _ = err.print();
     match err.kind() {
-        clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => {
+        clap::error::ErrorKind::DisplayVersion => {
+            // The milestone status table this binary embeds, so a host can
+            // see which statuses its binary reads. On stderr: stdout stays
+            // the single `shirabe <version>` line that the release check and
+            // the version tests compare exactly.
+            eprintln!(
+                "milestone statuses table version {}",
+                shirabe_validate::statuses::table_version()
+            );
             ExitCode::SUCCESS
         }
+        clap::error::ErrorKind::DisplayHelp => ExitCode::SUCCESS,
         _ => ExitCode::from(ValidateOutcome::ToolError.exit_code()),
     }
 }
@@ -454,6 +470,7 @@ fn main() -> ExitCode {
         Some(Commands::Validate(args)) => run_validate(&args),
         Some(Commands::Roadmap(args)) => match args.command {
             RoadmapCommands::Populate(p) => populate::run(&p),
+            RoadmapCommands::Migrate(m) => migrate::run(&m),
         },
         Some(Commands::Plan(args)) => match args.command {
             plan_outlines::PlanCommands::Outlines(o) => plan_outlines::run(&o),
