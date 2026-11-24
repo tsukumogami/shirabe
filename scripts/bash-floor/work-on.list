@@ -142,6 +142,9 @@ skills/work-on/scripts/await-removals-routes_test.sh
 # git fixtures, so every case runs on the floor.
 skills/work-on/scripts/fix-kind_test.sh
 skills/work-on/scripts/red-first_test.sh
+# issue-type-route.sh through a koto stand-in, classifying with the real
+# review-level.sh, so every case runs on the floor.
+skills/work-on/scripts/issue-type-route_test.sh
 # The red-first states driven through a real koto; skips cleanly without it.
 skills/work-on/scripts/red-first-routes_test.sh
 # The interim acceptance rule, called directly, and test-change.sh (the
