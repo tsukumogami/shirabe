@@ -302,11 +302,30 @@ states:
         when:
           mode: skipped
 
+  # await_removals holds a run before setup, whose baseline builds, while a
+  # build-output removal is still deleting in this work tree
+  # (clean-build-output.sh, whose record run-verification.sh --await-removals
+  # reads: exit 0 nothing live, 1 a removal running). It sits on the state each
+  # path passes just before setup, here, post_research_validation and
+  # plan_context_injection, since a gate is read on the way out and setup's
+  # would be read after the baseline built. Every edge into a setup state or
+  # plan_validation requires it; the blocked edge doesn't. A run with no
+  # runner at PLUGIN_ROOT passes, and so does a work tree with no records. The
+  # trailing unconditional edge is gone, since koto's compiler can't keep a
+  # gate-only edge beside the evidence edges, so a submission the gate holds
+  # matches no edge and koto asks again. A person may override it, for a
+  # record whose pid was reused by another clean-build-output.sh.
   context_injection:
     gates:
       context_artifact:
         type: context-exists
         key: context.md
+      await_removals:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" || exit 0; "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" --await-removals'
+        override_default:
+          exit_code: 0
+          error: ""
     accepts:
       status:
         type: enum
@@ -320,15 +339,16 @@ states:
         when:
           status: completed
           gates.context_artifact.exists: true
+          gates.await_removals.exit_code: 0
       - target: setup_issue_backed
         when:
           status: override
+          gates.await_removals.exit_code: 0
       - target: done_blocked
         when:
           status: blocked
         context_assignments:
           failure_reason: "context_injection blocked: ${evidence.detail}"
-      - target: setup_issue_backed
 
   task_validation:
     accepts:
@@ -358,7 +378,17 @@ states:
     transitions:
       - target: post_research_validation
 
+  # await_removals: as on context_injection, on the free-form path's last
+  # state before setup. Every edge here keys on verdict, so there is no
+  # unconditional edge to remove.
   post_research_validation:
+    gates:
+      await_removals:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" || exit 0; "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" --await-removals'
+        override_default:
+          exit_code: 0
+          error: ""
     accepts:
       verdict:
         type: enum
@@ -374,6 +404,7 @@ states:
       - target: setup_free_form
         when:
           verdict: ready
+          gates.await_removals.exit_code: 0
       - target: validation_exit
         when:
           verdict: needs_design
@@ -447,6 +478,10 @@ states:
           failure_reason: "setup_free_form blocked: ${evidence.detail}"
       - target: analysis
 
+  # await_removals: as on context_injection, on the plan-backed path's last
+  # state before setup_plan_backed or plan_validation, /execute's children
+  # included: setup_plan_backed's skip_if takes a child on a shared branch
+  # past setup without any gate routing, so the hold has to be here.
   plan_context_injection:
     gates:
       context_artifact:
@@ -454,6 +489,12 @@ states:
         key: context.md
         override_default:
           exists: true
+          error: ""
+      await_removals:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" || exit 0; "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" --await-removals'
+        override_default:
+          exit_code: 0
           error: ""
     accepts:
       status:
@@ -476,21 +517,23 @@ states:
           status: completed
           issue_source: github
           gates.context_artifact.exists: true
+          gates.await_removals.exit_code: 0
       # plan_outline path: outline extracted from PLAN doc, validate before setup
       - target: plan_validation
         when:
           status: completed
           issue_source: plan_outline
           gates.context_artifact.exists: true
+          gates.await_removals.exit_code: 0
       - target: setup_plan_backed
         when:
           status: override
+          gates.await_removals.exit_code: 0
       - target: done_blocked
         when:
           status: blocked
         context_assignments:
           failure_reason: "plan_context_injection blocked: ${evidence.detail}"
-      - target: setup_plan_backed
 
   plan_validation:
     # verdict is decider-eligible. The decider block lives inside the field,
@@ -3703,6 +3746,11 @@ If the gate fails (artifact missing), submit `status: completed` after creating
 the artifact, `status: override` if providing context differently, or
 `status: blocked` if the issue cannot be reached.
 
+If the `await_removals` gate fails, a build-output removal is still running in
+this work tree, and setup's baseline must not build until it ends. Wait a
+minute and tick again (`koto next {{SESSION_NAME}} --no-cleanup`); the run
+moves on by itself on the first tick after the removal ends.
+
 ## task_validation
 
 Assess whether this free-form task description is clear enough and appropriately
@@ -3769,6 +3817,11 @@ Evidence schema:
 - `rationale`: reasoning informed by research findings
 - `revised_scope`: (optional) narrowed scope description
 
+If the `await_removals` gate fails, a build-output removal is still running in
+this work tree, and setup's baseline must not build until it ends. Wait a
+minute and tick again (`koto next {{SESSION_NAME}} --no-cleanup`); the run
+moves on by itself on the first tick after the removal ends.
+
 ## setup_issue_backed
 
 Read `references/phases/phase-1-setup.md` for branch naming and baseline format.
@@ -3814,6 +3867,11 @@ Submit `status: completed` with `issue_source` set to match the source used,
 Evidence schema:
 - `status`: `completed`, `override`, or `blocked`
 - `issue_source`: `github` or `plan_outline` (required when status is completed; determines next state)
+
+If the `await_removals` gate fails, a build-output removal is still running in
+this work tree, and setup's baseline must not build until it ends. Wait a
+minute and tick again (`koto next {{SESSION_NAME}} --no-cleanup`); the run
+moves on by itself on the first tick after the removal ends.
 
 ## plan_validation
 
