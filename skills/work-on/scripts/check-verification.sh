@@ -19,8 +19,9 @@
 #
 # Exit status:
 #   75  no result for this head yet; the gate waits
-#   0   every selected command ran and passed, or every cause found is of a
-#       rule below the `block` stage
+#   0   every selected command ran and passed, or was carried from the run a
+#       fix round follows (outcome carried, which counts as passed), or every
+#       cause found is of a rule below the `block` stage
 #   1   a check failed (outcome failed,        verification/command-failed
 #       including a stop at its limit with a
 #       finished-failed suite)
@@ -338,6 +339,7 @@ LINES=$(jq -r '
         (.commands[]
          | if .not_started then "4\tnot-started\tcommand \(.id) did not start: [\(.argv[0])] is not an executable program\(logpart)"
            elif .runaway then "4\trunaway\tcommand \(.id) [\(argv)] grew past its max_procs and was killed\(logpart)"
+           elif .outcome == "passed" or .outcome == "carried" then empty
            elif (has("outcome") | not) then
                (if .timed_out then "T\ttimed-out\t\(stopped)"
                 elif .exit_status != 0 then "1\tcommand-failed\tcommand \(.id) [\(argv)] exited \(.exit_status)\(logpart)"

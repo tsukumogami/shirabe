@@ -750,10 +750,11 @@ leg, since one leg answers one session.
 - `scripts/fix-round.sh start --from <session> [--fresh]` — starts a fix
   round for a run at `done` as `<session>-fix-<n>`, a new work-on session with
   the run's variables and parent, records it in both sessions, and copies in
-  the verdict ledger it inherits unless `--fresh` (see **A Fix Round After
-  Done**). Exit codes: 0 started, 1 refused (`not-done`, `round-open`,
-  `cap`, `wrong-branch`), 2 a koto call or a read of the run's log failed, 64
-  usage.
+  the verdict ledger it inherits; `--fresh` inherits nothing and marks the
+  round `fresh`, so its verification carries nothing either (see **A Fix
+  Round After Done**). Exit codes: 0 started, 1 refused (`not-done`,
+  `round-open`, `cap`, `wrong-branch`), 2 a koto call or a read of the run's
+  log failed, 64 usage.
   `scripts/fix-round_test.sh` is its harness.
 - `scripts/panel-retry-budget.sh <session-name> <panel>` — decides
   whether a review panel that found blocking issues may send the work back
@@ -945,6 +946,28 @@ shared branch the round's diff is the fix alone. The script refuses
 run at `done_blocked` walks back with `koto rewind`), a second round while one is
 open (`round-open`), a fourth round (`cap`), which is a person's call, and a start
 from a branch other than the run's `SHARED_BRANCH` (`wrong-branch`).
+
+The round's verification carries what the run it follows already passed. That
+run is the previous round, else the original, and the launcher reads its result
+at the round's base head, or, when there is none, its newest passing result at
+an ancestor of the base (a done run often commits after its verification). A
+check it passed that the round's own diff (from that result's head to the fix
+head) doesn't select isn't run again: its record says `outcome: carried`, with
+`carried_from` naming that session and head, and the verdict counts it as
+passed. A check the round's diff selects runs, and a per-skill `check-skill.sh
+--changed` among them picks its suites from the round's diff, not the
+merge-base's. A check the run failed, timed out or never ran runs as before.
+The result still lists every check a full run would.
+
+A round that touches shared code reruns the full selection: when its diff
+changes any path outside one skill's directory (not under `skills/<name>/`) or
+a path no verification-map entry matches, nothing is carried, since another
+skill's suites may run that code. Nothing is carried either when the run has no
+result at or before the base. To verify a round in full anyway, start it with
+`--fresh`, which writes `fresh: true` into `fix_round.json`; a
+`run-verification.sh --start` run by hand with `SHIRABE_VERIFY_FULL=1` does the
+same once the stored result is moved aside. `references/verification-map.md`
+has the rule.
 
 The round is a unit like any other: a fix-labelled issue makes it a fix that owes
 a red at `reproduce`, where a review change or a CI repair with no check failing

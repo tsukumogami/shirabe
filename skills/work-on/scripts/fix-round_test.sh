@@ -16,6 +16,7 @@
 #     cover the fix commit only;
 #   - review-round.sh records a round at the fix head both in the child at done
 #     and in the round;
+#   - --fresh writes fresh: true into the round's fix_round.json;
 #   - the route can't loop: a second round is refused while the first is open,
 #     a round started from a round counts against the original, and a fourth
 #     round is refused;
@@ -59,7 +60,7 @@ else
 fi
 OUT=$(bash "$FIX_ROUND" start --from x --stale 2>/dev/null); RC=$?
 if [[ $RC -eq 64 && -z "$OUT" ]]; then
-    pass "an unknown fourth argument is a usage error"
+    pass "a fourth argument other than --fresh is a usage error"
 else
     fail "start --from x --stale was not refused as usage (rc=$RC, out=[$OUT])"
 fi
@@ -265,7 +266,7 @@ fi
 
 ROUND=$(koto context get "$R1" fix_round.json 2>/dev/null)
 ROUNDS=$(koto context get par.kid fix_rounds.jsonl 2>/dev/null)
-if jq -e --arg h "$DONE_HEAD" '.from == "par.kid" and .round == 1 and .base == $h' <<<"$ROUND" >/dev/null \
+if jq -e --arg h "$DONE_HEAD" '.from == "par.kid" and .round == 1 and .base == $h and (has("fresh") | not)' <<<"$ROUND" >/dev/null \
    && jq -se --arg h "$DONE_HEAD" 'length == 1 and .[0].session == "par.kid-fix-1" and .[0].base == $h' <<<"$ROUNDS" >/dev/null; then
     pass "the round names the child it fixes, and the child names the round"
 else
@@ -339,13 +340,17 @@ else
 fi
 
 tick par.kid-fix-2 '{"mode":"skipped"}'
+# --fresh inherits no ledger, even one the round could have inherited, and
+# marks the round, so its verification carries nothing from the run it
+# follows (run-verification.sh).
 ledger_at "$FIX_HEAD" | koto context add par.kid-fix-2 verdict_ledger.json >/dev/null
 OUT=$(in_repo bash "$FIX_ROUND" start --from par.kid --fresh); RC=$?
 if [[ $RC -eq 0 && "$OUT" == $'session=par.kid-fix-3\nround=3\ninherited=none' ]] \
-   && ! koto context exists par.kid-fix-3 verdict_ledger.json; then
-    pass "--fresh inherits no ledger, even one the round could have inherited"
+   && ! koto context exists par.kid-fix-3 verdict_ledger.json \
+   && koto context get par.kid-fix-3 fix_round.json 2>/dev/null | jq -e '.fresh == true and .round == 3 and .from == "par.kid"' >/dev/null; then
+    pass "--fresh inherits no ledger and writes fresh: true into the round's fix_round.json"
 else
-    fail "--fresh round 3: rc=$RC out=[$OUT]"
+    fail "--fresh round 3: rc=$RC out=[$OUT], fix_round.json $(koto context get par.kid-fix-3 fix_round.json 2>&1)"
 fi
 tick par.kid-fix-3 '{"mode":"skipped"}'
 OUT=$(in_repo bash "$FIX_ROUND" start --from par.kid 2>/dev/null); RC=$?
