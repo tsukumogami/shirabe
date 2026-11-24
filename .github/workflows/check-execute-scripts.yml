@@ -181,6 +181,7 @@ jobs:
         run: bash skills/execute/scripts/eval-koto-shim_test.sh
 
       # The coordinated loop's scripts: the run record's writer and reader,
+      # the build-output pin and the end that cleans against it,
       # the next action, the verdict and its record, the setup record, the
       # worktree-isolation check, node branches, node pushes and their head
       # records, and the merge. Each
@@ -190,6 +191,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           bash skills/execute/scripts/run-record_test.sh
+          bash skills/execute/scripts/build-output-end_test.sh
           bash skills/execute/scripts/coordinated-next_test.sh
           bash skills/execute/scripts/coordination-verdict_test.sh
           bash skills/execute/scripts/record-coordination-verdict_test.sh

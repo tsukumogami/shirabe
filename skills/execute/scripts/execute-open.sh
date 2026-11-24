@@ -154,6 +154,18 @@
 # single-pr open seeds the prior run_id and mints one when the session still
 # has none.
 #
+# A single-pr PLAN takes the same lock. Its session holds one `run/` key at
+# most, `run/cleanup/single` (the build-output pin build-output-pin.sh writes
+# from drift-facts.sh), and a finished session holding it has that one key
+# written to `<carry root>/<session>/record.json` before koto replaces it.
+# After the open it is carried (`run-record.sh carry`) into a session that
+# doesn't hold the key yet, and the snapshot is removed; a session that
+# already holds it carries nothing and the snapshot is removed too. The pin
+# never changes a run, so none of this refuses an open or prints a stdout
+# line: a read, a snapshot or a carry that fails is one stderr line, a failed
+# carry keeps the snapshot for the next open, and the run's end then prints
+# `base unreadable` for the worktree.
+#
 # The run identity. A session this script opens always has a `run_id`
 # (`run-id.sh mint`) on a single-pr PLAN, the identity every owned-PR lookup of
 # the run carries; a coordinated session has one once its setup ran. When
@@ -388,15 +400,16 @@ case "$MODE" in
         ;;
 esac
 
-# The coordinated run's lock, before the session is read: one opener at a time
-# reads, replaces, and carries a session's record. (The mode fallback above
+# The run's lock, before the session is read: one opener at a time reads,
+# replaces, and carries a session's record (a coordinated run's run/ keys, or
+# a single-pr run's run/cleanup/single). (The mode fallback above
 # only reads.) The lock is a file holding the opener's pid, created with
 # bash's noclobber (one open with O_EXCL), not a directory made with mkdir:
 # the uutils mkdir on Ubuntu 26.04 can report success to two racing callers.
 # A lock directory an earlier version left, its pid in `pid`, is read the same.
 LOCK=""
 release_lock() { [ -n "$LOCK" ] && rm -rf -- "$LOCK"; return 0; }
-if [ "$COORDINATED" -eq 1 ] && [ "$NAMED" -eq 1 ]; then
+if [ "$NAMED" -eq 1 ]; then
     mkdir -p "$CR" && chmod 700 "$CR" || {
         printf 'failed=carry\n'
         echo "$PROG: could not make the carry directory for $SESSION" >&2
@@ -516,6 +529,36 @@ if [ "$COORDINATED" -eq 1 ] && [ "$NAMED" -eq 1 ]; then
             }
         fi
     fi
+fi
+
+# A single-pr run's one run/ key, run/cleanup/single: the base its end cleans
+# the checkout's declared build output against, pinned once (build-output-pin.sh
+# from drift-facts.sh). A finished session holding it has it kept in the
+# snapshot directory before koto replaces the session, and it is carried into
+# the replacement after the open, so the first pin stands across a resumed
+# pause or a re-invocation. The cleanup never changes a run, so nothing here
+# refuses an open: a read or a write that fails is one stderr line, and the
+# end then prints `base unreadable` for the worktree.
+if [ "$COORDINATED" -eq 0 ] && [ "$NAMED" -eq 1 ] && [ "$FINISHED" -eq 1 ]; then
+    rr__present "$SESSION" run/cleanup/single 2>/dev/null
+    case $? in
+        0)
+            # mktemp is checked straight after its own assignment, so an
+            # empty SNAP_TMP never reaches the writes below.
+            SNAP_TMP=$(mktemp -d "$CR/.$SESSION.XXXXXX") || SNAP_TMP=""
+            if [ -n "$SNAP_TMP" ] \
+                && PIN_V=$(rr__object "$SESSION" run/cleanup/single 2>/dev/null) \
+                && jq -cn --argjson v "$PIN_V" '{"run/cleanup/single": $v}' > "$SNAP_TMP/record.json" \
+                && rm -rf -- "$CR/$SESSION" && mv "$SNAP_TMP" "$CR/$SESSION"; then
+                :
+            else
+                [ -n "$SNAP_TMP" ] && rm -rf -- "$SNAP_TMP"
+                echo "$PROG: could not keep $SESSION's run/cleanup/single; the new run starts without its build-output pin" >&2
+            fi
+            ;;
+        1) ;;
+        *) echo "$PROG: could not check run/cleanup/single in $SESSION; the new run starts without its build-output pin" >&2 ;;
+    esac
 fi
 
 # The run identity a finished session carried (its `run_id`), read before koto
@@ -742,6 +785,25 @@ case "$OUT" in
             fi
             bash "$SELF_DIR/run-id.sh" mint "$SESSION" </dev/null >/dev/null \
                 || echo "$PROG: could not record a run identity in $SESSION; its PR lookups will fail until it has one" >&2
+            # The build-output pin a finished run held: carried into a session
+            # that doesn't hold it yet, so the first pin stands. Only a
+            # snapshot holding exactly run/cleanup/single is a single-pr one.
+            if [ -f "$CR/$SESSION/record.json" ] \
+                && jq -e 'keys == ["run/cleanup/single"]' "$CR/$SESSION/record.json" >/dev/null; then
+                rr__present "$SESSION" run/cleanup/single 2>/dev/null
+                case $? in
+                    0) rm -rf -- "$CR/$SESSION" ;;
+                    1)
+                        if bash "$SELF_DIR/run-record.sh" carry --session "$SESSION" \
+                            --json "$CR/$SESSION/record.json" </dev/null >/dev/null 2>&1; then
+                            rm -rf -- "$CR/$SESSION"
+                        else
+                            echo "$PROG: could not carry run/cleanup/single into $SESSION; the snapshot is kept at $CR/$SESSION for the next open" >&2
+                        fi
+                        ;;
+                    *) echo "$PROG: could not check run/cleanup/single in $SESSION; the snapshot is kept at $CR/$SESSION for the next open" >&2 ;;
+                esac
+            fi
         fi
         printf 'session=%s\n' "$SESSION"
         ;;
