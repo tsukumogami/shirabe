@@ -41,7 +41,11 @@
 #   1. Checks its arguments (67), removes any earlier drift_facts.json and
 #      plan_intent.md (66), and finds the PLAN inside the repository (65).
 #   2. Fetches `origin` and resolves `origin/main` (64). The merge in
-#      `worktree_sync` doesn't fetch; it uses what this step fetched.
+#      `worktree_sync` doesn't fetch; it uses what this step fetched. Then it
+#      hands the checkout to build-output-pin.sh (`--id single`), which may
+#      write `run/cleanup/single`, the base the run's end cleans the
+#      checkout's declared build output against; that call never changes
+#      this script's output, keys or exit code.
 #   3. Resolves the base: `merge-base(<last commit touching the PLAN>,
 #      origin/main)`, or `merge-base(HEAD, origin/main)` for a PLAN git doesn't
 #      track yet (64 if neither resolves).
@@ -88,6 +92,9 @@ set -uo pipefail
 SESSION="${1:-}"
 PLAN="${2:-}"
 MAX_BYTES=8192
+# Resolved before the script changes directory, so a relative $0 still finds
+# its siblings.
+SELF_DIR=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 
 die() {
     # $1 exit code, rest the message
@@ -137,6 +144,14 @@ trap 'rm -rf "$WORK"' EXIT
 git fetch --quiet origin >/dev/null || die 64 "git fetch origin failed; no current origin/main to compare against"
 MAIN_HEAD=$(git rev-parse --verify --quiet 'refs/remotes/origin/main^{commit}') \
     || die 64 "origin/main does not exist after fetching origin"
+
+# The single-pr worktree's build-output pin (run/cleanup/single), taken right
+# after this fetch and before worktree_sync merges the default branch in, so
+# the base is the branch's fork point. The pin's output goes to stderr and it
+# exits 0 whatever happens, so nothing here depends on it: a pin it couldn't
+# write leaves this script's keys and exit code as they are, and the run's end
+# then cleans nothing in this worktree.
+"$BASH" "$SELF_DIR/build-output-pin.sh" --session "$SESSION" --id single --worktree "$TOP" </dev/null >&2 || true
 
 # --- 3. the base ---------------------------------------------------------------
 

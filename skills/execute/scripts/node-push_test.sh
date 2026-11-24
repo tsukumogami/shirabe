@@ -307,6 +307,14 @@ WANT_REC=$(jq -cnS --arg r "$CT_REPO" --arg h "$SHA" '{repo: $r, pr: 50, head: $
     || fail "run/node after the push: [$(rec_node "$CT_CORE")]"
 ADD_AT=$(grep -n "^context add $S run/node/$CT_CORE" "$CASE/koto-calls.log" | head -1 | cut -d: -f1)
 [ -n "$ADD_AT" ] && pass "the head was written through the run record's writer" || fail "no run/node write in the koto log"
+# The node worktree's build-output pin, from the first push: its root and
+# merge-base(HEAD, the clone's default-branch remote ref).
+pin_ref() { git -C "$WT" symbolic-ref -q refs/remotes/origin/HEAD || echo refs/remotes/origin/main; }
+WANT_PIN=$(jq -cnS --arg p "$(cd "$WT" && pwd -P)" --arg s "$(git -C "$WT" merge-base HEAD "$(pin_ref)")" '{path: $p, pin: $s}')
+PIN_REC=$(jq -cS . "$CASE/ctx/$S/run/cleanup/$CT_CORE" 2>/dev/null)
+[ "$PIN_REC" = "$WANT_PIN" ] \
+    && pass "a node push pins run/cleanup/<node> {path: the worktree's root, pin: its merge base}" \
+    || fail "run/cleanup after the push: [$PIN_REC], want [$WANT_PIN]"
 if grep -q -- '--coordination-body' "$CASE/shirabe-calls.log" && [ "$(ct_calls | grep -c '^pr edit 10')" -eq 1 ]; then
     pass "the new body was validated, then posted with one pr edit"
 else
@@ -338,6 +346,9 @@ if [ "$(printf '%s\n' "$OUT" | tail -1)" = "body=posted" ] && order_after "koto 
 else
     fail "the second push's post: [$OUT] $(grep -n "run/node/$CT_CORE\|pr edit 10" "$CASE/order.log")"
 fi
+[ "$(jq -cS . "$CASE/ctx/$S/run/cleanup/$CT_CORE" 2>/dev/null)" = "$PIN_REC" ] \
+    && pass "a second push leaves the node's first pin as it was" \
+    || fail "run/cleanup after the second push: [$(cat "$CASE/ctx/$S/run/cleanup/$CT_CORE" 2>/dev/null)]"
 if [ "$RC" -eq 0 ] && [ "$(ct_calls | grep -c '^pr create')" -eq 1 ]; then
     pass "a second push adopts the owned PR (no second pr create)"
 else

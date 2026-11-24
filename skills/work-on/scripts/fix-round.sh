@@ -81,8 +81,10 @@
 # the entry evidence the original was given.
 #
 # The variables are the original's, read from the first initialization in its
-# own state log, except REVIEW_LEVEL and UNIT_KIND, which the round chooses
-# and determines again, and PLUGIN_ROOT, which is this plugin's. Empty values
+# own state log, with three exceptions. REVIEW_LEVEL and UNIT_KIND are left
+# out, since the round chooses and determines them again. PLUGIN_ROOT is this
+# plugin's. PLAN_DOC is the parent's plan_abs when the parent records one that
+# differs (see the block above the init below). Empty values
 # are left out, so each takes the template's default. The template is this
 # plugin's work-on.md, not the path the original recorded, which a plugin
 # update may have removed.
@@ -188,6 +190,38 @@ SHARED=$(printf '%s' "$VARS" | jq -r '.SHARED_BRANCH // empty')
 if [ -n "$SHARED" ]; then
     CURRENT=$(git rev-parse --abbrev-ref HEAD) || die 2 "could not read the current branch"
     [ "$CURRENT" = "$SHARED" ] || refuse wrong-branch "$ORIG worked on $SHARED, and HEAD is on $CURRENT"
+fi
+
+# A plan-backed child's PLAN_DOC is the parent's plan_abs as it was when the
+# child was opened. When the parent's checkout has moved since, its plan_abs was
+# re-rooted (record-coord-setup.sh --reroot-plan), and the round reads the PLAN
+# there. The parent is read in the directory it is bound to, since a session
+# answers only there; a unit with no plan never reads it. A parent bound to a
+# directory that no longer exists is refused rather than read from here, where
+# it could look like a parent with no plan_abs and leave the round on the old
+# path.
+CHILD_PLAN_DOC=$(printf '%s' "$VARS" | jq -r '.PLAN_DOC // empty')
+if [ -n "$CHILD_PLAN_DOC" ] && [ -n "$PARENT" ]; then
+    PARENT_DIR=$(koto session list | jq -r --arg s "$PARENT" 'map(select(.id == $s))[0].execution_dir // empty') \
+        || die 2 "could not read the directory of $PARENT"
+    if [ -z "$PARENT_DIR" ]; then
+        PARENT_DIR=.
+    elif [ ! -d "$PARENT_DIR" ]; then
+        die 2 "$PARENT is bound to $PARENT_DIR, which no longer exists; rebind it to its checkout (koto session rebind) and start the round again"
+    fi
+    (cd "$PARENT_DIR" && koto context exists "$PARENT" plan_abs >/dev/null)
+    case $? in
+        0)
+            PARENT_PLAN_ABS=$(cd "$PARENT_DIR" && koto context get "$PARENT" plan_abs) \
+                || die 2 "could not read plan_abs from $PARENT"
+            if [ -n "$PARENT_PLAN_ABS" ] && [ "$PARENT_PLAN_ABS" != "$CHILD_PLAN_DOC" ]; then
+                VARS=$(printf '%s' "$VARS" | jq -c --arg p "$PARENT_PLAN_ABS" '.PLAN_DOC = $p') \
+                    || die 2 "could not set the round's PLAN_DOC"
+            fi
+            ;;
+        1) ;; # the parent records no plan_abs: the round keeps the child's PLAN_DOC
+        *) die 2 "could not read whether $PARENT records plan_abs" ;;
+    esac
 fi
 
 ARGS=(init "$NAME" --template "$TEMPLATE")

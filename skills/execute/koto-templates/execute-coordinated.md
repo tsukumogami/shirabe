@@ -774,12 +774,24 @@ The coordination PR merged, last, and a live read confirmed it. Render the exit 
 koto status {{SESSION_NAME}} | {{PLUGIN_ROOT}}/skills/execute/scripts/print-exit.sh
 ```
 
+Then clean each node worktree of the build output its repository declares. The run is already at its terminal, so nothing this finds changes the result above. Run it here in this coordination checkout: the script reads each node PR's CI itself and cleans a node's worktree only when that PR's CI is green (or its repository declares no hosted CI), only when this checkout's `CLAUDE.local.md` turned the cleanup on, and exits 0 whatever it finds. Run it exactly as written, and relay any line that says something was removed or failed:
+
+```bash
+test -x {{PLUGIN_ROOT}}/skills/execute/scripts/build-output-end.sh && {{PLUGIN_ROOT}}/skills/execute/scripts/build-output-end.sh --session {{SESSION_NAME}}; true
+```
+
 ## ready_awaiting_merge
 
 Nothing is left to start, and a node PR or the coordination PR is still unmerged: it waits on a human, or on a later `/execute --merge`. The result's `reason` names why (the merge wasn't requested, a review or protection rule, a moved head, a merge call that failed, a merge this run refused (`merge-refused`, or `merge-refused:squash-message` for a message it couldn't build), a coordination body it couldn't bring up to date before the coordination PR's evaluation or merge (`merge-refused:body-stale` or `merge-refused:body-full`), a follow-up still a draft (`merge-state:DRAFT`; the run never readies one), a follow-up closed unmerged (`follow-up-closed:<url>`, which holds the coordination PR until it is replaced or removed: record a replacement with `--follow-up <node>=<url>`, or remove it with `--follow-up <node>=<url> --remove`), or a merge that wasn't observed yet and may still land). Render the exit lines from the terminal result; a `body=stale` or `body=full` line among them says the coordination PR's body is behind the record, and the next invocation renders it again:
 
 ```bash
 koto status {{SESSION_NAME}} | {{PLUGIN_ROOT}}/skills/execute/scripts/print-exit.sh
+```
+
+Then clean each node worktree of the build output its repository declares. The run is already at its terminal, so nothing this finds changes the result above. Run it here in this coordination checkout: the script reads each node PR's CI itself and cleans a node's worktree only when that PR's CI is green (or its repository declares no hosted CI), so a node still waiting on CI keeps its tree, only when this checkout's `CLAUDE.local.md` turned the cleanup on, and exits 0 whatever it finds. Run it exactly as written, and relay any line that says something was removed or failed:
+
+```bash
+test -x {{PLUGIN_ROOT}}/skills/execute/scripts/build-output-end.sh && {{PLUGIN_ROOT}}/skills/execute/scripts/build-output-end.sh --session {{SESSION_NAME}}; true
 ```
 
 ## paused_awaiting_merges

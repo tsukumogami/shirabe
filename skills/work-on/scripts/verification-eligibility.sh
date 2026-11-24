@@ -60,7 +60,7 @@
 #                          <status>     the status of a result that is neither
 #                                       `done` nor `timed-out`: attended,
 #                                       dirty-tree, no-map, bad-map,
-#                                       supervisor-error
+#                                       supervisor-error, removal-running
 #                          runaway      a command grew past its max_procs
 #                          not-started  a command could not start, or a budget
 #                                       stop left commands unstarted: fewer
