@@ -5,7 +5,7 @@
 #
 # Proves, on a run A opened by one Claude session (CLAUDE_CODE_SESSION_ID set
 # by the suite, a synthetic value per session) and holding one dispatched and
-# one parked holding (a verified, ready pull request waiting on a merge),
+# one parked holding (a ready pull request whose checks passed, waiting on a merge),
 # record entries, two open legs (one taken), taken_legs and leg_children:
 #   1. the opener run by another Claude session from another directory prints
 #      outcome=continued, predecessor=A, session=B and, A's last koto event

@@ -375,6 +375,18 @@ dc_unit_matches "#6001" "$T/pick-big.json"; eq "unit matches: a unit pick didn't
 printf 'not json\n' > "$T/pick-bad.json"
 dc_unit_matches "#1" "$T/pick-bad.json"; eq "unit matches: a file that isn't pick_facts' JSON is 2" 2 $?
 
+# --- a roadmap/v4 milestone owed its verdict ----------------------------------------
+# pick-facts.sh's facts on a roadmap/v4 roadmap where Milestone 2 depends on
+# Milestone 1, whose verdict is owed: Milestone 2 is free and its brief's unit
+# matches, while Milestone 1 has no form, so no brief for it renders.
+jq -n '{scope: "roadmap", host: "acme/widgets", units: [
+    {unit: "Milestone 1", number: 1, title: "Loader", done: true, takes_work: false, blocked: false, verdict_owed: true, landed: null},
+    {unit: "Milestone 2", number: 2, title: "Registry", done: false, takes_work: true, blocked: false, verdict_owed: false, landed: null}]}' > "$T/pick-v4.json"
+dc_unit_matches "Milestone 2: Registry" "$T/pick-v4.json"; eq "unit matches: v4, the dependent of an owed milestone" 0 $?
+dc_unit_matches "Milestone 2" "$T/pick-v4.json"; eq "unit matches: v4, ... by its tag too" 0 $?
+dc_unit_matches "Milestone 1" "$T/pick-v4.json"; eq "unit matches: v4, never the milestone owed its verdict" 1 $?
+dc_unit_matches "Milestone 1: Loader" "$T/pick-v4.json"; eq "unit matches: v4, ... nor its titled form" 1 $?
+
 # --- a finished job (shirabe#1182) -------------------------------------------------
 # Finished means the job's own state file reads done, stopped or failed and
 # the listing shows no live pid. The listing's state is never read: Claude

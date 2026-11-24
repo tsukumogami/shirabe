@@ -246,6 +246,12 @@ pairs_eq "a repeat is two pairs and a bare flag its literal token, both left to 
     '[["REVIEW_FLOOR","--review-floor"],["REVIEW_CEILING","light"],["REVIEW_CEILING","full"]]' \
     'map(select(.[0] | startswith("REVIEW_")))'
 
+# --step-drafts=off turns the step agent's drafts off; with no flag there is no
+# pair (the no-flag case above pins the list), and the template reads empty as on.
+pairs_of '["docs/plans/PLAN-t.md","--step-drafts=off"]'
+pairs_eq "--step-drafts=off: one STEP_DRAFTS pair" \
+    '[["STEP_DRAFTS","off"]]' 'map(select(.[0] == "STEP_DRAFTS"))'
+
 # The verification deferral (#1017): one pair per flag given, none without
 # them (the no-flag case above already pins the list), and /work-on's own two
 # refusals before any koto call.

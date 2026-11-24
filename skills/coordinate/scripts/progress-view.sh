@@ -9,8 +9,9 @@
 #
 # One table, columns Kind | Unit | Session | PR | Status | Next or needs, with
 # four kinds of row in this order:
-#   1. Ready to merge   parked holdings (a verified head, the pull request open
-#                       and not a draft), in the merge order --merge-order gives
+#   1. Ready to merge   parked holdings (the head's checks passed, the pull
+#                       request open and not a draft), in the merge order
+#                       --merge-order gives
 #   2. Blocked on you   holdings --blocked names, with what each needs; then
 #                       each decision entry escalated to a person: its
 #                       question, status `decide`, and "recommended: <option>,
@@ -20,9 +21,14 @@
 #                       for a decision") and each proposed or unjudged entry
 #                       ("with me for a verdict", and when held, what it waits
 #                       on). A decision reaches "Blocked on you" only from an
-#                       escalated entry, never from a flag
+#                       escalated entry, never from a flag. Then each unit
+#                       with no holding whose pick facts carry `verdict_owed`
+#                       (its work landed, its verdict not given yet, on any
+#                       roadmap schema): `landed, verdict owed`, its verdict
+#                       given at the next pass. Such a unit is never queued
 #   4. Waiting to be assigned
-#                       units no holding covers and not done, in the order
+#                       units no holding covers, not done and owing no
+#                       verdict, in the order
 #                       they'll be assigned as the cap frees: pick's order,
 #                       unblocked first. A unit parked on a decision reads
 #                       `waits on decision <n>`, and one whose scoping alone
@@ -62,8 +68,8 @@
 # and a clause per pause: its id and scope, since when, until what, who set
 # it and who relayed it, and `met, to end` for one whose condition is met
 # but whose row the coordinator hasn't ended. A holding a pause holds reads
-# `paused (<id>)` in its Status cell (a ready one `verified; held by pause
-# <id>`), and a queued unit's Next cell reads `held by pause <id>`. The
+# `paused (<id>)` in its Status cell (a ready one `checks passed; held by
+# pause <id>`), and a queued unit's Next cell reads `held by pause <id>`. The
 # table keeps its columns and kinds (docs/designs/current/DESIGN-coordinate-paused-state.md,
 # Decision 5).
 #
@@ -184,7 +190,8 @@ OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjs
     | (if any($bk[]; . as $k | ([$h[].worker] | index($k)) == null) then error("--blocked names a session with no holding")
        elif any($bk[]; . as $k | ([$ready[].worker] | index($k)) != null) then error("--blocked names a ready session")
        else . end)
-    | [.units[] | select(.holding == null and (.done | not))] as $free
+    | [.units[] | select(.holding == null and .verdict_owed == true)] as $owed
+    | [.units[] | select(.holding == null and (.done | not) and .verdict_owed != true)] as $free
     | ([$free[] | select(.blocked | not)] + [$free[] | select(.blocked)]) as $queue
     | (.pauses // []) as $pz
     | (if ($pz | length) > 0 then "Paused: " + ([$pz[] | pause_clause] | join("; ")), "" else empty end),
@@ -192,8 +199,8 @@ OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjs
       "|---|---|---|---|---|---|",
       ($mo | to_entries[] | .key as $i | .value as $w | [$ready[] | select(.worker == $w)][0]
         | row("Ready to merge"; .unit; code($w); (.pull_request | link($w));
-              (if (.paused // null) != null then "verified; held by pause \(.paused)"
-               elif .phase == "held" then "verified; merge held by your direction" else "verified, ready to merge" end);
+              (if (.paused // null) != null then "checks passed; held by pause \(.paused)"
+               elif .phase == "held" then "checks passed; merge held by your direction" else "checks passed, ready to merge" end);
               ($next[$w] // "merge \($i + 1) of \($mo | length)"))),
       ($h[] | select(.worker as $w | $bk | index($w) != null) | .worker as $w
         | row("Blocked on you"; .unit; code($w); (.pull_request | link($w)); "blocked"; $blocked[$w])),
@@ -218,6 +225,11 @@ OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjs
       ($dec[] | select(.state == "proposed" or .state == "coordinator-verdict")
         | row("Ongoing"; .question; "N/A"; "N/A";
               (if .verdict == "hold" then "with me for a verdict, waiting on \(.reason)" else "with me for a verdict" end); "N/A")),
+      # A unit whose work landed and whose verdict is owed: the verdict is work
+      # the coordinator does at its next pass, so the unit is neither queued
+      # nor ready to assign.
+      ($owed[] | row("Ongoing"; unitname; "N/A"; "N/A"; "landed, verdict owed";
+                     ($next[.unit] // "its verdict is given at the next pass"))),
       ($queue | to_entries[] | .key as $i | .value
         | row("Waiting to be assigned"; unitname; "N/A"; "N/A";
               (if .blocked then "waits on \(.blocked_by | map("feature \(.)") | join(", "))"

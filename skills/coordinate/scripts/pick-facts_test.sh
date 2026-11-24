@@ -672,6 +672,48 @@ eq "every blocker a pick fixture names is a unit it lists or a done one" 0 \
 eq "fixtures cover a slice with a long done list, for every value but scope and await_decision" "ask_up,dispatch,hold,scope_ahead,send_execution" \
     "$(jq -rs '[.[] | select((.inputs.pick_facts | fromjson | .done | length) >= 150) | .expected] | sort | join(",")' "$FX")"
 
+echo "== roadmap/v4: a verdict owed unblocks the milestone's dependents =="
+# Milestone 2 depends on Milestone 1, which reads In progress on the roadmap
+# while the record holds a verdict-owed row for it (its work finished, its
+# roadmap edit not landed): on roadmap/v4 Milestone 2 is pickable, and
+# Milestone 1 is owed its verdict and takes no work; the same roadmap
+# declared roadmap/v3 holds Milestone 2 behind Milestone 1, as before.
+# (docs/designs/DESIGN-completed-verified-states.md, Decision 3)
+owed_rm() { # owed_rm <schema>
+    printf -- '---\nschema: %s\nstatus: Active\n---\n\n# ROADMAP\n\n## Milestones\n\n' "$1"
+    printf '### Milestone 1: Loader\n**Dependencies:** None\n**Status:** In progress\n\n'
+    printf '### Milestone 2: Registry\n**Dependencies:** Milestone 1\n**Status:** Not started\n\n'
+    printf '## Sequencing Rationale\n\nNone.\n'
+}
+OWED1=$(jq -nc '[{item: "Milestone 1", kind: "verdict-owed", who: "alpha", next: "verdict owed since 2026-09-26", wakes: "0", updated: "2026-09-26T07:00Z"}]')
+pickable_of() { jq -r '[.units[] | select((.done | not) and (.blocked | not) and (.verdict_owed | not) and .holding == null) | .unit] | join(",")' "$1"; }
+for v in v4 v3; do
+    seed "$(record_json roadmap plugin-system | jq -c --argjson w "$OWED1" '.work = $w')"
+    db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(owed_rm roadmap/$v)"
+    session "$(roadmap_vars plugin-system)" roadmap-plugin-system
+    OUT=$(bash "$PF" --session "$S" 2>"$T/err"); eq "$v: the facts are read" "0 pick" "$? ${OUT% sealed:*}"
+    facts > "$T/owed-$v.json"
+done
+eq "v4: Milestone 2 is pickable over Milestone 1's owed verdict" "Milestone 2" "$(pickable_of "$T/owed-v4.json")"
+eq "  ... Milestone 2 is not blocked" '{"done":false,"takes_work":true,"blocked":false,"blocked_by":[],"blocker_landed":true}' \
+    "$(jq -c '.units[] | select(.unit == "Milestone 2") | {done, takes_work, blocked, blocked_by, blocker_landed}' "$T/owed-v4.json")"
+eq "  ... Milestone 1 is owed its verdict, takes no work and has no pickable entry" '{"status":"In progress","done":true,"takes_work":false,"verdict_owed":true}' \
+    "$(jq -c '.units[] | select(.unit == "Milestone 1") | {status, done, takes_work, verdict_owed}' "$T/owed-v4.json")"
+eq "  ... the dispatch path renders a brief for Milestone 2 and none for Milestone 1" "Milestone 2|Milestone 2: Registry" \
+    "$(dc_unit_forms "$T/owed-v4.json" | tr '\n' '|' | sed 's/|$//')"
+eq "v3: the same roadmap holds Milestone 2 behind Milestone 1" '{"blocked":true,"blocked_by":[1]}' \
+    "$(jq -c '.units[] | select(.unit == "Milestone 2") | {blocked, blocked_by}' "$T/owed-v3.json")"
+eq "  ... and Milestone 1 reads as it always has: owed, not done" '{"done":false,"verdict_owed":true}' \
+    "$(jq -c '.units[] | select(.unit == "Milestone 1") | {done, verdict_owed}' "$T/owed-v3.json")"
+eq "  ... and nothing is pickable" "" "$(pickable_of "$T/owed-v3.json")"
+# The verdict-owed row matches by tag key, as verdict_owed does: a row written
+# under Feature 1 frees a v4 Milestone 1's dependents too.
+seed "$(record_json roadmap plugin-system | jq -c --argjson w "$(printf '%s' "$OWED1" | jq -c '.[0].item = "Feature 1"')" '.work = $w')"
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(owed_rm roadmap/v4)"
+session "$(roadmap_vars plugin-system)" roadmap-plugin-system
+bash "$PF" --session "$S" >/dev/null 2>"$T/err"
+eq "v4: a row under Feature 1 frees Milestone 2 too" "Milestone 2" "$(facts > "$T/owed-f.json"; pickable_of "$T/owed-f.json")"
+
 echo "== pick: the koto calls don't grow with the entries (shirabe#1315) =="
 # The facts get the sections pick reads, each directly, and never list
 # record/, which names every entry: the same pick on a record with 3 entries

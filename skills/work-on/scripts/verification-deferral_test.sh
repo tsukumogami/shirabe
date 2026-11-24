@@ -145,7 +145,10 @@ edges() {
 echo "--- the shipped template"
 
 EDGES=$(edges)
-INTO=$(printf '%s\n' "$EDGES" | awk -F'|' '$2 == "verification"')
+# A loop inside verification (its re-run at the timed-out hold) isn't a way in,
+# and a hosted-ci run never reaches that hold, so only edges from other states
+# count and need a twin.
+INTO=$(printf '%s\n' "$EDGES" | awk -F'|' '$1 != "verification" && $2 == "verification"')
 TWINS=$(printf '%s\n' "$EDGES" | awk -F'|' '$2 == "verification_deferred"')
 N_INTO=$(printf '%s\n' "$INTO" | grep -c .)
 N_TWINS=$(printf '%s\n' "$TWINS" | grep -c .)
