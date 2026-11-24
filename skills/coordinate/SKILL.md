@@ -898,6 +898,21 @@ lines, and the rows and refusals behind them, are in
   session, the text `Evidence clause <n> failed: <what was
   seen>` cut to 600 bytes). The milestone is then offered again, and its
   brief quotes the failure under the same heading.
+- **On a roadmap/v4 roadmap.** The merge records Completed, and the status
+  table says what a verdict or a reopen moves. `--unit` prints two lines,
+  `verdict-owed <tag>` and then the pull request that records the milestone
+  Completed (its own edit, or the run's pending edit it folded into), or
+  `<tag> already reads Completed on ...`. `--verdict` needs no verdict-owed
+  row and consumes the row when there is one; either verified verdict sets
+  the milestone's block and Progress row to Verified, and changes needed
+  sets both to In progress and prints the same `held-dependent <tag>
+  <worker>` lines a reopen prints. `--reopen` takes a Completed milestone
+  as well as a Verified one and sets block and row In progress. On v4 the
+  held-dependent lines also name each dependent that reads Completed or
+  Verified with no holding, as `held-dependent <tag> none`. A move the table
+  doesn't list (another verdict on a Verified milestone, anything on a
+  Dropped one) is refused before anything is opened, naming the milestone,
+  its status and the trigger. On v1 to v3 nothing here changes.
 - **Close-out.** A roadmap record doesn't close while a verdict is owed:
   close-out names the milestone (`verdict-owed <tag>`, code 49) even after
   it reads Done, until `--confirm` clears the row. A pending reopen edit
@@ -934,8 +949,8 @@ refused on that run, where the design always passes the worker's topic.
 free slot, scopes ahead a unit whose execution waits on another feature, and
 asks whoever dispatched you for out-of-scope work when the scope has nothing
 left. An active worker is a dispatched session whose work is not yet merged or
-abandoned and that isn't parked. A parked worker has a verified, ready pull
-request waiting only on a merge; parked workers, merged ones waiting for their
+abandoned and that isn't parked. A parked worker has a ready pull request whose
+checks passed, waiting only on a merge; parked workers, merged ones waiting for their
 teardown and local agents don't count against the cap. Neither does a stopped
 worker: one whose Claude jobs on this host have all finished, kept until its
 pull request merges with nothing running for it, so the worker that continues

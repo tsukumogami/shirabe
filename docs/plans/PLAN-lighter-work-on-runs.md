@@ -233,6 +233,21 @@ state removals are exempt (R25) and revert with the change.
 
 ### Issue 4: feat(work-on): judge edited-test acceptance once per head
 
+**Dropped (2026-11-23), not built.** Checking its premise before building it
+showed nothing to save:
+- An acceptance is already tied to each edited test's digest, not to the
+  head. A commit after `pass_counting` that leaves the edited tests alone
+  passes `pr_precheck` and `ci_pass_counting` without a new seat. A seat is
+  minted only when a test changed, which is the check worth keeping.
+- `test-change.sh status`, the work both later gates repeat, took about 1.5
+  seconds on real runs, so `--confirm` would save about that per gate, not 3
+  to 5 minutes.
+- Keyed to the head, `--confirm` would also hold whenever HEAD moved after
+  acceptance, even with no test touched, and send the run back through
+  `pass_counting`: more work than today.
+
+The outline below is kept as written for the record.
+
 **Goal**: Mint acceptance seats only at `pass_counting`, and have later
 states confirm the head instead of re-deciding (R7).
 
@@ -522,7 +537,7 @@ graph TD
     I1["#1: size facts and lineage"]
     I2["#2: fix-round inheritance"]
     I3["#3: constant-answer stops"]
-    I4["#4: acceptance once per head"]
+    I4["#4: acceptance once per head (dropped)"]
     I5["#5: engine-class test"]
     I6["#6: hosted build of record"]
     I7["#7: relevant CI wait"]
@@ -546,14 +561,13 @@ graph TD
 **Critical path:** issue 1, then issue 8 (after issues 3 and 5), then issue
 8's second step once the seat analysis clears its bar.
 
-**Order by saving over risk:** 1, 2, 3, 4, 5, 6, 7, 8, 9, 10. Issues 2 to 4
-carry the least risk and deliver an estimated 35 to 60 minutes per run
-between them, so most of the saving lands before review on small diffs is
-lowered. Issue 4 saves less than 6 and 7 but comes first because it accepts
-no risk; 6 and 7 move defect discovery later.
+**Order by saving over risk:** 1, 2, 3, 5, 6, 7, 8, 9, 10. Issues 2 and 3
+carry the least risk and deliver most of the estimated saving per run, so it
+lands before review on small diffs is lowered. Issue 4 was dropped: its
+saving turned out to be about 1.5 seconds per gate (see its outline).
 
 **Parallel work:** issues 5 and 9 depend on nothing and can start at once,
-alongside issue 1. After issue 1, issues 2, 3 and 4 can run in parallel;
-issues 3, 4, 6, 7 and 8 all edit `work-on.md`, so they land one at a time
+alongside issue 1. After issue 1, issues 2 and 3 can run in parallel;
+issues 3, 6, 7 and 8 all edit `work-on.md`, so they land one at a time
 and rebase on each other. Issue 6 follows 1 and 2, issue 7 follows 6, issue
 8 follows 1, 3 and 5, and issue 10 follows 9.

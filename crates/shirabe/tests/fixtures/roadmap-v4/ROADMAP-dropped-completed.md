@@ -1,0 +1,91 @@
+---
+schema: roadmap/v4
+status: Active
+theme: |
+  Plugins a maintainer can find.
+scope: |
+  The loader, the registry, search and the index.
+---
+
+# ROADMAP: plugins
+
+## Status
+
+Active
+
+## Theme
+
+Plugins a maintainer can find.
+
+## Milestones
+
+### Milestone 1: Old index
+
+**Outcome:** A maintainer sees old index work end to end.
+
+**Evidence:**
+- A reviewer, from a clean install, runs it and sees old index listed.
+
+**Left open:** None
+
+**Dependencies:** None
+**Status:** Dropped
+
+### Milestone 2: Registry
+
+**Outcome:** A maintainer sees registry work end to end.
+
+**Evidence:**
+- A reviewer, from a clean install, runs it and sees registry listed.
+
+**Left open:** None
+
+**Dependencies:** Milestone 1
+**Status:** Not started
+
+### Milestone 3: Loader
+
+**Outcome:** A maintainer sees loader work end to end.
+
+**Evidence:**
+- A reviewer, from a clean install, runs it and sees loader listed.
+
+**Left open:** None
+
+**Dependencies:** None
+**Status:** Completed
+
+### Milestone 4: Search
+
+**Outcome:** A maintainer sees search work end to end.
+
+**Evidence:**
+- A reviewer, from a clean install, runs it and sees search listed.
+
+**Left open:** None
+
+**Dependencies:** Milestone 3
+**Status:** Not started
+
+## Sequencing Rationale
+
+Each milestone builds on the one it names.
+
+## Progress
+
+Two milestones are finished.
+
+## Implementation Issues
+
+<!-- Populated by `shirabe roadmap populate`. Do not fill manually. -->
+
+| Milestone | Issues | Dependencies | Status |
+|-----------|--------|--------------|--------|
+
+## Dependency Graph
+
+<!-- Populated by `shirabe roadmap populate`. Do not fill manually. -->
+
+```mermaid
+graph TD
+```

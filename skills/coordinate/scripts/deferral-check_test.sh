@@ -314,6 +314,24 @@ eq "dispatching the topic a verdict-owed row names, its holding gone, is refused
 session "$(roadmap_vars plugin-system)" dispatch gamma
 eq "another topic is clear" "ok gamma" "$(check)"
 
+echo "== check mode: roadmap/v4, a dependent of a milestone owed its verdict =="
+# On a roadmap/v4 roadmap a milestone owed its verdict frees its dependents
+# (pick-facts.sh), so a brief for Milestone 2, which depends on Milestone 1,
+# goes through while Milestone 1's own topic is still refused. The check reads
+# no roadmap: the refusal is the owed milestone's alone, whatever the schema.
+# exit_of <output>: coord-verdict.sh's exit for that sealed token.
+exit_of() { bash "$HERE/coord-verdict.sh" --session "$S" --state dispatch_check --capture "$1" >/dev/null 2>&1; echo $?; }
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding m1 '{"unit": "Milestone 1: Loader", "phase": "executing", "pull_request": ""}')" \
+    --argjson o "$(OWEDROW "Milestone 1" m1)" '.holdings = [$h] | .work = [$o]')"
+db '.files["acme/widgets"][$k] = $t' --arg k "main:docs/roadmaps/ROADMAP-plugin-system.md" \
+    --arg t "$(printf -- '---\nschema: roadmap/v4\nstatus: Active\n---\n\n# ROADMAP\n\n## Milestones\n\n### Milestone 1: Loader\n**Dependencies:** None\n**Status:** In progress\n\n### Milestone 2: Registry\n**Dependencies:** Milestone 1\n**Status:** Not started\n')"
+session "$(roadmap_vars plugin-system)" dispatch m2
+OUT=$(bash "$DC" --session "$S" 2>"$T/err")
+eq "v4: a brief for Milestone 2 is clear" "ok m2 40" "${OUT% sealed:*} $(exit_of "$OUT")"
+session "$(roadmap_vars plugin-system)" send_execution m1
+OUT=$(bash "$DC" --session "$S" 2>"$T/err")
+eq "v4: a brief for Milestone 1, its verdict owed, is refused" "verdict-owed Milestone 1 49" "${OUT% sealed:*} $(exit_of "$OUT")"
+
 echo "== check mode: the topic is the one this visit's path chose =="
 # A pick from an earlier visit of pick is not the one checked: a later visit
 # whose evidence names another unit is.

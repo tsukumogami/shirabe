@@ -426,6 +426,21 @@ fi
 
 expect_count_fails "count --tree: a path missing under the tree" "skills/nope/SKILL.md does not exist under" \
     count --tree "$TREE" --manifest "$MISSING_PATH"
+
+# A state the tree's template no longer has (SECOND drops deliver.md's beta)
+# loads nothing: under --tree it counts as 0 bytes with a note, where a count
+# at the commit fails on the same manifest (the case above).
+TREE2="$TEST_DIR/tree-second"
+mkdir -p "$TREE2"
+git_fix archive "$SECOND" | tar -x -C "$TREE2"
+run count --tree "$TREE2" --manifest "$MISSING_STATE"
+NOTED=0
+case "$ERR" in *"note: state 'beta' is not in skills/deliver/koto-templates/deliver.md"*) NOTED=1 ;; esac
+if [ "$STATUS" -eq 0 ] && [ "$OUT" = "$(printf 'p\t0\t0')" ] && [ "$NOTED" -eq 1 ]; then
+    pass "count --tree: a state the tree no longer has counts as 0 bytes, with a note"
+else
+    fail "count --tree: a state the tree no longer has counts as 0 bytes, with a note" "status $STATUS, got [$OUT], stderr: $ERR"
+fi
 expect_count_fails "count --tree: with a commit as well" "a commit or --tree, not both" \
     count "$BASE" --tree "$TREE" --manifest "$MANIFEST"
 expect_count_fails "count --tree: not a directory" "not a directory" \

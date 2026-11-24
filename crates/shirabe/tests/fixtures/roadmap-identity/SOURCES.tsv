@@ -13,3 +13,5 @@ work-on-evals/ROADMAP-cascade-test.md	skills/work-on/evals/fixtures/roadmaps/ROA
 v2-milestone-word/ROADMAP-plugin-loader.md	(none: written for this corpus; a roadmap/v2 roadmap carrying a ### Milestone 2: heading and a ## Milestones section)
 milestone-prose/ROADMAP-v1-milestone-prose.md	(none: written for this corpus; a roadmap/v1 roadmap whose free-prose Dependencies lines mention another project's milestones)
 milestone-prose/ROADMAP-v2-milestone-prose.md	(none: written for this corpus; a roadmap/v2 roadmap whose Dependencies line mentions another project's milestone)
+roadmap-v3/ROADMAP-plugin-system.md	crates/shirabe/tests/fixtures/roadmap-v3/ROADMAP-plugin-system.md
+roadmap-v3/ROADMAP-plugin-system-sharpened.md	crates/shirabe/tests/fixtures/roadmap-v3/ROADMAP-plugin-system-sharpened.md

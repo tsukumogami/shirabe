@@ -190,6 +190,16 @@ span_bytes() {
             status=0
             out=$(src_cat "$sha" "$path" | state_section "${selector#state:}") || status=$?
             if [ "$status" -ne 0 ]; then
+                # Under --tree, the working copy a run loads: a state the
+                # template no longer has loads nothing, so it counts as 0
+                # bytes. The manifest still names it because the pinned
+                # commits the figures were measured at have it, and a count
+                # at a commit (check-figures) still fails on a missing state.
+                if [ -n "$TREE_DIR" ] && [ "$status" -eq 3 ]; then
+                    echo "$PROG: note: state '${selector#state:}' is not in $path $where; counted as 0 bytes" >&2
+                    echo 0
+                    return 0
+                fi
                 echo "$PROG: state '${selector#state:}' not found in $path $where" >&2
                 return 1
             fi
