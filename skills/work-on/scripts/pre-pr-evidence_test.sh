@@ -1,19 +1,31 @@
 #!/usr/bin/env bash
 # pre-pr-evidence_test.sh — a placeholder must not satisfy an obligation.
 #
-# The state exists because prose asking for cleanup, a summary shape, a commit
-# convention and a diagram update could not detect their own omission. The risk
-# in replacing prose with evidence is replacing it with evidence that anything
-# satisfies: koto's evidence schema has no way to constrain a string, so a
-# `type: string` field is satisfied by "done" and the obligation is unenforced in
-# substance while looking enforced in the record.
+# The pre-PR evidence is the record a run writes at `finalization` before a pull
+# request exists: summary.md with its `## Changes Made` section, pre_pr.md with
+# the cleanup commit and the design-diagram referent, and the run's commits.
+# Prose asking for cleanup, a summary shape, a commit convention and a diagram
+# update could not detect its own omission, so finalization's ready_for_pr edge
+# checks the record with gates. The risk in replacing prose with evidence is
+# replacing it with evidence that anything satisfies: koto's evidence schema has
+# no way to constrain a string, so a `type: string` field is satisfied by
+# "done" and the obligation is unenforced in substance while looking enforced in
+# the record.
 #
 # So the cases that matter here are the placeholder ones. Each drives the SHIPPED
-# state with a referent a careless run would write and requires it to fail. A
-# referent can also be shaped right and name nothing (shirabe#422): a mistyped
-# sha, a commit from another branch, a diagram path that was never written. The
-# fixture repository has real commits so those cases fail on existence, and the
-# rung each one reached is read back from failure_reason.
+# finalization state with a referent a careless run would write and requires it
+# not to reach pr_precheck. A referent can also be shaped right and name nothing
+# (shirabe#422): a mistyped sha, a commit from another branch, a diagram path
+# that was never written. The fixture repository has real commits so those cases
+# fail on existence, and the gate that held is read back from the response's
+# blocking conditions.
+#
+# These checks used to sit on a later state, pre_pr_evidence, which ended the run
+# at done_blocked on a failure. That state is gone; finalization runs the same
+# gates and holds on a failure, so each case here expects either pr_precheck or a
+# hold at finalization naming the gate. finalization-shape_test.sh walks the
+# whole template to finalization and checks the hold is fixed in place;
+# this suite drives the state alone, in a fixture, to cover the referent forms.
 #
 # Usage: pre-pr-evidence_test.sh
 # Exit codes: 0 all pass, 1 any failed, 0 with a skip notice when koto is absent.
@@ -55,7 +67,7 @@ cleanup() {
 ktg_on_exit cleanup
 
 if ! command -v koto >/dev/null 2>&1; then
-    skip "koto not on PATH; the ladder cannot be driven without the engine"
+    skip "koto not on PATH; finalization cannot be driven without the engine"
     exit 0
 fi
 [[ -f "$TEMPLATE" ]] || { echo "template not found: $TEMPLATE"; exit 2; }
@@ -74,8 +86,8 @@ extract_state() {
     ' "$TEMPLATE"
 }
 
-PRE_PR=$(extract_state pre_pr_evidence)
-[[ -n "$PRE_PR" ]] || { echo "pre_pr_evidence not found in $TEMPLATE"; exit 2; }
+FINALIZATION=$(extract_state finalization)
+[[ -n "$FINALIZATION" ]] || { echo "finalization not found in $TEMPLATE"; exit 2; }
 
 # The referent gates run check-pre-pr-referents.sh through PLUGIN_ROOT. koto
 # rejects a variable value outside ^[a-zA-Z0-9._/:@ \-]*$, so a checkout under
@@ -97,13 +109,16 @@ esac
 # below it. impl_base is the root commit, recorded in context as analysis would.
 # The repository holds the design doc the good record names, and a side branch
 # whose commit is not on the working branch.
+#
+# Every target finalization names is a stub terminal; the cases only care
+# whether ready_for_pr reaches pr_precheck or holds.
 build_fixture() {
     local dir="$1"
     cat > "$dir/fixture.md" <<FIXTURE
 ---
 name: pre-pr-evidence-fixture
 version: "1.0"
-description: Fixture exercising the pre-PR obligation ladder.
+description: Fixture exercising the pre-PR evidence checks at finalization.
 initial_state: start
 variables:
   PLUGIN_ROOT:
@@ -112,29 +127,39 @@ variables:
 states:
   start:
     transitions:
-      - target: pre_pr_evidence
-$PRE_PR
-  pr_precheck:
+      - target: finalization
+$FINALIZATION
+  implementation:
     terminal: true
-  done_blocked:
+  check_exit:
     terminal: true
     failure: true
     accepts:
       failure_reason:
         type: string
+  deferral_approval:
+    terminal: true
+  pr_precheck:
+    terminal: true
 ---
 
 ## start
-Stand-in for finalization.
+Stand-in for pass_counting.
 
-## pre_pr_evidence
-Record the pre-PR obligations.
+## finalization
+Write the summary and the pre-PR record.
+
+## implementation
+Stub terminal.
+
+## check_exit
+Stub terminal.
+
+## deferral_approval
+Stub terminal.
 
 ## pr_precheck
 Stub terminal standing in for the pull-request path.
-
-## done_blocked
-Blocked.
 FIXTURE
 }
 
@@ -142,7 +167,7 @@ FIXTURE
 #
 # In the pre_pr body, @HEAD@ is replaced by the fixture's tip sha, @HEAD7@ by
 # its first seven characters and @OTHER@ by the side branch's tip, since none
-# exists until the repository is built.
+# exists until the repository is built. Prints the response to the submission.
 land() {
     local session="$1" subject="$2" summary="$3" prepr="$4" data="$5" earlier="${6:-}"
     local repo; repo=$(mktemp -d) || exit 1; TMPS+=("$repo")
@@ -178,13 +203,41 @@ land() {
         printf '%s\n' "$prepr" | koto context add "$session" pre_pr.md >/dev/null 2>&1
         printf '%s\n' "$base" | koto context add "$session" impl_base >/dev/null 2>&1
         koto next "$session" >/dev/null 2>&1 || true
-        # --no-cleanup keeps the session past its terminal so the rung that
-        # fired can be read back from failure_reason.
         koto next "$session" --with-data "$data" --no-cleanup 2>/dev/null
-        echo
-        koto context get "$session" failure_reason 2>/dev/null || true
     )
     SESSIONS+=("$session")
+}
+
+# expect_hold <label> <gate> <response>: held at finalization, naming <gate>.
+expect_hold() {
+    if grep -q '"state":"pr_precheck"' <<<"$3"; then
+        fail "$1: reached pr_precheck -- the obligation is unenforced in substance"
+    elif ! grep -q '"state":"finalization"' <<<"$3"; then
+        fail "$1: expected a hold at finalization, got: $(head -c 300 <<<"$3")"
+    elif ! grep -q "\"name\":\"$2\"" <<<"$3"; then
+        fail "$1: held at finalization without naming $2: $(head -c 300 <<<"$3")"
+    else
+        pass "$1: holds at finalization, naming $2"
+    fi
+}
+# expect_rule <label> <rule-id> <response>: the held commit_convention gate's
+# captured output carries a finding for <rule-id>, which tells the commit
+# cases apart.
+expect_rule() {
+    local got
+    got=$(jq -r '.blocking_conditions[]? | select(.name == "commit_convention") | .failure.captured.stdout // ""' <<<"$3" 2>/dev/null)
+    if sed -n 's/^::koto-finding:://p' <<<"$got" | jq -e --arg r "$2" 'select(.rule_id == $r)' >/dev/null 2>&1; then
+        pass "$1: the finding names $2"
+    else
+        fail "$1: expected a $2 finding, got: $(head -c 300 <<<"$got")"
+    fi
+}
+expect_advance() {
+    if grep -q '"state":"pr_precheck"' <<<"$2"; then
+        pass "$1: reaches pr_precheck"
+    else
+        fail "$1: expected pr_precheck, got: $(head -c 300 <<<"$2")"
+    fi
 }
 
 GOOD_SUMMARY='# Summary
@@ -199,15 +252,11 @@ A thing.
 - none'
 GOOD_PREPR='cleanup_commit: @HEAD@
 design_diagram: docs/designs/DESIGN-thing.md'
-GOOD_EVIDENCE='{"pre_pr_status":"recorded","cleanup_done":"removed","design_diagram":"updated"}'
+GOOD_EVIDENCE='{"finalization_status":"ready_for_pr","cleanup_done":"removed","design_diagram":"updated"}'
 
 # Case 1 — everything in order reaches the pull-request path.
 OUT=$(land "prepr-ok-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" "$GOOD_EVIDENCE" || true)
-if grep -q '"state":"pr_precheck"' <<<"$OUT"; then
-    pass "a complete record reaches pr_precheck"
-else
-    fail "complete record: expected pr_precheck, got: $(head -c 300 <<<"$OUT")"
-fi
+expect_advance "a complete record" "$OUT"
 
 # ---------------------------------------------------------------------------
 # Case 2 — THE PLACEHOLDER CASE. "done" is what a careless run writes where a
@@ -216,23 +265,13 @@ fi
 OUT=$(land "prepr-placeholder-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" \
     'cleanup_commit: done
 design_diagram: docs/designs/DESIGN-thing.md' "$GOOD_EVIDENCE" || true)
-if grep -q '"state":"done_blocked"' <<<"$OUT"; then
-    pass "a placeholder where the cleanup commit belongs fails the state"
-elif grep -q '"state":"pr_precheck"' <<<"$OUT"; then
-    fail "a placeholder cleanup referent satisfied the state — the obligation is unenforced in substance"
-else
-    fail "placeholder case: unexpected result: $(head -c 300 <<<"$OUT")"
-fi
+expect_hold "a placeholder where the cleanup commit belongs" cleanup_referent "$OUT"
 
 # Case 3 — the same for the diagram: "yes" is neither a path nor a stated reason.
 OUT=$(land "prepr-diagram-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" \
     'cleanup_commit: @HEAD@
 design_diagram: yes' "$GOOD_EVIDENCE" || true)
-if grep -q '"state":"done_blocked"' <<<"$OUT"; then
-    pass "a placeholder where the diagram referent belongs fails the state"
-else
-    fail "diagram placeholder: expected done_blocked, got: $(head -c 300 <<<"$OUT")"
-fi
+expect_hold "a placeholder where the diagram referent belongs" diagram_referent "$OUT"
 
 # Case 4 — not-applicable is accepted, but only WITH a reason after it. An
 # obligation that does not apply is a legitimate answer; "not-applicable" alone
@@ -240,58 +279,47 @@ fi
 OUT=$(land "prepr-na-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" \
     'cleanup_commit: @HEAD@
 design_diagram: not-applicable: no design document is touched' \
-    '{"pre_pr_status":"recorded","cleanup_done":"none_found","design_diagram":"not_applicable"}' || true)
-if grep -q '"state":"pr_precheck"' <<<"$OUT"; then
-    pass "not-applicable with a stated reason is accepted"
-else
-    fail "not-applicable case: expected pr_precheck, got: $(head -c 300 <<<"$OUT")"
-fi
+    '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}' || true)
+expect_advance "not-applicable with a stated reason" "$OUT"
+OUT=$(land "prepr-na-bare-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" \
+    'cleanup_commit: @HEAD@
+design_diagram: not-applicable' \
+    '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}' || true)
+expect_hold "not-applicable with no reason" diagram_referent "$OUT"
 
-# Case 5 — a summary without the required section stops the run.
+# Case 5 — a summary without the required section holds the run.
 OUT=$(land "prepr-summary-$$" "feat(work-on): add a thing" '# Summary
 
 Some prose and no sections.' "$GOOD_PREPR" "$GOOD_EVIDENCE" || true)
-if grep -q '"state":"done_blocked"' <<<"$OUT"; then
-    pass "a summary missing its required section fails the state"
-else
-    fail "summary case: expected done_blocked, got: $(head -c 300 <<<"$OUT")"
-fi
+expect_hold "a summary missing its required section" summary_shape "$OUT"
 
-# Case 6 — a tip commit that is not a Conventional Commits subject stops the run.
+# Case 6 — a tip commit that is not a Conventional Commits subject holds the run.
 OUT=$(land "prepr-subject-$$" "fixed some stuff" "$GOOD_SUMMARY" "$GOOD_PREPR" "$GOOD_EVIDENCE" || true)
-if grep -q '"state":"done_blocked"' <<<"$OUT" && grep -q 'not a Conventional Commits subject' <<<"$OUT"; then
-    pass "a non-conventional commit subject fails the state"
-else
-    fail "subject case: expected done_blocked on the commit rung, got: $(head -c 300 <<<"$OUT")"
-fi
+expect_hold "a non-conventional commit subject" commit_convention "$OUT"
+expect_rule "a non-conventional commit subject" commit/conventional-subject "$OUT"
 
 # Case 6b — the gate reads every commit the run made, not only the tip: a
-# conventional tip over a non-conventional earlier commit still stops the run.
+# conventional tip over a non-conventional earlier commit still holds the run.
 OUT=$(land "prepr-early-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" "$GOOD_EVIDENCE" \
     "wip stuff" || true)
-if grep -q '"state":"done_blocked"' <<<"$OUT" && grep -q 'not a Conventional Commits subject' <<<"$OUT"; then
-    pass "a non-conventional commit below a conventional tip fails the state"
-else
-    fail "earlier-commit case: expected done_blocked on the commit rung, got: $(head -c 300 <<<"$OUT")"
-fi
+expect_hold "a non-conventional commit below a conventional tip" commit_convention "$OUT"
+expect_rule "a non-conventional commit below a conventional tip" commit/conventional-subject "$OUT"
 
-# Case 6c — an AI-attribution trailer on a commit stops the run too.
+# Case 6c — an AI-attribution trailer on a commit holds the run too.
 OUT=$(land "prepr-trailer-$$" "feat(work-on): add a thing
 
 Co-Authored-By: Claude <noreply@anthropic.com>" "$GOOD_SUMMARY" "$GOOD_PREPR" "$GOOD_EVIDENCE" || true)
-if grep -q '"state":"done_blocked"' <<<"$OUT" && grep -q 'AI-attribution trailer' <<<"$OUT"; then
-    pass "an AI-attribution trailer fails the state"
-else
-    fail "trailer case: expected done_blocked on the commit rung, got: $(head -c 300 <<<"$OUT")"
-fi
+expect_hold "an AI-attribution trailer" commit_convention "$OUT"
+expect_rule "an AI-attribution trailer" commit/no-ai-trailer "$OUT"
 
-# Case 7 — blocked is a first-class answer, not something to fake a referent for.
-OUT=$(land "prepr-blocked-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" \
-    '{"pre_pr_status":"blocked","cleanup_done":"none_found","design_diagram":"not_applicable"}' || true)
-if grep -q '"state":"done_blocked"' <<<"$OUT"; then
-    pass "an explicitly blocked run stops without opening a pull request"
+# Case 7 — the judgment calls are enums, closed sets a placeholder can't
+# satisfy: a word where cleanup_done's value belongs is refused outright.
+OUT=$(land "prepr-enum-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" \
+    '{"finalization_status":"ready_for_pr","cleanup_done":"done","design_diagram":"updated"}' || true)
+if grep -q '"state":"pr_precheck"' <<<"$OUT"; then
+    fail "cleanup_done: done advanced -- the enum accepted a placeholder"
 else
-    fail "blocked case: expected done_blocked, got: $(head -c 300 <<<"$OUT")"
+    pass "a placeholder where cleanup_done's enum value belongs is refused"
 fi
 
 # ---------------------------------------------------------------------------
@@ -299,38 +327,49 @@ fi
 # mistyped full sha is the one the issue was filed from: the tip's first seven
 # characters and nothing real behind them.
 # ---------------------------------------------------------------------------
-# The rung that fired is read back from failure_reason, which each done_blocked
-# edge's context_assignments writes.
-#
-# referent_case <label> <want-state> <failure_reason-fragment|-> <pre_pr-body>
-referent_case() {
-    local label="$1" want="$2" why="$3" prepr="$4"
-    OUT=$(land "prepr-$label-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$prepr" "$GOOD_EVIDENCE" || true)
-    if ! grep -q "\"state\":\"$want\"" <<<"$OUT"; then
-        fail "$label: expected $want, got: $(head -c 300 <<<"$OUT")"
-    elif [[ "$why" != - ]] && ! grep -qF "$why" <<<"$OUT"; then
-        fail "$label: reached $want on another rung; expected a failure_reason naming [$why], got: $(tail -n 1 <<<"$OUT" | head -c 300)"
-    else
-        pass "$label: reaches $want"
-    fi
-}
-referent_case nonexistent-sha done_blocked "does not record a cleanup_commit" \
+OUT=$(land "prepr-nonexistent-sha-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" \
     'cleanup_commit: @HEAD7@aaa9d49d45e7453fce2d9cc39537bbd5e
-design_diagram: docs/designs/DESIGN-thing.md'
-referent_case other-branch-sha done_blocked "does not record a cleanup_commit" \
+design_diagram: docs/designs/DESIGN-thing.md' "$GOOD_EVIDENCE" || true)
+expect_hold "nonexistent-sha" cleanup_referent "$OUT"
+OUT=$(land "prepr-other-branch-sha-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" \
     'cleanup_commit: @OTHER@
-design_diagram: docs/designs/DESIGN-thing.md'
-referent_case abbreviated-head pr_precheck - \
+design_diagram: docs/designs/DESIGN-thing.md' "$GOOD_EVIDENCE" || true)
+expect_hold "other-branch-sha" cleanup_referent "$OUT"
+OUT=$(land "prepr-abbreviated-head-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" \
     'cleanup_commit: @HEAD7@
-design_diagram: docs/designs/DESIGN-thing.md'
-referent_case missing-diagram done_blocked "does not record a design_diagram" \
+design_diagram: docs/designs/DESIGN-thing.md' "$GOOD_EVIDENCE" || true)
+expect_advance "abbreviated-head" "$OUT"
+OUT=$(land "prepr-missing-diagram-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" \
     'cleanup_commit: @HEAD@
-design_diagram: docs/designs/DESIGN-missing.md'
+design_diagram: docs/designs/DESIGN-missing.md' "$GOOD_EVIDENCE" || true)
+expect_hold "missing-diagram" diagram_referent "$OUT"
 
-# Case 12 — the evidence is required. Submitting none must not advance, since the
-# state would otherwise be satisfied by silence.
+# Cases 12a-c — the two judgment calls are required with ready_for_pr. koto
+# tests an evidence field only for a value, so the route lists each pair of
+# values: a submission that leaves one out matches no edge and holds, with
+# every record in order.
+OUT=$(land "prepr-no-cleanup-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" \
+    '{"finalization_status":"ready_for_pr","design_diagram":"updated"}' || true)
+if grep -q '"state":"finalization"' <<<"$OUT"; then
+    pass "ready_for_pr with no cleanup_done holds at finalization"
+else
+    fail "ready_for_pr with no cleanup_done: expected a hold at finalization, got: $(head -c 300 <<<"$OUT")"
+fi
+OUT=$(land "prepr-no-diagram-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" \
+    '{"finalization_status":"ready_for_pr","cleanup_done":"removed"}' || true)
+if grep -q '"state":"finalization"' <<<"$OUT"; then
+    pass "ready_for_pr with no design_diagram holds at finalization"
+else
+    fail "ready_for_pr with no design_diagram: expected a hold at finalization, got: $(head -c 300 <<<"$OUT")"
+fi
+OUT=$(land "prepr-both-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" \
+    '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"updated"}' || true)
+expect_advance "ready_for_pr with both cleanup_done and design_diagram" "$OUT"
+
+# Case 12 — the status is required. Submitting nothing must not advance, since
+# the state would otherwise be satisfied by silence.
 OUT=$(land "prepr-empty-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" '{}' || true)
-if grep -qE '"state":"pr_precheck"|"state":"done_blocked"' <<<"$OUT"; then
+if grep -q '"state":"pr_precheck"' <<<"$OUT"; then
     fail "a submission with no evidence advanced"
 else
     pass "a submission with no evidence does not advance"

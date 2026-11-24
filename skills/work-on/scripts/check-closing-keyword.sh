@@ -26,8 +26,8 @@
 #       closing it. Without --repo the issue is in the pull request's own
 #       repository.
 #   --approved-pass <log>
-#       The log probe: did this pass reach pre_pr_evidence through an
-#       approved deferral? Reads the run's koto state log and nothing else.
+#       The log probe: did this pass reach pr_precheck through an approved
+#       deferral? Reads the run's koto state log and nothing else.
 #
 # GitHub closes an issue in another repository only through a qualified
 # reference, `Fixes owner/repo#N`. A bare `Fixes #N` in this pull request
@@ -162,7 +162,7 @@
 #
 # The log probe (--approved-pass <log>) reads the run's state log and makes
 # no gh call. The pass is approved when the last `transitioned` or
-# `directed_transition` event into pre_pr_evidence is a `transitioned` event
+# `directed_transition` event into pr_precheck is a `transitioned` event
 # from deferral_approval, the engine's own record of the approval, and no
 # event after it in the file of type `transitioned`, `directed_transition` or
 # `rewound` goes to finalization or deferral_approval: a recount that went
@@ -171,6 +171,11 @@
 # the log's header among them, are skipped. Every line is parsed in one jq
 # run, so a single line that isn't JSON fails the whole read and nothing is
 # half-decided.
+#
+# A log written by a template from before pre_pr_evidence was removed reached
+# pr_precheck through it: there an arrival into pre_pr_evidence is the pass's
+# arrival, and its own step on to pr_precheck is not counted, so a run started
+# on the old template and checked by this script reads the same.
 #
 # Usage: check-closing-keyword.sh --issue <N> --repo <owner/repo>
 #        check-closing-keyword.sh --issue <N> --non-closing [--repo <owner/repo>]
@@ -285,7 +290,10 @@ def dest: if (.payload | type) == "object" then .payload.to else null end;
 def src: if (.payload | type) == "object" then .payload.from else null end;
 def moved: .type == "transitioned" or .type == "directed_transition";
 [inputs | select(type == "object" and (.type | type) == "string")] as $ev
-| [range(0; $ev | length) | select($ev[.] | moved and dest == "pre_pr_evidence")] as $arrivals
+| [range(0; $ev | length)
+   | select($ev[.] | moved
+            and (dest == "pre_pr_evidence"
+                 or (dest == "pr_precheck" and src != "pre_pr_evidence")))] as $arrivals
 | if ($arrivals | length) == 0 then "none"
   else $arrivals[-1] as $i
   | if ($ev[$i] | .type == "transitioned" and src == "deferral_approval")
