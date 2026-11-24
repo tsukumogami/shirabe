@@ -91,7 +91,8 @@ graph TD
 
 /// Where the invalid roadmap is staged as a test input, the same directory
 /// as this repository's own roadmap fixtures.
-const FIXTURE_REPO_PATH: &str = "crates/shirabe/tests/fixtures/roadmap-v3/ROADMAP-invalid-status.md";
+const FIXTURE_REPO_PATH: &str =
+    "crates/shirabe/tests/fixtures/roadmap-v3/ROADMAP-invalid-status.md";
 
 struct Repo {
     root: PathBuf,
@@ -145,7 +146,12 @@ impl Repo {
 
     fn ok(&self, args: &[&str]) {
         let out = self.git(args);
-        assert!(out.status.success(), "git {:?} failed:\n{}", args, text(&out));
+        assert!(
+            out.status.success(),
+            "git {:?} failed:\n{}",
+            args,
+            text(&out)
+        );
     }
 
     fn write(&self, rel: &str, contents: &str) {
@@ -160,7 +166,11 @@ impl Repo {
             .arg("install-hooks")
             .output()
             .expect("shirabe runs");
-        assert!(out.status.success(), "install-hooks failed:\n{}", text(&out));
+        assert!(
+            out.status.success(),
+            "install-hooks failed:\n{}",
+            text(&out)
+        );
         assert!(
             self.root.join(".git/hooks/pre-commit").is_file(),
             "install-hooks wrote no hook into the test repository"
