@@ -190,19 +190,60 @@ The headings are fixed strings:
 
 ### Step 6: --standing rule writes a skill, doc, pinned or inferred rule row and refuses one that cites words its source doesn't hold
 
-shirabe, after the reader release has shipped: the writer takes `rule` and `--source` in the four uncited forms with the grammar, the private-repository checks on Source and What, the default-branch and quoted-sentence checks (three forge reads on a public host, two elsewhere, any failure refusing the row), one refusal for a missing and an unreadable repository, and the 120-rule and 60-inferred caps that leave room for every event kind. The design's Decisions 7, 8 and 9, settled after this step merged, change its trailing-punctuation set, its fence rule and its repository comparison and shared visibility read; that change lands through #1582 with criteria R44 to R46.
+**Goal**: Landed in #1576. The writer takes `rule` and `--source` in the four uncited forms with the grammar, the private-repository checks on Source and What, the default-branch and quoted-sentence checks (three forge reads on a public host, two elsewhere, any failure refusing the row), one refusal for a missing and an unreadable repository, and the 120-rule and 60-inferred caps that leave room for every event kind. The design's Decisions 7, 8 and 9, settled after this step merged, change its trailing-punctuation set, its fence rule and its repository comparison and shared visibility read; that change lands through #1582 with criteria R44 to R46.
+
+**Acceptance Criteria**:
+
+- [ ] `--standing rule` writes a `skill`, `doc`, `pinned` or `inferred` rule row and refuses (65, nothing written) one whose Source is outside the grammar, whose cited file at the default branch's commit doesn't hold its quoted sentence, whose repository is missing or unreadable, or that would pass the 120-rule or 60-inferred cap.
+
+**Check**: Run `bash skills/coordinate/scripts/standing-rule-write_engine_test.sh` and see one `ok` line per case; it exits 0.
+
+**Dependencies**: Step 1
 
 ### Step 7: a start whose brief has no briefs row names brief-unread, and the intake brings each brief rule in once as an inferred row
 
-shirabe, after step 6: `record/host` names the brief, the handover read raises `brief-unread <label>`, the intake writes one `inferred brief` rule row per unmatched brief rule sentence by the normalized match plus the `briefs` row, its candidates being the splitter's output less heading lines and less the renderer's Goal, Checkpoints, Read first, Acceptance criteria, Reporting and Keep-alive sections (the design's Decision 10), so the first intake of each `testdata/brief-golden` brief on an empty record stays under the 60-inferred cap, is idempotent on one digest, brings a pause-shaped line in as a restrict-only `rule` row, ends the earlier digest's inferred rows the new brief no longer states, and leaves the gap open naming the count when a cap would be passed.
+**Goal**: Landed in #1596. `record/host` names the brief, the handover read raises `brief-unread <label>`, and the intake writes one `inferred brief` rule row per unmatched brief rule sentence by the normalized match plus the `briefs` row, its candidates being the splitter's output less heading lines and less the renderer's Goal, Checkpoints, Read first, Acceptance criteria, Reporting and Keep-alive sections (the design's Decision 10).
+
+**Acceptance Criteria**:
+
+- [ ] The first intake of each `testdata/brief-golden` brief on an empty record stays under the 60-inferred cap, a second intake of the same digest writes nothing, a pause-shaped line comes in as a restrict-only `rule` row, a new digest ends the earlier digest's inferred rows the new brief no longer states, and a cap that would be passed leaves the gap open naming the count.
+
+**Check**: Run `bash skills/coordinate/scripts/brief-intake_engine_test.sh` and see one `ok` line per case; it exits 0.
+
+**Dependencies**: Step 6
 
 ### Step 8: state-keys.md and SKILL.md describe rule rows, Source forms, classes and the two read modes
 
-shirabe, with step 7: the reference text for the uncited forms, the intake and `--rules`, with "yourself as relayer" kept until step 16; this touches the same passages of `SKILL.md` and `references/state-keys.md` as the coordinate skill's reviewer-wording change in tsukumogami/shirabe#1449, so whichever lands second rebases on the first.
+**Goal**: Landed with step 7 in #1596. The reference text for the uncited forms, the intake and `--rules`, with "yourself as relayer" kept until step 16.
+
+**Acceptance Criteria**:
+
+- [ ] `SKILL.md` and `references/state-keys.md` describe rule rows, the four uncited Source forms, the classes, the intake and the two read modes (`--rules` and `--rules --counts`), and still say "yourself as relayer".
+
+**Check**: Read the two files' rule-row passages and run `scripts/check-skill.sh --changed coordinate`, which exits 0.
+
+**Dependencies**: Step 7
 
 ### Step 9: standing-provenance.sh prints a cited decision's facts, and anything it can't read in 5 seconds reads unreadable
 
-shirabe, gated on a koto release with the decision record and the reads listed below: the read-only helper runs `koto decisions show <session> <id>` with the two passed as separate arguments, prints decider, surface, link, entering session, time, subject, status, the bound test's inputs and the winning reversal's standing path and fence, cuts koto text to 200 characters with control characters stripped, and fails closed on any error, parse failure or timeout.
+**Goal**: The first citation step. `skills/coordinate/scripts/standing-provenance.sh <session> <id>` reads one cited koto decision and prints the facts `rule_class` and the `--rules` view will need, as one JSON object; it reads and never writes. It runs `koto decisions show <session> <id>` with the two passed as separate arguments, under a 5-second deadline (`reconcile-deps.sh`'s `rd_deadline`, since macOS has no `timeout(1)`), and prints: `status` as koto reports it (`in-effect`, `reversed`, `refused`); the decider's `kind`, `handle`, `surface`, `link` and `entering` session (for a session decider, its session); the decision's `time`; the bound test's inputs, `bound` and `bound_by` (the entering session counts as bound when the decision's frozen chain names a session holding `record/meta` that isn't an earlier member of the entering session's run, which koto's supersede marker ties to it, or when the entering session's Run section holds a `reports-to` row); and, when the status is `reversed`, the winning reversal's `session`, `id`, `time`, decider, `standing`, `hop` (whether its standing path holds a `supersede` step) and `fence` (each such step's fenced session, successor, actor and time). Text it hands on from koto (the subject's fields, the reason, the link, a handle, the reversal's reason) goes under `quoted`, cut to 200 characters with control characters stripped. Any failure (a non-zero exit, a body that doesn't parse or lacks a status, koto's own `unreadable`, an argument outside the session-name or 12-digit-id grammar, or the deadline passing) prints `{session, id, status: "unreadable", why}` with exit 0, since unreadable is an answer, not an error. Nothing calls the helper yet: `--rules` and `rule_class` keep reading a `decision` Source as unreadable until step 10, which also adds the koto version floor that turns citations on.
+
+**Acceptance Criteria**:
+
+- [ ] On a scratch koto store, a person judgment recorded in session P with `--by person:<handle> --surface relay --link <url>` reads `status` `in-effect`, decider `kind` `person` with that handle, surface and link, `entering` P, and `time` equal to koto's, compared with `jq -S` against expected objects held in the test; a session judgment reads decider `kind` `session` with its session.
+- [ ] After P is superseded by Q (`koto init Q --continues P --supersede`) and Q reverses P's session decision, the decision reads `status` `reversed`, and its `reversal` names Q, the reversal's id and time, standing `verified`, `hop` true, and one `fence` step naming P, Q's session id, the fence's actor and time, each equal to koto's `decisions chain P` marker.
+- [ ] A reversal recorded without a supersede hop (a session above the decider, reached by a dispatched-by link) reads `hop` false and `fence` `[]`.
+- [ ] `bound` is true for a decision entered in a session whose frozen chain names a session holding `record/meta`, and for one entered in a session whose `record/run` holds a `reports-to` row; it is false for a decision in a session with neither, and false when the only chain session holding `record/meta` is an earlier member of the entering session's run tied by a supersede marker. `bound_by` names the sessions or the `reports-to` row that made it true.
+- [ ] A reason, subject field, link and handle holding control characters and over 200 characters come out under `quoted` with no control character and at most 200 characters.
+- [ ] Each of these reads `status` `unreadable` with a `why`, exit 0 and nothing written to any session (the store's file listing is unchanged): a session with no such decision; a missing session; a fake koto (`KOTO_BIN`) that exits non-zero, prints text that isn't JSON, prints JSON with no status, prints status `unreadable`, or sleeps past the deadline, the last returning within 7 seconds; and an id that isn't 12 digits or a session name starting with `-`, the last two making no koto call (the fake's call log stays empty).
+- [ ] The fake's call log shows `decisions show <session> <id>` as separate arguments, and no other `koto decisions` command than `show` and `chain`.
+- [ ] `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md --base-table <the base branch's coordinate.compat.json>` exits 0 with `compat` unchanged: no gate runs the helper.
+
+**Check**: Run `bash skills/coordinate/scripts/standing-provenance_engine_test.sh`, a new engine suite `run-tests.sh --engine` picks up, and see one `ok` line per criterion; it exits 0. The suite sources `scripts/lib/koto-test-guard.sh` first, so every koto call runs on a store under its scratch directory.
+
+**Dependencies**: Step 1
+
+**Files**: `skills/coordinate/scripts/standing-provenance.sh` (new), `skills/coordinate/scripts/standing-provenance_engine_test.sh` (new), `skills/coordinate/SKILL.md` (Reference Files table, if it lists scripts), `skills/coordinate/koto-templates/coordinate.compat.json` (only if a digest it records changes)
 
 ### Step 10: a decision row reads owner-said, dispatcher-said or inferred by the root and leg tests, and the writer refuses a citation that wouldn't
 

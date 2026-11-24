@@ -135,6 +135,8 @@ variables:
     required: false
   DELIVERY_REASON:
     required: false
+  PLAN_DOC:
+    required: false
 states:
   pr_creation:
     accepts:
@@ -360,6 +362,120 @@ if [[ $RC -eq 1 && "$OUT" == "refused=cap" && $N -eq 3 ]] \
     pass "a fourth round is refused and nothing is started"
 else
     fail "a fourth round was not refused (rc=$RC, out=[$OUT], rounds=$N)"
+fi
+
+# --- the PLAN's checkout moved (#2104) -------------------------------------------
+# A plan-backed child of a coordinated run records PLAN_DOC as the run's plan_abs
+# when the child was opened. When the coordination checkout moves, the parent's
+# plan_abs is re-rooted (record-coord-setup.sh --reroot-plan), and a round started
+# after that reads the PLAN where the run reads it now. The parent is opened in a
+# directory of its own, as a coordinated run is, so the round reads it there.
+round_var() {
+    local log
+    log="$(koto session dir "$1")/koto-$1.state.jsonl"
+    jq -rs --arg k "$2" '[.[] | select(.type == "workflow_initialized")][0].payload.variables[$k] // ""' "$log"
+}
+OLD_PLAN="$W/old/docs/plans/PLAN-moved.md"
+NEW_PLAN="$W/new/docs/plans/PLAN-moved.md"
+mkdir -p "$W/coord" "$(dirname "$OLD_PLAN")" "$(dirname "$NEW_PLAN")"
+printf -- '---\nschema: plan/v2\n---\n' > "$OLD_PLAN"
+cp "$OLD_PLAN" "$NEW_PLAN"
+
+# The child is opened under the parent, so it is bound to the parent's directory,
+# then rebound to the node repository and driven to done there, as a step agent
+# drives a coordinated child in the node's worktree.
+open_plan_child() { # <parent> <plan_abs or empty> <child PLAN_DOC>
+    local c="$W/coord"
+    (cd "$c" && koto init "$1" --template "$W/parent.md" >/dev/null) \
+        || { echo "could not init the parent $1" >&2; return 1; }
+    if [ -n "$2" ]; then
+        printf '%s' "$2" | (cd "$c" && koto context add "$1" plan_abs >/dev/null) \
+            || { echo "could not record plan_abs in $1" >&2; return 1; }
+    fi
+    (cd "$c" && koto init "$1.kid" --parent "$1" --template "$W/child.md" \
+        --var ARTIFACT_PREFIX=step-1 --var PLUGIN_ROOT=/nowhere \
+        --var "PLAN_DOC=$3" >/dev/null) || { echo "could not init $1.kid" >&2; return 1; }
+    (cd "$c" && koto session rebind "$1.kid" --to "$REPO" >/dev/null) \
+        || { echo "could not rebind $1.kid to the node repository" >&2; return 1; }
+    in_repo tick "$1.kid" '{"pr_status":"shared"}'
+    [[ $(in_repo state_of "$1.kid") == done ]] || { echo "$1.kid did not reach done" >&2; return 1; }
+}
+
+# The checkout moved: the parent's plan_abs is the PLAN in the new checkout, and
+# the old checkout still exists, so a round on the old path would read a PLAN the
+# run has moved off.
+if open_plan_child mov "$NEW_PLAN" "$OLD_PLAN"; then
+    OUT=$(in_repo bash "$FIX_ROUND" start --from mov.kid 2>/dev/null); RC=$?
+    GOT=$(round_var mov.kid-fix-1 PLAN_DOC 2>/dev/null)
+    MOVED=$(round_var mov.kid-fix-1 PLAN_DOC_MOVED 2>/dev/null)
+    if [[ $RC -eq 0 && "$GOT" == "$NEW_PLAN" && -z "$MOVED" ]]; then
+        pass "after the PLAN's checkout moved, the round's PLAN_DOC is the parent's re-rooted plan_abs"
+    elif [[ "$GOT" == "$OLD_PLAN" ]]; then
+        fail "the new session's PLAN_DOC variable is the old path: [$GOT], plan_abs [$NEW_PLAN] (rc=$RC, out=[$OUT])"
+    else
+        fail "the moved round's PLAN_DOC is [$GOT] and PLAN_DOC_MOVED [$MOVED] (rc=$RC, out=[$OUT])"
+    fi
+else
+    fail "could not open the moved plan-backed child"
+fi
+
+# The checkout never moved: plan_abs is the path the child recorded, and the round
+# carries it as it does today.
+if open_plan_child stay "$OLD_PLAN" "$OLD_PLAN"; then
+    OUT=$(in_repo bash "$FIX_ROUND" start --from stay.kid 2>/dev/null); RC=$?
+    GOT=$(round_var stay.kid-fix-1 PLAN_DOC 2>/dev/null)
+    MOVED=$(round_var stay.kid-fix-1 PLAN_DOC_MOVED 2>/dev/null)
+    if [[ $RC -eq 0 && "$GOT" == "$OLD_PLAN" && -z "$MOVED" ]]; then
+        pass "a round for a child whose checkout never moved keeps the PLAN_DOC it recorded"
+    else
+        fail "the unmoved round's PLAN_DOC is [$GOT] and PLAN_DOC_MOVED [$MOVED] (rc=$RC, out=[$OUT])"
+    fi
+else
+    fail "could not open the unmoved plan-backed child"
+fi
+
+# A parent with no plan_abs (a run that never recorded one) leaves PLAN_DOC as the
+# child recorded it.
+if open_plan_child noabs "" "$OLD_PLAN"; then
+    OUT=$(in_repo bash "$FIX_ROUND" start --from noabs.kid 2>/dev/null); RC=$?
+    GOT=$(round_var noabs.kid-fix-1 PLAN_DOC 2>/dev/null)
+    if [[ $RC -eq 0 && "$GOT" == "$OLD_PLAN" ]]; then
+        pass "a round under a parent with no plan_abs keeps the PLAN_DOC the child recorded"
+    else
+        fail "the round under a parent with no plan_abs has PLAN_DOC [$GOT] (rc=$RC, out=[$OUT])"
+    fi
+else
+    fail "could not open the plan-backed child under a parent with no plan_abs"
+fi
+
+# A unit with no plan carries no PLAN_DOC, and its round has none either.
+# par.kid-fix-1 is the round the first sections of this file started for par.kid.
+if [[ -z "$(round_var par.kid-fix-1 PLAN_DOC 2>/dev/null)" ]]; then
+    pass "a round for a unit with no plan has no PLAN_DOC"
+else
+    fail "the no-plan round has PLAN_DOC [$(round_var par.kid-fix-1 PLAN_DOC)]"
+fi
+
+# A parent bound to a directory that is gone (the checkout moved and the parent
+# was not rebound) is refused: read from here it could look like a parent with
+# no plan_abs and leave the round on the old path.
+G="$W/gone"
+mkdir -p "$G"
+if (cd "$G" && koto init gone --template "$W/parent.md" >/dev/null) \
+   && printf '%s' "$NEW_PLAN" | (cd "$G" && koto context add gone plan_abs >/dev/null) \
+   && (cd "$G" && koto init gone.kid --parent gone --template "$W/child.md" \
+          --var ARTIFACT_PREFIX=step-1 --var PLUGIN_ROOT=/nowhere --var "PLAN_DOC=$OLD_PLAN" >/dev/null) \
+   && (cd "$G" && koto session rebind gone.kid --to "$REPO" >/dev/null); then
+    in_repo tick gone.kid '{"pr_status":"shared"}'
+    rm -rf "$G"
+    OUT=$(in_repo bash "$FIX_ROUND" start --from gone.kid 2>/dev/null); RC=$?
+    if [[ $RC -eq 2 && -z "$OUT" ]] && ! koto status gone.kid-fix-1 >/dev/null 2>&1; then
+        pass "a parent bound to a directory that is gone is refused and no round starts"
+    else
+        fail "a parent bound to a gone directory was not refused (rc=$RC, out=[$OUT])"
+    fi
+else
+    fail "could not open the child under a parent bound to a directory that will go"
 fi
 
 echo

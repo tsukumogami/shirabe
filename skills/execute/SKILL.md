@@ -810,7 +810,22 @@ against its chain shape:
      directory (`$SHIRABE_STATE_DIR`, else `$XDG_STATE_HOME/shirabe`, whose
      default is `.local/state/shirabe` under the home directory, in
      `execute-carry/`, mode 0700) only until the
-     carry succeeds.
+     carry succeeds. One `run/` key belongs to both modes:
+     `run/cleanup/<id>` (verb `pin`, from `build-output-pin.sh`), a recorded
+     worktree's path and the base pinned for its build-output cleanup, `single`
+     on single-pr (from `drift-facts.sh`, right after its fetch) and the node id
+     on coordinated (from `node-push.sh node`, on every push). `pin` writes a
+     key once and keeps the first value, and `carry` restores it into a
+     replacement session, on single-pr as on coordinated.
+   - **Declared build output**, the paths a repository's verification map
+     lists in `build_output`, removed from each recorded worktree only at the
+     run's successful end, by `build-output-end.sh` from the `merged` and
+     `ready_awaiting_merge` directives, which hands each worktree whose own pull
+     request's CI is green to `clean-build-output.sh` with the base pinned for
+     it, and only when the parent checkout's untracked `CLAUDE.local.md`
+     carries `## Build Output Cleanup: on`. It writes the session's
+     `build_output_cleanup` key once. No other state or script removes build
+     output, and nothing it finds changes the run's result.
    - **Node PR marker edits** (`gh pr edit --body-file`), only from
      `record-coord-setup.sh` on a recovering start given `--adopt-run`, after
      every recovery check passed, and only on node PRs that passed the

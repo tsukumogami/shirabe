@@ -256,6 +256,17 @@
 #       JSON, reads `working` or reads anything else. A caller about to
 #       remove a job refuses on 1; a wrong answer here only refuses.
 #
+#   DC_JQ_IN_DIR
+#       A jq definition, `in_dir($p)`: true when the input, a job's `cwd`
+#       from `claude agents --json --all`, is the directory $p or lies below
+#       it ($p followed by `/`), so a sibling that only shares $p as a string
+#       prefix (`<p>-other`) is not in it. A cwd that is missing or not a
+#       string is in no directory. Prepend it to a filter:
+#       `jq --arg p "$IPATH" "$DC_JQ_IN_DIR"'[.[] | select(.cwd | in_dir($p))]'`.
+#       The teardown seal and pass both find a worker's job with it, so a job
+#       resumed from one of its instance's worktrees is the instance's job
+#       (shirabe#1243), and the two can't disagree about which job that is.
+#
 #   dc_claude_job <claude-home> <claude-session-id> [<session-name>]
 #       Prints the id of the Claude Code job on this host whose
 #       <claude-home>/jobs/<id>/state.json names the Claude session by its
@@ -856,6 +867,9 @@ dc_branch_ahead() {
     rm -f "$err"
     printf '%s\n' "$out"
 }
+
+# shellcheck disable=SC2034,SC2016  # read by the scripts that source this file; $p is jq's
+DC_JQ_IN_DIR='def in_dir($p): type == "string" and (. == $p or startswith($p + "/")); '
 
 dc_job_finished() {
     local home="$1" job="$2" row="$3" pid f st
