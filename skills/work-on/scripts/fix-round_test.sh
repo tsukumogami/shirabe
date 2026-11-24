@@ -449,10 +449,33 @@ else
 fi
 
 # A unit with no plan carries no PLAN_DOC, and its round has none either.
+# par.kid-fix-1 is the round the first sections of this file started for par.kid.
 if [[ -z "$(round_var par.kid-fix-1 PLAN_DOC 2>/dev/null)" ]]; then
     pass "a round for a unit with no plan has no PLAN_DOC"
 else
     fail "the no-plan round has PLAN_DOC [$(round_var par.kid-fix-1 PLAN_DOC)]"
+fi
+
+# A parent bound to a directory that is gone (the checkout moved and the parent
+# was not rebound) is refused: read from here it could look like a parent with
+# no plan_abs and leave the round on the old path.
+G="$W/gone"
+mkdir -p "$G"
+if (cd "$G" && koto init gone --template "$W/parent.md" >/dev/null) \
+   && printf '%s' "$NEW_PLAN" | (cd "$G" && koto context add gone plan_abs >/dev/null) \
+   && (cd "$G" && koto init gone.kid --parent gone --template "$W/child.md" \
+          --var ARTIFACT_PREFIX=step-1 --var PLUGIN_ROOT=/nowhere --var "PLAN_DOC=$OLD_PLAN" >/dev/null) \
+   && (cd "$G" && koto session rebind gone.kid --to "$REPO" >/dev/null); then
+    in_repo tick gone.kid '{"pr_status":"shared"}'
+    rm -rf "$G"
+    OUT=$(in_repo bash "$FIX_ROUND" start --from gone.kid 2>/dev/null); RC=$?
+    if [[ $RC -eq 2 && -z "$OUT" ]] && ! koto status gone.kid-fix-1 >/dev/null 2>&1; then
+        pass "a parent bound to a directory that is gone is refused and no round starts"
+    else
+        fail "a parent bound to a gone directory was not refused (rc=$RC, out=[$OUT])"
+    fi
+else
+    fail "could not open the child under a parent bound to a directory that will go"
 fi
 
 echo
