@@ -81,7 +81,7 @@ Each value under `commands` is an object with these fields:
 | `unattended` | boolean | `true` when `network` is `false`; none when `network` is `true` | Whether the command may be started with no person present. A command marked `network: true` must set `unattended` explicitly; a map that omits it there does not parse. A command marked `unattended: false` is never started by the gate on its own; the run stops for a person instead. |
 | `max_procs` | integer | `256` | The most processes the command's process group may hold at once. A command that grows past it is killed and counts as not passed. |
 | `timeout_form` | string (regular expression) | absent | How a timeout inside the command reads, for a command that can time out inside itself (a test that gives up waiting under load) rather than at `timeout_secs`. A nonzero exit is recorded as `timed-out-inside` only when the command's log reports at least one failure line and every failure line matches this expression; otherwise it is `failed`. See [Command records](#command-records). |
-| `hosted` | array of objects | absent | The hosted CI jobs that run this command's suites, for a command whose run can be settled by hosted CI instead. Each entry has three non-empty strings: `workflow`, the workflow file, a path under `.github/workflows/`; `job`, the job's name as GitHub reports it, matrix leg included (`skill-gate (ubuntu-latest)`, not `skill-gate`); and `runs`, the line of the job's plan that runs this command, with `{skill}` standing for the last component of the `each` directory the invocation runs for. Each invocation carries the row's validated `hosted` (`[]` when the row declares none). The hosted-of-record route reads it: when this row's check times out, `verification-route.sh` reads the declaration from the merge-base's map and settles the check on these jobs (see [The hosted-of-record route](#the-hosted-of-record-route)). A row without `hosted` keeps the route closed for its check. |
+| `hosted` | array of objects | absent | The hosted CI jobs that run this command's suites, for a command whose run can be settled by hosted CI instead. Each entry has three non-empty strings: `workflow`, the workflow file, a path under `.github/workflows/`; `job`, the job's name as GitHub reports it, matrix leg included (`skill-gate (ubuntu-latest)`, not `skill-gate`); and `runs`, the line of the job's plan that runs this command, with `{skill}` standing for the last component of the `each` directory the invocation runs for. Each invocation carries the row's validated `hosted` (`[]` when the row declares none). The hosted-of-record route reads it: when this row's check times out, `verification-route.sh` reads the declaration from the merge-base's map and settles the check on these jobs (see [The hosted-of-record route](#the-hosted-of-record-route)). A row without `hosted` keeps the route closed for its check. Under `VERIFICATION=auto` the entry is also the command's twin: a run whose every started command has one verifies on hosted CI instead of here (see [Hosted CI as the build of record](#hosted-ci-as-the-build-of-record)). |
 
 A map does not parse when it isn't valid JSON, when `schema` is missing or different, when a
 required field is missing or has the wrong type, when an entry or `default` names an id that
@@ -93,7 +93,11 @@ string, or a `workflow` outside `.github/workflows/`. The refusal names the comm
 
 A declaration is a claim that the job runs every suite the command can select, and a claim
 the map alone can't prove. A project that declares `hosted` keeps a test that proves it
-against the workflow file and the job's own plan, over the diffs that select the command.
+against the workflow file and the job's own plan, over the diffs that select the command:
+the workflow exists, runs on pull requests, has the named job with nothing keeping it off
+pull requests, and the job's plan prints the `runs` line for a change the row selects.
+shirabe's are `skills/work-on/scripts/verification-map-schema_test.sh` and
+`skills/work-on/scripts/verification-hosted-coverage_test.sh`.
 
 ### Selection rules
 
@@ -482,6 +486,40 @@ its record as `hosted_of_record` in its own session and reads it at `plan_comple
 marks the shared pull request ready; a coordinated run keeps one record per node,
 `run/hosted/<node>`, written by `node-push.sh` for the node's pushed head and read before the
 node pull request is readied or merged.
+
+## Hosted CI as the build of record
+
+`/work-on`'s `VERIFICATION` variable says where the gate runs. `local` runs the map's
+commands on the host, as this document describes; `hosted-ci` defers every run to the pull
+request's hosted CI with a stated reason. `auto`, the default, decides per run, so a change
+is verified once: on hosted CI when hosted CI runs every command that would run here, and
+here otherwise. `--verification=local` is the opt-out.
+
+On each way into verification, `run-verification.sh --plan` resolves `auto`:
+
+- to **`hosted-ci`** when every command the run would start has a `hosted` twin in the
+  merge-base's map and no changed path, either side of a rename, is in the ci, security,
+  template or engine class of `skills/work-on/references/review-level-rules.tsv`
+  (`review-level.sh classify`). Those classes can change what CI itself runs, or what
+  decides the run's route, so they keep it local. "Would start" is `--start`'s selection
+  after a fix round's carry: a check the carry marks `carried` runs nothing, so it needs no
+  twin, and its carried result stays as recorded;
+- to **`local`** otherwise: a started command with no twin, a path in one of those classes,
+  a fix round with nothing left to start, a step on `/execute`'s shared branch, a dirty
+  tree, no map or a bad one, a selection of nothing, an attended command, or anything the
+  resolution can't decide.
+
+A hosted resolution writes its own deferral reason, `hosted twins cover every selected
+command`, where a `hosted-ci` run writes its stated one, so the pull request body's record
+and `pr_creation`'s `verification_deferral_recorded` gate apply unchanged. The decision and
+its reason are recorded in the run's context as `verification_plan`.
+
+The twins are read from the merge-base's map, like everything else here, and read again from
+the current default branch's map at `ci_monitor`, before its green edge
+(`run-verification.sh --twins`, which fetches the default branch first). A twin that is gone
+there, or whose workflow file is, sends the run back to local verification, and the run
+stays local from then on (`verification_twin_gone`). A twin that runs and fails is a failing
+check like any other.
 
 ## Illustrative example (not a real project's map)
 

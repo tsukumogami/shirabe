@@ -12,7 +12,7 @@ description: >-
   this skill per issue. Do NOT use it for a feature whose requirements are not
   written down anywhere — starting to code is how that feature gets decided
   by accident, and `/scope` is what settles it first.
-argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description"> [--review-floor=<level>] [--review-ceiling=<level>] [--verification=hosted-ci --verification-reason=<why>] [--delivery=partial --delivery-reason=<why>] [--koto-leg=<request-id>:work-on]'
+argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description"> [--review-floor=<level>] [--review-ceiling=<level>] [--verification=auto|local|hosted-ci [--verification-reason=<why>]] [--delivery=partial --delivery-reason=<why>] [--koto-leg=<request-id>:work-on]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
@@ -134,17 +134,47 @@ settled by `hosted_record`'s read before the pull request is marked ready
 
 ### Deferring Verification to Hosted CI
 
-Some hosts must not run a repository's suites: a host in a measurement window, or
-one too small for the map's commands. A run started there can defer verification to
-the pull request's hosted CI instead, and the deferral is explicit and recorded,
-never a silent skip:
+A run verifies once. The pull request's hosted CI runs the repository's suites
+anyway, so when it runs every command the map selects, a local run of the same
+commands is a second run of the same checks. `VERIFICATION` says where the
+definition-of-done gate runs, set at init with `--verification=<value>` (see
+**Initialize**) and never rebindable:
+
+- **`auto`, the default.** On each way into verification the run passes through
+  `verification_plan`, whose `verification_route_plan` gate
+  (`run-verification.sh --plan`) decides in the same tick. Hosted CI is the build
+  of record when every command the run would start has a `hosted` twin in the
+  merge-base's map (`references/verification-map.md`) and no changed path, either
+  side of a rename, is in the ci, security, template or engine class of
+  `references/review-level-rules.tsv` (`review-level.sh classify`). In a fix round
+  a check the carry marks `carried` starts nothing, so it needs no twin, and its
+  carried result stays as recorded. Then the run goes to `verification_deferred`
+  with its own reason, `hosted twins cover every selected command`, and everything
+  below applies to it. Otherwise it goes to `verification` and runs the map here,
+  and so does a step on `/execute`'s shared branch, a run whose resolution
+  can't be decided, and a fix round with nothing left to start. The decision and its
+  reason are in context as `verification_plan`. At `ci_monitor`, before the green
+  edge, `hosted_twins` (`run-verification.sh --twins`) fetches the default branch
+  and re-reads the twins from its current map: a twin that is gone sends the run
+  back to local verification and keeps it local from then on
+  (`verification_twin_gone`). A failing twin is a failing check, fixed at
+  `ci_monitor` like any other.
+- **`local`, the opt-out.** `--verification=local` always runs the gate described
+  above, here, and never asks where.
+- **`hosted-ci`, an explicit deferral.** Some hosts must not run a repository's
+  suites: a host in a measurement window, or one too small for the map's
+  commands. A run started there defers verification to the pull request's hosted
+  CI whatever the map says.
+
+A deferral to hosted CI, chosen or resolved, is explicit and recorded, never a
+silent skip:
 
 - **Chosen at init, with a reason.** `VERIFICATION=hosted-ci` names the choice and
   `VERIFICATION_DEFERRAL_REASON` states why, from
   `--verification=hosted-ci --verification-reason=<why>` in the invocation (see
   **Initialize**). Neither is rebindable, so
-  the choice is fixed before any state runs. The default, `VERIFICATION=local`, is
-  the gate described above, unchanged.
+  the choice is fixed before any state runs. An `auto` run that resolves to hosted
+  CI carries the fixed reason above instead and needs no flag for it.
 - **The reason's characters.** koto accepts a variable value only within its
   allowlist, `^[a-zA-Z0-9._/:@+ \-]*$`: letters, digits, spaces and `. _ / : @ + -`.
   Apostrophes and commas are not among them, so `host can't run suites, CI only` is
@@ -154,8 +184,9 @@ never a silent skip:
   (`error=usage`, exit 64), naming the characters; one that doesn't start with a
   letter or digit gets koto's `invalid_var`. Either way, reword the reason and
   start again.
-- **The map never launches.** Every edge that would enter `verification` goes to
-  `verification_deferred` instead. koto runs a state's entry action before anything
+- **The map never launches.** For `hosted-ci`, every edge that would enter
+  `verification` goes to `verification_deferred` instead; for `auto`, every such
+  edge goes to `verification_plan`, which sends a hosted resolution there. koto runs a state's entry action before anything
   else in it, so the deferral is decided on the way in: `run-verification.sh` never
   runs and no supervisor starts. The reason is recorded in context as
   `verification_deferral`. A deferral with no reason ends at `done_blocked`; it
@@ -169,7 +200,8 @@ never a silent skip:
   Request Text** below) gets the deferral in the body too: there
   `pr_creation`'s `verification_deferral_recorded` gate holds `pr_status: created`
   until the body says local verification did not run, has the line
-  `Reason: <reason>`, and says hosted CI is the build of record
+  `Reason: <reason>` (for `auto`, `Reason: hosted twins cover every selected
+  command`), and says hosted CI is the build of record
   (`references/phases/phase-6-pr.md` has the section). `ci_monitor` then requires
   that CI green, as it does for every run.
 
@@ -457,17 +489,18 @@ against `^(light|standard|full)?$` and refuses anything else at init
 (`invalid_var`), and a flag given twice is its `duplicate_var`; report the refusal
 and stop.
 
-**The verification deferral.** `--verification=hosted-ci` and
+**The verification setting.** `--verification=<auto|local|hosted-ci>` and
 `--verification-reason=<why>` stay in the tokens too: the script hands koto
 `VERIFICATION` and `VERIFICATION_DEFERRAL_REASON`, the reason exactly as typed (see
-**Deferring Verification to Hosted CI**). Don't pass them as `--var`. A deferral
+**Deferring Verification to Hosted CI**). Don't pass them as `--var`. With no
+`--verification` the run is `auto`; `--verification=local` opts out of it. A deferral
 without a reason is not a deferral, since the run would end at `done_blocked` before
 opening its pull request, so the script refuses `--verification=hosted-ci` without a
 non-empty reason. The reason may use only letters, digits, spaces and
 `. _ / : @ + -`, starting with a letter or digit: no apostrophes, no commas. The
 script refuses a reason with any other character before koto runs, naming the
 characters. Both refusals are `error=usage`; say which, and stop rather than open
-without the deferral. koto refuses a `VERIFICATION` other than `local` or
+without the deferral. koto refuses a `VERIFICATION` other than `auto`, `local` or
 `hosted-ci`, and a reason outside its pattern (`invalid_var`); report the refusal
 and stop.
 

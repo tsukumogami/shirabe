@@ -143,10 +143,13 @@ the recorded approval.
 
 ### Verification deferred to hosted CI
 
-A run started with `VERIFICATION=hosted-ci` passed through
+A run started with `VERIFICATION=hosted-ci`, or an `auto` run that
+`verification_plan` resolved to hosted CI, passed through
 `verification_deferred` instead of `verification`: the verification map never
-ran on this host, and the reason it gave is in context as
-`verification_deferral`. Under `omit` that context key is the record: the body's
+ran on this host, and the reason is in context as `verification_deferral` (for
+`auto`, `hosted twins cover every selected command`). An `auto` run sent back to
+local verification at `ci_monitor` (a hosted twin left the default branch's map)
+verified here after all: drop the section below from the body when it returns. Under `omit` that context key is the record: the body's
 Verification section says hosted CI verified the change, the reason stays out,
 and `verification_deferral_recorded` passes without reading the body. Under
 `include`, record it in Part 2 with this section, the reason copied verbatim:
