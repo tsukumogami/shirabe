@@ -186,6 +186,13 @@ if [ "$(tr '\n' ' ' < "$SHIM_STORE/order")" = "plan_intent.md drift_facts.json "
 else
     fail "write order was [$(tr '\n' ' ' < "$SHIM_STORE/order" 2>/dev/null)]"
 fi
+# The stand-in answers no context read, so the build-output pin drift-facts.sh
+# hands the checkout to can't be written: the run above is that case.
+if grep -q '^build-output-pin: .*nothing was pinned$' "$WORKDIR/stderr"; then
+    pass "a build-output pin that can't be written leaves drift_facts' stdout, keys and exit as they are"
+else
+    fail "the pin's failure was not reported on stderr: [$(cat "$WORKDIR/stderr")]"
+fi
 if [ "$(jf .schema)" = '"drift-facts/v1"' ] && [ "$(jf .plan_doc)" = '"docs/plans/PLAN-t.md"' ] \
     && [ "$(jf '[.base, .main_head] | map(length)')" = '[40,40]' ] && [ "$(jf .truncated)" = false ]; then
     pass "schema drift-facts/v1 with plan_doc, base, main_head, truncated"

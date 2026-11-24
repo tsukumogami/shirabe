@@ -33,6 +33,9 @@
 #     reads `${context.`, and a `step` or `reason` assignment is a literal
 #   every terminal declares the result map, with step and reason read from
 #     context
+#   only the merged and ready_awaiting_merge directives run
+#     build-output-end.sh (no other state's directive, details, default
+#     action or gate names it)
 #   MERGE and PAUSE_BEFORE_FINALIZE are values [true, false], default false,
 #     rebind: true; PLUGIN_ROOT carries the absolute-path pattern; PLAN_DOC and
 #     PLAN_SLUG are not rebindable
@@ -149,6 +152,7 @@ CHECKS=(
 "every terminal declares the full result map|[.states[] | select(.terminal == true) | (.result // {}) | keys == [\"outcome\",\"pr\",\"reason\",\"repos\",\"resume\",\"step\",\"waiting\"]] | length >= 5 and all"
 "every terminal reads step and reason from context|[.states[] | select(.terminal == true) | .result.step == \"\${context.step}\" and .result.reason == \"\${context.reason}\"] | all"
 "the legacy done terminal's outcome is ready-awaiting-merge|.states.done.result.outcome == \"ready-awaiting-merge\""
+"only the merged and ready_awaiting_merge directives run build-output-end.sh|[.states | to_entries[] | select([.value.directive, .value.details, .value.default_action.command, ((.value.gates // {})[] | .command)] | map(. // \"\") | join(\"\\n\") | contains(\"build-output-end.sh\")) | .key] | sort == [\"merged\", \"ready_awaiting_merge\"]"
 "MERGE is values [true, false], default false, rebind|.variables.MERGE | (.values == [\"true\",\"false\"] and .default == \"false\" and .rebind == true)"
 "PAUSE_BEFORE_FINALIZE is values [true, false], rebind|.variables.PAUSE_BEFORE_FINALIZE | (.values == [\"true\",\"false\"] and .rebind == true)"
 "PLAN_DOC and PLAN_SLUG are not rebindable|(.variables.PLAN_DOC.rebind // false) == false and (.variables.PLAN_SLUG.rebind // false) == false"

@@ -937,7 +937,10 @@ ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/fix-round.sh start --from <WF> [--f
 
 It starts `<WF>-fix-<n>` from this plugin's `work-on.md` with the run's variables
 (not its review level or unit kind, which the round sets again) and the run's
-parent, so a child's round is a child too and never cascades. It records the round
+parent, so a child's round is a child too and never cascades. A plan-backed child's
+round takes `PLAN_DOC` from the parent's current `plan_abs` when the two differ, so
+a round started after the coordination checkout moved reads the PLAN where the run
+reads it now; a run whose checkout never moved keeps its own. It records the round
 in both sessions: `fix_round.json` in the round and a line in the run's
 `fix_rounds.jsonl`. Drive the round from `entry` with the run's entry evidence,
 and commit the fix in the round's `implementation`, not before: its `analysis`
