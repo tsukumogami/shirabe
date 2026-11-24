@@ -102,7 +102,7 @@ say() { LINES="$LINES$*"$'\n'; }
 # finish -- print every line and write them once as build_output_cleanup.
 finish() {
     printf '%s' "$LINES"
-    printf '%s' "$LINES" | koto context add "$SESSION" build_output_cleanup >/dev/null 2>&1 \
+    printf '%s' "$LINES" | koto context add "$SESSION" build_output_cleanup >/dev/null \
         || echo "$PROG: could not write build_output_cleanup in $SESSION" >&2
     exit 0
 }
@@ -110,7 +110,7 @@ finish() {
 command -v jq >/dev/null || { say "build-output: jq is not on PATH, removed nothing"; finish; }
 
 if [ -z "$SWITCH_ROOT" ]; then
-    SWITCH_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || SWITCH_ROOT=""
+    SWITCH_ROOT=$(git rev-parse --show-toplevel) || SWITCH_ROOT=""
 fi
 if [ -n "$SWITCH_ROOT" ]; then
     SWITCH_ROOT=$(CDPATH='' cd -- "$SWITCH_ROOT" 2>/dev/null && pwd -P) || SWITCH_ROOT=""
@@ -121,8 +121,13 @@ REC=$(rr_record "$SESSION" 2>/dev/null) || {
     finish
 }
 
-# ctx <key> -- a koto context value, empty when absent or unreadable.
-ctx() { koto context get "$SESSION" "$1" </dev/null 2>/dev/null || true; }
+# ctx <key> -- a koto context value, empty when absent or unreadable. The
+# exists check keeps an absent key quiet, so get's stderr is kept for a real
+# read failure.
+ctx() {
+    koto context exists "$SESSION" "$1" </dev/null >/dev/null || return 0
+    koto context get "$SESSION" "$1" </dev/null || true
+}
 
 RUN_ID=$("$BASH" "$SELF_DIR/run-id.sh" get "$SESSION" </dev/null 2>/dev/null) || RUN_ID=""
 [[ $RUN_ID =~ ^[0-9a-f]{32}$ ]] || RUN_ID=""
@@ -152,7 +157,7 @@ ci_green() {
 # worktree.
 clean_one() {
     local id="$1" repo="$2" branch="$3" cancel_ok="$4" obj path pin top cur out
-    obj=$(printf '%s' "$REC" | jq -c --arg k "run/cleanup/$id" '.[$k] // empty' 2>/dev/null) || obj=""
+    obj=$(printf '%s' "$REC" | jq -c --arg k "run/cleanup/$id" '.[$k] // empty') || obj=""
     if [ -z "$obj" ]; then
         say "build-output: $id base unreadable, removed nothing"
         return
@@ -165,9 +170,9 @@ clean_one() {
     fi
     top=""; cur=""
     if [ -n "$path" ] && [ -d "$path" ]; then
-        top=$(git -C "$path" rev-parse --show-toplevel 2>/dev/null) || top=""
+        top=$(git -C "$path" rev-parse --show-toplevel) || top=""
         [ -n "$top" ] && top=$(CDPATH='' cd -- "$top" 2>/dev/null && pwd -P)
-        cur=$(git -C "$path" symbolic-ref --quiet --short HEAD 2>/dev/null) || cur=""
+        cur=$(git -C "$path" symbolic-ref --quiet --short HEAD) || cur=""
         path=$(CDPATH='' cd -- "$path" 2>/dev/null && pwd -P) || path=""
     fi
     if [ -z "$path" ] || [ "$top" != "$path" ] || [ -z "$branch" ] || [ "$cur" != "$branch" ]; then
@@ -193,7 +198,7 @@ if rr_q "$REC" 'has("run/setup")' | grep -qx true; then
     IDS=$(rr_q "$REC" '[keys[] | select(startswith("run/node/") or startswith("run/cleanup/")) | split("/")[2]] | unique | .[]')
     while IFS= read -r id; do
         [ -n "$id" ] || continue
-        repo=$(printf '%s' "$REC" | jq -r --arg k "run/node/$id" '.[$k].repo // ""' 2>/dev/null) || repo=""
+        repo=$(printf '%s' "$REC" | jq -r --arg k "run/node/$id" '.[$k].repo // ""') || repo=""
         cancel_ok=0
         [ -n "$repo" ] && [ "$repo" = "$HOME_REPO" ] && cancel_ok=1
         clean_one "$id" "$repo" "impl/$SLUG-$id" "$cancel_ok"

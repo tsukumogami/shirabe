@@ -78,7 +78,7 @@ done
 [ -n "$WT" ] && [ -d "$WT" ] || stop "worktree [$WT] is not a directory"
 command -v jq >/dev/null || stop "jq is not on PATH"
 
-ROOT=$(git -C "$WT" rev-parse --show-toplevel 2>/dev/null) || stop "[$WT] is not inside a git work tree"
+ROOT=$(git -C "$WT" rev-parse --show-toplevel) || stop "[$WT] is not inside a git work tree"
 ROOT=$(CDPATH='' cd -- "$ROOT" && pwd -P) || stop "cannot resolve the work tree root of [$WT]"
 
 rr__present "$SESSION" run/recovered
@@ -95,10 +95,10 @@ fi
 
 REF=$(default_remote_ref "$ROOT") || stop "no default-branch remote ref resolves in $ROOT"
 HEAD_SHA=$(git -C "$ROOT" rev-parse --verify --quiet 'HEAD^{commit}') || stop "HEAD in $ROOT is not a commit"
-if git -C "$ROOT" merge-base --is-ancestor "$HEAD_SHA" "$REF" 2>/dev/null; then
+if git -C "$ROOT" merge-base --is-ancestor "$HEAD_SHA" "$REF"; then
     stop "HEAD in $ROOT is already on $REF"
 fi
-PIN=$(git -C "$ROOT" merge-base "$HEAD_SHA" "$REF" 2>/dev/null) || stop "HEAD and $REF share no history in $ROOT"
+PIN=$(git -C "$ROOT" merge-base "$HEAD_SHA" "$REF") || stop "HEAD and $REF share no history in $ROOT"
 [[ $PIN =~ ^[0-9a-f]{40}$ ]] || stop "the merge base in $ROOT is not a commit id"
 
 DOC=$(mktemp "${TMPDIR:-/tmp}/build-output-pin.XXXXXX") || stop "cannot make a temporary file"

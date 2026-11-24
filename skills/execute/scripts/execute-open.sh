@@ -789,7 +789,7 @@ case "$OUT" in
             # that doesn't hold it yet, so the first pin stands. Only a
             # snapshot holding exactly run/cleanup/single is a single-pr one.
             if [ -f "$CR/$SESSION/record.json" ] \
-                && jq -e 'keys == ["run/cleanup/single"]' "$CR/$SESSION/record.json" >/dev/null 2>&1; then
+                && jq -e 'keys == ["run/cleanup/single"]' "$CR/$SESSION/record.json" >/dev/null; then
                 rr__present "$SESSION" run/cleanup/single 2>/dev/null
                 case $? in
                     0) rm -rf -- "$CR/$SESSION" ;;

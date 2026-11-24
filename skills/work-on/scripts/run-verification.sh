@@ -363,7 +363,7 @@ live_removals() {
 await_removals_once() {
     local root dir
     bo_lib || exit 0
-    root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+    root=$(git rev-parse --show-toplevel) || exit 0
     dir=$(bo_dir "$root") || exit 0
     live_removals "$dir"
     [ -n "$RV_LIVE" ] || exit 0
