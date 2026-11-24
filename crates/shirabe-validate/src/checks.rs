@@ -966,9 +966,6 @@ pub fn check_roadmap_reserved_sections(doc: &Doc, spec: &FormatSpec) -> Vec<Vali
     errs
 }
 
-/// The four Status values a milestone may carry.
-const MILESTONE_STATUSES: [&str; 4] = ["Not started", "In progress", "Done", "Dropped"];
-
 /// A cross-repo issue reference, `<owner>/<repo>#<n>`, the one Dependencies
 /// entry FC21 accepts that names no milestone of the roadmap.
 static CROSS_REPO_ISSUE_RE: LazyLock<Regex> =
@@ -1001,7 +998,12 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
     if spec.id != FormatId::Roadmap || !version.is_milestone() {
         return Vec::new();
     }
-    let v3 = version == RoadmapVersion::V3;
+    // v4 shares v3's layout, so it takes v3's word checks too; the messages
+    // name the document's own schema.
+    let v3 = version.uses_milestone_words();
+    let schema = doc.schema.as_str();
+    let family = crate::statuses::StatusFamily::of(schema);
+    let statuses = crate::statuses::table();
     let finding = |line: usize, message: String| ValidationError {
         file: doc.path.clone(),
         line,
@@ -1014,7 +1016,7 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
         if let Some(line) = section_line(doc, RoadmapVersion::V2.items_section()) {
             errs.push(finding(
                 line,
-                "section '## Features' is the roadmap/v2 items section; a roadmap/v3 roadmap lists its milestones under '## Milestones', and nothing under '## Features' is read as a milestone -- see skills/roadmap/references/roadmap-format.md".to_string(),
+                format!("section '## Features' is the roadmap/v2 items section; a {schema} roadmap lists its milestones under '## Milestones', and nothing under '## Features' is read as a milestone -- see skills/roadmap/references/roadmap-format.md"),
             ));
         }
     }
@@ -1032,7 +1034,7 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
             .flatten();
         let message = match number {
             Some(n) => format!(
-                "heading '{text}' uses the roadmap/v2 word; on a roadmap/v3 roadmap '### Feature {n}:' is written '### Milestone {n}:' -- see skills/roadmap/references/roadmap-format.md"
+                "heading '{text}' uses the roadmap/v2 word; on a {schema} roadmap '### Feature {n}:' is written '### Milestone {n}:' -- see skills/roadmap/references/roadmap-format.md"
             ),
             None => format!(
                 "heading '{text}' is not a milestone heading; a milestone heading is '### <tag>: <title>' with a tag like '{classic} 3' or 'AB1' -- see skills/roadmap/references/roadmap-format.md"
@@ -1102,7 +1104,7 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
                         .filter(|want| features.iter().any(|g| g.id != f.id && g.tag == *want));
                     let message = match renamed {
                         Some(want) => format!(
-                            "{name} names '{entry}' in Dependencies; on a roadmap/v3 roadmap an entry names the milestone's tag, '{want}'"
+                            "{name} names '{entry}' in Dependencies; on a {schema} roadmap an entry names the milestone's tag, '{want}'"
                         ),
                         None => format!(
                             "{name} names '{entry}' in Dependencies, which is no other milestone"
@@ -1115,10 +1117,17 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
         let status = f.status.trim();
         if status.is_empty() {
             errs.push(finding(at, format!("{name} has no Status")));
-        } else if !MILESTONE_STATUSES.contains(&status) {
+        } else if !statuses.is_allowed(family, status) {
+            // The words come from the status table for the document's
+            // family: on v1 to v3 the four canonical words (Shipped and
+            // Closed are accepted as spellings of Done but not named), on v4
+            // the five.
             errs.push(finding(
                 at,
-                format!("{name} has Status '{status}', not one of Not started, In progress, Done, Dropped"),
+                format!(
+                    "{name} has Status '{status}', not one of {}",
+                    statuses.canonical_words(family).join(", ")
+                ),
             ));
         }
         if let Some(first) = features.iter().find(|g| g.tag == f.tag && g.id < f.id) {
@@ -1129,6 +1138,111 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
                     first.heading_line
                 ),
             ));
+        }
+    }
+    if family == crate::statuses::StatusFamily::V4 {
+        let skip = |f: &&crate::features::Feature| {
+            f.label.is_empty() || bad_headings.iter().any(|(line, _)| *line == f.heading_line)
+        };
+        let named: Vec<&crate::features::Feature> = features.iter().filter(|f| !skip(f)).collect();
+        errs.extend(fc21_v4_roadmap_done(doc, &named, &finding));
+        errs.extend(fc21_v4_progress_rows(doc, &named, &finding));
+    }
+    errs
+}
+
+/// FC21 on `roadmap/v4`: a roadmap whose own status is Done while a
+/// milestone doesn't close.
+///
+/// A v4 roadmap is finished only when every milestone reads a status the
+/// table says `closes` (Verified or Dropped); a Completed milestone still
+/// owes its verdict. One finding per milestone that doesn't close, at its
+/// heading, naming it and its status. Setting the roadmap's status stays the
+/// author's edit: this refuses the Done, it never writes anything. A roadmap
+/// whose milestones are all Dropped may read Done.
+fn fc21_v4_roadmap_done(
+    doc: &Doc,
+    features: &[&crate::features::Feature],
+    finding: &dyn Fn(usize, String) -> ValidationError,
+) -> Vec<ValidationError> {
+    if !doc.status.trim().eq_ignore_ascii_case("Done") {
+        return Vec::new();
+    }
+    let family = crate::statuses::StatusFamily::V4;
+    let statuses = crate::statuses::table();
+    features
+        .iter()
+        .filter(|f| !statuses.props(family, &f.status).closes)
+        .map(|f| {
+            finding(
+                f.heading_line,
+                format!(
+                    "milestone '{}: {}' has Status '{}' on a roadmap whose status is Done; a roadmap/v4 roadmap is Done only once every milestone reads Verified or Dropped",
+                    f.tag,
+                    f.label,
+                    f.status.trim()
+                ),
+            )
+        })
+        .collect()
+}
+
+/// Whether a Progress table row's first cell names the milestone tagged
+/// `tag`: the cell (less a leading `[` of a link) starts with the tag,
+/// followed by its end, a `:` or whitespace, so `Milestone 1` never names
+/// the row `Milestone 14`. `Feature N` and `Milestone N` name each other,
+/// as every reader of a record treats the two classic words.
+fn progress_row_names(item: &str, tag: &str) -> bool {
+    let item = item.strip_prefix('[').unwrap_or(item);
+    let other = tag
+        .strip_prefix("Milestone ")
+        .map(|n| format!("Feature {n}"))
+        .or_else(|| {
+            tag.strip_prefix("Feature ")
+                .map(|n| format!("Milestone {n}"))
+        });
+    std::iter::once(tag.to_string())
+        .chain(other)
+        .any(|t| match item.strip_prefix(t.as_str()) {
+            Some(rest) => rest
+                .chars()
+                .next()
+                .is_none_or(|c| c == ':' || c.is_whitespace()),
+            None => false,
+        })
+}
+
+/// FC21 on `roadmap/v4`: a milestone whose block `**Status:**` and Progress
+/// table row read different statuses.
+///
+/// Every edit that moves a v4 milestone's status writes both places in one
+/// pass, so a disagreement is an edit that wrote one and not the other. The
+/// Progress table is the first table under `## Progress` with a `Status`
+/// column ([`crate::table::parse_progress_table`]); a roadmap without one
+/// has nothing to compare, and a milestone without a row in it is not
+/// reported. The two values are compared exactly, after trimming and
+/// removing any strikethrough from the cell.
+fn fc21_v4_progress_rows(
+    doc: &Doc,
+    features: &[&crate::features::Feature],
+    finding: &dyn Fn(usize, String) -> ValidationError,
+) -> Vec<ValidationError> {
+    let Some(rows) = crate::table::parse_progress_table(doc) else {
+        return Vec::new();
+    };
+    let mut errs = Vec::new();
+    for f in features {
+        let block = f.status.trim();
+        for row in rows.iter().filter(|r| progress_row_names(&r.item, &f.tag)) {
+            if row.status != block {
+                errs.push(finding(
+                    row.line,
+                    format!(
+                        "milestone '{}: {}' has Status '{}' in its block but '{}' in its Progress table row; an edit that moves a milestone's status writes both",
+                        f.tag, f.label, block, row.status
+                    ),
+                ));
+            }
         }
     }
     errs
@@ -1845,6 +1959,24 @@ static ISSUE_REF_IN_CELL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"#([0-9
 /// not reconciled.
 const STATUS_CLASSES: &[&str] = &["done", "ready", "blocked"];
 
+/// The Status-bearing classes on a `roadmap/v4` diagram: the three above
+/// plus `completed` (a Completed milestone) and `dropped` (a Dropped one),
+/// the two classes the status table gives v4 statuses and populate declares
+/// only on a v4 diagram. On every other document those two names are
+/// ordinary classes, reconciled by neither FC07 nor FC08's palette.
+const V4_STATUS_CLASSES: &[&str] = &["done", "ready", "blocked", "completed", "dropped"];
+
+/// The Status-bearing class set for `doc`'s schema: [`V4_STATUS_CLASSES`] on
+/// `roadmap/v4`, [`STATUS_CLASSES`] on everything else. FC07 reconciles this
+/// set.
+fn status_classes_for(doc: &Doc) -> &'static [&'static str] {
+    if crate::statuses::StatusFamily::of(&doc.schema) == crate::statuses::StatusFamily::V4 {
+        V4_STATUS_CLASSES
+    } else {
+        STATUS_CLASSES
+    }
+}
+
 /// Non-Status classes the extractor records but FC07 ignores for the
 /// class-versus-Status pass. Includes the pipeline-stage palette per
 /// `references/dependency-diagram.md` (needs-prerequisite markers,
@@ -2436,8 +2568,9 @@ fn class_vs_status_pass(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<Vali
             .collect(),
     };
 
+    let status_classes = status_classes_for(doc);
     for assign in &diagram.class_assignments {
-        if !STATUS_CLASSES.contains(&assign.name.as_str()) {
+        if !status_classes.contains(&assign.name.as_str()) {
             continue;
         }
         if !ISSUE_KEYED_NODE_ID.is_match(&assign.id) {
@@ -2456,7 +2589,7 @@ fn class_vs_status_pass(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<Vali
                 &assign.id,
                 &assign.name,
                 observed,
-                expected,
+                &expected,
                 assign.line,
             ));
         }
@@ -2494,9 +2627,15 @@ fn expected_class(
     profile: Profile,
     row_by_id: &std::collections::HashMap<String, &Row>,
     label_to_row: &std::collections::HashMap<String, &Row>,
-) -> &'static str {
+) -> String {
+    // A roadmap row whose status the table gives a class (Done on v1 to v3;
+    // Completed, Verified or Dropped on v4) expects exactly that class. On
+    // v1 to v3 that is `done` for every terminal row, as before.
+    if let Some(class) = &row.class {
+        return class.clone();
+    }
     if row.terminal {
-        return "done";
+        return "done".to_string();
     }
     // Inspect dependency state to decide ready vs blocked.
     let mut all_deps_terminal = true;
@@ -2517,7 +2656,10 @@ fn expected_class(
         };
         match dep_row {
             Some(r) => {
-                if r.terminal {
+                // A dependency is met when its row satisfies one (the status
+                // table's `satisfies`), which is `terminal` everywhere but a
+                // `roadmap/v4` Completed or Dropped row.
+                if r.satisfies {
                     // dep is closed
                 } else {
                     has_open_dep = true;
@@ -2534,12 +2676,12 @@ fn expected_class(
         }
     }
     if has_open_dep {
-        return "blocked";
+        return "blocked".to_string();
     }
     if all_deps_terminal {
-        return "ready";
+        return "ready".to_string();
     }
-    "ready"
+    "ready".to_string()
 }
 
 fn class_status_notice(
@@ -2703,6 +2845,18 @@ fn extract_closes_refs(body: &str, default_owner: &str, default_repo: &str) -> V
 /// so the array deliberately duplicates the contents rather than
 /// aliasing to keep each check's binding self-contained.
 const FC08_STATUS_PALETTE: &[&str] = &["done", "ready", "blocked"];
+
+/// FC08's canonical palette for `doc`: on `roadmap/v4` it adds `completed`
+/// and `dropped`, which populate declares on every v4 diagram, so a v4
+/// Legend need not name them; on any other document a `classDef completed`
+/// is outside the palette, as before v4 existed.
+fn fc08_palette(doc: &Doc) -> &'static [&'static str] {
+    if crate::statuses::StatusFamily::of(&doc.schema) == crate::statuses::StatusFamily::V4 {
+        V4_STATUS_CLASSES
+    } else {
+        FC08_STATUS_PALETTE
+    }
+}
 
 /// The pipeline-stage and tracks-prefix class set FC08 expects the
 /// Legend to name when the diagram declares them. These classes are
@@ -2911,7 +3065,7 @@ fn check_fc08_sub_a(
             continue;
         }
         let normalized = normalize_kebab_to_camel(name);
-        let in_palette = FC08_STATUS_PALETTE
+        let in_palette = fc08_palette(doc)
             .iter()
             .any(|p| *p == name.as_str() || *p == normalized.as_str());
         let in_classdefs = class_defs.contains(name) || class_defs.contains(&normalized);
@@ -2948,7 +3102,7 @@ fn check_fc08_sub_b(
     class_def_names.sort();
     let mut errs = Vec::new();
     for cd in class_def_names {
-        if FC08_STATUS_PALETTE.iter().any(|p| *p == cd.as_str()) {
+        if fc08_palette(doc).iter().any(|p| *p == cd.as_str()) {
             continue;
         }
         if legend.iter().any(|n| n == cd) || legend_normalized.contains(cd) {
@@ -10891,5 +11045,31 @@ mod plan_v2_tests {
     #[test]
     fn fc22_is_selectable_with_check() {
         assert!(crate::validate::is_known_check_code("FC22"));
+    }
+}
+
+#[cfg(test)]
+mod v4_progress_row_tests {
+    use super::progress_row_names;
+
+    #[test]
+    fn progress_row_names_its_tag_and_no_longer_one() {
+        assert!(progress_row_names("Milestone 1: Loader", "Milestone 1"));
+        assert!(progress_row_names("Milestone 1", "Milestone 1"));
+        assert!(progress_row_names(
+            "[Milestone 1: Loader](#m1)",
+            "Milestone 1"
+        ));
+        assert!(progress_row_names("EB1 Loader", "EB1"));
+        assert!(!progress_row_names("Milestone 14: Search", "Milestone 1"));
+        assert!(!progress_row_names("EB10: Search", "EB1"));
+        assert!(!progress_row_names("Loader", "Milestone 1"));
+    }
+
+    #[test]
+    fn progress_row_reads_feature_and_milestone_alike() {
+        assert!(progress_row_names("Feature 2: Registry", "Milestone 2"));
+        assert!(progress_row_names("Milestone 2: Registry", "Feature 2"));
+        assert!(!progress_row_names("Feature 2: Registry", "AB2"));
     }
 }

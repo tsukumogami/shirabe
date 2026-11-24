@@ -749,10 +749,12 @@ leg, since one leg answers one session.
   that failed, with no `koto init`, 127 no koto or jq, and koto's own code otherwise.
 - `scripts/fix-round.sh start --from <session> [--fresh]` — starts a fix
   round for a run at `done` as `<session>-fix-<n>`, a new work-on session with
-  the run's variables and parent, and records it in both sessions, marked
-  `fresh` under `--fresh` (see **A Fix Round After Done**). Exit codes: 0
-  started, 1 refused (`not-done`, `round-open`, `cap`, `wrong-branch`), 2 a
-  koto call or a read of the run's log failed, 64 usage.
+  the run's variables and parent, records it in both sessions, and copies in
+  the verdict ledger it inherits; `--fresh` inherits nothing and marks the
+  round `fresh`, so its verification carries nothing either (see **A Fix
+  Round After Done**). Exit codes: 0 started, 1 refused (`not-done`,
+  `round-open`, `cap`, `wrong-branch`), 2 a koto call or a read of the run's
+  log failed, 64 usage.
   `scripts/fix-round_test.sh` is its harness.
 - `scripts/panel-retry-budget.sh <session-name> <panel>` — decides
   whether a review panel that found blocking issues may send the work back
@@ -925,7 +927,21 @@ and commit the fix in the round's `implementation`, not before: its `analysis`
 records HEAD as `impl_base`, so its panels and changed paths cover the fix
 commits only and its verification runs at the fix head, while a fix committed
 earlier falls before the base and out of the round's review. A
-round started from a round counts against the original run. The script refuses
+round started from a round counts against the original run.
+
+The round inherits the verdicts already given: the verdict ledger of the run it
+follows (the last round, else the run) is copied in, marked `inherited`, when
+every commit that ledger recorded is still an ancestor of the round's base. Its
+panels then judge the fix as a fix diff from where their seats last judged, so a
+small fix gets the re-verifier and the fix-diff review instead of every seat,
+and a fix over the panels' line threshold, or a round whose acceptance criteria
+(the criteria section of `context.md`, as `review-level.sh` stores it) differ
+from the ones the seats judged, still gets every seat. A
+rebase or reset since the run, or `--fresh`, inherits nothing and the round
+reviews in full. The script prints `inherited=<session>` or `inherited=none`.
+The round's review floor is never below the run's: `review-level.sh facts`
+takes the run's last floor as a rule of its own, `fix_round_parent`, since on a
+shared branch the round's diff is the fix alone. The script refuses
 (`refused=<reason>`, exit 1, nothing started) a run not at `done` (`not-done`; a
 run at `done_blocked` walks back with `koto rewind`), a second round while one is
 open (`round-open`), a fourth round (`cap`), which is a person's call, and a start

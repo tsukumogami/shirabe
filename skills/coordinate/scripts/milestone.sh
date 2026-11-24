@@ -44,8 +44,8 @@
 # its indented wrapped lines joined with one space, and the field ends at a
 # blank line, the next field line, a heading or a column-0 line that isn't a
 # clause, as the validator reads it. `tag` is TAG as given. It exits 2 when
-# TAG isn't a milestone with Evidence: the roadmap isn't roadmap/v2 or
-# roadmap/v3, no heading carries TAG, its block has no clause, or the block
+# TAG isn't a milestone with Evidence: the roadmap isn't roadmap/v2,
+# roadmap/v3 or roadmap/v4 (which reads as v3 does), no heading carries TAG, its block has no clause, or the block
 # holds something the reader can't classify (a tab or a code fence).
 #
 # check-verdict checks ENTRY, a verdict entry, against TAG's milestone in
@@ -97,7 +97,9 @@
 #
 # check-failure checks ENTRY, a failure reported against TAG's milestone after
 # it read Done, against ROADMAP, the roadmap on the default branch: TAG must
-# read Done there, and the clause must be one of its Evidence clauses. The
+# read Done there (on a roadmap/v4 roadmap, Completed or Verified, the
+# statuses the status table reopens), and the clause must be one of its
+# Evidence clauses. The
 # entry is these five lines, in this order:
 #
 #   Failure: <tag>
@@ -142,10 +144,16 @@ schema_of() {
 # is_milestone_schema <schema>: 0 for roadmap/v2 and roadmap/v3.
 is_milestone_schema() { case "$1" in roadmap/v2|roadmap/v3) return 0 ;; *) return 1 ;; esac; }
 
+# reads_milestones <schema>: 0 for a roadmap whose milestones the entry checks
+# and the evidence subcommand read: roadmap/v2, roadmap/v3, and roadmap/v4,
+# laid out as v3 is. is-milestone stays v2 and v3: its callers route a v4
+# roadmap before they ask it.
+reads_milestones() { is_milestone_schema "$1" || [ "$1" = roadmap/v4 ]; }
+
 # words_of <schema>: SECTION and WORD, the version's items section and the
 # word of its classic headings.
 words_of() {
-    if [ "$1" = roadmap/v3 ]; then SECTION=Milestones WORD=Milestone; else SECTION=Features WORD=Feature; fi
+    case "$1" in roadmap/v3|roadmap/v4) SECTION=Milestones WORD=Milestone ;; *) SECTION=Features WORD=Feature ;; esac
 }
 
 # ms_tag_key <tag>: the tag's key, `ms:<N>` for exactly `Feature <N>` or
@@ -210,7 +218,7 @@ milestone_json() {
     [ -r "$1" ] || die2 "cannot read $1"
     sch=$(schema_of "$1")
     [ -n "$sch" ] || sch=roadmap/v1
-    is_milestone_schema "$sch" || die2 "$1 is a $sch roadmap; only a roadmap/v2 or roadmap/v3 roadmap has milestones"
+    reads_milestones "$sch" || die2 "$1 is a $sch roadmap; only a roadmap/v2, roadmap/v3 or roadmap/v4 roadmap has milestones"
     words_of "$sch"
     lines=$(block_of "$1" "$2"); rc=$?
     case $rc in
@@ -345,10 +353,17 @@ if [ "$CMD" = check-failure ]; then
     F_TAG=${BASH_REMATCH[1]}
     [ "$(ms_tag_key "$F_TAG")" = "$(ms_tag_key "$TAG")" ] || fail "line 1: the entry names ${F_TAG:0:80}, not $TAG"
     F_STATUS=$(printf '%s' "$MS" | jq -r .status)
-    case "$F_STATUS" in
-        Done*) ;;
-        *) fail "line 1: $TAG reads ${F_STATUS:-no status}, not Done; a failure reopens only a Done milestone" ;;
-    esac
+    if [ "$(printf '%s' "$MS" | jq -r .schema)" = roadmap/v4 ]; then
+        case "$F_STATUS" in
+            Completed*|Verified*) ;;
+            *) fail "line 1: $TAG reads ${F_STATUS:-no status}, not Completed or Verified; a failure reopens only a Completed or Verified milestone" ;;
+        esac
+    else
+        case "$F_STATUS" in
+            Done*) ;;
+            *) fail "line 1: $TAG reads ${F_STATUS:-no status}, not Done; a failure reopens only a Done milestone" ;;
+        esac
+    fi
     shape 2 "Reported by: <who>" '^Reported by: (.+)$'
     F_BY=${BASH_REMATCH[1]}
     RE_BY='^[A-Za-z0-9][A-Za-z0-9 ._-]{0,59}$'
