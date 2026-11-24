@@ -132,18 +132,22 @@ dispatches on the message path has no leg, so nothing would join it, and koto
 could reclaim it on its own schedule while the coordinator still needs to read
 it.
 
-So the worker records the coordinator itself, from its own session. The brief
+So the worker's session records the coordinator. For an entry point whose
+own opener takes `--dispatched-by`, the brief
 `skills/coordinate/scripts/render-brief.sh` renders for it names the
 coordinator run as `dispatcher_session` and puts in its Goal the exact command
-that opens (or, for an entry point whose opener links only on a leg, links)
-the worker's session with `--dispatched-by <dispatcher_session>` already
-filled in:
+that opens the worker's session with `--dispatched-by <dispatcher_session>`
+already filled in:
 
 - `/coordinate`: `coordinate-open.sh --dispatched-by <name>`.
 - `/explore`, `/decision`, `/release`: `skill-session.sh open <skill> <topic>
   --dispatched-by <name>`.
-- `/scope`, `/deliver`, `/execute`, `/work-on`: `link-dispatcher.sh <session>
-  --dispatched-by <name>`, once the entry point has opened its session.
+
+Every other entry point (`/scope`, `/deliver`, `/execute`, `/work-on` and the
+planning skills) gets no such step: koto records the dispatcher when the
+worker's session opens, from the name the koto-skills start hook exports.
+`skills/coordinate/scripts/link-dispatcher.sh`, the step their briefs once
+carried, stays callable for briefs already in flight.
 
 No entry point's skill text passes the flag; the brief carries it. Each of
 these runs `koto session link <session> --dispatched-by <name>` after the open,
@@ -165,8 +169,9 @@ the result block.
 `dispatcher_session`. A worker moved to the message path later (a re-brief, an
 execution sent to an entry point with no leg, or a leg a reconcile found
 unwatchable after an import, whose worker is re-briefed) gets a re-rendered
-brief with the command filled in, so after a re-brief `dispatcher_session`
-names the coordinator run that rendered the new brief.
+brief, with the command filled in when its entry point takes one, so after a
+re-brief `dispatcher_session` names the coordinator run that rendered the new
+brief.
 
 A recycled coordinator, a new run that carries an earlier run's record
 forward, is joined to that earlier run the same way: `coordinate-open.sh`

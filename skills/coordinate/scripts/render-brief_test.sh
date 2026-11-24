@@ -14,13 +14,16 @@
 # its flags before --koto-leg; without it the brief matches the goldens in
 # testdata/brief-golden/ byte for byte; a bad level, a floor above the
 # ceiling, an unknown key, an entry point that doesn't take the flags, or
-# the flags given in entry_args or run_mode is refused. On the message path the
-# Goal names dispatcher_session and shows the command that records it with
-# --dispatched-by filled in, per entry point (skill-session.sh open for
-# /explore, /decision and /release, coordinate-open.sh for /coordinate,
-# link-dispatcher.sh for /deliver and a /work-on PLAN), and Reporting names
-# render-result.sh; a leg brief carries none of it; a dispatcher_session
-# that isn't a koto session name is refused.
+# the flags given in entry_args or run_mode is refused. On the message path
+# an entry point whose own opener takes --dispatched-by (skill-session.sh open
+# for /explore, /decision and /release, coordinate-open.sh for /coordinate)
+# has its Goal name dispatcher_session and show that open with the flag
+# filled in, and needs dispatcher_session; every other entry point (/scope,
+# /deliver, /execute, /work-on, /charter) shows no link step, names no
+# dispatcher_session and no link-dispatcher.sh, with the field given, empty
+# or absent, and renders either way; Reporting names render-result.sh; a leg
+# brief carries none of it; a dispatcher_session that isn't a koto session
+# name is refused.
 # A launch field leaves the brief golden, and a key or value outside its
 # fixed sets is refused. A coordinate brief carries its role as one role line,
 # `--role <role>` on the Goal's invocation (a Goal saying "you are the
@@ -291,32 +294,60 @@ done
 
 # --- the dispatcher, on the message path ---------------------------------------------
 #
-# A worker with no request leg records the coordinator run that dispatched it
-# itself: its brief's Goal names the run as dispatcher_session and shows the
-# exact command that records it, --dispatched-by filled in, and its Reporting
-# names render-result.sh as the report step. A leg brief has none of it.
+# A worker with no request leg whose entry point's own opener takes
+# --dispatched-by opens its session with it: its brief's Goal names the run
+# as dispatcher_session and shows that open, the flag filled in. Every other
+# entry point's brief shows no step: koto records the dispatcher when the
+# worker's session opens. Reporting names render-result.sh as the report
+# step either way. A leg brief has none of it.
 D=coordinate-roadmap-plugin-system-20261006T153752Z
 G=$(section "$B" Goal)
-has "dispatcher: the Goal names dispatcher_session" "$G" "dispatcher_session: $D"
-has "dispatcher: /deliver records it with link-dispatcher.sh" "$G" \
-    "\`\"\${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/link-dispatcher.sh\" <session> --dispatched-by $D\`"
-has "dispatcher: run once the entry point opened its session" "$G" "once your entry point has opened its session, run this"
-has "dispatcher: a failed link is no stop" "$G" 'If it prints `warning=link-failed`, go on'
+# no_link_step <name> <brief>: the brief carries no link step of any kind.
+no_link_step() {
+    lacks "$1: no dispatcher_session line" "$2" "dispatcher_session:"
+    lacks "$1: no link-dispatcher.sh" "$2" "link-dispatcher.sh"
+    lacks "$1: no step that records the dispatcher" "$2" "Record it in your own session"
+    lacks "$1: no dispatcher paragraph" "$2" "Your dispatcher is the coordinator run"
+    lacks "$1: no --dispatched-by" "$2" "--dispatched-by"
+    lacks "$1: no link warning to act on" "$2" "warning=link-failed"
+}
+no_link_step "dispatcher: /deliver" "$B"
+for ep in scope execute work-on; do
+    E=$(bash "$S" --input "$(variant "ep-$ep" ".entry_point = \"$ep\" | .entry_args = [\"docs/plans/PLAN-x.md\"]")" --stdout); RC=$?
+    eq  "dispatcher: /$ep renders" 0 "$RC"
+    no_link_step "dispatcher: /$ep" "$E"
+done
+# With the input's dispatcher_session empty or left out, those entry points
+# still render, still with no link step; Reporting then sends to reports_to
+# alone, since there is no run to resolve the newest coordinator from.
+for ep in scope deliver execute work-on; do
+    for how in empty absent; do
+        if [ "$how" = empty ]; then f='.dispatcher_session = ""'; else f='del(.dispatcher_session)'; fi
+        E=$(bash "$S" --input "$(variant "nodisp-$ep-$how" ".entry_point = \"$ep\" | .entry_args = [\"docs/plans/PLAN-x.md\"] | $f")" --stdout 2>"$T/err"); RC=$?
+        eq  "dispatcher $how: /$ep renders" "0 " "$RC $(cat "$T/err")"
+        no_link_step "dispatcher $how: /$ep" "$E"
+        R=$(section "$E" Reporting)
+        lacks "dispatcher $how: /$ep resolves no coordinator" "$R" "resolve-coordinator.sh"
+        has "dispatcher $how: /$ep's report step runs render-result.sh without --dispatcher" "$R" \
+            "render-result.sh\" --session <your session>\`, adding"
+        has "dispatcher $how: /$ep's result goes to the record's address" "$R" \
+            'just before the `=== WORK IN FLIGHT ===` block, sent to `coord-alpha`.'
+    done
+done
 for ep in explore decision release; do
     E=$(bash "$S" --input "$(variant "ep-$ep" ".entry_point = \"$ep\" | .entry_args = [\"plugin-api\"] | .run_mode = (if \"$ep\" == \"release\" then \"\" else \"--auto\" end)")" --stdout)
+    has "dispatcher: /$ep's Goal names dispatcher_session" "$(section "$E" Goal)" "dispatcher_session: $D"
     has "dispatcher: /$ep opens with skill-session.sh open --dispatched-by" "$(section "$E" Goal)" \
         "\`\"\${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh\" open $ep <topic> --dispatched-by $D\`"
     has "dispatcher: /$ep's command replaces its skill's open" "$(section "$E" Goal)" "in place of the open your entry point's skill shows"
     has "dispatcher: /$ep, re-briefed with its session open, runs it anyway" "$(section "$E" Goal)" "If your session is already open (this brief re-briefs you), run it anyway"
+    has "dispatcher: /$ep, a failed link is no stop" "$(section "$E" Goal)" 'If it prints `warning=link-failed`, go on'
+    lacks "dispatcher: /$ep names no link-dispatcher.sh" "$E" "link-dispatcher.sh"
 done
-lacks "dispatcher: the link command needs no already-open note" "$G" "this brief re-briefs you"
 E=$(bash "$S" --input "$(variant ep-coordinate '.entry_point = "coordinate" | .entry_args = ["docs/roadmaps/ROADMAP-sub.md"] | .run_mode = "" | .role = "manager"')" --stdout)
 has "dispatcher: /coordinate opens with coordinate-open.sh --dispatched-by" "$(section "$E" Goal)" \
     "\`\"\${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh\" --plugin-root \"\${CLAUDE_PLUGIN_ROOT}\" --dispatched-by $D \"\$ARGS_DIR/args.json\"\`"
 has "dispatcher: /coordinate's args file is its first step's" "$(section "$E" Goal)" '`$ARGS_DIR/args.json` the args file its first step writes'
-E=$(bash "$S" --input "$(variant ep-workon '.entry_point = "work-on" | .entry_args = ["docs/plans/PLAN-x.md"]')" --stdout)
-has "dispatcher: /work-on given a PLAN records it with link-dispatcher.sh" "$(section "$E" Goal)" \
-    "link-dispatcher.sh\" <session> --dispatched-by $D"
 has "dispatcher: the template's Reporting names render-result.sh too" \
     "$(awk '/^```markdown$/ { on = 1; next } on && /^```$/ { exit } on' "$HERE/../references/brief-template.md" | awk '/^## / { on = ($0 == "## Reporting"); next } on')" \
     'scripts/render-result.sh --session <your session>'
@@ -380,9 +411,19 @@ refused() {
     if [ -e "$BRIEFS" ]; then bad "$name: nothing written" "$(ls -A "$BRIEFS")"; else ok "$name: nothing written"; fi
 }
 
-for k in topic repo unit entry_point run_mode phase authority goal dispatcher_session reports_to; do
+for k in topic repo unit entry_point run_mode phase authority goal reports_to; do
     refused "missing $k" "$(variant "no-$k" "del(.$k)")" "$k: required"
 done
+# dispatcher_session is required where the brief's open uses it.
+for ep in explore decision release; do
+    refused "missing dispatcher_session for /$ep" \
+        "$(variant "no-disp-$ep" ".entry_point = \"$ep\" | .entry_args = [\"plugin-api\"] | .run_mode = (if \"$ep\" == \"release\" then \"\" else \"--auto\" end) | del(.dispatcher_session)")" \
+        "dispatcher_session: required"
+done
+refused "missing dispatcher_session for /coordinate" \
+    "$(variant no-disp-coordinate '.entry_point = "coordinate" | .entry_args = ["docs/roadmaps/ROADMAP-sub.md"] | .run_mode = "" | .role = "manager" | .dispatcher_session = ""')" \
+    "dispatcher_session: required"
+refused "dispatcher_session not a string" "$(variant disp-num '.dispatcher_session = 7')" "dispatcher_session: must be a string"
 refused "empty goal"            "$(variant empty-goal '.goal = "  "')"                     "goal: required"
 refused "empty run mode"        "$(variant empty-mode '.run_mode = ""')"                   "run_mode: required for deliver, which takes --auto or --interactive"
 refused "address with a slash"  "$(variant bad-addr '.reports_to = "a/b"')"                "reports_to: must be a session name"
@@ -397,13 +438,12 @@ has "release: the invocation" "$R" 'Run `/shirabe:release v0.25.0 --dry-run` in 
 has "release: says it takes no run mode" "$R" 'Run mode: none; `/shirabe:release` takes no execution mode.'
 refused "release with --auto"   "$(variant rel-auto '.entry_point = "release" | .entry_args = ["v0.25.0"] | .run_mode = "--auto"')" "run_mode: release doesn't allow --auto"
 # A charter (shirabe#1290): no leg, its SKILL.md's flags, and on the message
-# path the dispatcher is recorded with link-dispatcher.sh once its session is open.
+# path no link step: koto records the dispatcher when its session opens.
 CH=$(variant charter '.entry_point = "charter" | .entry_args = ["plugin-api"] | .run_mode = "--auto"')
 C=$(bash "$S" --input "$CH" --stdout 2>"$T/ch.err"); eq "charter: renders with --auto" 0 "$?"
 has "charter: the invocation" "$C" 'Run `/shirabe:charter plugin-api --auto` in acme/widgets.'
 has "charter: the run mode" "$C" 'Run mode: `--auto`.'
-has "charter: records its dispatcher with link-dispatcher.sh" "$(section "$C" Goal)" \
-    "link-dispatcher.sh\" <session> --dispatched-by coordinate-roadmap-plugin-system-20261006T153752Z"
+no_link_step "charter" "$C"
 C=$(bash "$S" --input "$(variant charter-rounds '.entry_point = "charter" | .entry_args = ["plugin-api", "--max-rounds=2"] | .run_mode = "--interactive"')" --stdout 2>"$T/ch.err")
 eq  "charter: takes --interactive and --max-rounds=N" 0 "$?"
 has "charter: --max-rounds=N on the invocation" "$C" 'Run `/shirabe:charter plugin-api --interactive --max-rounds=2` in acme/widgets.'
