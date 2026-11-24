@@ -15,7 +15,8 @@
 #            the key seal;
 #         2. re-read every fact: each pull request still merged at its merge
 #            commit, the handoff comment still there, the job still listed
-#            with the same cwd and session and still finished as
+#            with its cwd still the instance path or a directory under it,
+#            the same session, and still finished as
 #            dc_job_finished reads it (its own state.json reads done,
 #            stopped or failed, and the listing shows no live pid; the
 #            listing's state isn't read), niwa still
@@ -408,7 +409,7 @@ if [ "$MODE" = confirm ] || [ "$MODE" = check ]; then
         [ "$HANDOFF" != none ] && NOMERGE="$NOMERGE; handoff $HANDOFF"
     fi
     if [ "$REMOVED" = 1 ]; then
-        printf '%s' "$AG" | jq -e --arg p "$IPATH" 'any(.[]; .cwd == $p) | not' >/dev/null \
+        printf '%s' "$AG" | jq -e --arg p "$IPATH" "$DC_JQ_IN_DIR"'any(.[]; .cwd | in_dir($p)) | not' >/dev/null \
             || verdict teardown-incomplete "claude agents lists a job in $IPATH"
         # No session survived the removal: there was nothing to archive. The
         # reason's prefix is the marker state-holding.sh --retire reads.
@@ -495,12 +496,12 @@ if [ "$REMOVED" = 1 ]; then
         dc_session_matches "$TOPIC" "$n" && refused "niwa lists an instance for $TOPIC (session $n)"
     done <"$T/niwa-sessions"
     AG=$(agents) || refused "claude agents could not be read"
-    printf '%s' "$AG" | jq -e --arg p "$IPATH" --arg j "$JOB" 'type == "array" and (any(.[]; .cwd == $p or ($j != "" and .id == $j)) | not)' >/dev/null \
+    printf '%s' "$AG" | jq -e --arg p "$IPATH" --arg j "$JOB" "$DC_JQ_IN_DIR"'type == "array" and (any(.[]; (.cwd | in_dir($p)) or ($j != "" and .id == $j)) | not)' >/dev/null \
         || refused "claude agents lists a job for $IPATH"
 else
     AG=$(agents) || refused "claude agents could not be read"
     printf '%s' "$AG" | jq -e --arg j "$JOB" --arg p "$IPATH" --arg s "$SID" \
-        '[.[] | select(.id == $j)] | length == 1 and .[0].cwd == $p and .[0].sessionId == $s' >/dev/null \
+        "$DC_JQ_IN_DIR"'[.[] | select(.id == $j)] | length == 1 and (.[0].cwd | in_dir($p)) and .[0].sessionId == $s' >/dev/null \
         || refused "job $JOB is no longer the job of $IPATH with session $SID"
     # Finished by the same reading as the verdict's: the listing's state is
     # activity on current Claude Code, so it isn't read.
