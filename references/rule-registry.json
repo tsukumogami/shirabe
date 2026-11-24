@@ -3382,7 +3382,7 @@
         "fixtures": "scripts/jev-criteria/fixtures/work-on-review-level-fits-facts.jsonl",
         "declared": {
           "sha256": "dc17f8427da843021979d4bc7b7fd5782ab847a2ba6741aad373546723c9a726",
-          "since": "2026-11-23"
+          "since": "2026-11-24"
         },
         "false_passes": []
       }
