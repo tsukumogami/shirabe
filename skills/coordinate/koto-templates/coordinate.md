@@ -470,10 +470,11 @@ states:
     # choice carries a decider in shadow mode: its answer is recorded beside the
     # coordinator's and never acts. No value targets a terminal or a
     # confirmation, and no arm tests a gate, so every value stays promotable.
-    # Inputs: coord/pick_slice.json, pick-slice.jq's slice of coord/pick.json,
-    # and the PARKED_BOUND variable. The slice carries the cap and the parked
-    # bound in force (the record's Run section's `cap` and `parked-bound` rows,
-    # when it has them, over the CAP and PARKED_BOUND variables).
+    # Input: coord/pick_slice.json, pick-slice.jq's slice of coord/pick.json.
+    # The slice carries the cap and the parked bound in force (the record's
+    # Run section's `cap` and `parked-bound` rows, when it has them, over the
+    # CAP and PARKED_BOUND variables), so neither variable is a separate input:
+    # one would show the decider a bound the row has replaced.
     # pick_facts stores the slice and the facts before it seals its verdict, so
     # a sealed verdict means both are this visit's; its pick_slice_input and
     # pick_input gates only say each exists. The directive reads the full
@@ -499,7 +500,6 @@ states:
           escape: {value: unclear, description: "The facts are missing, truncated, or contradictory."}
           inputs:
             - {context: coord/pick_slice.json, label: pick_facts, max_bytes: 12000}
-            - {var: PARKED_BOUND, label: parked_bound}
       unit:
         type: string
         description: 'The dispatch topic of the unit picked, when the choice dispatches (lowercase letters, digits and hyphens, such as plugin-api); never the unit''s tag or title from coord/pick.json, such as "Feature 2" or "#12". dispatch_check refuses any other value as unknown-topic, with the reason in coord/dispatch_check.json, and sends you back here. With await_decision, required: the unit as pick lists it ("Feature 2", "#12"), the one you park.'
