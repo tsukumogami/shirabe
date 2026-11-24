@@ -45,9 +45,10 @@ script's header lists every field and its rule; this is the shape:
 }
 ```
 
-The first twelve fields are required, `dispatcher_session` only for an entry
-point whose open takes it (render-brief.sh renders without it otherwise);
-the rest add lines to their sections. `entry_args` is the positional argument and any flags the entry
+The first twelve fields are required, with one exception:
+`dispatcher_session` is required only for an entry point whose open takes it
+(`/coordinate`, `/explore`, `/decision`, `/release`), and render-brief.sh
+renders the others without it. The rest add lines to their sections. `entry_args` is the positional argument and any flags the entry
 point allows (`references/entry-points.tsv`), and `run_mode` holds the
 execution flags, empty only for an entry point that takes none
 (`/shirabe:release`). `dispatcher_session` is your koto run, which a request
@@ -198,7 +199,7 @@ its brief names no `dispatcher_session` and the worker records nothing.
 `link-dispatcher.sh`, the step those briefs once carried, stays callable for
 briefs already in flight.
 
-The command links the worker's session to your run and, when the link fails,
+The open command links the worker's session to your run and, when the link fails,
 runs it once more. A second failure prints `warning=link-failed
 dispatched_by=<your run>` and records it in the worker's own context key
 `session/link-warning`; the worker's session stays open and it goes on. You

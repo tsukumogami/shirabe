@@ -123,7 +123,7 @@ the terminal tick koto promotes the session's declared `result:` map to the leg
 it, and the session keeps its record. Attaching to a leg doesn't make a session
 a child, and changes nothing about retention.
 
-## A message-path worker records its dispatcher itself
+## How a message-path worker's dispatcher is recorded
 
 koto keeps a session while anything in its dispatch hierarchy is alive, and
 `koto session hierarchy <name>` says why a session is kept. A worker attached
