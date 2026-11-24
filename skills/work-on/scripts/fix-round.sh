@@ -26,7 +26,11 @@
 #   --from   the run that reached `done`, or one of its fix rounds, which
 #            resolves to the run it was started for. Rounds are counted
 #            against that original run, never nested.
-#   --fresh  inherit no verdicts: every panel of the round reviews in full.
+#   --fresh  carry nothing from the run the round follows: no verdicts are
+#            inherited, so every panel of the round reviews in full, and
+#            `fresh: true` is written into the round's fix_round.json, so its
+#            verification runs every selected check rather than carrying the
+#            ones that run passed (run-verification.sh's header).
 #
 # Refused (exit 1, a `refused=<reason>` line on stdout, nothing written):
 #
@@ -58,7 +62,8 @@
 #
 # Started (exit 0): prints `session=<original>-fix-<n>`, `round=<n>` and the
 # `inherited=` line. The
-# new session's context has `fix_round.json` ({from, round, base}), and the
+# new session's context has `fix_round.json` ({from, round, base}, and
+# `fresh: true` under --fresh), and the
 # original's context has `fix_rounds.jsonl`, one line per round started
 # ({round, session, base, ts}), so the run that reached `done` names every
 # round whose review and verification were recorded for it. `base` is HEAD as
@@ -175,8 +180,8 @@ ARGS+=(--var "PLUGIN_ROOT=$PLUGIN_ROOT_SELF")
 koto "${ARGS[@]}" >/dev/null || die 2 "koto init $NAME failed"
 
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-jq -nc --arg from "$ORIG" --argjson round "$N" --arg base "$BASE" \
-    '{from: $from, round: $round, base: $base}' | koto context add "$NAME" "$ROUND_KEY" >/dev/null \
+jq -nc --arg from "$ORIG" --argjson round "$N" --arg base "$BASE" --argjson fresh "$FRESH" \
+    '{from: $from, round: $round, base: $base} + (if $fresh == 1 then {fresh: true} else {} end)' | koto context add "$NAME" "$ROUND_KEY" >/dev/null \
     || die 2 "the round $NAME started, but $ROUND_KEY could not be stored in it"
 { [ -n "$ROUNDS" ] && printf '%s\n' "$ROUNDS"
   jq -nc --argjson round "$N" --arg session "$NAME" --arg base "$BASE" --arg ts "$TS" \
