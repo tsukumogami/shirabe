@@ -774,10 +774,16 @@ rr_reap
 
 # A re-run at the timed-out hold, end to end with the real launcher and
 # verdict scripts: the same fixture, a repository whose one command sleeps past
-# its five-second limit on every run, in a row that declares a hosted job, so
+# its twenty-second limit on every run, in a row that declares a hosted job, so
 # the verdict holds at 5 with the route open. A verification_status: rerun
 # there is a self-loop; this case shows its request key reaches the default
 # action in the same tick, as the implementation edge's does above.
+# The limit is twenty seconds, not five, because the case looks for attempt 2's
+# supervisor after the rerun tick returns, and that tick runs on after --start
+# has launched it: about 2.5 s on an idle host, past 5 s on a loaded one (the
+# bash 3.2 floor job runs this file alongside the rest of the gate). A limit
+# shorter than the tick lets the supervisor time its command out and release
+# the lock before the case can see it.
 echo "--- rerun: a timed-out check re-runs from the hold (real launcher)"
 R5_REPO="$WORKDIR/rr5-repo"
 R5_MARK="$WORKDIR/rr5-marker"
@@ -786,11 +792,11 @@ cat > "$R5_REPO/bin/slow.sh" <<'EOF'
 #!/bin/sh
 # Every run records its pid and sleeps past the row's timeout.
 echo $$ > "$1.pid"
-exec sleep 30
+exec sleep 60
 EOF
 chmod +x "$R5_REPO/bin/slow.sh"
 jq -cn --arg m "$R5_MARK" '{schema: "shirabe-verification-map/v1",
-    commands: {slow: {run: ["bin/slow.sh", $m], timeout_secs: 5, max_procs: 16,
+    commands: {slow: {run: ["bin/slow.sh", $m], timeout_secs: 20, max_procs: 16,
                       hosted: [{workflow: ".github/workflows/ci.yml", job: "test", runs: "slow"}]}},
     entries: [{paths: ["src/**"], commands: ["slow"]}], default: ["slow"]}' \
     > "$R5_REPO/.claude/shirabe-extensions/verification-map.json"
@@ -815,10 +821,11 @@ if [ "$R5_OK" -eq 1 ]; then
 fi
 
 # Tick until the verdict is recorded: the first attempt times out and the gate
-# holds at 5.
+# holds at 5. Every tick holds at least the fixture's one-second hold_secs, so
+# sixty ticks wait the twenty-second limit out on any host.
 if [ "$R5_OK" -eq 1 ]; then
     r5_i=0
-    while [ "$r5_i" -lt 20 ]; do
+    while [ "$r5_i" -lt 60 ]; do
         R5_RESP=$(cd "$R5_REPO" && koto next "$R5S" --no-cleanup 2>/dev/null)
         r5_i=$((r5_i + 1))
         (cd "$R5_REPO" && koto context exists "$R5S" verification_results.json) >/dev/null 2>&1 && break
