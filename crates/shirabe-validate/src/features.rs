@@ -76,6 +76,10 @@ pub enum RoadmapVersion {
     V1,
     V2,
     V3,
+    /// `roadmap/v4`: the v3 layout, with milestones that read Completed and
+    /// Verified (see [`crate::statuses`]). Every layout question answers as
+    /// v3 does; only the status words differ.
+    V4,
 }
 
 impl RoadmapVersion {
@@ -84,20 +88,30 @@ impl RoadmapVersion {
         match schema {
             ROADMAP_V2_SCHEMA => RoadmapVersion::V2,
             ROADMAP_V3_SCHEMA => RoadmapVersion::V3,
+            crate::statuses::ROADMAP_V4_SCHEMA => RoadmapVersion::V4,
             _ => RoadmapVersion::V1,
         }
     }
 
-    /// True for a milestone roadmap (v2 or v3): the one whose items carry
+    /// True for a milestone roadmap (v2, v3 or v4): the one whose items carry
     /// Outcome, Evidence and Left open and which FC21 checks.
     pub fn is_milestone(self) -> bool {
-        matches!(self, RoadmapVersion::V2 | RoadmapVersion::V3)
+        matches!(
+            self,
+            RoadmapVersion::V2 | RoadmapVersion::V3 | RoadmapVersion::V4
+        )
+    }
+
+    /// True for the versions that write `## Milestones` and `### Milestone N:`
+    /// (v3 and v4, which shares v3's layout).
+    pub fn uses_milestone_words(self) -> bool {
+        matches!(self, RoadmapVersion::V3 | RoadmapVersion::V4)
     }
 
     /// The name of the `##` section that lists the items.
     pub fn items_section(self) -> &'static str {
         match self {
-            RoadmapVersion::V3 => "Milestones",
+            RoadmapVersion::V3 | RoadmapVersion::V4 => "Milestones",
             RoadmapVersion::V1 | RoadmapVersion::V2 => "Features",
         }
     }
@@ -106,7 +120,7 @@ impl RoadmapVersion {
     /// of the populated table's key column.
     pub fn classic_word(self) -> &'static str {
         match self {
-            RoadmapVersion::V3 => "Milestone",
+            RoadmapVersion::V3 | RoadmapVersion::V4 => "Milestone",
             RoadmapVersion::V1 | RoadmapVersion::V2 => "Feature",
         }
     }
@@ -448,7 +462,7 @@ pub fn dependency_positions(
     own: Option<usize>,
     version: RoadmapVersion,
 ) -> Vec<usize> {
-    let v3 = version == RoadmapVersion::V3;
+    let v3 = version.uses_milestone_words();
     let tagged = |tag: &str| features.iter().find(|f| f.tag == tag).map(|f| f.id);
     let positional = |n: usize| (1..=features.len()).contains(&n).then_some(n);
     let mut hits: Vec<(usize, usize)> = Vec::new();

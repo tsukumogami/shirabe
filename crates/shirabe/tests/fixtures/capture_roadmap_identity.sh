@@ -3,10 +3,11 @@
 # Capture the roadmap byte-identity baseline.
 #
 # roadmap/v3 was added to the roadmap readers with a promise: every
-# roadmap/v1 and roadmap/v2 document reads exactly as it did before. This
-# script records what a shirabe built before that change prints for each
-# roadmap under roadmap-identity/corpus/, and roadmap_identity.rs asserts the
-# current binary prints the same bytes:
+# roadmap/v1 and roadmap/v2 document reads exactly as it did before. The
+# milestone status table and roadmap/v4 made the same promise for v1, v2 and
+# v3. This script records what a shirabe built before the latest of those
+# changes prints for each roadmap under roadmap-identity/corpus/, and
+# roadmap_identity.rs asserts the current binary prints the same bytes:
 #
 #   expected/<path>.validate.{stdout,stderr,exit}
 #       `shirabe validate --format json <path>`, run in the corpus directory
@@ -34,9 +35,12 @@
 
 set -euo pipefail
 
-# The commit before roadmap/v3 existed. Override with
-# SHIRABE_IDENTITY_BASELINE_REF=<ref> to capture against another ref.
-BASELINE_REF="${SHIRABE_IDENTITY_BASELINE_REF:-05d3a505e997b6ed146a8889395f9dbeff2bd9a3}"
+# The commit before the milestone status table and roadmap/v4 existed. The
+# v1 and v2 outputs it prints are the ones the commit before roadmap/v3
+# (05d3a505e997b6ed146a8889395f9dbeff2bd9a3) printed, which is how the corpus
+# was first captured; the v3 entries need a binary that reads v3. Override
+# with SHIRABE_IDENTITY_BASELINE_REF=<ref> to capture against another ref.
+BASELINE_REF="${SHIRABE_IDENTITY_BASELINE_REF:-18ad4a9ea50b6f3e2826afca3ccf6c8615ed65f3}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 identity_dir="${script_dir}/roadmap-identity"

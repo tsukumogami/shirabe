@@ -784,6 +784,39 @@ expect_rc "facts on a shared branch" 0
 [ "$(fact '.classes | index("template")')" = null ] \
     && pass "the sibling's template path is not classified" || fail "classes are $(fact .classes)"
 
+# A fix round on the shared branch: its impl_base diff is the fix alone, so
+# the run it fixes sets the lowest floor it may have (fix_round.json names
+# that run, as fix-round.sh writes it).
+# fix_round_of <name> <parent floor>: the shared-branch step above as a fix
+# round of a run whose last facts floored at <parent floor>.
+fix_round_of() {
+    sibling_then_step "$1"
+    mkdir -p "$SHIM_STORE/$1-run"
+    printf '{"floor":"%s"}\n' "$2" > "$SHIM_STORE/$1-run/review_facts.json"
+    printf '{"from":"%s","round":1,"base":"x"}\n' "$1-run" > "$(store fix_round.json)"
+}
+fix_round_of round-full full
+run facts "$SESSION" standard --shared-branch feat/plan
+expect_rc "facts in a fix round" 0
+[ "$(fact '[.floor, .rule, .base_source] | join(" ")')" = '"full fix_round_parent impl_base"' ] \
+    && pass "a fix round's floor is the run's when the run's is higher, naming fix_round_parent" \
+    || fail "facts are $(fact '{floor, rule, base_source, rules_fired}')"
+fix_round_of round-light light
+run facts "$SESSION" standard --shared-branch feat/plan
+[ "$(fact '[.floor, (.rule == "fix_round_parent"), (.rules_fired | index("light:fix_round_parent") != null)] | map(tostring) | join(" ")')" = '"standard false true"' ] \
+    && pass "a run floored lower than the fix leaves the fix's own floor, and is listed among the rules fired" \
+    || fail "facts are $(fact '{floor, rule, rules_fired}')"
+fix_round_of round-nofacts full
+rm -f "$SHIM_STORE/round-nofacts-run/review_facts.json"
+run facts "$SESSION" standard --shared-branch feat/plan
+[ "$RC" -eq 0 ] && [ "$(fact '.floor')" = '"standard"' ] \
+    && pass "a fixed run with no facts recorded adds nothing to the floor" \
+    || fail "rc $RC, facts are $(fact '{floor, rule}')"
+fix_round_of round-bad full
+printf '{"from":"-x"}\n' > "$(store fix_round.json)"
+run facts "$SESSION" standard --shared-branch feat/plan
+expect_rc "a fix_round.json naming no run" 66
+
 # The same commits off a shared branch: the merge-base diff is larger and
 # carries the template, so the floor is full, as before.
 sibling_then_step shared-off

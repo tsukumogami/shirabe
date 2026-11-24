@@ -9,16 +9,18 @@ tells the session to re-read the skill and check koto before it does anything
 else.
 
 This reference covers the pieces that exist today: the note writer, the
-ledger entry, the two hooks, how to install them, the window setting, the
-results of one live compaction read against them, and the brief a session
-hands forward when it stops, with the closing step before it, the brief's two
-size limits, the opt-in keep record, park and resume.
+ledger entry and its cleanup, the two hooks with the stale flag and the
+checks an entry must pass, reading the note back, how to install the hooks,
+the window setting, the results of one live compaction read against them,
+and the brief a session hands forward when it stops, with the closing step
+before it, the brief's two size limits, the opt-in keep record, park and
+resume.
 
 ## The note writer
 
 ```
 scripts/handoff-brief.sh note --reasoning <file> \
-    --skill "<name> [<args>] <absolute SKILL.md path>" [--skill ...] \
+    --skill "<name> [<args>] <plugin root>/skills/<dir>/SKILL.md" [--skill ...] \
     [--koto-session <name>] [--pr <url>]
 ```
 
@@ -28,12 +30,34 @@ running session at `$XDG_STATE_HOME/shirabe/compaction/<session-id>` (or the
 same path under `$HOME/.local/state`). The session id comes from
 `CLAUDE_CODE_SESSION_ID`. The directory is mode 0700, the file 0600, written
 through a temporary file and a rename, and a link at either path is refused.
-The entry holds one line each for `koto_session`, `note_key`, `branch` and
-`pr` (a URL or `none`), then one `skill:` line per `--skill`, outermost first.
+The entry holds one line each for `koto_session`, `note_key`, `branch`,
+`repo` and `pr` (a URL or `none`), then one `skill:` line per `--skill`,
+outermost first. `repo` is the repository's top level, as
+`git -c core.fsmonitor=false -c core.hooksPath=/dev/null rev-parse --show-toplevel`
+prints it in `note`'s working directory, so a hook run from somewhere else
+can still read the branch. It must be an absolute path of at most 512 bytes
+with no control or format character, or `note` refuses; when `note` isn't
+run in a work tree (inside a `.git` directory, say) the line is left out.
+
+Each `--skill` path must exist and sit in a plugin's layout,
+`<plugin root>/skills/<dir>/SKILL.md`, and the skills of one plugin (the
+`<plugin>:` part of the name, such as `shirabe:`) must share one plugin root.
+A skill named without a plugin is checked for the layout only. The hooks
+apply the same rule, so `note` refuses what they would not use.
 
 Exit 0 means both writes landed, 1 that an argument was refused and nothing
 was written, and 2 that koto or git is missing or a write failed. These are
 the codes every `handoff-brief.sh` subcommand uses.
+
+### Cleanup
+
+Once its own entry is in place, each `note` removes the other entries in the
+ledger directory whose modification time is more than 30 days old. It
+removes only regular files whose names pass the session-id grammar
+(`[A-Za-z0-9-]{1,64}`); a link is never followed or removed, and a directory
+or any other name is left alone. Entries 30 days old or younger, and the
+note's own, stay. A removal that fails prints a warning on stderr and the
+note still exits 0.
 
 ## The hooks
 
@@ -41,13 +65,131 @@ the codes every `handoff-brief.sh` subcommand uses.
 summary: name the koto session, branch, pull request, note key and each
 `SKILL.md` path exactly as written. `shirabe compaction re-anchor` prints
 `SessionStart` hook JSON whose `additionalContext` says to re-read each
-`SKILL.md`, run `koto status` on the koto session, then read the note.
+`SKILL.md`, run `koto status` on the koto session, then read the note with
+`handoff-brief.sh read --note --session <koto session>`, which prints it as
+data (see [Reading the note back](#reading-the-note-back)).
 
-Both read `session_id` from the hook input on stdin, check every field's
-grammar again, read the entry without following links, and withhold any
-output over 10,000 characters rather than cut it. On any failure (no entry, a
-refused id, an unreadable file) both exit 0 and print nothing, so they never
-block a compaction or put hook input in front of the model.
+Both read only `session_id` from the hook input on stdin. A session id that
+fails its grammar, or an input that isn't JSON, gets exit 0 and no output,
+and no file is opened for it. Both exit 0 on every path, so they never block
+a compaction, and nothing from the hook input ever reaches their output.
+Neither makes a `gh` call; branch and pull request come from the entry, which
+`note` filled at its last write. Every `git` call runs with
+`-c core.fsmonitor=false -c core.hooksPath=/dev/null -c log.showSignature=false`
+and with `GIT_NO_LAZY_FETCH=1` and an empty `GIT_ALLOW_PROTOCOL` set in its
+environment (the second allows no transport at all, so it covers a git that
+ignores the lazy-fetch variable, which only git 2.44 and the May 2024
+maintenance releases honour), and the `git log` call
+also passes `--no-show-signature`, so a repository's fsmonitor, hooks or
+signature program (`gpg.program`, which `git log` runs when the repository
+sets `log.showSignature` and the tip is signed) never run from a hook, and
+neither does a partial clone's promisor remote transport
+(`remote.<name>.uploadpack`, `core.sshCommand` or a remote helper, which a
+lazy fetch of a missing branch tip would run). koto and git are found on `PATH`. A koto or git call is done
+when it has exited and its output has been read to the end; a child that
+leaves a process holding its output open still ends at the call's 5-second
+limit, its answer unreadable.
+
+### Which entries are used
+
+A hook uses an entry only when all of these hold:
+
+- the ledger directory is a real directory of mode 0700, opened without
+  following a link (a symlinked directory is not used);
+- the entry is opened through that directory without following a link and
+  without waiting on a FIFO, and is a regular file of mode 0600;
+- every field passes its grammar: the koto session name koto's grammar
+  (`[A-Za-z0-9][A-Za-z0-9._-]{0,127}`), the note key exactly
+  `compaction/note.md`, the branch `[A-Za-z0-9._/-]{1,200}` with no `..` and
+  no leading `-` or `/` (so no control character), the pull request a GitHub
+  pull request URL or `none`, and each `skill:` line a skill name, arguments
+  from a fixed character set and a `SKILL.md` path in a plugin's layout, with
+  the skills of one plugin under one plugin root and at most eight skills;
+- where `KOTO_SESSION` is set, the entry's koto session equals it.
+
+An entry that fails any of these is treated as no entry at all, and the hooks
+print the no-entry outputs below, which hold none of its text.
+
+The `repo` line is checked apart from the rest, and failing its checks never
+makes the entry unusable. It may appear at most once. The hook uses it only
+when it passes the grammar `note` applies (absolute, at most 512 bytes, no
+control or format character), the path is not a symlink (checked without
+following it) and is a directory, and
+`git -C <repo> rev-parse --is-inside-work-tree`, with the same safe flags and
+within the same 5-second limit, prints `true`. Otherwise the hook falls back
+to its own working directory, exactly as for an entry with no `repo` line.
+The path is never printed.
+
+### No usable entry
+
+For a valid session id with no usable entry (none written, deleted, or
+refused by the checks above), `pre-compact` prints a summary instruction that
+says no compaction note is recorded and names the branch `git` reads in the
+hook's working directory (`git symbolic-ref --short HEAD`), or says the branch
+could not be read there. `re-anchor` prints a generic line: work out the skill
+from the koto session's name prefix (`deliver-`, `scope-`, `coordinate-`) and
+re-read that skill's `SKILL.md`, run `koto status` on that session in your
+worktree (`koto workflows` lists the sessions there), and read the note with
+`handoff-brief.sh read --note --session <koto session>`. A usable entry whose
+re-anchor block would reach 10,000 characters gets the same steps rather than
+a cut block, behind a first line saying its ledger entry is recorded but too
+long to show, instead of saying no note is recorded. Both outputs stay under
+10,000 characters.
+
+### The stale flag
+
+`pre-compact` judges the note stale when the work moved on after the note's
+last write, and then adds one line: the note is stale, and rewriting it is the
+first step after the compaction. It has two inputs.
+
+- **The koto session.** koto prints no session-wide latest event seq (neither
+  `koto status` nor `koto session list` carries one), so the hook reads it
+  through koto's own CLI, none of whose verbs used here logs a read. `koto
+  context history <session> compaction/note.md` gives the note's last write:
+  its seq, timestamp and the state the run was in. `koto status <session>`
+  gives the run's current state; a different one means a transition came
+  after the note. `koto context list <session>`, then `koto context history`
+  for each other key, gives each key's latest write seq; one above the note's
+  means a key was written after it. Reads are logged by koto but don't count:
+  only writes and state changes move the work on. A transition that returns
+  to the note's own state, with no key written, isn't seen.
+- **The branch.** The commit time of the tip of `refs/heads/<branch>`, the
+  entry's branch (`git log -1 --no-show-signature --format=%ct`), run with
+  `git -C` in the entry's `repo` when the hook accepts it, else in the hook's
+  working directory's repository. A commit time later than the note's write,
+  in whole seconds, marks the note stale.
+
+Rewriting the note puts its last write after every other key's and after the
+commit, which clears the line.
+
+When freshness can't be read, the summary instruction is printed whole and
+gets a different line instead of the stale one: whether the note is current
+could not be checked, so after the compaction the session reads the note and
+rewrites it first if it is behind the work. That happens when koto or git
+can't be run, the note has no write history, any koto answer can't be read or
+parsed, the entry's branch isn't in the repository read (the entry's `repo`,
+or the working directory's when that is refused or absent), a key
+name falls outside koto's key grammar, or the session holds more than 256
+keys. Each koto or git call is killed after 5 seconds and the whole read after
+20. A stale finding wins over an unreadable one: if any input shows the note
+stale, the stale line is printed.
+
+## Reading the note back
+
+```
+scripts/handoff-brief.sh read --note [--session <name>]
+```
+
+prints `compaction/note.md` from the koto session (`--session`, else
+`$KOTO_SESSION`, as `read` finds a session) as data from an earlier session:
+the session and key, then the note between two lines holding a delimiter made
+fresh for this call (`@@note-<32 hex>@@`), with control and format characters
+shown as `<U+XXXX>`: C0, DEL and C1, U+00AD, U+061C, U+180E, U+200B-U+200F,
+U+2028-U+202E, U+2060-U+2064, U+2066-U+206F, U+FEFF, U+FFF9-U+FFFB, and the
+tag characters U+E0000-U+E007F (shown with five hex digits, `<U+E0049>`).
+`read` marks the same set. Nothing is written to disk and nothing in the note is
+run. With no note in the session it exits 1 naming `compaction/note.md`; with
+koto missing it exits 2.
 
 ## Installing the hooks
 
@@ -171,6 +313,11 @@ session's id:
 | Session id holding `/` | exit 0, no output | exit 0, no output |
 | Session id `..` | exit 0, no output | exit 0, no output |
 | Session id holding a newline | exit 0, no output | exit 0, no output |
+
+These runs predate the no-entry outputs. Today a deleted entry still exits 0
+but prints the no-entry summary instruction and the generic re-anchor line
+described under [No usable entry](#no-usable-entry); the other rows are
+unchanged.
 
 ## The closing step
 
@@ -488,6 +635,76 @@ closed `handoff-` session stays on the backend until koto's retention removes
 it, and whoever operates the backend can read its file bytes and owns
 removing old sessions. Every argument, `--watch` included, shows in a process
 listing while the script runs, so a watch carries no secret.
+
+## Reading the size after a compaction
+
+`scripts/context-size.sh <transcript.jsonl>` reports a session's own size from
+its transcript, correct on the first read after a compaction. It takes the
+transcript's path and reads nothing from the working directory, so it gives
+the same report from an instance, a worktree or the workspace root. Its
+output is line-oriented, so a session can send it to a supervisor as text:
+
+```
+context_tokens: 141822
+boundaries: 2
+boundary_turns: 361 742
+window: 280000
+hard_stop: 350000
+```
+
+- `context_tokens` is the input total (`input_tokens` plus
+  `cache_read_input_tokens` plus `cache_creation_input_tokens`) of the newest
+  assistant message after the latest `compact_boundary` record, or in the
+  whole transcript when there is no boundary.
+- `boundaries` counts the `compact_boundary` records, and `boundary_turns`
+  gives the assistant turn at which each fell, the number of assistant turns
+  before it, or `none`.
+- `window` is `CLAUDE_CODE_AUTO_COMPACT_WINDOW` when that is a positive
+  integer of at most nine digits, `invalid` when it is set to anything else,
+  and `unset` when it isn't set. The reader prints the value as it finds it;
+  an integer under Claude Code's 100,000 minimum still prints, though Claude
+  Code won't use it.
+- `hard_stop` is 1.25 times the window, rounded down, and is printed only
+  when the window is an integer.
+
+An assistant turn is one message id. Claude Code writes a record per content
+block, so records sharing an id count as one turn, and the figure comes from
+that id's last record. A sidechain record is never a turn or a boundary, and
+a `<synthetic>` assistant record (written with no model call behind it) is
+not a turn. A missing usage count reads as 0. A record whose counts aren't
+whole numbers, or whose total reaches 10^15, gives no turn and no figure, so
+the reader never prints a figure the thrash check would refuse; and a line that isn't a JSON object, such as a half-written
+last line, is skipped.
+
+The reader prints integers and the words above only, never transcript text
+or a message id; its error lines name only the path it was given. It exits 0
+with the report, 1 naming the path and cause with no figure (no single
+argument, a missing path, a directory or anything else that isn't a regular
+file, an unreadable or empty file, no assistant usage after the latest
+boundary), and 2 when `jq` isn't on `PATH` or fails.
+
+`scripts/thrash-check.sh [<report-file>]` reads that report, on stdin or from
+a file, and never a transcript, so a supervisor on another host runs it on
+what the session sent. It reports `status: cant_continue` and exits 1 when
+three boundaries fall within 30 assistant turns (a `boundary_turns` entry and
+the one two after it differ by 30 or less: `reason: thrash` with the three
+turns), or when `context_tokens` is above `hard_stop` (`reason: hard_stop`
+with both figures); both reasons print when both hold. Otherwise it prints
+`status: continue` and exits 0. It parses integers only. It refuses a report
+with exit 2 and no status, naming the cause but never a line's text (and the
+line number, for a cause found on one line), when a line isn't of the form
+`key: value`, a key is unknown, repeated or missing, a figure isn't a plain
+whole number of at most fifteen digits, the `boundaries` count differs from
+the turns listed, the turns are out of order, a `hard_stop` line doesn't
+match whether the window is an integer, or the report is over 65,536 bytes
+or holds a NUL byte. The size and the NUL test are taken on the bytes
+received, before any line is read.
+
+The values are the design's: three within 30 sits far from both the one
+thrashing session on hand, which put three boundaries within 2 turns, and
+the tightest healthy three-boundary span, 284 turns. Each role's hard stop is
+1.25 times its window: workers 350K over a 280K window, coordinators 375K
+over 300K.
 
 ## Switching roles on
 

@@ -162,7 +162,10 @@
 #   A leg key is {request, leg, topic, state, templates, inputs}, and as they
 #   become known child (the bound session's name as koto reported it), result
 #   (koto's result for the leg, once read), new_request (a re-leg's new
-#   request) and from (the request a re-legged key replaced). templates and
+#   request), from (the request a re-legged key replaced) and rebriefed (the
+#   UTC time a --rebrief moved its holding to the message path; the land
+#   step then reads the round in child, board-lib.sh bl_rebriefed_round).
+#   templates and
 #   inputs are the leg's declaration at dispatch. state is one of:
 #     open           dispatched on this leg; no result read yet
 #     taken          wait-target.sh read its result, kept beside it

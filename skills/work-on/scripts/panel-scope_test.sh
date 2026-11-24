@@ -733,6 +733,81 @@ edit docs/c.md 1 changed
 run --plan scrutiny "$SESSION"
 expect_full "seats that judged no commit since impl_base" scrutiny "no commit since impl_base"
 
+# A fix round (fix-round.sh) inherits the ledger of the run it follows, marked
+# `inherited`, and records its own impl_base at the head that run left, so
+# every seat's newest record is no later than impl_base. Its plan.md is the
+# fix's, and its context.md is its own issue text, which may differ (a
+# comment added since); what has to match is the criteria section
+# review-level.sh stored, review_level_criteria.txt. Under the same criteria
+# the round judges the fix as a fix diff; with other criteria, without the
+# mark, or with a fix over the threshold it reviews in full.
+# fix_round <name> <inherit:yes|no> <criteria>: SESSION becomes <name>, a
+# round of the current fixture's run whose panels judged HEAD.
+fix_round() {
+    local parent="$SESSION" head
+    head=$(cd "$FX/repo" && git rev-parse HEAD)
+    SESSION="$1"
+    mkdir -p "$SHIM_STORE/$SESSION"
+    printf 'AC: the issue body\n' > "$SHIM_STORE/$parent/review_level_criteria.txt"
+    if [ "$2" = yes ]; then
+        jq --arg from "$parent" --arg base "$head" \
+            --arg crit "$(git hash-object "$SHIM_STORE/$parent/review_level_criteria.txt")" \
+            '.inherited = {from: $from, base: $base, criteria_sha: $crit}' \
+            "$SHIM_STORE/$parent/verdict_ledger.json" > "$SHIM_STORE/$SESSION/verdict_ledger.json"
+        printf 'AC: the issue body\nComment: a reviewer asked for a fix\n' > "$SHIM_STORE/$SESSION/context.md"
+    else
+        cp "$SHIM_STORE/$parent/verdict_ledger.json" "$SHIM_STORE/$SESSION/verdict_ledger.json"
+        cp "$SHIM_STORE/$parent/context.md" "$SHIM_STORE/$SESSION/context.md"
+    fi
+    printf '%s\n' "$head" > "$SHIM_STORE/$SESSION/impl_base"
+    printf '%s\n' "$3" > "$SHIM_STORE/$SESSION/review_level_criteria.txt"
+    printf 'Plan: the fix review asked for\n' > "$SHIM_STORE/$SESSION/plan.md"
+}
+
+fixture tr-inherit
+plan_record scrutiny "$ALL_PASS"
+fix_round tr-inherit-fix-1 yes 'AC: the issue body'
+edit docs/c.md 1 changed
+run --plan scrutiny "$SESSION"
+expect_not_full "a small fix in a round that inherited the run's ledger" scrutiny
+expect_decision "the inheriting round" scrutiny completeness keep
+if jq -e '[.decisions[] | select(.seat == "reverifier") | .fix_review] == [true]' \
+    "$SHIM_STORE/$SESSION/scrutiny_scope.json" >/dev/null 2>&1; then
+    pass "the inheriting round reviews the fix diff with the re-verifier alone"
+else
+    fail "the inheriting round planned $(jq -c '[.decisions[] | {seat, decision, fix_review}]' "$SHIM_STORE/$SESSION/scrutiny_scope.json")"
+fi
+record scrutiny '[{"seat":"reverifier"}]'
+if jq -e '.inherited.from == "tr-inherit"' "$SHIM_STORE/$SESSION/verdict_ledger.json" >/dev/null 2>&1; then
+    pass "recording the round keeps the ledger's inherited mark"
+else
+    fail "the round's ledger lost its inherited mark: $(jq -c '.inherited' "$SHIM_STORE/$SESSION/verdict_ledger.json")"
+fi
+
+fixture tr-inherit-ac
+plan_record scrutiny "$ALL_PASS"
+fix_round tr-inherit-ac-fix-1 yes 'AC: criteria the run was not judged against'
+edit docs/c.md 1 changed
+run --plan scrutiny "$SESSION"
+expect_full "an inheriting round whose criteria changed" scrutiny "acceptance criteria or the plan changed"
+
+fixture tr-inherit-none
+plan_record scrutiny "$ALL_PASS"
+fix_round tr-inherit-none-fix-1 no 'AC: the issue body'
+edit docs/c.md 1 changed
+run --plan scrutiny "$SESSION"
+expect_full "a round holding the run's ledger without the inherited mark" scrutiny "acceptance criteria or the plan changed"
+rm -f "$SHIM_STORE/$SESSION/plan.md"
+run --plan scrutiny "$SESSION"
+expect_full "the same round under the run's own plan" scrutiny "no commit since impl_base"
+
+fixture tr-inherit-big
+plan_record scrutiny "$ALL_PASS"
+fix_round tr-inherit-big-fix-1 yes 'AC: the issue body'
+(cd "$FX/repo" && seq 1 201 > docs/new.txt && git add docs/new.txt && git commit -q -m big) >/dev/null 2>&1
+run --plan scrutiny "$SESSION"
+expect_full "a 201-line fix in an inheriting round" scrutiny "changes 201 lines"
+
 fixture tr-201
 plan_record scrutiny "$ALL_PASS"
 (cd "$FX/repo" && seq 1 201 > docs/new.txt && git add docs/new.txt && git commit -q -m big) >/dev/null 2>&1
@@ -976,6 +1051,8 @@ expect_rc "--verdict when every run is recorded and only advisory findings are o
 [ -z "$OUT" ] && pass "a passing verdict prints nothing" || fail "a passing verdict printed: $OUT"
 run --open-count scrutiny "$SESSION"
 [ "$RC" = 0 ] && [ "$OUT" = 0 ] && pass "--open-count counts no advisory finding" || fail "--open-count: exit $RC, [$OUT]"
+run --open-ids scrutiny "$SESSION"
+[ "$RC" = 0 ] && [ -z "$OUT" ] && pass "--open-ids prints no id for an advisory finding" || fail "--open-ids: exit $RC, [$OUT]"
 
 # A new round, full again, recorded with blocking findings: one unruled, one
 # citing an active rule, one marked fixed, one a decider left unverified.
@@ -1006,6 +1083,22 @@ N=$(verdict_findings | jq -s --arg r "$WANT_RANGE" '[.[] | select(.rule_id == "p
     || fail "rule_ref: want range [$WANT_RANGE] on 2 findings, got $N"
 run --open-count scrutiny "$SESSION"
 [ "$RC" = 0 ] && [ "$OUT" = 3 ] && pass "--open-count prints the number of findings --verdict printed" || fail "--open-count: exit $RC, [$OUT]"
+# The same three, by id, in --verdict's order; panel-retry-budget.sh records
+# them beside the count.
+run --open-ids scrutiny "$SESSION"
+WANT_IDS=$(printf '%s\n%s\n%s' "$(sid first)" "$(sid second)" "$(sid third)")
+[ "$RC" = 0 ] && [ "$OUT" = "$WANT_IDS" ] \
+    && pass "--open-ids prints the ids of the findings --verdict printed, in its order" \
+    || fail "--open-ids: exit $RC, [$OUT], want [$WANT_IDS]"
+# An open finding whose id isn't 16 hex characters holds (2) and prints
+# nothing, so a caller never reads a partial list as the round's.
+cp "$SHIM_STORE/$SESSION/verdict_ledger.json" "$WORKDIR/ledger.keep"
+jq --arg id "$(sid third)" '.findings[$id].id = "not-an-id"' \
+    "$WORKDIR/ledger.keep" > "$SHIM_STORE/$SESSION/verdict_ledger.json"
+run --open-ids scrutiny "$SESSION"
+[ "$RC" = 2 ] && [ -z "$OUT" ] && pass "--open-ids holds (2) on a malformed id and prints none" \
+    || fail "--open-ids with a malformed id: exit $RC, [$OUT]"
+cp "$WORKDIR/ledger.keep" "$SHIM_STORE/$SESSION/verdict_ledger.json"
 # As run() does: from the fixture repository, with the koto stand-in on PATH,
 # so the unaltered copy reads the same ledger and decides (exit 1).
 RF_SAVED_PATH=$PATH
@@ -1041,6 +1134,8 @@ run --verdict scrutiny "$SESSION"
 expect_rc "--verdict with a ledger that has no findings key" 2
 run --open-count scrutiny "$SESSION"
 expect_rc "--open-count with a ledger that has no findings key" 2
+run --open-ids scrutiny "$SESSION"
+expect_rc "--open-ids with a ledger that has no findings key" 2
 printf 'not json\n' > "$SHIM_STORE/$SESSION/verdict_ledger.json"
 run --verdict scrutiny "$SESSION"
 expect_rc "--verdict with an unreadable ledger" 2
@@ -1655,8 +1750,9 @@ case "$OUT" in
 esac
 RB=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" "$SCRIPT_DIR/panel-retry-budget.sh" "$SESSION" scrutiny 2>"$WORKDIR/rb.err")
 RBRC=$?
-[ "$RBRC" = 0 ] && [ "$(cat "$SHIM_STORE/$SESSION/panel_retries" 2>/dev/null)" = "scrutiny 1" ] \
-    && pass "panel-retry-budget.sh reads a count of 1" || fail "retry budget rc $RBRC out [$RB] err [$(cat "$WORKDIR/rb.err")]"
+[ "$RBRC" = 0 ] && [ "$(cat "$SHIM_STORE/$SESSION/panel_retries" 2>/dev/null)" = "scrutiny 1 ed67d1c117809e43" ] \
+    && pass "panel-retry-budget.sh reads a count of 1" \
+    || fail "retry budget rc $RBRC out [$RB] err [$(cat "$WORKDIR/rb.err")] record [$(cat "$SHIM_STORE/$SESSION/panel_retries" 2>/dev/null)]"
 
 # --plan never reads the log: its decisions are the same with batch events of
 # every outcome in it.
@@ -1887,6 +1983,8 @@ case "$OUT" in *"$INTO_SUMMARY"*) pass "--verdict review names the scrutiny find
     *) fail "--verdict review printed [$OUT]" ;; esac
 run --open-count review "$SESSION"
 [ "$OUT" = 1 ] && pass "--open-count review counts it" || fail "--open-count review printed [$OUT]"
+run --open-ids review "$SESSION"
+[ "$OUT" = "$SPID" ] && pass "--open-ids review names it by its scrutiny id" || fail "--open-ids review printed [$OUT]"
 
 # Back in implementation: the fix is marked fixed on the finding's own panel,
 # and scrutiny's re-verifier closes it, which clears review too.

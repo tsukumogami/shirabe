@@ -330,6 +330,14 @@ cat > "$SC/reconcile-legs.sh" <<'STUB'
 echo "$*" >> "$STUB_DIR/legs"
 cat "$STUB_DIR/legs.out" 2>/dev/null || echo '{"kind":"legs","status":"ok","outcome":"relegged","now":"leg req_9:deliver","reason":"","read_at":"t"}'
 STUB
+# The owed verdicts, the pass's third write at roadmap scope: logs its
+# arguments to <case>/owes and prints <case>/owe.out, else a fact owing
+# nothing, so every case without the file reads as it did before the write.
+cat > "$SC/reconcile-owe.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$STUB_DIR/owes"
+cat "$STUB_DIR/owe.out" 2>/dev/null || echo '{"kind":"owe","status":"ok","owed":[],"reason":"","read_at":"t"}'
+STUB
 chmod +x "$SC"/*.sh "$T/bin/koto" "$T/bin/git"
 
 SESSION=coordinate-plugin-system-20260927T000000Z
@@ -663,6 +671,45 @@ nv=$(ctx reconcile/report.md | sed -n '/^## Not verified/,$p')
 grep -q 'the record refused the write' <<<"$nv"; check "a refused settle is listed as not verified" $? "$(ctx reconcile/report.md)"
 chg=$(ctx reconcile/report.md | sed -n '/^## Changed since then/,/^## /p')
 grep -q 'settled' <<<"$chg" && bad "and not reported as changed" || ok "and not reported as changed"
+
+echo "== the owed verdicts of Completed milestones =="
+# Once per visit, before the record read, the pass owes the verdict of every
+# milestone a roadmap/v4 roadmap reads Completed that the record doesn't owe
+# yet (reconcile-owe.sh, a stand-in here); each one owed is reported.
+new_case owe-written
+record '[]'
+echo '{"kind":"owe","status":"ok","owed":["Milestone 3"],"reason":"","read_at":"t"}' > "$CASE/owe.out"
+pass
+case "$LINE" in "reconciled "*) ok "a visit that owes a verdict seals in one pass" ;; *) bad "a visit that owes a verdict seals in one pass" "$LINE $(cat "$CASE/stderr")" ;; esac
+[ "$(cat "$CASE/owes" 2>/dev/null)" = "--session $SESSION" ]; check "the owed verdicts are written once, naming the session" $? "$(cat "$CASE/owes" 2>/dev/null)"
+chg=$(ctx reconcile/report.md | sed -n '/^## Changed since then/,/^## /p')
+grep -q '`Milestone 3`: verdict owed: the roadmap reads it Completed' <<<"$chg"
+check "Milestone 3's owed verdict is reported under Changed since then" $? "$(ctx reconcile/report.md)"
+ctx reconcile/report.json | jq -e '[.changes[] | select(.what == "verdict owed") | .topic] == ["Milestone 3"]' >/dev/null
+check "  ... and in the sealed report's changes" $? "$(ctx reconcile/report.json | jq -c .changes)"
+new_case owe-once
+record "[$(hold with-pr "$PR12"),$(hold no-pr "")]" '[{"action":"teardown","target":"old-worker","verified_head":"","attempted":"2026-09-26T11:00Z","how_to_confirm":"listing"}]'
+pass
+case "$LINE" in pending:7:*) ok "a visit left pending after its first pass" ;; *) bad "a visit left pending after its first pass" "$LINE" ;; esac
+tick 31
+pass
+case "$LINE" in "reconciled "*) ok "  ... seals on the next" ;; *) bad "  ... seals on the next" "$LINE $(cat "$CASE/stderr")" ;; esac
+[ "$(grep -c . "$CASE/owes" 2>/dev/null)" = 1 ]; check "  ... having owed the verdicts once in the visit" $? "$(cat "$CASE/owes" 2>/dev/null)"
+new_case owe-refused
+record '[]'
+echo '{"kind":"owe","status":"not_verified","reason":"the record refused the write: no live session","read_at":"t"}' > "$CASE/owe.out"
+pass
+case "$LINE" in "reconciled "*) ok "a refused owe still seals the visit" ;; *) bad "a refused owe still seals the visit" "$LINE" ;; esac
+nv=$(ctx reconcile/report.md | sed -n '/^## Not verified/,$p')
+grep -q 'the verdicts owed for Completed milestones: the record refused the write' <<<"$nv"
+check "  ... and is listed as not verified" $? "$(ctx reconcile/report.md)"
+new_case owe-silent
+record '[]'
+echo 'not json' > "$CASE/owe.out"
+pass
+nv=$(ctx reconcile/report.md | sed -n '/^## Not verified/,$p')
+grep -q 'the verdicts owed for Completed milestones: it printed nothing readable' <<<"$nv"
+check "an owe that printed nothing readable is listed as not verified" $? "$(ctx reconcile/report.md)"
 
 echo "== a pull request in another repository (shirabe#1581) =="
 # The holding's repo is acme/widgets; its link names acme/gadgets. The

@@ -30,6 +30,8 @@ OUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest --blocked plugin-cl
 grep -qF '| [#14](https://github.com/acme/widgets/pull/14) |' <<<"$OUT" \
     && ok "a pull request is a clickable link" || bad "a pull request is a clickable link" "$OUT"
 grep -qF '| merge 1 of 2 |' <<<"$OUT" && ok "a ready row says its merge position" || bad "a ready row says its merge position" "$OUT"
+grep -qF '| `plugin-sandbox` | [#14](https://github.com/acme/widgets/pull/14) | checks passed, ready to merge | merge 1 of 2 |' <<<"$OUT" \
+    && ok "a ready row says its checks passed" || bad "a ready row says its checks passed" "$OUT"
 grep -qF '| blocked | credential: NPM_TOKEN |' <<<"$OUT" \
     && ok "a blocked row says what it needs" || bad "a blocked row says what it needs" "$OUT"
 grep -qF '| `plugin-docs` | [#15](https://github.com/acme/widgets/pull/15) | scoping ahead |' <<<"$OUT" \
@@ -65,12 +67,31 @@ grep -qF '| Waiting to be assigned | Feature 9: Definitions | N/A | N/A | scopin
 grep -qF '| Ongoing | Feature 10: Spec | `plugin-spec` | none yet | scoping |' <<<"$ROUT" \
     && ok "a holding scoping alone reads scoping" || bad "a holding scoping alone reads scoping" "$ROUT"
 
+# A unit whose work landed and whose verdict is owed: its own Ongoing row,
+# never queued and never ready to assign. On v1 to v3 the pick facts read it
+# not done; on roadmap/v4 done with takes_work false. Both render the same.
+owed_row='| Ongoing | Feature 3: Plugin registry | N/A | N/A | landed, verdict owed | its verdict is given at the next pass |'
+for shape in 'v3:.done = false' 'v4:.done = true | .takes_work = false'; do
+    jq "(.units[] | select(.unit == \"Feature 3\")) |= (.verdict_owed = true | ${shape#*:})" "$F" > "$T/pick-owed.json"
+    VOUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$T/pick-owed.json" 2> "$T/err")
+    [ "$(grep -F '| Feature 3' <<<"$VOUT")" = "$owed_row" ] \
+        && ok "${shape%%:*}: a verdict-owed unit has one row, landed with its verdict owed" \
+        || bad "${shape%%:*}: a verdict-owed unit's row" "$VOUT $(cat "$T/err")"
+    if grep -F '| Feature 3' <<<"$VOUT" | grep -qF 'ready to assign'; then
+        bad "${shape%%:*}: a verdict-owed unit never reads ready to assign" "$VOUT"
+    else ok "${shape%%:*}: a verdict-owed unit never reads ready to assign"; fi
+    [ "$(kinds "$VOUT")" = "Ready to merge,Ready to merge,Ongoing,Ongoing,Waiting to be assigned," ] \
+        && ok "${shape%%:*}: the owed row is Ongoing, and the queue holds the rest" || bad "${shape%%:*}: the owed row's kind" "$(kinds "$VOUT")"
+    grep -qF '| Waiting to be assigned | Feature 2: Plugin loader | N/A | N/A | waits on feature 1 | assigned as the cap frees, 1 of 1 in line |' <<<"$VOUT" \
+        && ok "${shape%%:*}: the queue counts its place in line without the owed unit" || bad "${shape%%:*}: the queue without the owed unit" "$VOUT"
+done
+
 OUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest --next plugin-cli="open its draft" --next "Feature 3=held for the 1.4 release" "$F")
 grep -qF '| `plugin-cli` | none yet | executing | open its draft |' <<<"$OUT" && ok "--next sets a session's next step" || bad "--next for a session" "$OUT"
 grep -qF '| ready to assign | held for the 1.4 release |' <<<"$OUT" && ok "--next sets a queued unit's next step" || bad "--next for a unit" "$OUT"
 jq '.holdings[0].phase = "held" | .holdings = [.holdings[0]]' "$F" > "$T/one.json"
 OUT=$(bash "$V" "$T/one.json")
-grep -qF '| verified; merge held by your direction | merge 1 of 1 |' <<<"$OUT" \
+grep -qF '| checks passed; merge held by your direction | merge 1 of 1 |' <<<"$OUT" \
     && ok "one ready row needs no merge order, and a held one says so" || bad "a single held ready row" "$OUT"
 
 refused() { # refused <label> <stderr substring> <args...>
@@ -174,7 +195,7 @@ POUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$T/pick-paused.js
     && ok "one line above the table names every pause, since when, until what and who" || bad "the pause line" "$(head -1 <<<"$POUT")"
 [ "$(printf '%s\n' "$POUT" | sed -n 3p)" = "| Kind | Unit | Session | PR | Status | Next or needs |" ] \
     && ok "  ... and the table follows it with its six columns" || bad "  ... and the table follows it" "$POUT"
-grep -qF '| `plugin-sandbox` | [#14](https://github.com/acme/widgets/pull/14) | verified; held by pause s4 |' <<<"$POUT" \
+grep -qF '| `plugin-sandbox` | [#14](https://github.com/acme/widgets/pull/14) | checks passed; held by pause s4 |' <<<"$POUT" \
     && ok "a ready pull request a pause holds says so" || bad "a ready pull request a pause holds says so" "$POUT"
 cli_rows=$(grep -F '| `plugin-cli` |' <<<"$POUT")
 grep -qF '| `plugin-cli` |' <<<"$POUT" && grep -qF '| paused (s4) |' <<<"$cli_rows" \
