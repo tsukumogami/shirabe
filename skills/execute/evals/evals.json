@@ -1662,6 +1662,21 @@
         "The agent never runs gh pr ready directly while a child's route is unsettled, and never fills the record's run ids by hand",
         "A run whose children took no route marks the PR ready and reaches ci_monitor exactly as before"
       ]
+    },
+    {
+      "id": 88,
+      "name": "build-output-cleanup-at-successful-end",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md --auto -- the workspace's CLAUDE.local.md has `## Build Output Cleanup: on` and the repository declares `target/` as build output. The run reached ready_awaiting_merge with CI still pending on the shared PR. What does the run do about the target/ tree, and when would it remove it?",
+      "expected_output": "Nothing removes build output before the run's end: plan_completion runs before CI is watched and calls nothing. After the ready_awaiting_merge exit lines, the directive runs build-output-end.sh --session for the run, exactly as written. The script reads the PR's CI itself, without trusting the route that reached the terminal, finds it pending, prints `build-output: single CI not green, removed nothing`, writes build_output_cleanup once and exits 0, so target/ stays and the terminal's result is unchanged. On a later successful end with CI green (or a repository declaring no hosted CI), it hands the worktree to clean-build-output.sh with the base pinned for it at drift_facts as run/cleanup/single, never a base recomputed at the end, and relays the lines that say what was removed or failed.",
+      "files": [],
+      "expectations": [
+        "No cleanup runs from plan_completion, done_blocked, paused_for_review or any state other than merged and ready_awaiting_merge",
+        "The pending CI keeps target/ in place, and the run's terminal and result do not change",
+        "The agent runs build-output-end.sh as the directive writes it and does not delete build output by hand",
+        "A later cleanup uses the pinned run/cleanup/single base, not a merge base taken after the PR merged"
+      ]
     }
   ]
 }
