@@ -543,9 +543,11 @@ if [ "$COORDINATED" -eq 0 ] && [ "$NAMED" -eq 1 ] && [ "$FINISHED" -eq 1 ]; then
     rr__present "$SESSION" run/cleanup/single 2>/dev/null
     case $? in
         0)
-            SNAP_TMP=""
-            if PIN_V=$(rr__object "$SESSION" run/cleanup/single 2>/dev/null) \
-                && SNAP_TMP=$(mktemp -d "$CR/.$SESSION.XXXXXX") \
+            # mktemp is checked straight after its own assignment, so an
+            # empty SNAP_TMP never reaches the writes below.
+            SNAP_TMP=$(mktemp -d "$CR/.$SESSION.XXXXXX") || SNAP_TMP=""
+            if [ -n "$SNAP_TMP" ] \
+                && PIN_V=$(rr__object "$SESSION" run/cleanup/single 2>/dev/null) \
                 && jq -cn --argjson v "$PIN_V" '{"run/cleanup/single": $v}' > "$SNAP_TMP/record.json" \
                 && rm -rf -- "$CR/$SESSION" && mv "$SNAP_TMP" "$CR/$SESSION"; then
                 :
