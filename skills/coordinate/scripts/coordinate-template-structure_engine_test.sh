@@ -477,6 +477,10 @@ ROLE_ALLOW="scripts/state-schema.jq scripts/state-stored-set.sh scripts/state-op
 #   git grep -lE '^[^#]*(rs_record|rs_session_state|rs_session_read|rs_facts|state-read\.sh|state-handover\.sh|state-stored-set\.sh[^#]*--(list|rules)|record/run|[^A-Za-z0-9_]\.run([^A-Za-z0-9_]|$))' \
 #       c17f9b0e -- 'skills/coordinate/*.sh' 'skills/coordinate/*.jq' ':!:*_test.sh' ':!:skills/coordinate/scripts/testdata/*' \
 #       | sed 's/^[^:]*:skills\/coordinate\///'
+# Added since that base, each by hand with its reason:
+#   scripts/standing-provenance.sh  reads a cited decision's entering session's
+#                                   record/run for its reports-to row (the bound
+#                                   test); it reads no role row.
 ROLE_READERS="legacy-import/import.sh
 scripts/board-lib.sh
 scripts/board-verdict.sh
@@ -499,6 +503,7 @@ scripts/reconcile-deps.sh
 scripts/reconcile-read.sh
 scripts/resolve-coordinator.sh
 scripts/roadmap-status.sh
+scripts/standing-provenance.sh
 scripts/state-common.sh
 scripts/state-confirm.sh
 scripts/state-decision.sh
