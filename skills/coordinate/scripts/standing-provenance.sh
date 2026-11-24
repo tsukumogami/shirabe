@@ -35,9 +35,11 @@
 # then counts toward bound.
 #
 # Every koto call is a read: `decisions show`, `decisions chain`, `context
-# exists` and `context get`. They share one 5-second deadline, kept with
-# reconcile-deps.sh's rd_deadline since macOS has no timeout(1). koto is
-# ${KOTO_BIN:-koto}.
+# exists`, and the Run section's read, which goes through state-read.sh's
+# rs_key (a `context list`, then `context get` when the key is there), since
+# only the state seam reads a record's keys. They share one 5-second
+# deadline, kept with reconcile-deps.sh's rd_deadline since macOS has no
+# timeout(1). koto is ${KOTO_BIN:-koto}.
 #
 # Usage:
 #   standing-provenance.sh <session> <id>
@@ -85,6 +87,8 @@ command -v jq > /dev/null || unreadable "no jq"
 HERE=$(cd "$(dirname "$0")" && pwd) || unreadable "the script's directory can't be read"
 # shellcheck source=/dev/null
 . "$HERE/reconcile-deps.sh" || unreadable "reconcile-deps.sh can't be loaded"
+# shellcheck source=/dev/null
+. "$HERE/state-read.sh" || unreadable "state-read.sh can't be loaded"
 
 K=${KOTO_BIN:-koto}
 D=$(mktemp -d "${TMPDIR:-/tmp}/standing-provenance.XXXXXX") || unreadable "no temporary directory could be made"
@@ -180,18 +184,20 @@ while IFS= read -r x; do
 done < "$D/links"
 
 # ---- bound: the Run section's reports-to row ---------------------------------
+# rs_key, the seam's key read: 0 read, 1 the key is absent, 2 a read failed.
 : > "$D/run"
-kread "$D/exists" context exists "$SESSION" record/run
-rc=$?
+left=$((DEADLINE - SECONDS))
+if [ "$left" -ge 1 ]; then
+    rd_deadline "$left" rs_key "$SESSION" record/run "$D/run" > /dev/null < /dev/null
+    rc=$?
+else
+    rc=124
+fi
 case "$rc" in
-    0)
-        kread "$D/run" context get "$SESSION" record/run
-        rc=$?
-        [ "$rc" = 0 ] || kfail "$rc" "context get record/run"
-        jq -e 'type == "array"' "$D/run" > /dev/null || unreadable "the Run section is not a list of rows"
-        ;;
+    0) jq -e 'type == "array"' "$D/run" > /dev/null || unreadable "the Run section is not a list of rows" ;;
     1) echo '[]' > "$D/run" ;;
-    *) kfail "$rc" "context exists record/run" ;;
+    124) kfail 124 "the Run section's read" ;;
+    *) unreadable "the Run section could not be read" ;;
 esac
 
 # ---- the answer --------------------------------------------------------------

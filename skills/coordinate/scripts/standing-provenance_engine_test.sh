@@ -263,7 +263,7 @@ sp cc cc 000000000001
 koto decisions show cc 000000000001 > "$T/cc.body" 2> /dev/null
 jq -c --arg c "$CTRL" --arg l "$LONG" '.decision.decider.handle.value = "bob\($c)\($l)" | .decision.decider.link = "https://x/\($c)\($l)"' \
     "$T/cc.body" > "$T/cc.fake"
-fake koto-body "case \"\$1 \$2\" in \"decisions show\") cat \"$T/cc.fake\" ;; *) exit 1 ;; esac"
+fake koto-body "case \"\$1 \$2\" in \"decisions show\") cat \"$T/cc.fake\" ;; \"context list\") echo '[]' ;; *) exit 1 ;; esac"
 FAKE_LOG="$T/body.log" KOTO_BIN="$T/bin/koto-body" sp cc-fake cc 000000000001
 # clean_ok <name>: every quoted string has no control character and at most
 # 200 characters, and the four fields are there.
@@ -342,8 +342,8 @@ if [ "$DEC" = 1 ]; then
     grep -q '^<decisions><chain><' "$T/calls.log" || needf "the earlier-member walk made no decisions chain call"
     grep -q '^<context><get><r1><record/run>$' "$T/calls.log" || needf "no context get of r1's Run section"
     need "no koto decisions command but show and chain" "" "$(grep '^<decisions>' "$T/calls.log" | grep -vE '^<decisions><(show|chain)>')"
-    need "no koto command but decisions show/chain and context exists/get" "" \
-        "$(grep -vE '^<(decisions><(show|chain)|context><(exists|get))>' "$T/calls.log")"
+    need "no koto command but decisions show/chain and context exists/list/get" "" \
+        "$(grep -vE '^<(decisions><(show|chain)|context><(exists|list|get))>' "$T/calls.log")"
     crit "7. the call log shows decisions show <session> <id> as separate arguments and no decisions command but show and chain"
 fi
 
