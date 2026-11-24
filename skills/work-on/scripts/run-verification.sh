@@ -103,6 +103,52 @@
 #   --locate --session <s> [--base-ref <ref>]
 #       Print three lines: the head, the merge-base, and the result file's
 #       path. check-verification.sh calls this so the path rules live here.
+#   --plan --session <s> [--shared-branch <branch>] [--base-ref <ref>]
+#       VERIFICATION=auto's resolution, the routing gate of the work-on
+#       template's verification_plan state. Starts nothing and writes no
+#       result. It resolves to `hosted-ci` (exit 0) when every command the
+#       run would start has a `hosted` twin in the merge-base's map and no
+#       changed path (both sides of a rename) is in the ci, security,
+#       template or engine class of review-level.sh classify; to `local`
+#       (exit 1) otherwise. "Would start" is --start's selection after a fix
+#       round's carry (step 5b): a check the carry marks `carried` runs
+#       nothing, so it needs no twin, and a round with nothing left to start
+#       resolves to local, where its carried records make the result. It also
+#       resolves to local, saying why, for a non-empty --shared-branch (a
+#       step on /execute's shared branch, whose pull request is /execute's),
+#       for a session holding `verification_twin_gone` (ci_monitor found a
+#       twin gone; see --twins), and for every case --start would settle
+#       without a run: a dirty tree, no map or a bad one at the merge-base, a
+#       selection of nothing, an attended command. It first removes any
+#       `verification_plan` an earlier visit left, then, either way, writes
+#       the koto key `verification_plan`:
+#
+#         {"schema": "shirabe-verification-plan/v1", "head", "merge_base",
+#          "resolution": "hosted-ci|local", "reason", "started": [{"check",
+#          "id", "hosted"}], "carried": [{"check", "carried_from"}],
+#          "decided_at"}
+#
+#       and prints `<resolution>: <reason>`. A hosted resolution's reason is
+#       `hosted twins cover every selected command`, the deferral reason
+#       verification_deferred writes for an auto run. Without koto on PATH it
+#       resolves to local and records nothing. Exit 2: usage, a koto read or
+#       write that failed, or no HEAD or merge-base; the template routes that
+#       to local verification too.
+#   --resolved --session <s> [--base-ref <ref>]
+#       Print `hosted-ci` when the session's `verification_plan` resolved to
+#       hosted-ci and it holds no `verification_twin_gone`, else `local` (no
+#       record included). Exit 0, or 2 when koto can't answer. pr_creation's
+#       deferral record gate reads it for an auto run.
+#   --twins --session <s> [--base-ref <ref>]
+#       ci_monitor's re-check, before its green edge. Exit 0 when the run did
+#       not resolve to hosted-ci (as --resolved decides). Otherwise it fetches
+#       the default branch when it is a remote-tracking ref (origin/<b>), reads
+#       its current map, and exits 0 when each started command of the record
+#       still has one of the twins it resolved with: the same workflow, job
+#       and runs on the same row, with the workflow file on the default
+#       branch. Exit 1, naming each check on stderr, when one has none (or the
+#       map is gone or isn't a map), which sends the run back to local
+#       verification. Exit 2 when koto, the fetch or git can't answer.
 #   --supervise <dir>
 #       Internal: the supervisor. Never calls koto (only --start's steps 0
 #       and 1 do). Reads one line from its fd 3 before anything else and runs
@@ -248,6 +294,14 @@ MAP_PATH=.claude/shirabe-extensions/verification-map.json
 KEEP_HEADS=10
 RESULT_SCHEMA=shirabe-verification-result/v1
 BUDGET_SECS=7200
+# VERIFICATION=auto's record (--plan), the key ci_monitor's demotion edge
+# writes, the deferral reason a hosted resolution carries, and the path
+# classes that keep a run local.
+PLAN_KEY=verification_plan
+PLAN_SCHEMA=shirabe-verification-plan/v1
+GONE_KEY=verification_twin_gone
+HOSTED_REASON="hosted twins cover every selected command"
+PLAN_RISKY_CLASSES="ci security template engine"
 # The failure lines a timeout_form is matched against: the pattern
 # check-skill.sh's show_suite_failure uses to pick a failed suite's FAIL lines,
 # in jq's regex syntax (passed with --arg, so read as written).
@@ -258,6 +312,9 @@ usage() {
 Usage: run-verification.sh --start --session <s> [--base-ref <ref>]
        run-verification.sh --archive --session <s> --reason <text> [--base-ref <ref>]
        run-verification.sh --locate --session <s> [--base-ref <ref>]
+       run-verification.sh --plan --session <s> [--shared-branch <branch>] [--base-ref <ref>]
+       run-verification.sh --resolved --session <s> [--base-ref <ref>]
+       run-verification.sh --twins --session <s> [--base-ref <ref>]
 EOF
 }
 
@@ -395,6 +452,7 @@ resolve() {
     fi
     git -C "$ROOT" rev-parse --verify -q "${base}^{commit}" >/dev/null \
         || die "the default branch [$base] does not resolve to a commit"
+    BASE_RESOLVED=$base
     MB=$(git -C "$ROOT" merge-base HEAD "$base") || die "HEAD shares no history with [$base]"
     local state=${XDG_STATE_HOME:-}
     if [ -z "$state" ]; then
@@ -1116,7 +1174,7 @@ case "$MODE" in
     --supervise)
         [ $# -eq 1 ] || { usage; exit 2; }
         supervise "$1" ;;
-    --start|--locate|--archive) ;;
+    --start|--locate|--archive|--plan|--resolved|--twins) ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
 esac
@@ -1125,6 +1183,8 @@ SESSION=""
 BASE_REF=""
 REASON=""
 REASON_SET=0
+SHARED_BRANCH=""
+SHARED_SET=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --session)
@@ -1136,6 +1196,10 @@ while [ $# -gt 0 ]; do
         --reason)
             [ "$MODE" = --archive ] && [ $# -ge 2 ] && [ "$REASON_SET" -eq 0 ] || { usage; exit 2; }
             REASON=$2; REASON_SET=1; shift 2 ;;
+        --shared-branch)
+            # Empty is allowed: the gate passes an unset SHARED_BRANCH as "".
+            [ "$MODE" = --plan ] && [ $# -ge 2 ] && [ "$SHARED_SET" -eq 0 ] || { usage; exit 2; }
+            SHARED_BRANCH=$2; SHARED_SET=1; shift 2 ;;
         *) usage; exit 2 ;;
     esac
 done
@@ -1163,96 +1227,9 @@ if [ "$MODE" = --archive ]; then
     exit 0
 fi
 
-# --- --start -----------------------------------------------------------------------------
-
-# 0. A hosted-of-record key from another head is no record for this one.
-#    Removed before anything else, so a result reused below, or one that then
-#    passes, never meets a record the head it is for didn't take.
-drop_stale_record() {
-    local rc key head
-    command -v koto >/dev/null 2>&1 || return 0
-    koto context exists "$SESSION" hosted_of_record
-    rc=$?
-    case "$rc" in
-        0) ;;
-        1) return 0 ;;
-        *) die "koto context exists $SESSION hosted_of_record exited $rc" ;;
-    esac
-    key=$(koto context get "$SESSION" hosted_of_record) \
-        || die "could not read the hosted_of_record key of $SESSION"
-    # A key that doesn't parse names no head, so it is stale too; jq's
-    # message stays on stderr.
-    head=$(printf '%s' "$key" | jq -r 'if type == "object" and (.head | type) == "string" then .head else "" end') || head=""
-    [ "$head" = "$HEAD_SHA" ] && return 0
-    koto context remove "$SESSION" hosted_of_record \
-        || die "could not remove the hosted_of_record key of $SESSION, recorded for [$head], not $HEAD_SHA"
-    echo "run-verification: removed the hosted_of_record key recorded for [$head]; this head is $HEAD_SHA" >&2
-}
-drop_stale_record
-
-(umask 077 && mkdir -p "$HEAD_DIR") || die "could not create $HEAD_DIR"
-touch "$HEAD_DIR"
-prune
-
-# 0. A re-run request, read before the reuse check below so an archived
-#    result is not reused.
-consume_request
-
-# 1. A result for this head and merge-base stands, except a dirty-tree one,
-#    which the next start re-checks once the tree is clean.
-if [ -f "$RESULT" ]; then
-    if jq -e --arg mb "$MB" '.merge_base == $mb and .status != "dirty-tree"' "$RESULT" >/dev/null; then
-        exit 0
-    fi
-    # Another process's lock, not one this process holds: consume_request
-    # releases its hold, but a lock naming this pid must never stop the start.
-    lock_other "$HEAD_DIR/lock" && exit 0
-    rm -f "$RESULT"
-fi
-
-# 2. The paths selected on and the code tested must be the same commit.
-DIRTY=$(git -C "$ROOT" status --porcelain --untracked-files=no) \
-    || die "could not read the working tree's status"
-if [ -n "$DIRTY" ]; then
-    settle dirty-tree "tracked files have uncommitted changes: $(head -n 10 <<<"$DIRTY" | cut -c4- | tr '\n' ' ')"
-fi
-
-# 3. The map, from the merge-base.
-# ls-tree prints nothing for an absent path and exits 0, so absence is read
-# from its output and a failure from its status, with git's message intact.
-MAP_ENTRY=$(git -C "$ROOT" ls-tree "$MB" -- "$MAP_PATH") \
-    || die "could not list $MAP_PATH at $MB"
-if [ -z "$MAP_ENTRY" ]; then
-    settle no-map "no $MAP_PATH at the merge-base $MB"
-fi
-MAP_JSON=$(git -C "$ROOT" show "$MB:$MAP_PATH") || die "could not read $MAP_PATH at $MB"
-CHANGED=$(git -C "$ROOT" diff --name-only -z "$MB..HEAD" | jq -Rs 'split("\u0000") | map(select(length > 0))') \
-    || die "could not list the changed paths"
-if ! printf '%s' "$MAP_JSON" | jq -se 'length == 1' >/dev/null; then
-    settle bad-map "$MAP_PATH at $MB is not one valid JSON value"
-fi
-SELECTION=$(printf '%s' "$MAP_JSON" | jq -c --argjson changed "$CHANGED" "$SELECT_JQ") \
-    || die "the selection program failed"
-ERR=$(printf '%s' "$SELECTION" | jq -r '.error // empty')
-[ -z "$ERR" ] || settle bad-map "$ERR"
-
-# 4. What to run.
-if [ "$(printf '%s' "$SELECTION" | jq '.invocations | length')" -eq 0 ]; then
-    settle no-map "the map selects nothing for this change"
-fi
-ATTENDED=$(printf '%s' "$SELECTION" | jq -r '.attended | join(", ")')
-if [ -n "$ATTENDED" ]; then
-    settle attended "commands marked unattended: false need a person: $ATTENDED" \
-        "$(printf '%s' "$SELECTION" | jq -c '[.invocations[] | select(.unattended == false)
-            | {id, check, argv, exit_status: null, duration_secs: 0, timed_out: false, runaway: false,
-               not_started: true, pgid: null, log: null, outcome: "failed", suites: null}]')"
-fi
-
-# 5b. A fix round's carry (see the header). Sets INVOCATIONS: the selection's
-#     invocations, each with `carried` (the record to write in place of a run)
-#     or `verify_base` (SHIRABE_VERIFY_BASE for its command) where the carry
-#     applies.
-INVOCATIONS=$(printf '%s' "$SELECTION" | jq -c '.invocations') || die "could not read the selection"
+# --- a fix round's carry ----------------------------------------------------------------
+#
+# Defined here, ahead of the modes, because --plan runs it as well as --start.
 
 # The parent result's records against this selection: a passed (or carried)
 # record for the same check and argv that the round's diff doesn't select is
@@ -1407,6 +1384,319 @@ carry() {
     note "$(printf '%s' "$INVOCATIONS" | jq -r --arg p "$prev" --arg b "$cbase" '
         "carried \([.[] | select(.carried)] | length) check(s) \($p) passed at \($b); running \([.[] | select(.carried | not)] | length): \([.[] | select(.carried | not) | .check] | join(", "))"')"
 }
+
+# --- --plan, --resolved and --twins ------------------------------------------------------
+#
+# VERIFICATION=auto's resolution (see the header). --plan decides and records,
+# --resolved reads what was decided, and --twins re-reads the twins from the
+# current default branch's map at ci_monitor.
+
+# plan_local <reason>: resolve to local, for the reason given.
+plan_local() {
+    PLAN_RES=local
+    PLAN_REASON=$1
+}
+
+# plan_decide: sets PLAN_RES, PLAN_REASON, PLAN_STARTED and PLAN_CARRIED. Every
+# question it can't answer resolves to local, which runs the map and reports
+# the cause there; only a koto read that fails is exit 2.
+plan_decide() {
+    local rc dirty map_entry err classes risky started untwinned
+    PLAN_STARTED="[]"
+    PLAN_CARRIED="[]"
+    if [ -n "$SHARED_BRANCH" ]; then
+        plan_local "a step on the shared branch $SHARED_BRANCH verifies locally: its pull request is /execute's, and this run never reaches ci_monitor to re-check a twin"
+        return 0
+    fi
+    koto context exists "$SESSION" "$GONE_KEY"
+    rc=$?
+    case "$rc" in
+        0)
+            plan_local "a hosted twin left the default branch's map while this run waited at ci_monitor ($GONE_KEY), so it verifies locally from here"
+            return 0
+            ;;
+        1) ;;
+        *) die "koto context exists $SESSION $GONE_KEY exited $rc" ;;
+    esac
+    dirty=$(git -C "$ROOT" status --porcelain --untracked-files=no) \
+        || { plan_local "the working tree's status could not be read"; return 0; }
+    if [ -n "$dirty" ]; then
+        plan_local "tracked files have uncommitted changes"
+        return 0
+    fi
+    map_entry=$(git -C "$ROOT" ls-tree "$MB" -- "$MAP_PATH") \
+        || { plan_local "$MAP_PATH could not be listed at the merge-base $MB"; return 0; }
+    if [ -z "$map_entry" ]; then
+        plan_local "no $MAP_PATH at the merge-base $MB"
+        return 0
+    fi
+    MAP_JSON=$(git -C "$ROOT" show "$MB:$MAP_PATH") \
+        || { plan_local "$MAP_PATH could not be read at $MB"; return 0; }
+    CHANGED=$(git -C "$ROOT" diff --name-only -z "$MB..HEAD" | jq -Rs 'split("\u0000") | map(select(length > 0))') \
+        || { plan_local "the changed paths could not be listed"; return 0; }
+    if ! printf '%s' "$MAP_JSON" | jq -se 'length == 1' >/dev/null; then
+        plan_local "$MAP_PATH at $MB is not one valid JSON value"
+        return 0
+    fi
+    SELECTION=$(printf '%s' "$MAP_JSON" | jq -c --argjson changed "$CHANGED" "$SELECT_JQ") \
+        || { plan_local "the selection program failed"; return 0; }
+    err=$(printf '%s' "$SELECTION" | jq -r '.error // empty')
+    if [ -n "$err" ]; then
+        plan_local "the map at the merge-base does not parse: $err"
+        return 0
+    fi
+    if [ "$(printf '%s' "$SELECTION" | jq '.invocations | length')" -eq 0 ]; then
+        plan_local "the map selects nothing for this change"
+        return 0
+    fi
+    if [ -n "$(printf '%s' "$SELECTION" | jq -r '.attended | join(", ")')" ]; then
+        plan_local "a selected command is marked unattended: false"
+        return 0
+    fi
+
+    # The path classes, both sides of a rename: a path in the ci, security,
+    # template or engine class can change what CI itself runs, or what decides
+    # this run's route.
+    classes=$(git -C "$ROOT" diff --name-only --no-renames -z "$MB..HEAD" | xargs -0 "$HERE/review-level.sh" classify) \
+        || { plan_local "review-level.sh classify could not classify the changed paths"; return 0; }
+    risky=$(printf '%s\n' "$classes" | awk -F'\t' -v risk="$PLAN_RISKY_CLASSES" '
+        BEGIN { n = split(risk, r, " "); for (i = 1; i <= n; i++) want[r[i]] = 1 }
+        NF >= 2 {
+            m = split($2, c, ","); hit = ""
+            for (i = 1; i <= m; i++) if (c[i] in want) hit = hit (hit == "" ? "" : ",") c[i]
+            if (hit != "") { count++; if (count <= 5) list = list (list == "" ? "" : ", ") $1 " (" hit ")" }
+        }
+        END { if (count > 5) list = list " and " (count - 5) " more"; print list }')
+    if [ -n "$risky" ]; then
+        plan_local "the change touches a path in the ci, security, template or engine class: $risky"
+        return 0
+    fi
+
+    INVOCATIONS=$(printf '%s' "$SELECTION" | jq -c '.invocations') \
+        || { plan_local "the selection could not be read"; return 0; }
+    carry
+    PLAN_STARTED=$(printf '%s' "$INVOCATIONS" | jq -c '[.[] | select(.carried == null) | {check, id, hosted}]') \
+        || { plan_local "the started commands could not be read"; return 0; }
+    PLAN_CARRIED=$(printf '%s' "$INVOCATIONS" | jq -c '[.[] | select(.carried != null) | {check, carried_from: .carried.carried_from}]') \
+        || PLAN_CARRIED="[]"
+    started=$(printf '%s' "$PLAN_STARTED" | jq 'length')
+    if [ "$started" -eq 0 ]; then
+        plan_local "every selected check is carried from the run this round follows, so nothing would start"
+        return 0
+    fi
+    untwinned=$(printf '%s' "$PLAN_STARTED" | jq -r '[.[] | select((.hosted | length) == 0) | .check] | join(", ")')
+    if [ -n "$untwinned" ]; then
+        plan_local "no hosted twin in the merge-base's map for: $untwinned"
+        return 0
+    fi
+    PLAN_RES=hosted-ci
+    PLAN_REASON=$HOSTED_REASON
+}
+
+if [ "$MODE" = --plan ]; then
+    command -v koto >/dev/null 2>&1 || {
+        echo "local: koto is not on PATH, so no resolution can be recorded"
+        exit 1
+    }
+    # An earlier visit's record goes first, so a plan stopped before it writes
+    # (exit 2, routed to local) never leaves a hosted resolution behind for
+    # --resolved and --twins to read.
+    koto context exists "$SESSION" "$PLAN_KEY"
+    rc=$?
+    case "$rc" in
+        0) koto context remove "$SESSION" "$PLAN_KEY" >/dev/null || die "could not remove the earlier $PLAN_KEY of $SESSION" ;;
+        1) ;;
+        *) die "koto context exists $SESSION $PLAN_KEY exited $rc" ;;
+    esac
+    PLAN_RES=local
+    PLAN_REASON=""
+    plan_decide
+    PLAN_TMP=$(mktemp "${TMPDIR:-/tmp}/run-verification-plan.XXXXXX") || die "could not create a temporary file"
+    trap 'rm -f "$PLAN_TMP"' EXIT
+    jq -n --arg schema "$PLAN_SCHEMA" --arg head "$HEAD_SHA" --arg mb "$MB" --arg res "$PLAN_RES" \
+        --arg reason "$PLAN_REASON" --argjson started "$PLAN_STARTED" --argjson carried "$PLAN_CARRIED" \
+        --arg at "$(now_iso)" \
+        '{schema: $schema, head: $head, merge_base: $mb, resolution: $res, reason: $reason,
+          started: $started, carried: $carried, decided_at: $at}' > "$PLAN_TMP" \
+        || die "could not build the $PLAN_KEY record"
+    koto context add "$SESSION" "$PLAN_KEY" --from-file "$PLAN_TMP" >/dev/null \
+        || die "could not write $PLAN_KEY for session $SESSION"
+    printf '%s: %s\n' "$PLAN_RES" "$PLAN_REASON"
+    [ "$PLAN_RES" = hosted-ci ] && exit 0
+    exit 1
+fi
+
+# plan_hosted: true when this run's recorded resolution is hosted-ci and no
+# twin has gone since. Dies (exit 2) when koto can't answer.
+plan_hosted() {
+    local rc res
+    command -v koto >/dev/null 2>&1 || die "koto is not on PATH"
+    ctx_read "$PLAN_KEY" || die "could not read $PLAN_KEY for session $SESSION"
+    [ "$CTX_PRESENT" -eq 1 ] || return 1
+    res=$(printf '%s' "$CTX_VALUE" | jq -r 'if type == "object" and (.resolution | type) == "string" then .resolution else "" end') \
+        || res=""
+    [ "$res" = hosted-ci ] || return 1
+    koto context exists "$SESSION" "$GONE_KEY"
+    rc=$?
+    case "$rc" in
+        0) return 1 ;;
+        1) return 0 ;;
+        *) die "koto context exists $SESSION $GONE_KEY exited $rc" ;;
+    esac
+}
+
+if [ "$MODE" = --resolved ]; then
+    if plan_hosted; then
+        echo hosted-ci
+    else
+        echo local
+    fi
+    exit 0
+fi
+
+if [ "$MODE" = --twins ]; then
+    plan_hosted || exit 0
+    # The current default branch, fetched first when it is a remote-tracking
+    # ref, so a twin removed on the remote since the run began is seen.
+    case "$BASE_RESOLVED" in
+        origin/*)
+            git -C "$ROOT" fetch --quiet origin "${BASE_RESOLVED#origin/}" \
+                || die "could not fetch ${BASE_RESOLVED#origin/} from origin"
+            ;;
+    esac
+    CUR_ENTRY=$(git -C "$ROOT" ls-tree "$BASE_RESOLVED" -- "$MAP_PATH") \
+        || die "could not list $MAP_PATH at $BASE_RESOLVED"
+    if [ -z "$CUR_ENTRY" ]; then
+        echo "run-verification: twins: $BASE_RESOLVED has no $MAP_PATH, so no hosted twin of this run's commands is left" >&2
+        exit 1
+    fi
+    CUR_MAP=$(git -C "$ROOT" show "$BASE_RESOLVED:$MAP_PATH") || die "could not read $MAP_PATH at $BASE_RESOLVED"
+    if ! CUR_MAP=$(printf '%s' "$CUR_MAP" | jq -ce 'if type == "object" and (.commands | type) == "object" then . else error("no commands object") end'); then
+        echo "run-verification: twins: $MAP_PATH at $BASE_RESOLVED is not a map with a commands object, so no twin can be confirmed" >&2
+        exit 1
+    fi
+    # Each started command keeps at least one of the twins it resolved with:
+    # the same workflow, job and runs on the same row, and the workflow file
+    # still on the default branch.
+    GONE=""
+    STARTED=$(printf '%s' "$CTX_VALUE" | jq -c '.started // [] | .[]') || die "could not read the started commands from $PLAN_KEY"
+    while IFS= read -r inv; do
+        [ -n "$inv" ] || continue
+        check=$(printf '%s' "$inv" | jq -r '.check')
+        kept=$(printf '%s' "$CUR_MAP" | jq -c --argjson inv "$inv" \
+            '[(.commands[$inv.id].hosted // []) as $cur | $inv.hosted[] | select(. as $t | $cur | index([$t]) != null)]')
+        ok=0
+        while IFS= read -r wf; do
+            [ -n "$wf" ] || continue
+            if [ -n "$(git -C "$ROOT" ls-tree "$BASE_RESOLVED" -- "$wf")" ]; then
+                ok=1
+                break
+            fi
+        done <<EOF
+$(printf '%s' "$kept" | jq -r '.[].workflow')
+EOF
+        [ "$ok" -eq 1 ] || GONE="$GONE${GONE:+, }$check"
+    done <<EOF
+$STARTED
+EOF
+    if [ -n "$GONE" ]; then
+        echo "run-verification: twins: the default branch ($BASE_RESOLVED) no longer has a hosted twin this run resolved with for: $GONE; the run goes back to local verification" >&2
+        exit 1
+    fi
+    exit 0
+fi
+
+# --- --start -----------------------------------------------------------------------------
+
+# 0. A hosted-of-record key from another head is no record for this one.
+#    Removed before anything else, so a result reused below, or one that then
+#    passes, never meets a record the head it is for didn't take.
+drop_stale_record() {
+    local rc key head
+    command -v koto >/dev/null 2>&1 || return 0
+    koto context exists "$SESSION" hosted_of_record
+    rc=$?
+    case "$rc" in
+        0) ;;
+        1) return 0 ;;
+        *) die "koto context exists $SESSION hosted_of_record exited $rc" ;;
+    esac
+    key=$(koto context get "$SESSION" hosted_of_record) \
+        || die "could not read the hosted_of_record key of $SESSION"
+    # A key that doesn't parse names no head, so it is stale too; jq's
+    # message stays on stderr.
+    head=$(printf '%s' "$key" | jq -r 'if type == "object" and (.head | type) == "string" then .head else "" end') || head=""
+    [ "$head" = "$HEAD_SHA" ] && return 0
+    koto context remove "$SESSION" hosted_of_record \
+        || die "could not remove the hosted_of_record key of $SESSION, recorded for [$head], not $HEAD_SHA"
+    echo "run-verification: removed the hosted_of_record key recorded for [$head]; this head is $HEAD_SHA" >&2
+}
+drop_stale_record
+
+(umask 077 && mkdir -p "$HEAD_DIR") || die "could not create $HEAD_DIR"
+touch "$HEAD_DIR"
+prune
+
+# 0. A re-run request, read before the reuse check below so an archived
+#    result is not reused.
+consume_request
+
+# 1. A result for this head and merge-base stands, except a dirty-tree one,
+#    which the next start re-checks once the tree is clean.
+if [ -f "$RESULT" ]; then
+    if jq -e --arg mb "$MB" '.merge_base == $mb and .status != "dirty-tree"' "$RESULT" >/dev/null; then
+        exit 0
+    fi
+    # Another process's lock, not one this process holds: consume_request
+    # releases its hold, but a lock naming this pid must never stop the start.
+    lock_other "$HEAD_DIR/lock" && exit 0
+    rm -f "$RESULT"
+fi
+
+# 2. The paths selected on and the code tested must be the same commit.
+DIRTY=$(git -C "$ROOT" status --porcelain --untracked-files=no) \
+    || die "could not read the working tree's status"
+if [ -n "$DIRTY" ]; then
+    settle dirty-tree "tracked files have uncommitted changes: $(head -n 10 <<<"$DIRTY" | cut -c4- | tr '\n' ' ')"
+fi
+
+# 3. The map, from the merge-base.
+# ls-tree prints nothing for an absent path and exits 0, so absence is read
+# from its output and a failure from its status, with git's message intact.
+MAP_ENTRY=$(git -C "$ROOT" ls-tree "$MB" -- "$MAP_PATH") \
+    || die "could not list $MAP_PATH at $MB"
+if [ -z "$MAP_ENTRY" ]; then
+    settle no-map "no $MAP_PATH at the merge-base $MB"
+fi
+MAP_JSON=$(git -C "$ROOT" show "$MB:$MAP_PATH") || die "could not read $MAP_PATH at $MB"
+CHANGED=$(git -C "$ROOT" diff --name-only -z "$MB..HEAD" | jq -Rs 'split("\u0000") | map(select(length > 0))') \
+    || die "could not list the changed paths"
+if ! printf '%s' "$MAP_JSON" | jq -se 'length == 1' >/dev/null; then
+    settle bad-map "$MAP_PATH at $MB is not one valid JSON value"
+fi
+SELECTION=$(printf '%s' "$MAP_JSON" | jq -c --argjson changed "$CHANGED" "$SELECT_JQ") \
+    || die "the selection program failed"
+ERR=$(printf '%s' "$SELECTION" | jq -r '.error // empty')
+[ -z "$ERR" ] || settle bad-map "$ERR"
+
+# 4. What to run.
+if [ "$(printf '%s' "$SELECTION" | jq '.invocations | length')" -eq 0 ]; then
+    settle no-map "the map selects nothing for this change"
+fi
+ATTENDED=$(printf '%s' "$SELECTION" | jq -r '.attended | join(", ")')
+if [ -n "$ATTENDED" ]; then
+    settle attended "commands marked unattended: false need a person: $ATTENDED" \
+        "$(printf '%s' "$SELECTION" | jq -c '[.invocations[] | select(.unattended == false)
+            | {id, check, argv, exit_status: null, duration_secs: 0, timed_out: false, runaway: false,
+               not_started: true, pgid: null, log: null, outcome: "failed", suites: null}]')"
+fi
+
+# 5b. A fix round's carry (see the header). Sets INVOCATIONS: the selection's
+#     invocations, each with `carried` (the record to write in place of a run)
+#     or `verify_base` (SHIRABE_VERIFY_BASE for its command) where the carry
+#     applies.
+INVOCATIONS=$(printf '%s' "$SELECTION" | jq -c '.invocations') || die "could not read the selection"
+
 carry
 
 # 5. One supervisor per head. The lock is a symlink whose target is a pid:

@@ -27,7 +27,8 @@ stateDiagram-v2
     changed_paths_record --> issue_type_routing : gates.changed_paths_recorded.exists: false, paths_status: override
     changed_paths_record --> done_blocked : gates.changed_paths_recorded.exists: false, paths_status: blocked
     check_exit --> done_blocked
-    ci_monitor --> ci_pass_counting : gates.ci_passing.exit_code: 0, gates.hosted_settled.exit_code: 0, gates.merge_state_clean.exit_code: 0, gates.probe_value_absent.exit_code: 0
+    ci_monitor --> ci_pass_counting : gates.ci_passing.exit_code: 0, gates.hosted_settled.exit_code: 0, gates.hosted_twins.exit_code: 0, gates.merge_state_clean.exit_code: 0, gates.probe_value_absent.exit_code: 0
+    ci_monitor --> verification : gates.ci_passing.exit_code: 0, gates.hosted_settled.exit_code: 0, gates.hosted_twins.exit_code: 1, gates.merge_state_clean.exit_code: 0, gates.probe_value_absent.exit_code: 0
     ci_monitor --> hosted_record : gates.ci_passing.exit_code: 0, gates.hosted_settled.exit_code: 1, gates.merge_state_clean.exit_code: 0, gates.probe_value_absent.exit_code: 0
     ci_monitor --> done_blocked : gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 1
     ci_monitor --> done_blocked : gates.ci_passing.exit_code: 1, gates.merge_state_clean.exit_code: 1
@@ -64,6 +65,7 @@ stateDiagram-v2
     hosted_record --> ci_monitor : gates.hosted_read.exit_code: 0, gates.hosted_ready.exit_code: 0
     hosted_record --> verification : gates.hosted_read.exit_code: 1, vars.VERIFICATION: local
     hosted_record --> verification_deferred : gates.hosted_read.exit_code: 1, vars.VERIFICATION: hosted-ci
+    hosted_record --> verification_plan : gates.hosted_read.exit_code: 1, vars.VERIFICATION: auto
     hosted_record --> done_blocked : gates.hosted_read.exit_code: 3
     hosted_record --> done_blocked : gates.hosted_read.exit_code: 75, hosted_status: blocked
     hosted_record --> done_blocked : gates.hosted_read.exit_code: 2, hosted_status: blocked
@@ -81,12 +83,16 @@ stateDiagram-v2
     issue_type_routing --> review_level_check : issue_type: code
     issue_type_routing --> verification : gates.has_commits.exit_code: 0, issue_type: docs, vars.VERIFICATION: local
     issue_type_routing --> verification_deferred : gates.has_commits.exit_code: 0, issue_type: docs, vars.VERIFICATION: hosted-ci
+    issue_type_routing --> verification_plan : gates.has_commits.exit_code: 0, issue_type: docs, vars.VERIFICATION: auto
     issue_type_routing --> verification : issue_type: task, vars.VERIFICATION: local
     issue_type_routing --> verification_deferred : issue_type: task, vars.VERIFICATION: hosted-ci
+    issue_type_routing --> verification_plan : issue_type: task, vars.VERIFICATION: auto
     light_review --> verification : gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, vars.VERIFICATION: local
     light_review --> verification_deferred : gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, vars.VERIFICATION: hosted-ci
+    light_review --> verification_plan : gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, vars.VERIFICATION: auto
     light_review --> verification : gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0, vars.VERIFICATION: local
     light_review --> verification_deferred : gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0, vars.VERIFICATION: hosted-ci
+    light_review --> verification_plan : gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0, vars.VERIFICATION: auto
     light_review --> implementation : gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 1, light_outcome: blocking_retry
     light_review --> done_blocked : gates.light_carried.exit_code: 1, gates.light_verdict.exit_code: 1, light_outcome: blocking_escalate
     light_review --> done_blocked : gates.light_carried.exit_code: 1, gates.light_verdict.exit_code: 2, light_outcome: blocking_escalate
@@ -148,8 +154,10 @@ stateDiagram-v2
     probe_near --> pr_creation
     qa_validation --> verification : gates.qa_carried.exit_code: 0, vars.VERIFICATION: local
     qa_validation --> verification_deferred : gates.qa_carried.exit_code: 0, vars.VERIFICATION: hosted-ci
+    qa_validation --> verification_plan : gates.qa_carried.exit_code: 0, vars.VERIFICATION: auto
     qa_validation --> verification : gates.qa_carried.exit_code: 1, gates.qa_recorded.exit_code: 0, gates.qa_verdict.exit_code: 0, vars.VERIFICATION: local
     qa_validation --> verification_deferred : gates.qa_carried.exit_code: 1, gates.qa_recorded.exit_code: 0, gates.qa_verdict.exit_code: 0, vars.VERIFICATION: hosted-ci
+    qa_validation --> verification_plan : gates.qa_carried.exit_code: 1, gates.qa_recorded.exit_code: 0, gates.qa_verdict.exit_code: 0, vars.VERIFICATION: auto
     qa_validation --> implementation : gates.qa_carried.exit_code: 1, gates.qa_recorded.exit_code: 0, gates.qa_verdict.exit_code: 1, qa_outcome: blocking_retry
     qa_validation --> done_blocked : gates.qa_carried.exit_code: 1, gates.qa_verdict.exit_code: 1, qa_outcome: blocking_escalate
     qa_validation --> done_blocked : gates.qa_carried.exit_code: 1, gates.qa_verdict.exit_code: 2, qa_outcome: blocking_escalate
@@ -159,10 +167,12 @@ stateDiagram-v2
     research --> post_research_validation
     review --> verification : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: standard, vars.VERIFICATION: local
     review --> verification_deferred : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: standard, vars.VERIFICATION: hosted-ci
+    review --> verification_plan : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: standard, vars.VERIFICATION: auto
     review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: full
     review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: {"is_set":false}
     review --> verification : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: standard, vars.VERIFICATION: local
     review --> verification_deferred : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: standard, vars.VERIFICATION: hosted-ci
+    review --> verification_plan : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: standard, vars.VERIFICATION: auto
     review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: full
     review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: {"is_set":false}
     review --> implementation : gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 1, review_outcome: blocking_retry
@@ -212,13 +222,19 @@ stateDiagram-v2
     verification --> verification : gates.route_reason_given.exit_code: 0, gates.verification_verdict.exit_code: 75, verification_status: rerun
     verification --> done_blocked : gates.verification_verdict.exit_code: 2, verification_status: blocked
     verification --> done_blocked : gates.verification_verdict.exit_code: -1, verification_status: blocked
-    verification_deferred --> pass_counting : vars.VERIFICATION_DEFERRAL_REASON: {"is_set":true}
-    verification_deferred --> done_blocked : vars.VERIFICATION_DEFERRAL_REASON: {"is_set":false}
+    verification_deferred --> pass_counting : vars.VERIFICATION: hosted-ci, vars.VERIFICATION_DEFERRAL_REASON: {"is_set":true}
+    verification_deferred --> done_blocked : vars.VERIFICATION: hosted-ci, vars.VERIFICATION_DEFERRAL_REASON: {"is_set":false}
+    verification_deferred --> pass_counting : vars.VERIFICATION: auto
     verification_hosted --> pass_counting : gates.hosted_record_valid.exit_code: 0
     verification_hosted --> verification : gates.hosted_record_valid.exit_code: 1, vars.VERIFICATION: local
     verification_hosted --> verification_deferred : gates.hosted_record_valid.exit_code: 1, vars.VERIFICATION: hosted-ci
+    verification_hosted --> verification_plan : gates.hosted_record_valid.exit_code: 1, vars.VERIFICATION: auto
     verification_hosted --> done_blocked : gates.hosted_record_valid.exit_code: 2, hosted_status: blocked
     verification_hosted --> done_blocked : gates.hosted_record_valid.exit_code: -1, hosted_status: blocked
+    verification_plan --> verification_deferred : gates.verification_route_plan.exit_code: 0
+    verification_plan --> verification : gates.verification_route_plan.exit_code: 1
+    verification_plan --> verification : gates.verification_route_plan.exit_code: 2
+    verification_plan --> verification : gates.verification_route_plan.exit_code: -1
     done --> [*]
     done_already_complete --> [*]
     done_blocked --> [*]
@@ -238,6 +254,9 @@ stateDiagram-v2
     end note
     note left of ci_monitor
         gate: hosted_settled
+    end note
+    note left of ci_monitor
+        gate: hosted_twins
     end note
     note left of ci_monitor
         gate: merge_state_clean
@@ -460,5 +479,8 @@ stateDiagram-v2
     end note
     note left of verification_hosted
         gate: hosted_record_valid
+    end note
+    note left of verification_plan
+        gate: verification_route_plan
     end note
 ```
