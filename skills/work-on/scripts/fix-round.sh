@@ -21,7 +21,17 @@
 # that gate too while it runs, so a round that ends at `done_blocked` is the
 # parent's failure as well.
 #
-# Usage: fix-round.sh start --from <session> [--fresh]
+# Usage: fix-round.sh start --from <session> [--fresh] [--fix-report <text>]
+#
+#   --fix-report  the round's own report: the CI failure or review finding
+#            that caused it. It becomes the round's FIX_REPORT in place of the
+#            run's, so fix_determination records the round as a fix (source
+#            `step`) and stores the text as its fix_report.txt, the passage a
+#            red is found in. koto's variable allowlist applies: it starts
+#            with a letter or digit and holds only letters, digits, spaces and
+#            . _ / : @ + -; anything else is a usage error (exit 64) before
+#            anything starts. Without it the round copies the run's
+#            FIX_REPORT, empty or not.
 #
 #   --from   the run that reached `done`, or one of its fix rounds, which
 #            resolves to the run it was started for. Rounds are counted
@@ -111,12 +121,26 @@ CRITERIA_KEY=review_level_criteria.txt
 FRESH=0
 [ $# -ge 3 ] && [ "$1" = start ] && [ "$2" = --from ] || usage
 FROM=$3
-case $# in
-    3) ;;
-    4) [ "$4" = --fresh ] || usage; FRESH=1 ;;
-    *) usage ;;
-esac
+shift 3
+OWN_REPORT=""
+HAVE_REPORT=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --fresh) [ "$FRESH" = 0 ] || usage; FRESH=1; shift ;;
+        --fix-report)
+            [ $# -ge 2 ] && [ "$HAVE_REPORT" = 0 ] || usage
+            OWN_REPORT=$2; HAVE_REPORT=1; shift 2 ;;
+        *) usage ;;
+    esac
+done
 [[ $FROM =~ $RE_SESSION ]] || usage
+# koto takes a variable value only inside its allowlist, so a report outside
+# it is refused here, before anything starts, rather than by koto init.
+RE_REPORT='^[a-zA-Z0-9][a-zA-Z0-9._/:@+ -]*$'
+if [ "$HAVE_REPORT" = 1 ] && ! [[ $OWN_REPORT =~ $RE_REPORT ]]; then
+    echo "fix-round: --fix-report must start with a letter or digit and hold only letters, digits, spaces and . _ / : @ + -" >&2
+    exit 64
+fi
 
 command -v koto >/dev/null || die 2 "the koto CLI is not on PATH"
 command -v jq >/dev/null || die 2 "the jq CLI is not on PATH"
@@ -170,12 +194,14 @@ ARGS=(init "$NAME" --template "$TEMPLATE")
 [ -n "$PARENT" ] && ARGS+=(--parent "$PARENT")
 while IFS= read -r kv; do
     [ -n "$kv" ] && ARGS+=(--var "$kv")
-done < <(printf '%s' "$VARS" | jq -r '
+done < <(printf '%s' "$VARS" | jq -r --argjson own "$HAVE_REPORT" '
     to_entries[]
     | select(.key != "REVIEW_LEVEL" and .key != "UNIT_KIND" and .key != "PLUGIN_ROOT")
+    | select($own == 0 or .key != "FIX_REPORT")
     | select((.value | tostring) != "")
     | "\(.key)=\(.value)"')
 ARGS+=(--var "PLUGIN_ROOT=$PLUGIN_ROOT_SELF")
+[ "$HAVE_REPORT" = 0 ] || ARGS+=(--var "FIX_REPORT=$OWN_REPORT")
 
 koto "${ARGS[@]}" >/dev/null || die 2 "koto init $NAME failed"
 
