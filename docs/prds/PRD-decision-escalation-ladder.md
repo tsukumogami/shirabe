@@ -103,6 +103,28 @@ time away, I want to ask it for everything pending at and below it and resolve
 those in that session, so that I don't have to reconstruct the list from
 reports.
 
+**US7. A question that survives a restart.** As a person whose worker lost
+its context while a question was waiting, I want to be shown exactly the
+question it raised, so that I'm not answering a paraphrase.
+
+**US8. Something only I can supply.** As a person holding a credential a
+worker needs, I want that request in the same list as my open questions, so
+that I have one place to look for what is waiting on me.
+
+**US9. Reviewing provisional calls.** As a person returning to unattended
+work, I want to list the choices sessions made provisionally in my absence, so
+that I can overturn one before more is built on it.
+
+**US10. A coordinator handling a worker's question.** As a coordinator whose
+worker raised a question, I want it to arrive with the worker's recommendation
+and alternatives, so that I settle it or pass it up without rebuilding the
+options.
+
+**US11. A tool reading on the person's behalf.** As a program that displays
+status for a chain of sessions, I want to read what is open and who it waits
+on without interpreting prose, so that I can show it without asking any
+session.
+
 ## Requirements
 
 Terms used below. A **session** is one agent session running a workflow. A
@@ -113,6 +135,21 @@ someone else; to **pass up** is to change who a raised question is addressed
 to. A **reporting chain** is a session, the sessions it dispatched, and so on
 down. A **position** in a chain is a session or the dispatch anchor of one,
 together with the successors the workflow engine has confirmed for it.
+
+A session is **unattended** when the workflow engine's recorded run mode for
+it says no person is attending, or when it was started in the skills'
+non-interactive mode. A **person-started turn** is a turn that began with a
+message the person typed into that session. A **work item** is an issue, a
+plan item or a dispatched unit of work, named by its identifier. A **reserved
+step** is a step that the session's brief, its grant, or the skill it runs
+names as the person's to take, such as merging, releasing, closing work or
+tearing down a workspace. An action is **outward-facing** when its effect is
+visible outside the workspace's own sessions and unpublished branches, such as
+posting, publishing, sending, or changing a shared branch. A choice is **cheap
+to undo** when undoing it needs only changes inside the deciding session's own
+unpublished work, and **costly to undo** otherwise. A **recorded attempt** is
+a decision record for the question whose outcome is either a chosen option or
+the undecided outcome of R7.
 
 ### Sorting and authority
 
@@ -125,8 +162,12 @@ as data that distinguishes a person from a position, never only as wording.
 evidence, an answer the person already gave, or the scope it was given covers
 it, including cases it judges similar to one already answered. It passes a
 question up only when settling it would: contradict an answer the person gave;
-change the scope of the work; take an action that is irreversible,
-outward-facing or spends money; or take a step the person reserved.
+change the scope of the work; take an action that is outward-facing, spends
+money, or cannot be undone by any later action of the session; or take a
+reserved step. Whether a case is similar to one already answered, and whether
+settling it would contradict an answer or change scope, is the session's
+judgment; the session records which of these grounds it relied on when it
+passes a question up.
 
 **R3. Who is above.** A session whose recorded dispatcher is another session
 addresses that session. A session with no dispatcher, or whose dispatcher is a
@@ -144,13 +185,14 @@ second question.
 workflow lets the agent itself declare that it cannot continue or that a
 question must go up, the workflow delivers the decide-first procedure at that
 moment and does not accept the exit until the session has recorded either a
-decision or a raised question for it. This covers the agent-declared exits of
-`/work-on`, `/execute` and `/scope`. Stops the workflow decides mechanically,
-such as a failed check or a refused merge, are unchanged.
+recorded attempt, and, when that attempt ended undecided, a raised question
+for it. The covered exits are listed in Appendix A. Stops the workflow decides
+mechanically, such as a failed check or a refused merge, and the review
+panels' safety stops, are unchanged.
 
 **R6. Coordinators too.** A coordinator cannot pass a question up or present
-it to the person without a recorded attempt to settle it. A need that involves
-no choice (R12) is exempt.
+it to the person without a recorded attempt for it. A need that involves no
+choice (R12) is exempt.
 
 **R7. A decision can end undecided.** The structured decision skill and the
 lightweight decision protocol each gain an outcome in which no option is
@@ -159,9 +201,9 @@ with its reason, and what was missing to decide. The research behind it stays
 available to whoever answers. Skills that call a structured decision accept
 this outcome without failing.
 
-**R8. Unattended, by cost to reverse.** When no person is present and a
-session's evidence gives no clear answer, the session judges whether the
-choice is cheap or costly to undo. Cheap: it decides, records the decision as
+**R8. Unattended, by cost to reverse.** When a session is unattended and its
+evidence gives no clear answer, the session judges whether the choice is cheap
+or costly to undo, as defined above, and records that judgment. Cheap: it decides, records the decision as
 provisional, and continues. Costly: it raises a question and continues with
 work that does not depend on the answer. Provisional decisions are listable as
 a group for review.
@@ -169,7 +211,10 @@ a group for review.
 **R9. Precedent before asking.** Before raising a question, a session reads
 the answers the person has already given in its reporting chain. When it
 judges that one covers the case, it settles its question from that answer and
-records which answer it relied on.
+records which answer it relied on. Each raised question carries a short
+subject label assigned by the session that raised it, and the read of the
+person's answers can be narrowed to a subject. Deciding that an earlier answer
+covers a case is the session's judgment.
 
 ### The record
 
@@ -198,8 +243,8 @@ recorded with what kind of decider made it.
 open" directly: a single read, with no joining by the caller, that returns the
 open questions at and below a position, and another that returns the open
 questions addressed to a given person. A question that has been passed up is
-returned once. With about a thousand sessions in the store, on the storage
-backend in use, each read returns within five seconds.
+returned once. With 1,000 sessions and 200 open questions in the store, each read
+returns within five seconds on every storage backend the engine supports.
 
 **R15. No question is invisible.** A question addressed to a person is
 returned by the read for that person whether or not the session that raised it
@@ -209,6 +254,19 @@ has any recorded link to another session.
 if the session that raised it has ended or been replaced. A person's answers
 stay readable as precedent for as long as any session in the chain they were
 given in is still live.
+
+**R16a. How a question closes.** A question closes when an answer is recorded
+for it by a decider entitled to settle it: the person, the session it is
+addressed to under R2, or the session that raised it when new evidence or an
+earlier answer (R9) now covers it. The raising session can also withdraw a
+question that no longer matters, with a reason. Each of these is recorded with
+its decider, and a closed or withdrawn question is no longer returned by the
+open reads.
+
+**R16b. Answering again.** The person can answer a question again. The most
+recently recorded answer from the person is the one in effect, and the earlier
+ones stay on the record. A request naming a question that does not exist is
+refused.
 
 ### Presenting and answering
 
@@ -226,8 +284,9 @@ without any text printed before it.
 **R19. Together, by impact.** A session presents everything pending for the
 person, up to four questions per prompt, and continues until none are left.
 Questions are ordered by the number of work items recorded as waiting on each,
-most first, and oldest first among equals. A question that depends on another
-pending question's answer is held until that one is answered.
+most first, then oldest first, then by identity. A question recorded as
+depending on another pending question is held until that one is answered, and
+a dependency that would form a cycle is refused when it is recorded.
 
 **R20. Ask any session.** The person can ask any session what is pending at
 and below it, and what is pending for them, and resolve those questions in
@@ -249,7 +308,8 @@ decider and the session it was given in.
 
 **R22. The asker finds the answer.** A session whose question was answered
 elsewhere learns of the answer at its next workflow step, without relying on a
-relayed message. A session that had ended can be resumed with the answer.
+relayed message. For a session that has ended, the answer is available to
+whatever resumes it, as the first thing its workflow reports.
 
 **R23. The person's answer is the one in effect.** When a person and a
 session have both answered a question, every read returns the person's answer
@@ -271,7 +331,7 @@ instead of choosing an option, that text is recorded as their answer.
 **R27. Guard on the question prompt.** A question prompt cannot open in a
 turn the person did not start. An attempt to open one is refused and the
 session falls back to R17. Where a turn's origin cannot be established, the
-guard uses whether a person is attending the session. Question prompts that a
+guard refuses when the session is unattended and allows otherwise. Question prompts that a
 skill opens in a turn the person started behave as they do today.
 
 **R28. Independent of the answering surface.** Recording an answer requires
@@ -290,7 +350,8 @@ reaches a point covered by R5 or R6 runs as it does today: no added prompts,
 no added steps, and no change to its result.
 
 **R31. Rules this supersedes.** The documents and directives that state the
-following are changed to match this PRD, so no two rules disagree: an
+following are changed to match this PRD, so no two rules disagree (Appendix B
+lists each passage): an
 unattended run follows its own recommendation and continues without waiting;
 an unattended run with no coordinator stops when a question must go to a
 person; a coordinator releases one question to the person at a time, oldest
@@ -306,8 +367,8 @@ keeps its meaning.
 
 **R33. Delivery order.** The workflow engine's part is released before any
 skill depends on it, and the minimum engine version the skills check for is
-raised to that release. Sessions already running when the skills change keep
-their existing behaviour until they are restarted.
+raised to that release. A session opened before the skills changed keeps running
+on the workflow definition it was opened with until it is restarted.
 
 **R34. Dogfooding before done.** The feature is not done until it has been
 used on real work in the tsukumogami organization, in one reporting chain with
@@ -324,66 +385,86 @@ fixed or filed as an issue before the feature is called done.
 
 Criteria marked **(checked)** are verified by automated tests. Criteria marked
 **(observed)** depend on an agent's judgment, which no test in the repository
-exercises, and are verified in the dogfooding run (R34).
+exercises. They are verified in the dogfooding run (R34) from its record and
+from a findings list kept in the issue that tracks the run; each states what
+that record or list must show.
 
 ### Sorting and authority
 
-- [ ] (checked) A recorded question's addressee can be read as either a
-  person or a position, and the two are distinguishable without parsing prose.
-  (R1)
+- [ ] (checked) Raising a question with no addressee is refused, and a
+  recorded addressee can be read as either a person or a position without
+  parsing prose. (R1)
+- [ ] (checked) A question that is passed up records which ground of R2 the
+  session relied on, and one with no ground is refused. (R2)
 - [ ] (checked) A session with a recorded session dispatcher raises to that
-  session; a session with no dispatcher, a person dispatcher, or an unrecorded
-  link raises to the person, and the unlinked case is marked. (R3, R29)
+  session; a session with no dispatcher or a person dispatcher raises to the
+  person; a session whose link was not recorded raises to the person and the
+  question is marked as raised from an unlinked session. (R3, R29)
 - [ ] (checked) A question a coordinator passes up keeps its identity and is
   returned once by the open reads. (R4, R14)
-- [ ] (observed) In the dogfooding run, no question addressed to the person
-  is one a coordinator in the chain could have settled under R2. (R1, R2)
+- [ ] (observed) The person reviews every question that reached them in the
+  dogfooding run and marks any that a coordinator in the chain could have
+  settled under R2; each marked question is entered in the findings list.
+  (R1, R2)
 
 ### Deciding first
 
-- [ ] (checked) For each agent-declared exit of `/work-on`, `/execute` and
-  `/scope` that this PRD covers, the exit is refused when no decision or raised
-  question is recorded for it, and accepted when one is. (R5)
+- [ ] (checked) For each exit listed in Appendix A, taking the exit with no
+  recorded attempt is refused; with a recorded attempt that chose an option the
+  session continues; with an undecided attempt and a raised question the exit
+  is accepted. (R5)
 - [ ] (checked) The decide-first procedure text is delivered by the workflow
-  on arrival at each such point. (R5)
-- [ ] (checked) Mechanically decided stops take the same path, with the same
-  result, as before this change. (R5, R30)
+  on arrival at each point listed in Appendix A. (R5)
+- [ ] (checked) Each mechanically decided stop and each review-panel safety
+  stop takes the same path, with the same result, as before this change.
+  (R5, R30)
 - [ ] (checked) A coordinator's attempt to pass a question up or present it
-  without a recorded attempt is refused; a need with no choice is accepted.
-  (R6)
+  with no recorded attempt is refused; the same attempt for a need with no
+  choice is accepted. (R6)
 - [ ] (checked) A structured decision and the lightweight protocol can each
-  end with no option chosen, and that outcome carries the question, a
-  recommendation, every alternative with a reason, and what was missing. (R7)
+  end with no option chosen; that outcome carries the question, a
+  recommendation, every alternative with a reason, and what was missing; and
+  the research it produced is still readable afterward. (R7)
 - [ ] (checked) `/design` and `/explore` each continue without error when a
   structured decision they started ends undecided. (R7)
-- [ ] (checked) A decision recorded as provisional is returned by a listing
-  of provisional decisions. (R8)
-- [ ] (observed) In the dogfooding run, the solo unattended worker records at
-  least one provisional decision or raised question, and continues other work
-  instead of stopping. (R8, R17)
+- [ ] (checked) An unattended session's contested call records its
+  cheap-or-costly judgment; a decision recorded as provisional is returned by a
+  listing of provisional decisions and by no listing of open questions. (R8)
+- [ ] (observed) The dogfooding record shows the solo unattended worker made
+  at least one provisional decision or raised at least one question, and
+  recorded further workflow steps after it. (R8, R17)
+- [ ] (checked) Raising a question with no subject label is refused, and the
+  read of the person's answers narrowed to a subject returns only answers to
+  questions with that label. (R9)
 - [ ] (checked) A decision settled from an earlier answer records which
   answer it relied on, and that link can be read back. (R9)
-- [ ] (observed) In the dogfooding run, at least one question is settled from
-  an answer the person gave earlier in the same chain. (R9, R24)
+- [ ] (observed) The dogfooding record shows at least one question settled
+  from an answer the person gave earlier in the same chain. (R9, R24)
 
 ### The record
 
 - [ ] (checked) One read of a question returns its raiser, content, each
   addressee it has had, its answer, the answering decider and session, and
-  whether a person was present at raise and at answer. (R10, R13)
+  whether the session was unattended at raise and at answer. (R10)
+- [ ] (checked) Every recorded outcome carries a decider kind that is one of
+  session, coordinator, person or provisional, and an outcome with none is
+  refused. (R13)
 - [ ] (checked) A raised question missing any of context, problem, question,
-  recommendation with reason, alternatives with reasons, or the reason it is
+  recommendation with reason, alternatives with reasons, or the ground it is
   not the raiser's to settle is refused. (R11)
-- [ ] (checked) Content over 16 KiB is refused, and content cannot be changed
-  after the question is raised. (R11)
-- [ ] (checked) A need that is not a decision is recorded with its kind, is
-  returned by the open reads, and no field of a credential need holds a
-  secret. (R12)
+- [ ] (checked) Content of exactly 16 KiB is accepted, content one byte larger
+  is refused, and an attempt to change content after the question is raised is
+  refused. (R11)
+- [ ] (checked) A need that is not a decision is recorded with its kind and
+  what is needed, with no recorded attempt; it is returned by the open reads;
+  it is rendered as a request with no options; and no field of a credential
+  need holds a secret. (R12)
 - [ ] (checked) A single engine read returns the open questions at and below
   a position, and a single engine read returns those addressed to a named
   person; neither requires the caller to combine results. (R14)
-- [ ] (checked) With 1,000 sessions in the store on the storage backend in
-  use, each open read returns within five seconds. (R14)
+- [ ] (checked) With 1,000 sessions and 200 open questions in the store, each
+  open read returns within five seconds on every storage backend the engine
+  supports. (R14)
 - [ ] (checked) A question raised by a session with no recorded links is
   returned by the read for the person it is addressed to. (R15)
 - [ ] (checked) An open question is still returned after the session that
@@ -391,34 +472,51 @@ exercises, and are verified in the dogfooding run (R34).
 - [ ] (checked) A person's answer is still returned as precedent after the
   session it was given in has ended, while another session in that chain is
   live. (R16)
+- [ ] (checked) A question is closed, and absent from the open reads, after
+  each of: an answer from the person; an answer from the session it is
+  addressed to; an answer from the raising session citing an earlier answer; a
+  withdrawal by the raising session with a reason. A withdrawal with no reason
+  is refused, and each closing records its decider. (R16a)
+- [ ] (checked) After the person answers a question twice, reads return the
+  second answer as the one in effect and both remain readable; answering a
+  question identity that does not exist is refused. (R16b)
 
 ### Presenting and answering
 
 - [ ] (checked) In a turn not started by the person, an attempt to open a
   question prompt is refused, and the question remains open on the record.
   (R17, R27)
-- [ ] (checked) A question prompt a skill opens in a turn the person started,
-  with no recorded question behind it, opens as it does today. (R27, R30)
+- [ ] (checked) A workflow in which a question was raised in an unattended
+  session reaches its later states that do not depend on the answer, and ends
+  the turn with no question prompt open. (R17)
+- [ ] (checked) When a turn's origin cannot be established, the guard refuses
+  a question prompt in an unattended session and allows one in an attended
+  session. (R27)
+- [ ] (checked) A question prompt a skill opens in a person-started turn, with
+  no recorded question behind it, opens as it does today. (R27, R30)
 - [ ] (checked) The rendered presentation of a question contains its context,
   problem, question, the recommendation first, and every alternative with its
   reason. (R18)
 - [ ] (checked) With six questions pending, they are presented four and then
-  two, in descending order of recorded waiting work items, oldest first among
-  equals; a question recorded as depending on another is not presented before
-  that one is answered. (R19)
+  two, in descending order of recorded waiting work items, then oldest first,
+  then by identity; a question recorded as depending on another is not
+  presented before that one is answered; recording a dependency that would
+  form a cycle is refused. (R19)
 - [ ] (checked) A session asked for what is pending returns the open
   questions at and below it and those addressed to the person. (R20)
 - [ ] (checked) The command of R20a, run in a session that no workflow
   drives, lists the open questions at and below it, records a settle or a
   pass-up for each one addressed to that session, and presents the remainder
-  only when the person started the turn. (R20a)
+  only in a person-started turn. (R20a)
 - [ ] (checked) An answer recorded in a session that did not raise the
   question, and is not its addressee, closes it: it is no longer returned by
   any open read, with no further write from any other session. (R21)
 - [ ] (checked) The answer records the person as decider and the session it
   was given in. (R21)
 - [ ] (checked) After a question is answered in another session, the raising
-  session's next workflow step reports the answer. (R22)
+  session's next workflow step reports the answer; for a raising session that
+  had ended, the first workflow step after it is resumed reports the answer.
+  (R22)
 - [ ] (checked) With both a session's answer and a person's answer recorded,
   reads return the person's as the one in effect, the session's is still
   readable, and a later answer from a session does not displace the person's.
@@ -438,20 +536,25 @@ exercises, and are verified in the dogfooding run (R34).
 - [ ] (checked) The sorting, raising, open-read and answering criteria above
   pass in fixtures for a worker with no coordinator, with one coordinator, and
   with two. (R29)
-- [ ] (checked) A run of each affected workflow that reaches no covered exit
-  produces the same states and result as before this change. (R30)
-- [ ] (checked) None of the superseded statements in R31 remains in the
-  skills' documents, references or directives. (R31)
-- [ ] (checked) The procedure's documents and prompts do not use "escalate"
-  for raising or passing up a question. (R32)
+- [ ] (checked) A run of each affected workflow that reaches no exit in
+  Appendix A produces the same states and result as before this change. (R30)
+- [ ] (checked) Each passage listed in Appendix B has been changed, and a
+  search of each file named there for the phrase listed beside it finds none.
+  (R31)
+- [ ] (checked) A search of the procedure's documents and prompts finds no
+  use of "escalate" for raising or passing up a question, and the
+  decision-block status `escalated` is unchanged. (R32)
 - [ ] (checked) The skills refuse to run the new steps on an engine older
-  than the release that carries the engine's part. (R33)
+  than the release that carries the engine's part, naming the version needed.
+  (R33)
+- [ ] (checked) A session opened on the earlier workflow definition continues
+  to its end on that definition after the skills are updated. (R33)
 - [ ] (observed) The dogfooding run of R34 has taken place on released
   versions, and the record output for each of its five events, all from one
   chain plus the solo worker, is attached to the pull request or issue that
   closes the work. (R34)
-- [ ] (observed) Every finding from the dogfooding run has a linked commit or
-  a filed issue. (R34)
+- [ ] (observed) Every entry in the dogfooding findings list has a linked
+  commit or a filed issue. (R34)
 
 ## Out of Scope
 
@@ -565,3 +668,40 @@ skills for everyone using the plugin.
 
 **Restore is byte-identical.** "Shown again" without a definition can only be
 judged by eye. Identity of the rendered text makes it testable.
+
+## Appendix A: Exits covered by R5
+
+These are the points where a worker workflow lets the agent itself declare
+that it cannot continue or that someone else must decide. Names are the
+workflow states and values as they stand when this PRD is written.
+
+| Skill | State | Agent-declared value |
+|-------|-------|----------------------|
+| `/work-on` | `analysis` | `blocked_missing_context`, `scope_changed_escalate` |
+| `/work-on` | `implementation` | `blocked`, `partial_tests_failing_escalate` |
+| `/work-on` | `introspection` | `issue_superseded` |
+| `/work-on` | `task_validation`, `post_research_validation`, `plan_validation` | `verdict: exit`, `needs_design` |
+| `/work-on` | `deferral_approval` | the halt for a person's approval |
+| `/execute` | `worktree_discipline_check` | `intent-changing` |
+| `/scope` | each hop | `outcome: bail` |
+| `/scope` | `full_run_blocked` | `next_move: abandon` |
+
+Not covered, because nothing is left for the agent to decide or because the
+author is choosing in a turn they started: stops paired with a failed check or
+gate (`ci_outcome: failing_unresolvable` and the like), the review panels'
+`blocking_escalate` safety stops, and `/scope`'s chain-proposal `bail`.
+`/deliver` forwards its children's outcomes and has no exit of its own.
+
+## Appendix B: Passages R31 changes
+
+| Where | What it says today | Phrase to search for afterward |
+|-------|--------------------|--------------------------------|
+| `references/decision-protocol.md`, non-interactive mode | follow the recommendation and continue without waiting | "Continue without waiting" |
+| `references/workflow-principles.md`, the judgment-call principle | under the non-interactive mode a judgment call is recorded and never raised | "rather than hard-stopping" |
+| `skills/decision/references/phases/`, the alternatives and synthesis phases | under the non-interactive mode follow the recommendation and always record it as assumed | "follow the recommendation" |
+| `skills/scope/SKILL.md` and its chain-orchestration reference | under the non-interactive mode with no coordinator a question for a person stops the run | "the escalation stops the run" |
+| `docs/decisions/DECISION-contradiction-worktree-intent-change-owner-2026-09-28.md` | the same rule, as an accepted decision | superseded by a new decision record, not edited |
+| `skills/coordinate/SKILL.md`, its workflow template and `references/state-keys.md` | one question is put to the person at a time, lowest number first | "one entry at a time", "One entry is escalated at a time" |
+| `skills/coordinate/SKILL.md` and its template, opening a decision entry | a worker's question is re-worded and opened as a new entry at each level | "in your own words" |
+| `skills/coordinate/SKILL.md`, direction and answers | direction reaches a session only through its dispatcher's channel, and an answer outside the asked round is only evidence | "the dispatcher's channel only" |
+| `skills/coordinate/references/brief-template.md`, reporting | a worker reports bare one-line questions | the two-line question example |
