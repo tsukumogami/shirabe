@@ -124,7 +124,24 @@ template's `role` paragraph land with steps 1 and 2.
 
 ### Step 3: a discipline successor started after its rotation's end date opens the next rotation in its predecessor's role and clears the pending row
 
-shirabe: `state-open.sh --carry` clears the `successor` row when the new run's `koto/links/dispatched-by/` names the run that wrote it and keeps it otherwise, and the engine suite shows the next rotation's record holding the predecessor's role and its first record line naming it (R5, R8).
+**Goal**: A discipline coordinator's successor that starts after its rotation's end date opens the next rotation, as any start after the window does, and that rotation carries the predecessor's record and role. `state-open.sh --carry`, predecessor_carry's step, clears the carried Run `successor` row once the carry lands, when the new run's own `koto/links/dispatched-by/` names the run in the row's Set by: the new rotation is the successor that row was waiting on. A next rotation started by hand, or by another dispatcher, keeps the row for its reconcile to settle, as the takeover keeps it for a start that doesn't name the predecessor.
+
+**Acceptance Criteria**:
+
+- [ ] On a discipline run opened as `--discipline <name> --host acme/widgets` whose record holds `role=director`, after `dispatch-worker.sh --session <run> --successor` exits 0 with the row reading `dispatched <topic> <YYYY-MM-DD>` and the rotation's window is written to end yesterday, the opener started from the brief's invocation tokens with `--dispatched-by <predecessor>` opens a new run (no `outcome=continued`), prints `role=director`, and the new run's `koto/links/dispatched-by/` lists the predecessor alone (R5).
+- [ ] That run's find leads to `predecessor_carry`, and `state-open.sh --session <new run> --carry --role director` exits 0 printing `carried=<predecessor>`; the carry reaches `reconcile`, `record/rotation` names the predecessor, the Run section holds `role` `director` and no `successor` row, and the record's entries include one reading `Run successor dispatched <topic> <date> cleared by ...` (R5, R9).
+- [ ] The same `--carry` run again after it landed exits 0 printing `carried=<predecessor>`, and the Run section still holds no `successor` row (R9).
+- [ ] The same handover started with no `--dispatched-by` (the next rotation opened by hand), and one started with `--dispatched-by` naming another existing run, each against its own predecessor, each open a new run, carry with exit 0, and leave the new run's `successor` row with the predecessor's value and Set by unchanged; the first has no `koto/links/dispatched-by/` key, the second lists only the other run (R9).
+- [ ] In each of the three cases the next rotation's first reconcile prints a `Record:` line, from `reconcile-report-get.sh --md`, naming the new run and `acme/widgets` and ending `Role: director.` (R8).
+- [ ] The clear cases fail on the base commit, where the carry copies the `successor` row with the rest of the Run section; the two cases that keep the row are regression guards that pass on both (R11).
+- [ ] `state-open.sh`'s header says when `--carry` clears the row and when it keeps it, and that a failed clear exits with `state-stored-set.sh`'s code with the carry standing.
+- [ ] `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` exits 0 with `compat` still 2 and its `gate_scripts` digest as recorded, since `state-open.sh` is agent-run and outside it, and the existing carry suites (`discipline-carry_engine_test.sh`, `discipline-session_engine_test.sh`, `state-open_test.sh`, `state-carry_test.sh`) pass with no case changed (R5, R10).
+
+**Check**: Run `bash skills/coordinate/scripts/successor-handover_engine_test.sh` and see its case 13 pass: three discipline director runs each dispatch a successor, have their window end yesterday, and are followed by a start from the brief's tokens; the `clear` run, started with `--dispatched-by <predecessor>`, shows its link, `predecessor_carry`, `carried=<predecessor>`, the role `director`, no `successor` row, the clear entry, a re-run of the carry still with no row, and a `Record:` line ending `Role: director.`; the `hand` and `other` runs show the row kept with its value and Set by. Run the same file against the base commit's `state-open.sh` and see the clear lines fail. Then run `bash skills/coordinate/scripts/discipline-carry_engine_test.sh`, `bash skills/coordinate/scripts/state-open_test.sh` and `bash scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md`, all exiting 0.
+
+**Dependencies**: Step 2
+
+**Files**: `skills/coordinate/scripts/state-open.sh`, `skills/coordinate/scripts/successor-handover_engine_test.sh`
 
 ### Step 4: a second successor is refused while one is pending, and a re-run with the same topic confirms or re-launches it under the same row
 
