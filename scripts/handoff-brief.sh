@@ -842,8 +842,8 @@ cmd_write() {
             case "$cmd" in
                 *[\;\&\|\<\>\$\`\\\(\)]*) refuse "--watch [$label]: the re-arm command holds a shell operator; a watch is one plain command" ;;
             esac
-            case "$w" in
-                '## '*) refuse "--watch [$label]: begins with '## '" ;;
+            case "$cmd" in
+                '## '*) refuse "--watch [$label]: the re-arm command begins with '## '" ;;
             esac
             printf '%s\n' "$w" >"$PRIV/watch"
             if scan_file "$PRIV/watch"; then

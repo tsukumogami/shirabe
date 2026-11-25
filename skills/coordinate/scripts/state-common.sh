@@ -951,9 +951,9 @@ lib_parked() {
 # lib_bounds [record-json]: CAP and PARKED_BOUND from the session's variables
 # (defaults 5 and 3 without a session, or when a variable is unset). Given the
 # record as JSON (parsed, or state-stored-set.sh --list), a `cap` row in its Run
-# section wins over the variable: a cap a person changed is in the record, and
-# survives a restart that didn't pass it. Every reader of the cap comes here,
-# so they agree on it.
+# section wins over CAP and a `parked-bound` row over PARKED_BOUND: a bound a
+# person changed is in the record, and survives a restart that didn't pass it.
+# Every reader of the bounds comes here, so they agree on them.
 lib_bounds() {
     CAP=5 PARKED_BOUND=3
     if [ -n "$SESSION" ]; then
@@ -963,9 +963,11 @@ lib_bounds() {
         PARKED_BOUND=$(printf '%s' "$vars" | jq -r '.PARKED_BOUND // "3"')
     fi
     if [ -n "${1-}" ]; then
-        local rc
+        local rc rp
         rc=$(jq -r '[(.run // [])[] | select(.key == "cap") | .value][0] // empty' "$1") || lib_die2 "cannot read the record's Run section"
+        rp=$(jq -r '[(.run // [])[] | select(.key == "parked-bound") | .value][0] // empty' "$1") || lib_die2 "cannot read the record's Run section"
         [ -z "$rc" ] || CAP=$rc
+        [ -z "$rp" ] || PARKED_BOUND=$rp
     fi
     [[ $CAP =~ $RE_NUM ]] && [[ $PARKED_BOUND =~ $RE_NUM ]] || lib_die2 "CAP or PARKED_BOUND is not a number"
 }
