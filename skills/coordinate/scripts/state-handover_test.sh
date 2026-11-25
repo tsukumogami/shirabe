@@ -111,9 +111,10 @@ echo "== clear =="
 seed "$(record '[]')"
 gate; eq "a new address with no told or pending row holds on every live worker" "1 not-told worker-f2,not-told worker-f3" "$G"
 seed "$(record '[]' | jq -c --arg s "$SHA_HEAD" '.holdings[1].verified_head = $s | .holdings[1].pull_request = ""')"
-job c3c3c3c3 worker_f3-0000ccc3 done
+J3=c3c3c3c3 H3=0000ccc3
+job "$J3" "worker_f3-$H3" done
 gate; eq "a merged holding whose worker has stopped needs neither told nor pending" "1 not-told worker-f2" "$G"
-rm -rf "$DC_CLAUDE_HOME/jobs/c3c3c3c3"
+rm -rf "$DC_CLAUDE_HOME/jobs/$J3"
 
 echo "== a verified head and no pull request, its worker live (shirabe#2080) =="
 # A worker that continues its unit past a merged pull request keeps the
@@ -121,7 +122,8 @@ echo "== a verified head and no pull request, its worker live (shirabe#2080) =="
 # the next one. Only a worker that has finished makes that pair merged and
 # waiting for its teardown.
 export DC_CLAUDE_HOME="$T/claude-live"
-job d3d3d3d3 worker_f3-0000ddd3 working
+H3=0000ddd3
+job d3d3d3d3 "worker_f3-$H3" working
 gate; eq "a live worker with a verified head and no pull request holds the gate with not-told" \
     "1 not-told worker-f2,not-told worker-f3" "$G"
 H=$(bash "$RH" "${RM[@]}" 2>"$T/err")

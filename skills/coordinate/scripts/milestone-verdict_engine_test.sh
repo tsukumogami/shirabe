@@ -171,9 +171,10 @@ MV=$(cat "$T/mv.md")
 # host stopped (DC_CLAUDE_HOME, dispatch-common.sh dc_topic_stopped;
 # shirabe#2080).
 export DC_CLAUDE_HOME="$T/claude"
-mkdir -p "$DC_CLAUDE_HOME/jobs/a001a001" "$DC_CLAUDE_HOME/jobs/fea1fea1"
-jq -nc '{name: "mv1_worker-0000a001", state: "done"}' > "$DC_CLAUDE_HOME/jobs/a001a001/state.json"
-jq -nc '{name: "feat_1-0000fea1", state: "done"}' > "$DC_CLAUDE_HOME/jobs/fea1fea1/state.json"
+JD="$DC_CLAUDE_HOME/jobs" HA=0000a001 HF=0000fea1
+mkdir -p "$JD/a001a001" "$JD/fea1fea1"
+jq -nc --arg n "mv1_worker-$HA" '{name: $n, state: "done"}' > "$JD/a001a001/state.json"
+jq -nc --arg n "feat_1-$HF" '{name: $n, state: "done"}' > "$JD/fea1fea1/state.json"
 H1=$(holding mv1-worker "$(jq -nc --arg h "$SHA_HEAD" '{unit: "MV1", dispatch_status: "dispatched", branch: "feat/list", verified_head: $h, pull_request: ""}')")
 H2=$(holding mv2-worker '{"unit": "MV2", "dispatch_status": "dispatched", "branch": "", "verified_head": "", "pull_request": ""}')
 REC=$(record_json roadmap milestones | jq -c --argjson a "$H1" --argjson b "$H2" --argjson r "$(run_rows mv2-worker)" --argjson w "$(work_row MV2 mv2-worker)" '.holdings = [$a, $b] | .run = $r | .work = $w')
