@@ -273,8 +273,8 @@ record_child() {
         1) return 0 ;;
         *) printf '%s: cannot read the leg key for %s:%s\n' "$PROG" "$1" "$2" >&2; return 1 ;;
     esac
-    [ "$(jq -r '.child // "" | strings' <<<"$key")" = "$3" ] && return 0
-    dc_leg_put "$SESSION" "$1" "$2" "$(jq -c --arg c "$3" '.child = $c' <<<"$key")" ||
+    [ "$(dc_leg_field "$key" child)" = "$3" ] && return 0
+    { key=$(dc_leg_field "$key" child "$3") && dc_leg_put "$SESSION" "$1" "$2" "$key"; } ||
         { printf '%s: cannot record the child of %s:%s\n' "$PROG" "$1" "$2" >&2; return 1; }
 }
 
