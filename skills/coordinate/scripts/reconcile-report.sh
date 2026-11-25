@@ -89,7 +89,14 @@
 #       files      paths[] (the pull request's changed paths, both sides of
 #                  a rename), truncated (bool); classified here, see phase
 #                  below
-#       host       state found|missed|ambiguous, reads (count)
+#       host       state found|missed|ambiguous, reads (count), and
+#                  optionally stopped (bool): every Claude job of the
+#                  worker on this host has finished. A row with a Verified
+#                  head and no pull request, every pull request on its
+#                  branch merged, waits for its teardown only once its
+#                  worker has finished: stopped true on a message row, or
+#                  a leg fact resolved or abandoned on a leg-bound one.
+#                  Otherwise it is waited on and listed as Ongoing.
 #       inventory  taken (bool), items[] {clone, kind: commit|change|file|
 #                  worktree|unchecked, path}, truncated (bool); an unchecked
 #                  item is a clone that couldn't be read, with the reason
@@ -306,12 +313,27 @@ def has_pr:
     or ($ap != null and (ok($ap) | not))
     or (ok($ap) and (($ap.prs // []) | length) > 0);
 # A row whose merge was confirmed: its Pull request cell was cleared and its
-# Verified head kept, and every pull request on its branch is merged. It
-# waits for the teardown of its worker; the merged pull request is no news.
-def merged_awaiting_teardown:
+# Verified head kept, and every pull request on its branch is merged. The
+# merged pull request is no news.
+def merged_pair:
   fact("appeared") as $ap
   | no_pr_recorded and ((.row.verified_head // "") != "")
     and ok($ap) and (($ap.prs // []) | length) > 0 and all($ap.prs[]; .state == "MERGED");
+# Has the worker of the row finished? The worker of a leg-bound row has when
+# its leg is resolved or abandoned; that of a message row when the host read
+# found every Claude job of it on this host stopped. Anything else (no read,
+# a leg still open, no job seen) is a worker that may still be live.
+def worker_finished:
+  if ((.row.return_path // "") | startswith("leg ")) then
+    fact("leg") as $l | ok($l) and (($l.disposition // "") | IN("resolved", "abandoned"))
+  else
+    fact("host") as $h | ok($h) and ($h.stopped == true)
+  end;
+# A merged row waits for the teardown of its worker only once that worker
+# has finished. A worker that goes on to the next pull request of its unit keeps
+# the same pair while it is live, so it is waited on, and listed in Where
+# things stand (shirabe#2080).
+def merged_awaiting_teardown: merged_pair and worker_finished;
 
 def state_of:
   if .refused != null then "refused"
@@ -319,6 +341,7 @@ def state_of:
   | fact("host") as $h
   | if ok($pr) then ($pr.state | ascii_downcase)
     elif merged_awaiting_teardown then "merged"
+    elif merged_pair then "merged; worker still live"
     elif has_pr then "pull request not verified"
     elif ok($h) then ("no pull request; worker " + (if $h.state == "found" then "found"
                       elif $h.state == "ambiguous" then "ambiguous" else "not found on this read" end))
@@ -364,6 +387,7 @@ def next_code_of:
             and ($pr.head == .row.verified_head) then "land"
        else "wait" end)
     elif merged_awaiting_teardown then "teardown"
+    elif merged_pair then "wait"
     elif has_pr then "read_again"
     elif leg_spent_early and ok($h) and $h.state == "found" then "replace_leg"
     elif ok($h) and $h.state == "found" then "wait"
@@ -408,7 +432,7 @@ def changes_of($written):
        elif ok($br) and ok($pr) and ($br.tip // "") != ($pr.head // "") then
         {topic: $t, what: "branch tip differs", recorded: ($pr.head // ""), live: ($br.tip // ""), written: $written, grade: "measured"}
        else empty end),
-      (if merged_awaiting_teardown then empty
+      (if merged_pair then empty
        elif ok($ap) and (($ap.prs // []) | length) == 1 then
         {topic: $t, what: "pull request appeared", recorded: "none yet", live: ($ap.prs[0].url // ""), written: $written, grade: "measured"}
        elif ok($ap) and (($ap.prs // []) | length) > 1 then
