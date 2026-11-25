@@ -41,10 +41,10 @@ The rules that would prevent both exist as prose: run a structured decision
 before asking, settle what you're entitled to settle, and ask the person only
 in a turn they started. Coordinators carry those rules as text copied from
 brief to brief, and they stop applying them partway through a long session.
-Typing the instruction again fixes it for a few hours. Field evidence says the
-instruction is worth following: when it was, about a third of the items were
-settled below the person, and nine of the eleven that reached the person
-confirmed the recommendation they were given.
+Typing the instruction again fixes it for a few hours. The author's experience
+is that the instruction is worth following: while it holds, a good share of
+the items get settled before reaching them, and most of what does reach them
+only needs the recommendation confirmed.
 
 A question that does reach the person has no durable home. It sits in a
 question prompt held open in one session, or in a file a coordinator keeps by
@@ -139,13 +139,12 @@ again.
 
 - Sorting a question by who it is addressed to (the session itself, the
   coordinator above it, or a person) before it is called blocked on the person
-- A decide-first step for workers and for coordinators, delivered by the
-  workflow engine at the moment a session is about to stop or pass a question
-  up, so it doesn't rest on remembered prose
-- A way for a structured decision to end without a choice and hand back the
-  question with its recommendation and alternatives
-- A durable record of each question: who it is addressed to, its full content,
-  each time it was passed up, the answer and who gave it
+- Workers and coordinators trying to settle a question before they stop or
+  pass it up, without that depending on remembered instructions
+- A structured decision being able to end without a choice and hand the
+  question back with its recommendation and alternatives
+- A durable record of each question, from when it is raised to the answer and
+  who gave it
 - Reading what is open and what was decided, by position in a reporting chain
   and by who is being asked
 - Presenting a question to the person only in a turn they started, from the
@@ -154,11 +153,11 @@ again.
 - Showing a waiting question again exactly, in any session the person opens
 - The person's earlier answers serving as precedent that sessions in the chain
   consult before asking
-- A command the person can type in a session to list and resolve what is
-  pending at and below it
+- The person asking any session what is pending at and below it, and
+  resolving it there
 - The session shapes this has to hold for: a worker with no coordinator, a
   worker under one coordinator, and a worker under two
-- The workflow-engine changes the above needs
+- Whatever the underlying workflow tooling has to gain for the above to hold
 
 ### Out of scope
 
