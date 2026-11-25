@@ -65,6 +65,11 @@ db_init
 db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-writeback.md"] = $t' --arg t "$(roadmap_text "In progress")"
 # Feature 1's worker: its pull request merged and the merge confirmed (a
 # Verified head, the Pull request cell cleared), waiting for its teardown.
+# Its worker has finished: its one Claude job on this host has stopped
+# (DC_CLAUDE_HOME, dispatch-common.sh dc_topic_stopped; shirabe#2080).
+export DC_CLAUDE_HOME="$T/claude"
+mkdir -p "$DC_CLAUDE_HOME/jobs/fea1fea1"
+jq -nc '{name: "feat_1-0000fea1", state: "done"}' > "$DC_CLAUDE_HOME/jobs/fea1fea1/state.json"
 F1=$(holding feat-1 "$(jq -nc --arg h "$SHA_HEAD" '{unit: "Feature 1", dispatch_status: "dispatched", branch: "feat/first", verified_head: $h, pull_request: ""}')")
 RECORD=$(record_json roadmap writeback | jq -c --argjson a "$F1" '
     .holdings = [$a]

@@ -390,10 +390,13 @@ eq "a holding's first Work row does, since its dispatch brief named the address"
     "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
 bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>&1
 bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "no gaps once each is told and has a next step" 0 $?
-# A merged holding (a Verified head, its Pull request cleared) is exempt.
+# A merged holding (a Verified head, its Pull request cleared) whose worker
+# has finished (its Claude job here stopped, shirabe#2080) is exempt.
+mkdir -p "$T/claude-f3/jobs/c3c3c3c3"
+jq -nc '{name: "worker_f3-0000ccc3", state: "done"}' > "$T/claude-f3/jobs/c3c3c3c3/state.json"
 seed "$(printf '%s' "$TWO" | jq -c --arg s "$SHA_HEAD" '.holdings[1].verified_head = $s')"
 eq "a merged holding needs no next step" "no-arguments no-cap no-coordinator no-reports-to no-role no-next-step Feature 2" \
-    "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
+    "$(DC_CLAUDE_HOME="$T/claude-f3" bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
 # PRD R15: a live holding whose leg names a request this host's store doesn't
 # hold (the run was imported here) holds the gate until its leg has an end.
 seed "$(printf '%s' "$TWO" | jq -c '.holdings[0].return_path = "leg req_1:deliver" | .holdings[1].return_path = "leg req_2:deliver"')"

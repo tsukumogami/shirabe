@@ -174,8 +174,11 @@ check_next "a merged row whose worker is live -> wait on it" "$MLV" "wait on wor
 facts "[$MLV]" | report | jq -e '.holdings[0].state == "merged; worker still live" and (.changes == [])
     and ([.table[] | select(.session == "ml") | .kind] == ["Ongoing"])' >/dev/null \
   && ok "a merged row whose worker is live is listed as Ongoing and is no change" || bad "a merged row whose worker is live is listed as Ongoing and is no change" "$(facts "[$MLV]" | report | jq -c '{h: .holdings[0], changes, table}')"
-facts "[$MLV]" | render | sed -n '/^## Where things stand$/,/^$/p' | grep 'unit ml' | grep -q 'wait on worker' \
-  && ok "  ... and the rendered Where things stand table has its row" || bad "  ... and the rendered Where things stand table has its row" "$(facts "[$MLV]" | render)"
+MLW=$(facts "[$MLV]" | render | sed -n '/^## Where things stand$/,/^$/p')
+case "$(grep 'unit ml' <<<"$MLW")" in
+    *'wait on worker'*) ok "  ... and the rendered Where things stand table has its row" ;;
+    *) bad "  ... and the rendered Where things stand table has its row" "$(facts "[$MLV]" | render)" ;;
+esac
 MNS=$(holding mn "[$APM,$(host found)]" '{"pull_request": ""}')
 check_next "a merged row whose worker isn't known to have stopped -> wait on it" "$MNS" "wait on worker"
 LEGR=$(jq -nc '{kind: "leg", status: "ok", disposition: "resolved", source: "promoted", result: "success at done", read_at: "t"}')
