@@ -83,6 +83,12 @@ chmod +x "$T/fake-niwa/niwa"
 printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"not-dispatched","reason":"no-mapping","grant":[]}' > "$T/niwa.answer"
 PATH="$T/fake-niwa:$PATH"
 export PATH
+# A seeded job's listing row (dispatch-common.sh dc_job_row) comes from a
+# stub `claude agents --json --all` that lists nothing, never the host's real
+# CLI.
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$T/claude-cli"
+chmod +x "$T/claude-cli"
+export DC_CLAUDE_CLI="$T/claude-cli"
 unset CLAUDE_CODE_SESSION_ID NIWA_BIN
 
 SR=coordinate-roadmap-plugin-system-20260926T070000Z

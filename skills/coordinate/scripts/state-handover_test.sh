@@ -47,6 +47,11 @@ RM=(--scope roadmap --name plugin-system --repo "$REPO")
 EMPTY_CLAUDE_HOME="$T/claude-empty"
 mkdir -p "$EMPTY_CLAUDE_HOME/jobs"
 export DC_CLAUDE_HOME="$EMPTY_CLAUDE_HOME"
+# A seeded job's listing row comes from a stub `claude agents --json --all`
+# that lists nothing, never the host's real CLI.
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$T/claude-cli"
+chmod +x "$T/claude-cli"
+export DC_CLAUDE_CLI="$T/claude-cli"
 job() { # job <id> <session name> <state>: a Claude job under DC_CLAUDE_HOME
     mkdir -p "$DC_CLAUDE_HOME/jobs/$1"
     jq -nc --arg n "$2" --arg s "$3" '{name: $n, state: $s}' > "$DC_CLAUDE_HOME/jobs/$1/state.json"

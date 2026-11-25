@@ -27,6 +27,11 @@ bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n%s\n' "$1" "${2-}"; }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-check-test.XXXXXX") || exit 1
 ktg_on_exit 'rm -rf "$T"'
+# A job's listing row (dispatch-common.sh dc_job_row) comes from a stub
+# `claude agents --json --all` that lists nothing, never the host's real CLI.
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$T/claude-cli"
+chmod +x "$T/claude-cli"
+export DC_CLAUDE_CLI="$T/claude-cli"
 
 # The copied tree: reconcile's scripts, /execute's validators, and the two
 # stand-in record-feature checks beside reconcile's scripts.

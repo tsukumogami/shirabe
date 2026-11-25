@@ -171,6 +171,12 @@ MV=$(cat "$T/mv.md")
 # host stopped (DC_CLAUDE_HOME, dispatch-common.sh dc_topic_stopped;
 # shirabe#2080).
 export DC_CLAUDE_HOME="$T/claude"
+# A seeded job's listing row (dispatch-common.sh dc_job_row) comes from a
+# stub `claude agents --json --all` that lists nothing, never the host's real
+# CLI.
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$T/claude-cli"
+chmod +x "$T/claude-cli"
+export DC_CLAUDE_CLI="$T/claude-cli"
 JD="$DC_CLAUDE_HOME/jobs" HA=0000a001 HF=0000fea1
 mkdir -p "$JD/a001a001" "$JD/fea1fea1"
 jq -nc --arg n "mv1_worker-$HA" '{name: $n, state: "done"}' > "$JD/a001a001/state.json"

@@ -68,6 +68,12 @@ db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-writeback.md"] = $t' --ar
 # Its worker has finished: its one Claude job on this host has stopped
 # (DC_CLAUDE_HOME, dispatch-common.sh dc_topic_stopped; shirabe#2080).
 export DC_CLAUDE_HOME="$T/claude"
+# A seeded job's listing row (dispatch-common.sh dc_job_row) comes from a
+# stub `claude agents --json --all` that lists nothing, never the host's real
+# CLI.
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$T/claude-cli"
+chmod +x "$T/claude-cli"
+export DC_CLAUDE_CLI="$T/claude-cli"
 JD="$DC_CLAUDE_HOME/jobs" HF=0000fea1
 mkdir -p "$JD/fea1fea1"
 jq -nc --arg n "feat_1-$HF" '{name: $n, state: "done"}' > "$JD/fea1fea1/state.json"
