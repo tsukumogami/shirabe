@@ -38,9 +38,10 @@ Decide here whether the unit corrects behaviour someone reported as wrong
 review level is chosen and before implementation: a fix label on the issue (the
 repository's `## Fix Labels:`, `bug` by default) or a plan step's `**Fixes**:`
 line makes the unit a fix on its own. When neither does but the report says
-existing behaviour is wrong, declare it at `fix_determination` with
-`fix-kind.sh declare <WF> --reason <why>`; on a return here from implementation
-(`scope_expanded_retry`), declare it now, before the plan is rewritten. Either way
+existing behaviour is wrong, declare it here, before you submit `plan_outcome`,
+with `fix-kind.sh declare <WF> --reason <why>`: `fix_determination` routes in the
+tick that enters it and doesn't stop to ask. On a return here from implementation
+(`scope_expanded_retry`), declare it before the plan is rewritten. Either way
 the unit owes a red before any code changes, so plan the reproducing test first:
 the check command that will show the failure, and the marker, a string of at least
 8 characters that the report states and the failing check prints. A fix can't be

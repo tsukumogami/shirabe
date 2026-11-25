@@ -22,6 +22,9 @@
 #              gates pass --session so the script can read the session's id
 #   rewrites   execute.md's pr_finalization runs `run-id.sh carry` before its
 #              full-body `gh pr edit`, so the finalized body keeps the marker
+#   empty      every gate and script that hands owned-pr.sh's output to gh or
+#              pr-checks.sh refuses an empty one first (build-output-end.sh's
+#              CI read among them)
 #   takeover   --take-over appears in no script or template call except the
 #              exit-6 re-entry instruction and adopt-or-create-pr.sh's
 #              pass-through (check-pr-output.sh names it only to refuse it)
@@ -172,6 +175,15 @@ grep -qF '[ -n "$PR" ] && gh pr ready "$PR"' "$E" \
 grep -qF '[ -n "$PR_NUMBER" ] \' "$E" \
     && pass "pr_finalization's chain starts with an empty-lookup guard" \
     || fail "pr_finalization's chain has no empty-lookup guard"
+# build-output-end.sh reads each worktree's checks through pr-checks.sh from
+# its own owned-pr.sh lookup, and refuses an empty one before it.
+BOE=skills/execute/scripts/build-output-end.sh
+if grep -qF 'if [ -n "$pr" ] && "$BASH" "$PR_CHECKS" "$pr"' "$BOE" \
+    && [ "$(grep -c '"\$PR_CHECKS"' "$BOE")" -eq 1 ]; then
+    pass "build-output-end.sh's one pr-checks.sh call is guarded against an empty lookup"
+else
+    fail "build-output-end.sh reads checks without an empty-lookup guard"
+fi
 
 # --- ownership is checked before the shared branch is pushed ------------------
 

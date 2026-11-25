@@ -15,7 +15,7 @@
 #   fix-kind.sh declare  <session> --reason <text>
 #   fix-kind.sh withdraw <session> [--reason <text>]
 #   fix-kind.sh agree    <session> <kind>
-#   fix-kind.sh kind     <session>
+#   fix-kind.sh kind     <session> [--exit [--current <kind>]]
 #
 #   resolve   fix_determination's default action. A unit is a fix when its
 #             issue carries a label the repository's `## Fix Labels:`
@@ -32,9 +32,13 @@
 #             run. It also stores the unit's report once, as `fix_report.txt`:
 #             --fix-report when given, else the issue body, else the
 #             free-form task text from --task-log (the session's event log),
-#             else the session's `context.md`.
-#   declare   run by the agent at fix_determination, or at analysis on a
-#             return there: records the unit as a fix with source `declared`
+#             else the session's `context.md`. A plan-backed child whose
+#             variables in that log say ISSUE_SOURCE=plan_outline has no
+#             GitHub issue: its --issue is the PLAN's outline number, so no
+#             issue is read for its labels or its body.
+#   declare   run by the agent at analysis, before fix_determination, which
+#             routes in the tick that enters it (or there, when a hand
+#             rebind holds the run): records the unit as a fix with source `declared`
 #             and the reason. On a unit already recorded as a fix it writes no
 #             line and rebinds UNIT_KIND to `fix`, which clears a hand
 #             rebind's hold. Refused (exit 1) from any other state, since a
@@ -46,7 +50,14 @@
 #   agree     the kind_unchanged gate. Read-only. Passes when <kind> (the
 #             variable) equals the ledger's last kind; holds otherwise with a
 #             `hold:` line naming both.
-#   kind      the ledger's last kind, or nothing. Read-only.
+#   kind      the ledger's last kind, or nothing. Read-only. With --exit it
+#             is fix_determination's kind_route gate and answers in its exit
+#             status, so koto routes on the kind in the tick whose action
+#             recorded it: 0 a change, 3 a fix, 4 nothing recorded yet, and 1
+#             when --current (UNIT_KIND as the tick started) is non-empty and
+#             disagrees with the ledger, a hand rebind that kind_unchanged
+#             holds on. An empty --current is the first entry, before the
+#             rebind is seen, and the ledger decides.
 #
 # Ledger lines (JSON, one per line): `determine` (kind, source, sources,
 # fix_labels, labels_from, report_source), `declare` (kind fix, source
@@ -58,8 +69,11 @@
 #                      ../koto-templates/work-on.md beside this script.
 #
 # Exit codes:
-#   0  -- recorded, unchanged, or the gate passes
-#   1  -- refused (withdraw, or declare outside its states), or agree holds
+#   0  -- recorded, unchanged, or the gate passes; kind --exit: a change
+#   1  -- refused (withdraw, or declare outside its states), or agree holds;
+#         kind --exit: --current disagrees with the ledger
+#   3  -- kind --exit: a fix
+#   4  -- kind --exit: no kind recorded
 #   64 -- usage: unknown subcommand, a bad session name, kind or flag, or a
 #         CLAUDE.md that declares `## Fix Labels:` twice
 #   66 -- a koto call failed (the rebind, a context read or write, the
@@ -329,6 +343,18 @@ cmd_resolve() {
         *) die 64 "$(cat "$WORK/hdr.err")" ;;
     esac
 
+    # A plan-backed child taken from a PLAN outline (ISSUE_SOURCE=plan_outline
+    # in the session's variables) carries the outline's number as
+    # ISSUE_NUMBER, not a GitHub issue. The issue that happens to share that
+    # number is someone else's, so neither its labels nor its body are read:
+    # the report is the step's Fixes line, else context.md.
+    local isrc=""
+    if [ -n "$log" ] && [ -r "$log" ]; then
+        isrc=$(jq -Rr 'fromjson? | select(type == "object" and .type == "workflow_initialized")
+                       | .payload.variables.ISSUE_SOURCE // empty' "$log" 2>>"$ERRLOG" | head -n 1)
+    fi
+    [ "$isrc" != plan_outline ] || issue=""
+
     # The issue's labels and body, when there is an issue.
     : > "$WORK/labels"
     : > "$WORK/body"
@@ -420,7 +446,7 @@ cmd_declare() {
     [ -n "$state" ] || die 66 "could not read the session's state with koto status"
     case "$DECLARE_STATES" in
         *" $state "*) ;;
-        *) refuse "a fix is declared at fix_determination, or at analysis on a return there (and the states between the two); the run is at $state, past the point its red would come first. Return to analysis (scope_expanded_retry) and declare it there" ;;
+        *) refuse "a fix is declared at analysis, before fix_determination routes (or at fix_determination while it holds); the run is at $state, past the point its red would come first. Return to analysis (scope_expanded_retry) and declare it there" ;;
     esac
 
     ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"
@@ -491,11 +517,33 @@ cmd_agree() {
 }
 
 cmd_kind() {
-    [ $# -eq 1 ] || usage "kind takes <session>"
-    valid_session "$1" || usage "bad session name [$1]"
-    ctx_get "$1" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"
-    last_kind "$WORK/ledger"
-    exit 0
+    [ $# -ge 1 ] || usage "kind takes <session> [--exit [--current <kind>]]"
+    local s="$1" route=0 current="" last
+    shift
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --exit) route=1; shift ;;
+            --current) [ $# -ge 2 ] || usage "--current needs a value"; current="$2"; shift 2 ;;
+            *) usage "kind takes <session> [--exit [--current <kind>]]; unknown argument [$1]" ;;
+        esac
+    done
+    valid_session "$s" || usage "bad session name [$s]"
+    [ "$route" -eq 1 ] || [ -z "$current" ] || usage "--current is read only with --exit"
+    [ -z "$current" ] || valid_kind "$current" || usage "--current [$current] is not change or fix"
+    ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"
+    last=$(last_kind "$WORK/ledger")
+    [ -z "$last" ] || echo "$last"
+    [ "$route" -eq 1 ] || exit 0
+    [ -n "$last" ] || exit 4
+    if [ -n "$current" ] && [ "$current" != "$last" ]; then
+        echo "hold: UNIT_KIND is $current but the ledger records $last" >&2
+        exit 1
+    fi
+    case "$last" in
+        change) exit 0 ;;
+        fix) exit 3 ;;
+    esac
+    die 66 "the ledger's last kind [$last] is not change or fix"
 }
 
 command -v jq >/dev/null || die 66 "jq is not on PATH"

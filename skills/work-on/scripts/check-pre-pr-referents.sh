@@ -22,16 +22,16 @@
 #       reason after it.
 #
 # The template runs this as the command of two gates, `cleanup_referent` and
-# `diagram_referent`, in `finalization`, in `deferral_approval` and in
-# `pre_pr_evidence`. They replaced `context-matches` gates that checked the
+# `diagram_referent`, in `finalization` and in `deferral_approval`. They
+# replaced `context-matches` gates that checked the
 # shape alone, which a sha naming nothing passed (shirabe#422).
 #
 # The value stays evidence the agent writes rather than something the template
 # derives. The line records which commit the cleanup pass reviewed, and only the
 # agent knows that. A HEAD koto recorded itself could never fail this check, so
 # it would attest nothing about the review, and it would be the wrong commit
-# besides: the summary commit lands after pre_pr.md is written, so HEAD at
-# pre_pr_evidence is past the reviewed one. What the gate can check is that the
+# besides: the summary commit can land after pre_pr.md is written, so HEAD
+# when the gate runs can be past the reviewed one. What the gate can check is that the
 # agent's answer names a real commit in HEAD's history. That history
 # includes commits already on the base branch, so the check proves the sha is
 # real and reachable, not that it is one of this branch's own commits. It is not
@@ -61,12 +61,10 @@
 #   1 -- anything else: the key is absent or malformed, the referent does not
 #        exist, pre_pr.md could not be read, this is not a git repository, or
 #        the arguments are wrong. Fails closed on every path. Only 0 and 1 are
-#        ever returned: a check that cannot run must not pass, and at
-#        pre_pr_evidence a status no edge names would leave a run that already
-#        submitted its evidence held with no reason recorded, where 1 stops it
-#        at done_blocked with a failure_reason that says to run this script.
-#        A separate "could not run" code would need a rung of its own on that
-#        ladder for no difference in what the agent does next.
+#        ever returned: a check that cannot run must not pass. Both gates
+#        hold on any failure, so a separate "could not run" code would make
+#        no difference to what the agent does next: run this script by hand
+#        for the reason.
 #
 # Bash 3.2: no associative arrays, no mapfile.
 set -uo pipefail

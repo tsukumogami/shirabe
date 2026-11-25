@@ -94,6 +94,9 @@ fi
 report=$(cat -- "$COPY") || refuse "the report copy could not be read"
 
 ctx="" nb="" turns="" window="" hard=""
+# The lines boundaries and boundary_turns sit on, for the two refusals made
+# after the loop.
+nb_line="" turns_line=""
 seen=" "
 n=0
 while IFS= read -r line || [ -n "$line" ]; do
@@ -120,12 +123,14 @@ while IFS= read -r line || [ -n "$line" ]; do
     boundaries)
         is_int "$val" || refuse "line $n: boundaries is not an integer"
         nb=$val
+        nb_line=$n
         ;;
     boundary_turns)
         if [ "$val" != "none" ] && [[ ! $val =~ ^(0|[1-9][0-9]{0,14})(\ (0|[1-9][0-9]{0,14}))*$ ]]; then
             refuse "line $n: boundary_turns is not none or integers separated by single spaces"
         fi
         turns=$val
+        turns_line=$n
         ;;
     window)
         if [ "$val" != "invalid" ] && [ "$val" != "unset" ] && ! is_int "$val"; then
@@ -158,7 +163,7 @@ else
     # shellcheck disable=SC2086
     set -- $turns
 fi
-[ "$#" -eq "$nb" ] || refuse "boundaries says $nb but boundary_turns lists $#"
+[ "$#" -eq "$nb" ] || refuse "lines $nb_line and $turns_line: the boundaries count differs from the number of boundary_turns"
 
 # t0 and t1 are the two turns before t, so each pass sees one run of three
 # boundaries in a row.
@@ -166,7 +171,7 @@ thrash=""
 t0="" t1=""
 for t in "$@"; do
     if [ -n "$t1" ] && [ "$t" -lt "$t1" ]; then
-        refuse "boundary_turns is out of order"
+        refuse "line $turns_line: boundary_turns is out of order"
     fi
     if [ -z "$thrash" ] && [ -n "$t0" ] && [ $((t - t0)) -le "$SPAN" ]; then
         thrash="$t0 $t1 $t"

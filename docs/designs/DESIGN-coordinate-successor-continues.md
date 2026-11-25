@@ -252,8 +252,8 @@ list R7 asks the design to publish:
 
 | Group | Key families | Why |
 |---|---|---|
-| Carried at the fence | `record/*` (sections, `record/meta`, `record/host`, `record/rotation`, `record/reasoning`, `record/entries/*`, `record/posted/*`), `legs/*`, `taken_legs`, `leg_children` | read by reconcile, the wait hub, the handover gate, deferral and cost checks; written incrementally |
-| Rebuilt by the successor | `coord/*`, `reconcile/*`, `wait_target`, `report_topic`, `brief_input.json`, sealed checks in the log | written fresh on every visit to their state; seals hash the session name |
+| Carried at the fence | `record/*` (sections, `record/meta`, `record/host`, `record/rotation`, `record/reasoning`, `record/entries/*`, `record/posted/*`), `legs/*`, `taken_legs`, `leg_children`, `brief_input.json`, `wait_target`, `leg_consumed` | read by reconcile, the wait hub, the handover gate, deferral and cost checks, `rebrief` and `leg_spent` (the brief input `dispatch` wrote) and `leg_pick` (the last leg `wait_leg` consumed), before the successor writes them |
+| Rebuilt by the successor | `coord/*`, `reconcile/*`, `report_topic`, sealed checks in the log | written fresh on every visit to their state; seals hash the session name |
 | Neither | `session/link-warning`, `koto/links/*` | the successor's own; lineage is the relation |
 
 **Re-runs and the takeover's steps.** R6's criterion iterates these steps:
@@ -567,6 +567,7 @@ successor agent
         P's current state s; compat(P) == compat(own) and s exists in own template
     (b) koto init S --continues P --supersede --expect-state s
           --carry record/ --carry legs/ --carry taken_legs --carry leg_children
+          --carry brief_input.json --carry wait_target --carry leg_consumed
           1 check   P's log: fenced? by whom? state still s?
           2 fence   P log += session_superseded{by:S, id, actor}  (per-append flock /
                     conditional push: first wins; nothing written on failure)

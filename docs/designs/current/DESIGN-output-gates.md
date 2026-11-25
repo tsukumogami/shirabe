@@ -563,7 +563,7 @@ trail (a gate command may write context):
 | 1 | a command failed | `implementation` |
 | 3 | no verification map, a map that does not parse, or a map that selects nothing | `done_blocked`: "no verification map" (or "the verification map does not parse") |
 | 4 | a command needs a person, timed out, was killed for runaway growth, could not start, or the tree was dirty | `done_blocked`, naming which |
-| 2 | the result could not be read | hold |
+| 2 | the result could not be read, the supervisor stopped before every command ran (`supervisor-error`), or a build-output removal was still running when the run's budget ran out and no command started (`removal-running`) | hold |
 
 A repository without the file is refused, never passed, which means every
 repository that adopts this release stops at verification until it commits a

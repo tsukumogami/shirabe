@@ -66,6 +66,9 @@ ktg_on_exit cleanup
 
 export HOME="$WORKDIR/home"
 export XDG_STATE_HOME="$WORKDIR/state"
+# A fix round's switches, from whatever ran this suite, would change what the
+# fix-round cases carry.
+unset SHIRABE_VERIFY_FULL SHIRABE_VERIFY_BASE
 mkdir -p "$HOME" "$WORKDIR/bin"
 export GIT_CONFIG_NOSYSTEM=1
 git config --global user.email t@example.com
@@ -555,6 +558,288 @@ if jq -e '.status == "supervisor-error"' "$SRES" >/dev/null 2>&1; then
 else
     fail "no supervisor-error result to hold on: $(head -c 300 "$SRES" 2>&1)"
 fi
+
+# --- a build-output removal still running ------------------------------------------------
+#
+# clean-build-output.sh records each removal as removal-<stamp>.json in the
+# work tree's git directory, and deletes in the background. The supervisor
+# waits on a record that reads live before its first command, inside the
+# run's budget. A stand-in deleter, named and called as the real one is
+# (`clean-build-output.sh --delete <stamp>`), so bo_record_live reads its
+# record live, waits for <records dir>/go-<stamp>, rewrites the record as done
+# with ended_at, and exits. It lives under the suite's marker directory, so
+# the leak check and the cleanup see it.
+FAKE_DELETER="$WORKDIR/fake/clean-build-output.sh"
+mkdir -p "$WORKDIR/fake"
+cat > "$FAKE_DELETER" <<'EOF'
+#!/bin/sh
+stamp=$2 dir=$3
+rec="$dir/removal-$stamp.json"
+while [ ! -e "$dir/go-$stamp" ]; do sleep 0.1; done
+jq -c --arg e "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.status = "done" | .ended_at = $e' "$rec" > "$rec.tmp" \
+    && mv -f "$rec.tmp" "$rec"
+EOF
+chmod +x "$FAKE_DELETER"
+RM_N=0
+
+# bo_records: the current repository's records directory, created.
+bo_records() { mkdir -p "$(pwd -P)/.git/shirabe-build-output" && printf '%s\n' "$(pwd -P)/.git/shirabe-build-output"; }
+# record_json <status> [<pid>]: a removal record's text.
+record_json() {
+    jq -cn --arg s "$1" --argjson pid "${2:-1}" '{schema: "shirabe-build-output-removal/v1",
+        started_at: "2026-11-16T08:04:12Z", pid: $pid, paths: {"1": "target"}, reaped: [], status: $s}
+        | if $s == "running" then . else . + {ended_at: "2026-11-16T08:05:00Z"} end'
+}
+# live_record: a running record in the current repository, its stand-in
+# deleter started and waiting. Sets RM_STAMP, RM_REC and RM_DIR.
+live_record() {
+    RM_N=$((RM_N + 1))
+    RM_DIR=$(bo_records)
+    RM_STAMP="20261116T0804$(printf '%02d' "$RM_N")Z-$$"
+    RM_REC="$RM_DIR/removal-$RM_STAMP.json"
+    "$FAKE_DELETER" --delete "$RM_STAMP" "$RM_DIR" </dev/null >/dev/null 2>&1 &
+    record_json running "$!" > "$RM_REC"
+}
+# release_record: let the stand-in go, and wait until the record reads done.
+release_record() {
+    local n=0
+    : > "$RM_DIR/go-$RM_STAMP"
+    while ! jq -e '.status == "done"' "$RM_REC" >/dev/null 2>&1 && [ "$n" -lt 100 ]; do
+        sleep 0.1; n=$((n + 1))
+    done
+}
+# snapshot <dir>: every entry under <dir> with its checksum, for a before
+# and after comparison.
+snapshot() {
+    (cd "$1" && find . -print | LC_ALL=C sort | while IFS= read -r p; do
+        if [ -L "$p" ]; then printf '%s -> %s\n' "$p" "$(readlink "$p")"
+        elif [ -f "$p" ]; then printf '%s %s\n' "$p" "$(cksum < "$p")"
+        else printf '%s/\n' "$p"; fi
+    done)
+}
+# A command that writes the UTC second it started.
+STAMP_CMD() { jq -cn --arg f "$1" '{run: ["bin/stamp.sh", $f], timeout_secs: 60}'; }
+stamp_script() {
+    printf '#!/bin/sh\ndate -u +%%Y-%%m-%%dT%%H:%%M:%%SZ > "$1"\n' > bin/stamp.sh
+    chmod +x bin/stamp.sh
+}
+
+echo "--- a removal still running: the supervisor waits for it"
+mkrepo rmwait "$(map "{\"st\": $(STAMP_CMD "$WORKDIR/rmwait.start")}" '[]' '["st"]')"
+stamp_script
+git add -A && git commit -q -m stamp
+change top.txt
+live_record
+printf 'not json\n' > "$RM_DIR/removal-20261116T080400Z-1.json"
+start s-rmwait
+sleep 3
+RMRES=$(result_of s-rmwait)
+if [ ! -e "$WORKDIR/rmwait.start" ] && [ ! -e "$RMRES" ]; then
+    pass "while the record reads live, no command starts and no result is written"
+else
+    fail "a command started or a result was written while the record read live: $(cat "$WORKDIR/rmwait.start" 2>&1)"
+fi
+release_record
+settle s-rmwait
+expect_rc "a run that waited on a removal" 0
+ENDED=$(jq -r '.ended_at' "$RM_REC")
+STARTED=$(cat "$WORKDIR/rmwait.start" 2>/dev/null)
+if [ -n "$STARTED" ] && [ -n "$ENDED" ] && [ "$ENDED" != null ] && ! [ "$STARTED" \< "$ENDED" ]; then
+    pass "the first command started at $STARTED, at or after the record's ended_at $ENDED"
+else
+    fail "the first command started at [$STARTED], the record ended at [$ENDED]"
+fi
+SUPLOG="$(dirname "$RMRES")/supervisor.log"
+c=$(grep -c 'removal-20261116T080400Z-1.json does not parse' "$SUPLOG" 2>/dev/null)
+[ "$c" = 1 ] && pass "an unparsable record beside the live one is named once on stderr, across the wait's polls" \
+    || fail "the unparsable record was named $c times: $(head -c 600 "$SUPLOG" 2>&1)"
+
+echo "--- a running record that reads ended: the supervisor starts at once"
+mkrepo rmended "$(map "{\"st\": $(STAMP_CMD "$WORKDIR/rmended.start")}" '[]' '["st"]')"
+stamp_script
+git add -A && git commit -q -m stamp
+change top.txt
+RMD=$(bo_records)
+sh -c 'exit 0' &
+DEAD=$!
+wait "$DEAD"
+record_json running "$DEAD" > "$RMD/removal-20261116T080401Z-$DEAD.json"
+mkdir -p "$RMD/trash-20261116T080401Z-$DEAD/1"
+echo x > "$RMD/trash-20261116T080401Z-$DEAD/1/f"
+"$WORKDIR/r-rmended/bin/slow.sh" </dev/null >/dev/null 2>&1 &
+OTHER=$!
+record_json running "$OTHER" > "$RMD/removal-20261116T080402Z-$OTHER.json"
+mkdir -p "$RMD/trash-20261116T080402Z-$OTHER"
+BEFORE=$(snapshot "$RMD")
+start s-rmended
+settle s-rmended
+expect_rc "only ended records (a dead pid, a pid running another program)" 0
+[ -s "$WORKDIR/rmended.start" ] && pass "the command ran" || fail "the command did not run"
+[ "$(snapshot "$RMD")" = "$BEFORE" ] \
+    && pass "the records and their trash are left as they were, for the script's next call" \
+    || fail "the runner changed the records directory"
+kill -KILL "$OTHER" 2>/dev/null
+
+echo "--- a removal that outlasts the run's budget"
+mkrepo rmbudget "$(map "{\"st\": $(STAMP_CMD "$WORKDIR/rmbudget.start")}" '[]' '["st"]')"
+stamp_script
+git add -A && git commit -q -m stamp
+change top.txt
+live_record
+BEFORE=$(snapshot "$RM_DIR")
+RB_BUDGET=3
+T0=$(now_ms)
+SHIRABE_VERIFICATION_BUDGET_SECS=$RB_BUDGET start s-rmbudget
+settle s-rmbudget
+T1=$(now_ms)
+RBRES=$(result_of s-rmbudget)
+if jq -e --arg rec "$RM_REC" '.status == "removal-running" and .commands == [] and (.detail | contains($rec))' \
+        "$RBRES" >/dev/null 2>&1 && [ ! -e "$WORKDIR/rmbudget.start" ]; then
+    pass "out of budget with the record live: no command, a removal-running result naming the record"
+else
+    fail "the out-of-budget result: $(head -c 400 "$RBRES" 2>&1); started [$(cat "$WORKDIR/rmbudget.start" 2>&1)]"
+fi
+# The wait runs inside the budget: the result lands within the budget plus a
+# poll and the harness's own settling, never a full wait past it.
+[ $((T1 - T0)) -lt $(( (RB_BUDGET + 4) * 1000 )) ] \
+    && pass "the wait ended inside the run's budget ($((T1 - T0))ms for a ${RB_BUDGET}s budget)" \
+    || fail "the wait took $((T1 - T0))ms under a ${RB_BUDGET}s budget"
+expect_rc "a removal-running result" 2
+expect_no_finding "a removal-running result"
+[ ! -e "$KOTO_STUB_STORE/s-rmbudget/verification_results.json" ] \
+    && pass "a removal-running result is not recorded in koto context" \
+    || fail "a removal-running result was recorded in koto context"
+if grep -q -F -- "$RM_REC" "$WORKDIR/verdict.err" && grep -q -F -- "$RBRES" "$WORKDIR/verdict.err" \
+    && grep -q 'move the result aside' "$WORKDIR/verdict.err" \
+    && grep -q 'verification_status: blocked' "$WORKDIR/verdict.err"; then
+    pass "the hold names the record and the result, and the two ways on"
+else
+    fail "the removal-running hold's message: $(cat "$WORKDIR/verdict.err")"
+fi
+RBBEFORE=$(cat "$RBRES")
+SHIRABE_VERIFICATION_BUDGET_SECS=$RB_BUDGET start s-rmbudget
+sleep 1
+if [ "$(cat "$RBRES" 2>/dev/null)" = "$RBBEFORE" ] && [ ! -e "$(dirname "$RBRES")/lock" ] \
+    && jq -e '.status == "removal-running"' "$RBRES" >/dev/null 2>&1; then
+    pass "a later --start keeps the removal-running result and starts no supervisor"
+else
+    fail "a later --start replaced the removal-running result or started a run"
+fi
+GOT=$(. "$SCRIPT_DIR/verification-eligibility.sh" && : > "$WORKDIR/rb.ledger" \
+    && verification_eligibility "$RBRES" "$WORKDIR/rb.ledger")
+[ "$GOT" = "ineligible removal-running" ] && pass "verification_eligibility: a removal-running result is ineligible" \
+    || fail "verification_eligibility on a removal-running result: [$GOT]"
+"$START" --archive --session s-rmbudget --reason "removal ended" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -ne 0 ] && grep -q -F 'ineligible removal-running' "$WORKDIR/archive.err" \
+    && [ "$(cat "$RBRES")" = "$RBBEFORE" ] && [ ! -e "$KOTO_STUB_STORE/s-rmbudget/verification_attempts" ]; then
+    pass "--archive refuses a removal-running result and moves and records nothing"
+else
+    fail "--archive on a removal-running result: exit $RC, stderr $(cat "$WORKDIR/archive.err")"
+fi
+[ "$(snapshot "$RM_DIR")" = "$BEFORE" ] && pass "the runner changed nothing in the records directory" \
+    || fail "the runner changed the records directory"
+release_record
+
+echo "--- the wait spends the run's budget"
+# A removal that ends after about three seconds, then a command that would run
+# 30: under a 7-second budget the command gets what the wait left, not 7.
+mkrepo rmspend "$(map '{"slow": {"run": ["bin/slow.sh"], "timeout_secs": 60}}' '[]' '["slow"]')"
+change top.txt
+live_record
+SHIRABE_VERIFICATION_BUDGET_SECS=7 start s-rmspend
+sleep 3
+release_record
+settle s-rmspend
+SPRES=$(result_of s-rmspend)
+SPDUR=$(jq -r '.commands[0].duration_secs' "$SPRES" 2>/dev/null)
+if jq -e '.status == "timed-out"' "$SPRES" >/dev/null 2>&1 && [ -n "$SPDUR" ] && [ "$SPDUR" -le 5 ]; then
+    pass "the command ran ${SPDUR}s of a 7-second budget the wait had spent part of"
+else
+    fail "the command after the wait: $(head -c 400 "$SPRES" 2>&1)"
+fi
+
+echo "--- no records, or only ended ones: the run is unchanged"
+NOREC_CMDS=$(jq -cn --arg f "$WORKDIR/norec.rec" '{ok: {run: ["bin/rec.sh", $f, "ok"]}}')
+mkrepo norec "$(map "$NOREC_CMDS" '[]' '["ok"]')"
+change top.txt
+start s-norec
+settle s-norec
+expect_rc "no records directory" 0
+NOREC=$(jq -c '[.status, .detail, [.commands[] | {id, check, argv, exit_status, outcome}]]' "$(result_of s-norec)")
+NORUN=$(jq -c '.invocations' "$(dirname "$(result_of s-norec)")/run.json")
+mkrepo oldrec "$(map "$NOREC_CMDS" '[]' '["ok"]')"
+change top.txt
+RMD=$(bo_records)
+record_json done > "$RMD/removal-20261116T080403Z-1.json"
+record_json failed > "$RMD/removal-20261116T080404Z-2.json"
+start s-oldrec
+settle s-oldrec
+expect_rc "only done and failed records" 0
+OLDREC=$(jq -c '[.status, .detail, [.commands[] | {id, check, argv, exit_status, outcome}]]' "$(result_of s-oldrec)")
+OLDRUN=$(jq -c '.invocations' "$(dirname "$(result_of s-oldrec)")/run.json")
+[ "$OLDREC" = "$NOREC" ] && [ "$OLDRUN" = "$NORUN" ] \
+    && pass "done and failed records change neither the invocations nor the result" \
+    || fail "with ended records: $OLDREC / $OLDRUN; without: $NOREC / $NORUN"
+
+echo "--- --await-removals"
+# await <dir> [args...]: run --await-removals from <dir> with a state
+# directory of its own; sets RC.
+await() {
+    local d=$1; shift
+    rm -rf "$WORKDIR/await-state"
+    (cd "$d" && XDG_STATE_HOME="$WORKDIR/await-state" "$START" --await-removals "$@") \
+        >"$WORKDIR/await.out" 2>"$WORKDIR/await.err"
+    RC=$?
+}
+mkdir -p "$WORKDIR/notgit"
+await "$WORKDIR/notgit"
+[ "$RC" -eq 0 ] && pass "--await-removals outside a repository: exit 0" || fail "outside a repository: exit $RC"
+mkrepo awnone NONE
+await "$(pwd -P)"
+[ "$RC" -eq 0 ] && pass "--await-removals with no records directory: exit 0" || fail "no records directory: exit $RC"
+await "$(pwd -P)/src/x"
+[ "$RC" -eq 0 ] && pass "--await-removals from a subdirectory: exit 0" || fail "from a subdirectory: exit $RC"
+RMD=$(bo_records)
+await "$(pwd -P)"
+[ "$RC" -eq 0 ] && pass "--await-removals with an empty records directory: exit 0" || fail "an empty directory: exit $RC"
+record_json done > "$RMD/removal-20261116T080405Z-1.json"
+record_json failed > "$RMD/removal-20261116T080406Z-2.json"
+sh -c 'exit 0' &
+DEAD=$!
+wait "$DEAD"
+record_json running "$DEAD" > "$RMD/removal-20261116T080407Z-$DEAD.json"
+printf 'not json\n' > "$RMD/removal-20261116T080408Z-3.json"
+await "$(pwd -P)"
+if [ "$RC" -eq 0 ] && grep -q 'removal-20261116T080408Z-3.json does not parse' "$WORKDIR/await.err"; then
+    pass "--await-removals with only ended and unparsable records: exit 0, the unparsable one named"
+else
+    fail "ended and unparsable records: exit $RC, stderr $(cat "$WORKDIR/await.err")"
+fi
+live_record
+await "$(pwd -P)/src"
+if [ "$RC" -eq 1 ] && grep -q -F -- "$RM_REC" "$WORKDIR/await.err"; then
+    pass "--await-removals while a record reads live: exit 1, naming it"
+else
+    fail "a live record: exit $RC, stderr $(cat "$WORKDIR/await.err")"
+fi
+[ ! -e "$WORKDIR/await-state" ] && [ -z "$(cat "$WORKDIR/await.out")" ] \
+    && pass "--await-removals starts nothing and writes no state" \
+    || fail "--await-removals wrote [$(cat "$WORKDIR/await.out")] or a state directory"
+release_record
+await "$(pwd -P)"
+[ "$RC" -eq 0 ] && pass "--await-removals once the record reads done: exit 0" || fail "after done: exit $RC"
+await "$(pwd -P)" --session s-x
+[ "$RC" -eq 2 ] && pass "--await-removals --session is a usage error: exit 2" || fail "--session: exit $RC"
+await "$(pwd -P)" extra
+[ "$RC" -eq 2 ] && pass "--await-removals with an argument is a usage error: exit 2" || fail "an argument: exit $RC"
+# A repository whose default branch resolves to nothing: no main, no origin.
+mkdir -p "$WORKDIR/r-trunk"
+git -C "$WORKDIR/r-trunk" init -q -b trunk
+git -C "$WORKDIR/r-trunk" commit -q --allow-empty -m init
+await "$WORKDIR/r-trunk"
+[ "$RC" -eq 0 ] && pass "--await-removals where the default branch doesn't resolve: exit 0" \
+    || fail "an unresolvable default branch: exit $RC, stderr $(cat "$WORKDIR/await.err")"
 
 echo "--- a command that cannot start"
 mkrepo nostart "$(map '{"gone": {"run": ["bin/missing.sh"]}}' '[]' '["gone"]')"
@@ -1159,6 +1444,257 @@ bo_case 3 'build_output as a string (not invalid)' '"target/"'
 bo_case 4 'build_output with a number and an empty string (not invalid)' '["target/", 1, ""]'
 [ "$BO_SEL" = "$BO_NONE" ] && pass 'build_output holding a number and an empty string selects the same invocations as the map without it' \
     || fail "build_output with a number and an empty string selected $BO_SEL, without it $BO_NONE"
+
+# --- a fix round's carry ------------------------------------------------------------------
+#
+# A session whose context holds fix_round.json ({from, round, base}) carries
+# the checks the run it follows passed at the round's base and that the
+# round's own diff doesn't select. The fixtures:
+#   recenv.sh <rec> <label> [<leaf>]  records its argv and SHIRABE_VERIFY_BASE;
+#   flaky.sh <mode file> <rec>        records itself and SHIRABE_VERIFY_BASE,
+#                                     and passes when the file says pass.
+# The map: an each row over skills/*, and two plain rows for top.txt.
+
+# fix_round <session> <from> <round> <base> [<extra json>]: the session's
+# fix_round.json in the stand-in's store.
+fix_round() {
+    local x=${5:-}
+    [ -n "$x" ] || x='{}'
+    mkdir -p "$KOTO_STUB_STORE/$1"
+    jq -cn --arg from "$2" --argjson round "$3" --arg base "$4" --argjson x "$x" \
+        '{from: $from, round: $round, base: $base} + $x' > "$KOTO_STUB_STORE/$1/fix_round.json"
+}
+
+# expect_check <label> <session> <check> <jq condition>: the result's record
+# for <check> meets <condition>.
+expect_check() {
+    local res
+    res=$(result_of "$2")
+    if jq -e --arg c "$3" "[.commands[] | select(.check == \$c)] | length == 1 and (.[0] | $4)" "$res" >/dev/null 2>&1; then
+        pass "$1: the $3 record has $4"
+    else
+        fail "$1: the $3 record fails $4: $(jq -c --arg c "$3" '[.commands[] | select(.check == $c)]' "$res" 2>&1 | head -c 600)"
+    fi
+}
+
+# ran <label> <want>: what the fixture commands recorded since the last
+# reset, sorted and space-joined, is <want>.
+ran() {
+    local got
+    got=$(LC_ALL=C sort "$CR" 2>/dev/null | tr '\n' ' ')
+    [ "$got" = "$2" ] && pass "$1: ran [$2]" || fail "$1: ran [$got], want [$2]"
+}
+
+echo "--- fix round: the run the round follows"
+CR="$WORKDIR/carry.rec"
+FLAKY="$WORKDIR/flaky.mode"
+CMDS=$(jq -cn --arg f "$CR" --arg m "$FLAKY" '{
+    chk: {run: ["bin/recenv.sh", $f, "chk"], each: "skills/*"},
+    plain: {run: ["bin/recenv.sh", $f, "plain"]},
+    flaky: {run: ["bin/flaky.sh", $m, $f]}}')
+CARRY_ENTRIES='[{"paths": ["skills/**"], "commands": ["chk"]}, {"paths": ["top.txt"], "commands": ["plain", "flaky"]}]'
+# carry_repo <name>: a repository with the carry map and its two fixtures,
+# uncommitted, so the branch's first change commits them.
+carry_repo() {
+    mkrepo "$1" "$(map "$CMDS" "$CARRY_ENTRIES")"
+    printf '#!/bin/sh\nrec=$1; shift\nprintf "%%s base=%%s\\n" "$*" "${SHIRABE_VERIFY_BASE-}" >> "$rec"\n' > bin/recenv.sh
+    printf '#!/bin/sh\nprintf "flaky base=%%s\\n" "${SHIRABE_VERIFY_BASE-}" >> "$2"\n[ "$(cat "$1")" = pass ]\n' > bin/flaky.sh
+    chmod +x bin/recenv.sh bin/flaky.sh
+}
+carry_repo carry
+echo fail > "$FLAKY"
+change skills/a/f.txt skills/b/f.txt top.txt
+start s-orig
+settle s-orig
+expect_rc "the run a fix round follows, flaky failing" 1
+ran "the run a fix round follows" "chk a base= chk b base= flaky base= plain base= "
+DONE_HEAD=$(git rev-parse HEAD)
+
+echo "--- fix round: a fix touching one skill"
+rm -f "$CR"
+echo pass > "$FLAKY"
+fix_round s-orig-fix-1 s-orig 1 "$DONE_HEAD"
+change skills/a/f.txt
+start s-orig-fix-1
+grep -q 'fix round: carried 2 check(s) s-orig passed' "$WORKDIR/start.out" \
+    && pass "fix round: --start says what it carried" || fail "fix round: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-orig-fix-1
+expect_rc "a fix round whose carried checks stand beside passed ones" 0
+expect_no_finding "a fix round whose carried checks stand beside passed ones"
+ran "a fix round touching skills/a runs that skill's check with the round's base, and the check the run failed" \
+    "chk a base=$DONE_HEAD flaky base= "
+expect_check "a fix round touching skills/a" s-orig-fix-1 chk:a '.outcome == "passed" and (has("carried_from") | not)'
+expect_check "a fix round touching skills/a" s-orig-fix-1 chk:b \
+    ".outcome == \"carried\" and .carried_from == {session: \"s-orig\", head: \"$DONE_HEAD\"}
+     and .exit_status == 0 and .duration_secs == 0 and .not_started == false and .argv[-1] == \"b\" and .id == \"chk\""
+expect_check "a fix round touching skills/a" s-orig-fix-1 plain \
+    ".outcome == \"carried\" and .carried_from == {session: \"s-orig\", head: \"$DONE_HEAD\"}"
+expect_check "a check the run failed runs again" s-orig-fix-1 flaky '.outcome == "passed"'
+jq -e '[.commands[].check] == ["chk:a", "chk:b", "plain", "flaky"]' "$(result_of s-orig-fix-1)" >/dev/null 2>&1 \
+    && pass "fix round: the result holds the full run's checks, in the map's order" \
+    || fail "fix round: the result's checks: $(jq -c '[.commands[].check]' "$(result_of s-orig-fix-1)" 2>&1)"
+FIX1_HEAD=$(git rev-parse HEAD)
+
+echo "--- fix round: a second skill touched"
+rm -f "$CR"
+change skills/b/f.txt
+start s-orig-fix-1
+settle s-orig-fix-1
+expect_rc "a fix round touching two skills" 0
+ran "a fix round touching skills/a and skills/b runs both skills' checks" \
+    "chk a base=$DONE_HEAD chk b base=$DONE_HEAD flaky base= "
+expect_check "a fix round touching two skills" s-orig-fix-1 plain '.outcome == "carried"'
+FIX1_HEAD2=$(git rev-parse HEAD)
+
+echo "--- fix round: a second round follows the first"
+# Round 2's base is the head round 1 left; the original's fix_rounds.jsonl
+# names round 1, so that is the run round 2 follows.
+rm -f "$CR"
+printf '%s\n%s\n' \
+    "$(jq -cn --arg h "$DONE_HEAD" '{round: 1, session: "s-orig-fix-1", base: $h, ts: "t"}')" \
+    "$(jq -cn --arg h "$FIX1_HEAD2" '{round: 2, session: "s-orig-fix-2", base: $h, ts: "t"}')" \
+    > "$KOTO_STUB_STORE/s-orig/fix_rounds.jsonl"
+fix_round s-orig-fix-2 s-orig 2 "$FIX1_HEAD2"
+start s-orig-fix-2
+settle s-orig-fix-2
+expect_rc "a second round with no change of its own" 0
+ran "a second round with no change of its own runs nothing" ""
+for c in chk:a chk:b plain flaky; do
+    expect_check "a second round" s-orig-fix-2 "$c" \
+        ".outcome == \"carried\" and .carried_from == {session: \"s-orig-fix-1\", head: \"$FIX1_HEAD2\"}"
+done
+
+echo "--- fix round: a run with no result at all"
+# s-ghost never verified, so it has no result at the round's base or before.
+rm -f "$CR"
+fix_round s-nobase s-ghost 1 "$FIX1_HEAD"
+start s-nobase
+grep -q 'has no verification result at the round' "$WORKDIR/start.out" \
+    && pass "no parent result: --start says nothing is carried" || fail "no parent result: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-nobase
+expect_rc "a fix round with no parent result at its base" 0
+ran "a fix round with no parent result at its base runs everything" "chk a base= chk b base= flaky base= plain base= "
+jq -e '[.commands[] | select(.outcome == "carried" or has("carried_from"))] | length == 0' "$(result_of s-nobase)" >/dev/null 2>&1 \
+    && pass "no parent result: no record is carried" || fail "no parent result: a record was carried"
+
+echo "--- fix round: --fresh and SHIRABE_VERIFY_FULL=1 carry nothing"
+rm -f "$CR"
+fix_round s-fresh s-orig 1 "$DONE_HEAD" '{"fresh": true}'
+start s-fresh
+grep -q 'fresh: true' "$WORKDIR/start.out" \
+    && pass "fresh: --start says why nothing is carried" || fail "fresh: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-fresh
+expect_rc "a fresh fix round" 0
+ran "a fresh fix round runs everything, with no base" "chk a base= chk b base= flaky base= plain base= "
+jq -e '[.commands[] | select(.outcome == "carried")] | length == 0' "$(result_of s-fresh)" >/dev/null 2>&1 \
+    && pass "fresh: no record is carried" || fail "fresh: a record was carried"
+
+rm -f "$CR"
+fix_round s-full s-orig 1 "$DONE_HEAD"
+SHIRABE_VERIFY_FULL=1 start s-full
+grep -q 'SHIRABE_VERIFY_FULL=1' "$WORKDIR/start.out" \
+    && pass "SHIRABE_VERIFY_FULL=1: --start says why nothing is carried" || fail "full: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-full
+expect_rc "a fix round under SHIRABE_VERIFY_FULL=1" 0
+ran "a fix round under SHIRABE_VERIFY_FULL=1 runs everything, with no base" "chk a base= chk b base= flaky base= plain base= "
+jq -e '[.commands[] | select(.outcome == "carried")] | length == 0' "$(result_of s-full)" >/dev/null 2>&1 \
+    && pass "SHIRABE_VERIFY_FULL=1: no record is carried" || fail "SHIRABE_VERIFY_FULL=1: a record was carried"
+
+echo "--- the verdict on carried records"
+# Results written by hand at this head, from the second round's: every record
+# carried, passed and carried mixed, and a carried record beside a failed one.
+CARRY_RES=$(result_of s-orig-fix-2)
+# verdict_on <session> <jq edit>: write the edited result as <session>'s and
+# take its verdict.
+verdict_on() {
+    local res
+    res=$(result_of "$1")
+    mkdir -p "$(dirname "$res")"
+    jq "$2" "$CARRY_RES" > "$res"
+    verdict "$1"
+}
+verdict_on s-cv-carried '.'
+expect_rc "every record carried" 0
+expect_no_finding "every record carried"
+verdict_on s-cv-mixed '.commands |= map(if .check == "chk:a" then .outcome = "passed" | del(.carried_from) else . end)'
+expect_rc "passed and carried records" 0
+verdict_on s-cv-failed '.commands |= map(if .check == "flaky" then .outcome = "failed" | .exit_status = 3 | del(.carried_from) else . end)'
+expect_rc "a carried record beside a failed one" 1
+expect_rule "a carried record beside a failed one" verification/command-failed
+
+echo "--- fix round: shared code reruns the full selection"
+# s-orig-fix-2 passed or carried everything at this head. A round whose diff
+# touches scripts/lib/x.sh (outside every skill, and matched by no entry)
+# carries nothing.
+rm -f "$CR"
+SHARED_BASE=$(git rev-parse HEAD)
+fix_round s-shared s-orig 3 "$SHARED_BASE"
+printf '%s\n' "$(jq -cn --arg h "$SHARED_BASE" '{round: 3, session: "s-shared", base: $h, ts: "t"}')" \
+    >> "$KOTO_STUB_STORE/s-orig/fix_rounds.jsonl"
+change scripts/lib/x.sh
+start s-shared
+grep -qF 'touches shared code (scripts/lib/x.sh)' "$WORKDIR/start.out" \
+    && pass "shared code: --start says the round reruns the full selection" \
+    || fail "shared code: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-shared
+expect_rc "a fix round touching scripts/lib/x.sh" 0
+ran "a fix round touching scripts/lib/x.sh runs everything, with no base" "chk a base= chk b base= flaky base= plain base= "
+jq -e '[.commands[] | select(.outcome == "carried")] | length == 0' "$(result_of s-shared)" >/dev/null 2>&1 \
+    && pass "shared code: no record is carried" || fail "shared code: a record was carried"
+
+# The next round touches only one skill's files, so it still carries the rest.
+rm -f "$CR"
+SKILL_BASE=$(git rev-parse HEAD)
+fix_round s-skillonly s-shared 1 "$SKILL_BASE"
+change skills/a/g.txt
+start s-skillonly
+settle s-skillonly
+expect_rc "a fix round touching only skills/a after the shared round" 0
+ran "a fix round touching only skills/a runs that skill's check and carries the other skills" "chk a base=$SKILL_BASE "
+expect_check "a fix round touching only skills/a" s-skillonly chk:b \
+    ".outcome == \"carried\" and .carried_from == {session: \"s-shared\", head: \"$SKILL_BASE\"}"
+
+echo "--- fix round: the parent verified an earlier head"
+# s-anc verified at ANC1; a later commit touching skills/b is the head the
+# round starts from. The round finds the result at ANC1, an ancestor of its
+# base, and the commit after it is the round's own change: chk:b runs with
+# ANC1 as its base, the rest carry from ANC1.
+rm -f "$CR"
+echo pass > "$FLAKY"
+carry_repo anc
+change skills/a/f.txt skills/b/f.txt top.txt
+start s-anc
+settle s-anc
+expect_rc "the run verified at its earlier head" 0
+ANC1=$(git rev-parse HEAD)
+change skills/b/f.txt
+ANC_BASE=$(git rev-parse HEAD)
+rm -f "$CR"
+fix_round s-anc-fix-1 s-anc 1 "$ANC_BASE"
+start s-anc-fix-1
+grep -qF "carrying from its result at $ANC1, an ancestor of it" "$WORKDIR/start.out" \
+    && pass "an earlier verified head: --start names the result it carries from" \
+    || fail "an earlier verified head: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-anc-fix-1
+expect_rc "a fix round whose parent verified an earlier head" 0
+ran "a commit after the parent's verified head runs that skill's check from that head" "chk b base=$ANC1 "
+for c in chk:a plain flaky; do
+    expect_check "an earlier verified head" s-anc-fix-1 "$c" \
+        ".outcome == \"carried\" and .carried_from == {session: \"s-anc\", head: \"$ANC1\"}"
+done
+
+echo "--- fix round: no result at an ancestor of the base"
+# The base is main's commit, which the parent's verified head descends from,
+# not the other way round: no result counts, and everything runs.
+rm -f "$CR"
+fix_round s-anc-fix-old s-anc 1 "$(git rev-parse main)"
+start s-anc-fix-old
+grep -qF 'or at a done head before it' "$WORKDIR/start.out" \
+    && pass "no ancestor result: --start says nothing is carried" \
+    || fail "no ancestor result: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-anc-fix-old
+expect_rc "a fix round with no ancestor result" 0
+ran "a fix round with no ancestor result runs everything" "chk a base= chk b base= flaky base= plain base= "
 
 # --- the lock, the state directories ------------------------------------------------------
 

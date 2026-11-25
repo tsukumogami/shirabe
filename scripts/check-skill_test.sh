@@ -1179,6 +1179,34 @@ RC=$?
 LISTED=$(printf '%s\n' "$OUT" | grep '^skills/' | sort | tr '\n' ' ' | sed 's/ $//')
 expect_listed "  ... and counts an untracked file" "$ALL_DEMO" "untracked.sh"
 
+# SHIRABE_VERIFY_BASE, a fix round's base, replaces the merge-base: the branch
+# changed caller.sh, then two_test.sh after the base, so only two_test.sh's
+# change is the round's.
+rm -f "$ROOT/skills/demo/scripts/untracked.sh"
+VBASE=$(cd "$ROOT" && git rev-parse HEAD)
+(cd "$ROOT" && printf '# again\n' >> skills/demo/scripts/two_test.sh \
+    && git -c user.name=t -c user.email=t@t commit -qam round) >/dev/null 2>&1
+OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" SHIRABE_VERIFY_BASE="$VBASE" \
+    "$BASH_BIN" "$CHECK_SH" --changed --list demo 2>&1)
+RC=$?
+LISTED=$(printf '%s\n' "$OUT" | grep '^skills/' | sort | tr '\n' ' ' | sed 's/ $//')
+expect_listed "--changed with SHIRABE_VERIFY_BASE diffs against it, not the merge-base" \
+    "skills/demo/scripts/two_test.sh" "diffs against SHIRABE_VERIFY_BASE $VBASE"
+OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" \
+    "$BASH_BIN" "$CHECK_SH" --changed --list demo 2>&1)
+RC=$?
+LISTED=$(printf '%s\n' "$OUT" | grep '^skills/' | sort | tr '\n' ' ' | sed 's/ $//')
+expect_listed "  ... and without it, the same branch diffs against the merge-base" \
+    "skills/demo/scripts/caller_test.sh skills/demo/scripts/two_test.sh"
+OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" SHIRABE_VERIFY_BASE=--output=x \
+    "$BASH_BIN" "$CHECK_SH" --changed --list demo 2>&1)
+RC=$?
+LISTED=$(printf '%s\n' "$OUT" | grep '^skills/' | sort | tr '\n' ' ' | sed 's/ $//')
+expect_listed "  ... and one that names no commit is ignored for the merge-base" \
+    "skills/demo/scripts/caller_test.sh skills/demo/scripts/two_test.sh" "is not a commit here"
+[ ! -e "$ROOT/x" ] && [ ! -e "$WORK/x" ] && pass "  ... and never reaches git as an option" \
+    || fail "SHIRABE_VERIFY_BASE=--output=x wrote a file"
+
 # -- Script cases (check 6) -------------------------------------------------------
 # The trees new_tree builds hold no script case and no git repository, and
 # the check passes them having run none.

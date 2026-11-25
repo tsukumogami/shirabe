@@ -5,8 +5,8 @@ Verify changes, create summary, record the pre-PR referents, clean up artifacts.
 ## What this state must write
 
 Two koto context keys, both before you submit `ready_for_pr` (or before a
-deferral is approved). They are
-checked on the way out of this state and checked again at `pre_pr_evidence`:
+deferral is approved). They are checked on the way out of this state, and no
+later state checks them again:
 
 | Key | Required | Gate |
 |-----|----------|------|
@@ -22,15 +22,14 @@ commit in `HEAD`'s history or a path that isn't committed.
 `scripts/check-pre-pr-referents.sh` makes both checks. koto keeps only the
 gate's exit status, so when one fails, run the script yourself (the template's
 finalization directive gives the command) and read the reason it prints. `not-applicable` is hyphenated and
-needs a reason after it. Don't confuse it with the `not_applicable` evidence
-value you submit later at `pre_pr_evidence`: that one is an enum, this one is a
-line of text, and neither accepts the other's spelling.
+needs a reason after it. Don't confuse it with the `design_diagram:
+not_applicable` evidence value you submit with `ready_for_pr`: that one is an
+enum, this one is a line of text, and neither accepts the other's spelling.
 
-Why here: at `pre_pr_evidence` the same check failing ends the run at
-`done_blocked`, and the run has to be re-entered to fix one artifact. Here a
-failure only holds. A `ready_for_pr` submission with either artifact malformed matches no edge, the
-state stays `finalization`, and the response's `blocking_conditions` names the
-failing gate. Fix that artifact and submit again:
+A failure holds rather than ending the run. A `ready_for_pr` submission with
+either artifact malformed matches no edge, the state stays `finalization`, and
+the response's `blocking_conditions` names the failing gate. Fix that artifact
+and submit again:
 
 - `summary_exists` or `summary_shape` failed: write `summary.md` with a
   `## Changes Made` section.
@@ -41,6 +40,12 @@ failing gate. Fix that artifact and submit again:
   `pre_pr.md`.
 
 The same hold applies to an approved deferral at `deferral_approval`.
+
+A passing `ready_for_pr` goes straight to `pr_precheck`. Both judgment calls are
+required with it, as enums: `cleanup_done` (`removed` or `none_found`) and
+`design_diagram` (`updated` or `not_applicable`). A `ready_for_pr` that leaves
+either out matches no edge and holds, with every record in order. The same two
+fields are required with `approval_decision: approved` at `deferral_approval`.
 
 ## Auto-Skip
 

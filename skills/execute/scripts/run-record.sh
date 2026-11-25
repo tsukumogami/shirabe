@@ -11,7 +11,8 @@
 #
 # Usage: run-record.sh <verb> --session <S> --json <file>
 #
-#   <verb>     setup, push, observe, cascade, follow-up, recover, adopt, carry
+#   <verb>     setup, push, observe, cascade, follow-up, recover, adopt, carry,
+#              pin
 #   <S>        the koto session, ^[A-Za-z0-9][A-Za-z0-9._-]*$
 #   <file>     one JSON object {"<run/ key>": {<fields>}, ...}, one key or more
 #
@@ -33,6 +34,8 @@
 #   adopt      record-coord-setup.sh on a recovering start with --adopt-run
 #   carry      execute-open.sh, restoring a finished session's record into the
 #              session koto replaced it with
+#   pin        build-output-pin.sh: a recorded worktree's path and the base the
+#              run pinned for its build-output cleanup, written once
 #
 # The verb-to-field table (key kind, fields, the verbs that own them). A
 # field outside the verb's row for the key's kind is 65 `not-owner`; a field
@@ -48,6 +51,7 @@
 #   run/cascade            verdict head step         cascade recover carry
 #   run/recovered          pr source                 recover carry
 #   run/adopted            id login at               adopt carry
+#   run/cleanup/*          path pin                  pin carry
 #
 # Values: store github|session; coordination_pr and a node's or follow-up's
 # pr a positive integer; repos a sorted, de-duplicated array of owner/repo;
@@ -61,7 +65,8 @@
 # whitespace in it; removed a boolean; verdict not-run|pushed|failed; step
 # ^execute:[a-z-]+$; recovered's pr a pull request URL and source
 # carried|run-line|markers|minted|adopted; id 32 hex; login a GitHub login; at
-# UTC YYYY-MM-DDTHH:MM:SSZ. A follow-up's pr equals the <n> in its key.
+# UTC YYYY-MM-DDTHH:MM:SSZ. A follow-up's pr equals the <n> in its key. A
+# cleanup key's path is an absolute one-line string and its pin 40 hex.
 #
 # Write semantics. A verb that owns every field of the key's kind replaces the
 # key (setup, cascade, recover, adopt, carry); any other merges into the
@@ -70,12 +75,20 @@
 # one. The result must hold the kind's required fields (run/setup all but
 # run_lines; a node or follow-up repo, pr, head; run/cascade
 # verdict, with head exactly when pushed and step exactly when failed;
-# run/recovered and run/adopted all of theirs).
+# run/recovered, run/adopted and run/cleanup all of theirs).
+#
+# `pin` is write-once: a key the session doesn't hold is written; one it
+# holds with the same value is left alone, with no line; one it holds with a
+# different value is kept as it is, with `kept=<key>`, and the call still
+# exits 0. The first pin stands because the end must clean against the base
+# the run had before its branch merged: a merge base recomputed later is the
+# branch head itself, which would read the branch's own declaration.
 #
 # Preconditions, read from the session: setup, recover and adopt refuse (67)
 # when run/setup exists (a record is recovered only where there is none, and
 # adopt is written just before recover seals it); push, observe, cascade and
-# follow-up refuse (66) when it doesn't;
+# follow-up refuse (66) when it doesn't (pin has no precondition: a single-pr
+# session has no run/setup);
 # push and follow-up refuse (66) a repo outside run/setup's repos; observe
 # refuses (66) a key that doesn't exist yet; carry refuses (67) unless every
 # run/ key the session already holds equals the document's value for it, so
@@ -85,7 +98,8 @@
 # context add <S> <key>` as canonical JSON (`jq -cS`). A failed add exits 70;
 # keys earlier in the same call may already be written then.
 #
-# Output: `written=<key>` per key written. A refusal prints one line,
+# Output: `written=<key>` per key written, and `kept=<key>` per key a pin
+# left at its different recorded value. A refusal prints one line,
 # `refused=<code>` with `key=<k>` and `field=<f>` when they apply, and a
 # diagnostic on stderr. Codes: usage (64); not-owner (65); layout,
 # unknown-field, invalid, incomplete, no-setup, repo-outside, absent (66);
@@ -121,19 +135,20 @@ follow-up	repo pr head removed	follow-up recover carry
 follow-up	merged_head	observe recover carry
 cascade	verdict head step	cascade recover carry
 recovered	pr source	recover carry
-adopted	id login at	adopt carry'
+adopted	id login at	adopt carry
+cleanup	path pin	pin carry'
 
 usage_error() {
     printf 'refused=usage\n'
     echo "$PROG: $*" >&2
-    echo "usage: run-record.sh <setup|push|observe|cascade|follow-up|recover|adopt|carry> --session <koto-session> --json <file>" >&2
+    echo "usage: run-record.sh <setup|push|observe|cascade|follow-up|recover|adopt|carry|pin> --session <koto-session> --json <file>" >&2
     exit 64
 }
 
 [ $# -ge 1 ] || usage_error "a verb is required"
 VERB="$1"; shift
 case "$VERB" in
-    setup|push|observe|cascade|follow-up|recover|adopt|carry) ;;
+    setup|push|observe|cascade|follow-up|recover|adopt|carry|pin) ;;
     *) usage_error "unknown verb [$VERB]" ;;
 esac
 SESSION=""; FILE=""
@@ -187,6 +202,7 @@ VERDICT=$(jq -nc --arg verb "$VERB" --arg owners "$OWNERS" --arg keyre "$RR_KEY_
         elif . == "run/adopted" then "adopted"
         elif startswith("run/node/") then "node"
         elif startswith("run/follow-up/") then "follow-up"
+        elif startswith("run/cleanup/") then "cleanup"
         else "" end;
       def in_layout: test($keyre) and (startswith("run/node/coordination") | not)
         and (startswith("run/follow-up/coordination/") | not);
@@ -227,6 +243,8 @@ VERDICT=$(jq -nc --arg verb "$VERB" --arg owners "$OWNERS" --arg keyre "$RR_KEY_
         elif $f == "id" then is_str("^[0-9a-f]{32}$")
         elif $f == "login" then is_str("^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}$")
         elif $f == "at" then is_str("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
+        elif $f == "path" then type == "string" and startswith("/") and (test("[\n\r]") | not)
+        elif $f == "pin" then is_sha
         else false end;
       # A verb that owns every field of a kind replaces the key; any other
       # merges into the stored object.
@@ -238,6 +256,7 @@ VERDICT=$(jq -nc --arg verb "$VERB" --arg owners "$OWNERS" --arg keyre "$RR_KEY_
           elif $kind == "node" or $kind == "follow-up" then ["repo", "pr", "head"]
           elif $kind == "cascade" then ["verdict"]
           elif $kind == "recovered" then ["pr", "source"]
+          elif $kind == "cleanup" then ["path", "pin"]
           else ["id", "login", "at"] end
         | map(select(. as $f | $o | has($f) | not)) | .[0]
         | if . == null and $kind == "cascade" then
@@ -292,9 +311,16 @@ VERDICT=$(jq -nc --arg verb "$VERB" --arg owners "$OWNERS" --arg keyre "$RR_KEY_
                         then err(66; "repo-outside"; $k; "repo")
                       else empty end ]
                   | first_or(
-                      # The writes: sorted, run/setup last.
-                      {writes: [ (($keys | map(select(. != "run/setup"))) + ($keys | map(select(. == "run/setup"))))[] as $k
-                                 | [$k, merged($k)] ]}))))
+                      # The writes: sorted, run/setup last. A pin writes only
+                      # a key the session lacks, and names a key it holds
+                      # with another value as kept.
+                      (($keys | map(select(. != "run/setup"))) + ($keys | map(select(. == "run/setup")))) as $order
+                      | if $verb == "pin" then
+                          {writes: [ $order[] as $k | select($cur | has($k) | not) | [$k, merged($k)] ],
+                           kept: [ $order[] as $k | select(($cur | has($k)) and $cur[$k] != merged($k)) | $k ]}
+                        else
+                          {writes: [ $order[] as $k | [$k, merged($k)] ], kept: []}
+                        end))))
     ') || { echo "$PROG: the record check could not run" >&2; printf 'failed=koto-read\n'; exit 70; }
 
 if printf '%s' "$VERDICT" | jq -e 'has("refuse")' >/dev/null; then
@@ -317,4 +343,5 @@ while [ "$i" -lt "$N" ]; do
     }
     printf 'written=%s\n' "$K"
 done
+printf '%s' "$VERDICT" | jq -r '.kept[] | "kept=" + .'
 exit 0
