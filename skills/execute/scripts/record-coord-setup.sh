@@ -32,6 +32,7 @@
 #                 HEAD and the remote's default branch are refused.
 #   plan_abs      the PLAN's absolute path in this checkout, which outline
 #                 children receive as PLAN_DOC (node branches don't carry it).
+#                 work-on's fix-round.sh reads it too, as a round's PLAN_DOC.
 #
 # All four are fixed for the run: a re-run that computes the same values is a
 # no-op, and one that computes a different value refuses rather than moving

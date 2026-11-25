@@ -306,21 +306,60 @@ Two limits are residual. The watchdog polls, so a fork storm can overshoot `max_
 briefly before the group is killed; and a descendant that starts its own session or process
 group escapes the count and the kill.
 
+### A fix round's carry
+
+A `/work-on` fix round (`fix-round.sh`) is a new session whose context holds
+`fix_round.json` (`{from, round, base}`), `base` being the head the run it follows left.
+That run is the previous round, the line before this session's in the original's
+`fix_rounds.jsonl`, or `from` for the first round. The launcher reads that run's result
+at `base`, at the path `--locate` gives for that session and head. When there is none,
+it takes the newest result with status `done` that the session wrote at an ancestor of
+`base`: a run that reached `done` often committed after its verification, at
+finalization or to fix CI on its pull request. The head of the result used is the carry
+base. The round's own diff is `git diff --name-only <carry base>..HEAD`, selected through
+the same map, so the commits between the parent's verified head and the round's base
+count as the round's changes. Selection for the result is still the merge-base diff, so
+the round's result holds the same checks a full run's would. Each of them then:
+
+- is carried, not run, when the parent's record for it passed (`passed` or `carried`)
+  with the same `argv` and the round's diff doesn't select it; `carried_from` names the
+  parent session and the carry base;
+- runs when the round's diff selects it, and an `each` row's command gets
+  `SHIRABE_VERIFY_BASE=<carry base>` in its environment, so
+  `scripts/check-skill.sh --changed` picks suites from the round's diff rather than the
+  merge-base's;
+- runs as in a full run, without `SHIRABE_VERIFY_BASE`, when the parent failed it,
+  timed out or never ran it.
+
+A round that touches shared code reruns the full selection. When the round's diff holds
+a path outside one skill's directory (anything not under `skills/<name>/`) or a path no
+map entry matches, nothing is carried: such a path selects no check for the skills whose
+suites may run it, and a carried pass for them would have been made with the old code.
+
+The carry is also off, and everything selected runs, when the session has no
+`fix_round.json`, when it has `fresh: true` (`fix-round.sh start --fresh`), when
+`SHIRABE_VERIFY_FULL=1` is in the launcher's environment, when koto isn't on `PATH`, or
+when the parent has no result at `base` or at a `done` head before it. The launcher says
+on stderr why. koto runs the launcher in a cleared environment, so the variable takes
+effect on a `--start` run by hand; a result already at the head stands until it is moved
+aside.
+
 ### Command records
 
-The result lists one record per command run, with its `id` (the map row's id), its
-`check`, `argv`, `exit_status`, `duration_secs`, `log`, the `timed_out`, `runaway` and
-`not_started` flags, and two fields that say how it ended. `check` names the check the
+The result lists one record per selected command, run or carried, with its `id` (the map
+row's id), its `check`, `argv`, `exit_status`, `duration_secs`, `log`, the `timed_out`,
+`runaway` and `not_started` flags, and two fields that say how it ended. `check` names the check the
 record is: the row id for a plain row, and `<row id>:<last argv>` for an `each` row
 (`check-skill:coordinate`), so two runs of one row are told apart. The result itself carries
 `finished_at`, the UTC time it was written; a hosted-of-record record can't be taken
 before it.
 
-- `outcome` — one of four values:
+- `outcome` — one of five values:
 
   | `outcome` | When |
   |-----------|------|
   | `passed` | The command exited 0 inside its limit. |
+  | `carried` | It didn't run: the session is a fix round, the run it follows passed this check (same `check`, same `argv`) at the carry base, the round's own diff doesn't select it, and that diff touches no shared code. See **A fix round's carry**. |
   | `timed-out-limit` | The supervisor stopped it at its `timeout_secs` (or at the run's budget), and its suite summary lists no finished-failed suite, or it wrote no summary. `timed_out` is `true`. |
   | `timed-out-inside` | It exited nonzero inside its limit, its row declares `timeout_form`, its log reports at least one failure line, and every failure line matches the form. `timed_out` is `false`. |
   | `failed` | Anything else: a nonzero exit that isn't `timed-out-inside`, a stop at the limit whose summary lists a finished-failed suite, a runaway, or a command that never started. The `runaway` and `not_started` flags still say which of the last two it was, and neither is ever a timeout. |
@@ -342,7 +381,12 @@ before it.
   into place, so a command killed outright still leaves the last whole summary. It unsets
   the variable before any suite runs, so a suite can't write the summary itself.
 
-The verdict reads `outcome`. A `failed` record exits 1, a stop at the limit with a
+- `carried_from` — on a `carried` record only: `{"session", "head"}`, the session and
+  head whose result the check was carried from. The record keeps that result's `id`,
+  `check` and `argv`, with `exit_status` 0, `duration_secs` 0, `not_started`, `timed_out`
+  and `runaway` false, and `pgid`, `log` and `suites` null.
+
+The verdict reads `outcome`. A `carried` record counts as `passed`. A `failed` record exits 1, a stop at the limit with a
 finished-failed suite included, since that suite says the change broke something. A
 `timed-out-limit` or `timed-out-inside` record exits 5 when the hosted-of-record route is
 open and 4 when it isn't. A record without `outcome` (a result written before outcomes
@@ -358,7 +402,7 @@ for the current head. A settled result is also recorded in koto context as
 | Exit | Meaning | `rule_id` |
 |------|---------|-----------|
 | 75 | no result for this head yet; the gate waits | none |
-| 0 | every selected command ran and passed | none |
+| 0 | every selected command ran and passed, or was carried | none |
 | 1 | a check failed (`outcome: failed`), including a stop at its limit with a finished-failed suite | `verification/command-failed` |
 | 3 | no map at the merge-base, or a map that selects nothing | `verification/no-map` |
 | 3 | a map that does not parse | `verification/bad-map` |
@@ -369,7 +413,8 @@ for the current head. A settled result is also recorded in koto context as
 | 4 | tracked files had uncommitted changes | `verification/dirty-tree` |
 | 5 | a check timed out, no check failed, and the hosted-of-record route is open: the timed-out hold | `verification/timed-out` (as at exit 4) |
 | 2 | the result could not be read | none; the gate holds |
-| 2 | the supervisor stopped before every command ran | none; the gate holds |
+| 2 | the supervisor stopped before every command ran (`supervisor-error`) | none; the gate holds |
+| 2 | a build-output removal was still running when the run's budget ran out, and no command started (`removal-running`) | none; the gate holds |
 
 A runaway kill, a command that could not start and a command that needs a person exit 4,
 never 1: none of them says the change is wrong, so none sends the run back to
@@ -387,6 +432,15 @@ to go on: move the result aside and tick to run the suite again, or submit
 `verification_status: blocked` to stop the run. The launcher reuses a result already on disk
 for the same head and merge-base, so a held tick never starts a new suite on its own; only
 moving the stopped result aside does.
+
+A build-output removal (see [`build_output`](#build_output)) deletes in the background after
+it returns. A build started in the same work tree while it deletes competes with it for the
+disk, so before its first command the supervisor waits, inside the run's budget, while any
+removal record in the work tree's git directory reads as still running. When the budget runs
+out first, it starts no command and writes a `removal-running` result naming the record. The
+gate holds on it exactly as on a stopped supervisor, and the result is never eligible for a
+re-run. `run-verification.sh --await-removals` makes the same check once, and work-on's
+`await_removals` gate runs it before setup, whose baseline builds.
 
 The whole run has a budget too: two hours, the length of the gate's wait. A command still
 running when the budget runs out is killed and reported as `verification/timed-out`, and the

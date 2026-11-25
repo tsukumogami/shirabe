@@ -21,12 +21,26 @@
 # that gate too while it runs, so a round that ends at `done_blocked` is the
 # parent's failure as well.
 #
-# Usage: fix-round.sh start --from <session> [--fresh]
+# Usage: fix-round.sh start --from <session> [--fresh] [--fix-report <text>]
+#
+#   --fix-report  the round's own report: the CI failure or review finding
+#            that caused it. It becomes the round's FIX_REPORT in place of the
+#            run's, so fix_determination records the round as a fix (source
+#            `step`) and stores the text as its fix_report.txt, the passage a
+#            red is found in. koto's variable allowlist applies: it starts
+#            with a letter or digit and holds only letters, digits, spaces and
+#            . _ / : @ + -; anything else is a usage error (exit 64) before
+#            anything starts. Without it the round copies the run's
+#            FIX_REPORT, empty or not.
 #
 #   --from   the run that reached `done`, or one of its fix rounds, which
 #            resolves to the run it was started for. Rounds are counted
 #            against that original run, never nested.
-#   --fresh  inherit no verdicts: every panel of the round reviews in full.
+#   --fresh  carry nothing from the run the round follows: no verdicts are
+#            inherited, so every panel of the round reviews in full, and
+#            `fresh: true` is written into the round's fix_round.json, so its
+#            verification runs every selected check rather than carrying the
+#            ones that run passed (run-verification.sh's header).
 #
 # Refused (exit 1, a `refused=<reason>` line on stdout, nothing written):
 #
@@ -58,7 +72,8 @@
 #
 # Started (exit 0): prints `session=<original>-fix-<n>`, `round=<n>` and the
 # `inherited=` line. The
-# new session's context has `fix_round.json` ({from, round, base}), and the
+# new session's context has `fix_round.json` ({from, round, base}, and
+# `fresh: true` under --fresh), and the
 # original's context has `fix_rounds.jsonl`, one line per round started
 # ({round, session, base, ts}), so the run that reached `done` names every
 # round whose review and verification were recorded for it. `base` is HEAD as
@@ -66,8 +81,10 @@
 # the entry evidence the original was given.
 #
 # The variables are the original's, read from the first initialization in its
-# own state log, except REVIEW_LEVEL and UNIT_KIND, which the round chooses
-# and determines again, and PLUGIN_ROOT, which is this plugin's. Empty values
+# own state log, with three exceptions. REVIEW_LEVEL and UNIT_KIND are left
+# out, since the round chooses and determines them again. PLUGIN_ROOT is this
+# plugin's. PLAN_DOC is the parent's plan_abs when the parent records one that
+# differs (see the block above the init below). Empty values
 # are left out, so each takes the template's default. The template is this
 # plugin's work-on.md, not the path the original recorded, which a plugin
 # update may have removed.
@@ -106,12 +123,26 @@ CRITERIA_KEY=review_level_criteria.txt
 FRESH=0
 [ $# -ge 3 ] && [ "$1" = start ] && [ "$2" = --from ] || usage
 FROM=$3
-case $# in
-    3) ;;
-    4) [ "$4" = --fresh ] || usage; FRESH=1 ;;
-    *) usage ;;
-esac
+shift 3
+OWN_REPORT=""
+HAVE_REPORT=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --fresh) [ "$FRESH" = 0 ] || usage; FRESH=1; shift ;;
+        --fix-report)
+            [ $# -ge 2 ] && [ "$HAVE_REPORT" = 0 ] || usage
+            OWN_REPORT=$2; HAVE_REPORT=1; shift 2 ;;
+        *) usage ;;
+    esac
+done
 [[ $FROM =~ $RE_SESSION ]] || usage
+# koto takes a variable value only inside its allowlist, so a report outside
+# it is refused here, before anything starts, rather than by koto init.
+RE_REPORT='^[a-zA-Z0-9][a-zA-Z0-9._/:@+ -]*$'
+if [ "$HAVE_REPORT" = 1 ] && ! [[ $OWN_REPORT =~ $RE_REPORT ]]; then
+    echo "fix-round: --fix-report must start with a letter or digit and hold only letters, digits, spaces and . _ / : @ + -" >&2
+    exit 64
+fi
 
 command -v koto >/dev/null || die 2 "the koto CLI is not on PATH"
 command -v jq >/dev/null || die 2 "the jq CLI is not on PATH"
@@ -161,22 +192,56 @@ if [ -n "$SHARED" ]; then
     [ "$CURRENT" = "$SHARED" ] || refuse wrong-branch "$ORIG worked on $SHARED, and HEAD is on $CURRENT"
 fi
 
+# A plan-backed child's PLAN_DOC is the parent's plan_abs as it was when the
+# child was opened. When the parent's checkout has moved since, its plan_abs was
+# re-rooted (record-coord-setup.sh --reroot-plan), and the round reads the PLAN
+# there. The parent is read in the directory it is bound to, since a session
+# answers only there; a unit with no plan never reads it. A parent bound to a
+# directory that no longer exists is refused rather than read from here, where
+# it could look like a parent with no plan_abs and leave the round on the old
+# path.
+CHILD_PLAN_DOC=$(printf '%s' "$VARS" | jq -r '.PLAN_DOC // empty')
+if [ -n "$CHILD_PLAN_DOC" ] && [ -n "$PARENT" ]; then
+    PARENT_DIR=$(koto session list | jq -r --arg s "$PARENT" 'map(select(.id == $s))[0].execution_dir // empty') \
+        || die 2 "could not read the directory of $PARENT"
+    if [ -z "$PARENT_DIR" ]; then
+        PARENT_DIR=.
+    elif [ ! -d "$PARENT_DIR" ]; then
+        die 2 "$PARENT is bound to $PARENT_DIR, which no longer exists; rebind it to its checkout (koto session rebind) and start the round again"
+    fi
+    (cd "$PARENT_DIR" && koto context exists "$PARENT" plan_abs >/dev/null)
+    case $? in
+        0)
+            PARENT_PLAN_ABS=$(cd "$PARENT_DIR" && koto context get "$PARENT" plan_abs) \
+                || die 2 "could not read plan_abs from $PARENT"
+            if [ -n "$PARENT_PLAN_ABS" ] && [ "$PARENT_PLAN_ABS" != "$CHILD_PLAN_DOC" ]; then
+                VARS=$(printf '%s' "$VARS" | jq -c --arg p "$PARENT_PLAN_ABS" '.PLAN_DOC = $p') \
+                    || die 2 "could not set the round's PLAN_DOC"
+            fi
+            ;;
+        1) ;; # the parent records no plan_abs: the round keeps the child's PLAN_DOC
+        *) die 2 "could not read whether $PARENT records plan_abs" ;;
+    esac
+fi
+
 ARGS=(init "$NAME" --template "$TEMPLATE")
 [ -n "$PARENT" ] && ARGS+=(--parent "$PARENT")
 while IFS= read -r kv; do
     [ -n "$kv" ] && ARGS+=(--var "$kv")
-done < <(printf '%s' "$VARS" | jq -r '
+done < <(printf '%s' "$VARS" | jq -r --argjson own "$HAVE_REPORT" '
     to_entries[]
     | select(.key != "REVIEW_LEVEL" and .key != "UNIT_KIND" and .key != "PLUGIN_ROOT")
+    | select($own == 0 or .key != "FIX_REPORT")
     | select((.value | tostring) != "")
     | "\(.key)=\(.value)"')
 ARGS+=(--var "PLUGIN_ROOT=$PLUGIN_ROOT_SELF")
+[ "$HAVE_REPORT" = 0 ] || ARGS+=(--var "FIX_REPORT=$OWN_REPORT")
 
 koto "${ARGS[@]}" >/dev/null || die 2 "koto init $NAME failed"
 
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-jq -nc --arg from "$ORIG" --argjson round "$N" --arg base "$BASE" \
-    '{from: $from, round: $round, base: $base}' | koto context add "$NAME" "$ROUND_KEY" >/dev/null \
+jq -nc --arg from "$ORIG" --argjson round "$N" --arg base "$BASE" --argjson fresh "$FRESH" \
+    '{from: $from, round: $round, base: $base} + (if $fresh == 1 then {fresh: true} else {} end)' | koto context add "$NAME" "$ROUND_KEY" >/dev/null \
     || die 2 "the round $NAME started, but $ROUND_KEY could not be stored in it"
 { [ -n "$ROUNDS" ] && printf '%s\n' "$ROUNDS"
   jq -nc --argjson round "$N" --arg session "$NAME" --arg base "$BASE" --arg ts "$TS" \

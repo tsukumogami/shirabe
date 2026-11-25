@@ -812,22 +812,23 @@ expect_open "non-closing: ISSUE_REPO naming the PR's repo in another case takes 
 unset ISSUE_REPO
 
 # --- the script's log probe -----------------------------------------------------
-# Did this pass reach pre_pr_evidence through the engine's approved transition
-# out of deferral_approval, with no return to finalization or
-# deferral_approval since?
+# Did this pass reach pr_precheck through the engine's approved transition out
+# of deferral_approval, with no return to finalization or deferral_approval
+# since? A log from the template that still had pre_pr_evidence arrived there
+# instead, and its own step on to pr_precheck is not an arrival.
 LOGS=$(mktemp -d) || exit 1; TMPS+=("$LOGS")
 PROBE_LOG="$LOGS/koto-run.state.jsonl"
 HDR='{"schema_version":1,"workflow":"work-on"}'
 # ev <type> <from> <to>: one event line, in the shape koto writes.
 ev() { printf '{"seq":1,"timestamp":"t","type":"%s","payload":{"from":"%s","to":"%s"}}' "$1" "$2" "$3"; }
-UP_TO_APPROVAL="$(ev transitioned implementation finalization)
+UP_TO_DEFERRAL="$(ev transitioned implementation finalization)
 $(ev transitioned finalization deferral_approval)
-{\"seq\":1,\"type\":\"decision_recorded\",\"payload\":{\"state\":\"deferral_approval\",\"decision\":{\"choice\":\"approve\"}}}
-$(ev transitioned deferral_approval pre_pr_evidence)"
+{\"seq\":1,\"type\":\"decision_recorded\",\"payload\":{\"state\":\"deferral_approval\",\"decision\":{\"choice\":\"approve\"}}}"
+UP_TO_APPROVAL="$UP_TO_DEFERRAL
+$(ev transitioned deferral_approval pr_precheck)"
 APPROVED="$HDR
 $UP_TO_APPROVAL
 {\"seq\":1,\"type\":\"evidence_submitted\",\"payload\":\"not an object\"}
-$(ev transitioned pre_pr_evidence pr_precheck)
 $(ev transitioned pr_precheck pr_creation)"
 # expect_probe <label> <want> <log content>
 expect_probe() {
@@ -847,41 +848,60 @@ expect_probe "probe: a header-less log reads" 0 "$UP_TO_APPROVAL"
 expect_probe "probe: a recount back through finalization to ready_for_pr is not approved" 1 "$APPROVED
 $(ev transitioned pr_creation pr_precheck)
 $(ev transitioned pr_precheck finalization)
-$(ev transitioned finalization pre_pr_evidence)
-$(ev transitioned pre_pr_evidence pr_precheck)
+$(ev transitioned finalization pr_precheck)
 $(ev transitioned pr_precheck pr_creation)"
 expect_probe "probe: a return to finalization with no arrival since is not approved" 1 "$APPROVED
 $(ev transitioned pr_creation finalization)"
 expect_probe "probe: a directed move into deferral_approval cancels the approval" 1 "$APPROVED
 $(ev directed_transition pr_creation deferral_approval)"
+# An arrival into pr_precheck is any move into it, wherever it comes from: a
+# later one that isn't the approved transition replaces the approval as the
+# pass's arrival.
+expect_probe "probe: a later arrival into pr_precheck from pr_creation is not approved" 1 "$APPROVED
+$(ev transitioned pr_creation pr_precheck)
+$(ev transitioned pr_precheck pr_creation)"
+expect_probe "probe: a later directed arrival into pr_precheck from pr_creation is not approved" 1 "$APPROVED
+$(ev directed_transition pr_creation pr_precheck)"
 expect_probe "probe: a directed arrival from deferral_approval is not approved" 1 "$HDR
-$(ev transitioned implementation finalization)
-$(ev transitioned finalization deferral_approval)
-$(ev directed_transition deferral_approval pre_pr_evidence)
-$(ev transitioned pre_pr_evidence pr_creation)"
+$UP_TO_DEFERRAL
+$(ev directed_transition deferral_approval pr_precheck)
+$(ev transitioned pr_precheck pr_creation)"
 # The same log twice, differing only in the latest arrival's type: the
 # directed one is what makes the answer no.
 expect_probe "probe: a later transitioned arrival from deferral_approval is approved" 0 "$HDR
 $UP_TO_APPROVAL
-$(ev transitioned deferral_approval pre_pr_evidence)"
+$(ev transitioned deferral_approval pr_precheck)"
 expect_probe "probe: a later directed arrival after an approval is not approved" 1 "$HDR
 $UP_TO_APPROVAL
-$(ev directed_transition deferral_approval pre_pr_evidence)"
+$(ev directed_transition deferral_approval pr_precheck)"
 expect_probe "probe: a rewind into pr_creation after the approval keeps it" 0 "$APPROVED
 $(ev transitioned pr_creation done_blocked)
 $(ev rewound done_blocked pr_creation)"
-expect_probe "probe: a rewind into pre_pr_evidence after the approval keeps it" 0 "$APPROVED
-$(ev rewound pr_creation pre_pr_evidence)"
+expect_probe "probe: a rewind into pr_precheck after the approval keeps it" 0 "$APPROVED
+$(ev rewound pr_creation pr_precheck)"
 expect_probe "probe: a rewind to finalization after the approval is not approved" 1 "$APPROVED
 $(ev rewound pr_creation finalization)"
 expect_probe "probe: a rewind out of deferral_approval is no arrival" 1 "$HDR
-$(ev transitioned finalization pre_pr_evidence)
-$(ev transitioned pre_pr_evidence deferral_approval)
-$(ev rewound deferral_approval pre_pr_evidence)"
+$(ev transitioned finalization pr_precheck)
+$(ev transitioned pr_precheck deferral_approval)
+$(ev rewound deferral_approval pr_precheck)"
 expect_probe "probe: an arrival from finalization is not approved" 1 "$HDR
 $(ev transitioned implementation finalization)
+$(ev transitioned finalization pr_precheck)
+$(ev transitioned pr_precheck pr_creation)"
+# A log written by the template from before pre_pr_evidence was removed: the
+# approved transition went to pre_pr_evidence, which then stepped on to
+# pr_precheck. That step isn't an arrival, so the pass still reads approved.
+expect_probe "probe: an old-template log through pre_pr_evidence is approved" 0 "$HDR
+$UP_TO_DEFERRAL
+$(ev transitioned deferral_approval pre_pr_evidence)
+$(ev transitioned pre_pr_evidence pr_precheck)
+$(ev transitioned pr_precheck pr_creation)"
+expect_probe "probe: an old-template arrival from finalization is not approved" 1 "$HDR
+$(ev transitioned implementation finalization)
 $(ev transitioned finalization pre_pr_evidence)
-$(ev transitioned pre_pr_evidence pr_creation)"
+$(ev transitioned pre_pr_evidence pr_precheck)
+$(ev transitioned pr_precheck pr_creation)"
 expect_probe "probe: a header alone is not approved" 1 "$HDR"
 expect_probe "probe: a line that isn't JSON holds" 2 "$APPROVED
 not json"
@@ -955,8 +975,7 @@ expect "gate, approved pass then a rewind into pr_creation: still non-closing" 0
 RECOUNT="$APPROVED
 $(ev transitioned pr_creation pr_precheck)
 $(ev transitioned pr_precheck finalization)
-$(ev transitioned finalization pre_pr_evidence)
-$(ev transitioned pre_pr_evidence pr_precheck)
+$(ev transitioned finalization pr_precheck)
 $(ev transitioned pr_precheck pr_creation)"
 printf '%s\n' "$RECOUNT" > "$GATE_LOG"
 expect "gate, recount: Fixes #N passes" 0 42 "Fixes #42"
@@ -967,7 +986,7 @@ unset ISSUE_REPO
 # A directed arrival from deferral_approval is no approval either.
 printf '%s\n' "$HDR
 $UP_TO_APPROVAL
-$(ev directed_transition deferral_approval pre_pr_evidence)" > "$GATE_LOG"
+$(ev directed_transition deferral_approval pr_precheck)" > "$GATE_LOG"
 expect "gate, directed arrival: Fixes #N passes" 0 42 "Fixes #42"
 expect "gate, directed arrival: Part of #N fails" 1 42 "Part of #42"
 

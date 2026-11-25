@@ -199,6 +199,9 @@
 #      coordination mode `run/cascade` {verdict:
 #      pushed, head} (`run-record.sh cascade`). A refused or failed write is
 #      exit 70, and nothing is rendered;
+#   5c. node mode: pin the node worktree's build-output base
+#      (`build-output-pin.sh --id <node-id> --fetch`, run/cleanup/<node-id>,
+#      written once); it prints only to stderr and changes no exit code;
 #   6. render the coordination PR's body from the record: coord-render.sh,
 #      which observes merges, validates the body with
 #      `shirabe validate --coordination-body`, and posts it with
@@ -933,6 +936,18 @@ fi
 if ! "$BASH" "$COORD_SELF_DIR/run-record.sh" "$RR_VERB" --session "$SESSION" --json "$WORK/record.json" </dev/null >&2; then
     echo "$PROG: the run record write failed; the push happened, and the coordination PR's body was not rendered" >&2
     exit 70
+fi
+
+# 5c. The node worktree's build-output pin (run/cleanup/<node>), on every push:
+# the pin is write-once, so only the first push's merge base stands, and the
+# first push comes before the node's PR exists, so before its work can merge.
+# The merge base is computed in the node's own clone, after a fetch there, and
+# the koto write runs here, where the session answers. Its output goes to
+# stderr and it exits 0 whatever happens, so this script's lines and exit
+# code don't depend on it.
+if [ "$MODE" = node ]; then
+    "$BASH" "$COORD_SELF_DIR/build-output-pin.sh" --session "$SESSION" --id "$NODE" --worktree "$GIT_WT" --fetch \
+        </dev/null >&2 || true
 fi
 
 # 6. The body, rendered from the record just written.

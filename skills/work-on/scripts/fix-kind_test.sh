@@ -9,6 +9,9 @@
 #              label and no Fixes line is a change; a Fixes line (--fix-report)
 #              is a fix with source step and is the report, not the issue
 #              body; a free-form task's text comes from the event log; a
+#              plan-outline child never reads the issue that shares its
+#              outline number (its report is the Fixes line, else
+#              context.md), and an issue-backed child still does; a
 #              label removed later leaves a fix a fix; a change later
 #              labelled becomes a fix; an empty --current is restored from
 #              the ledger, a non-empty one left alone; the rebind carries
@@ -20,6 +23,10 @@
 #              in the ledger, still a fix; a change: nothing to withdraw
 #   agree      passes on a match; holds on a hand rebind naming the source,
 #              on an empty variable, and with no determination
+#   kind       --exit answers 0 a change, 3 a fix, 4 nothing recorded;
+#              --current agreeing keeps the code, disagreeing exits 1, empty
+#              lets the ledger decide; --current without --exit, or a bad
+#              value, is a usage error
 #   failures   gh can't read the issue, the rebind fails, the ledger write
 #              fails (the variable is put back), a duplicate Fix Labels
 #              header, and usage errors
@@ -212,6 +219,40 @@ run resolve s6 --task-log "$LOG"
 eq "a free-form task: change, and its text is the report" "change|greet.sh accepts an empty name" "$(var s6 UNIT_KIND)|$(cat "$STORE/s6/fix_report.txt")"
 eq "a free-form task: report_source task" task "$(ledger s6 | jq -r .report_source)"
 
+# A plan-outline child (#2105): its ISSUE_NUMBER is the PLAN's outline
+# number, not a GitHub issue, so the issue that shares the number is never
+# read. With no Fixes line its report is context.md.
+new_session s6p
+LOG="$W/s6p.state.jsonl"
+printf '%s\n' '{"type":"workflow_initialized","payload":{"variables":{"ISSUE_SOURCE":"plan_outline","ISSUE_NUMBER":"4"}}}' > "$LOG"
+printf '%s\n' "## Step 4: thread zones to the render seam" > "$STORE/s6p/context.md"
+GH_ISSUE=$(issue "the body of an unrelated issue 4" "")
+run resolve s6p --issue 4 --task-log "$LOG"
+eq "a plan_outline child: determine kind=change report_source=context" "determine kind=change report_source=context" \
+    "$(ledger s6p | jq -r '"\(.event) kind=\(.kind) report_source=\(.report_source)"')"
+eq "a plan_outline child: context.md is the report" "## Step 4: thread zones to the render seam" "$(cat "$STORE/s6p/fix_report.txt")"
+# gh would fail here, and a label on that issue would make the unit a fix:
+# neither happens, since the issue isn't read.
+new_session s6q
+printf '%s\n' "## Step 4" > "$STORE/s6q/context.md"
+GH_ISSUE=$(issue "an unrelated bug" "bug")
+GH_FAIL=1 run resolve s6q --issue 4 --task-log "$LOG"
+eq "a plan_outline child: gh is never called, and the label of issue 4 makes no fix" "0|change|context" \
+    "$RC|$(var s6q UNIT_KIND)|$(ledger s6q | jq -r .report_source)"
+# Its Fixes line is still the report, and makes it a fix.
+new_session s6r
+run resolve s6r --issue 4 --task-log "$LOG" --fix-report "zones are dropped at the render seam"
+eq "a plan_outline child with a Fixes line: a fix, and the line is the report" "fix|step|zones are dropped at the render seam" \
+    "$(var s6r UNIT_KIND)|$(ledger s6r | jq -r .source)|$(cat "$STORE/s6r/fix_report.txt")"
+# A child that isn't plan-backed from an outline reads its issue as before.
+new_session s6g
+LOG="$W/s6g.state.jsonl"
+printf '%s\n' '{"type":"workflow_initialized","payload":{"variables":{"ISSUE_SOURCE":"github","ISSUE_NUMBER":"4"}}}' > "$LOG"
+GH_ISSUE=$(issue "issue 4 says greet.sh is broken" "bug")
+run resolve s6g --issue 4 --task-log "$LOG"
+eq "an issue-backed child: the issue's label and body, as before" "fix|label:bug|issue|issue 4 says greet.sh is broken" \
+    "$(var s6g UNIT_KIND)|$(ledger s6g | jq -r .source)|$(ledger s6g | jq -r .report_source)|$(cat "$STORE/s6g/fix_report.txt")"
+
 # --- a fix stays a fix -----------------------------------------------------------
 GH_ISSUE=$(issue "body" "")
 run resolve s1 --current fix --issue 7
@@ -264,7 +305,7 @@ has "declare on a fix: says so" "already a fix (source declared)" "$OUT"
 new_session s9 implementation
 run declare s9 --reason late
 eq "declare from implementation: exit 1" 1 "$RC"
-has "declare from implementation: refused naming the state" "refused: a fix is declared at fix_determination" "$OUT"
+has "declare from implementation: refused naming the state" "refused: a fix is declared at analysis" "$OUT"
 eq "declare from implementation: no ledger" "" "$(ledger s9)"
 new_session s9b analysis
 run declare s9b --reason "on a return to analysis"
@@ -285,6 +326,40 @@ run resolve s10 --issue 12
 run withdraw s10
 eq "withdraw a change: exit 0" 0 "$RC"
 has "withdraw a change: nothing to withdraw" "nothing to withdraw" "$OUT"
+
+# --- kind --exit -----------------------------------------------------------------
+# fix_determination's kind_route gate: the exit status is the route.
+run kind s10 --exit
+eq "kind --exit on a change: exit 0" 0 "$RC"
+eq "kind --exit on a change: prints the kind" change "$OUT"
+run kind s1 --exit
+eq "kind --exit on a fix: exit 3" 3 "$RC"
+eq "kind --exit on a fix: prints the kind" fix "$OUT"
+new_session k1
+run kind k1 --exit
+eq "kind --exit with nothing recorded: exit 4" 4 "$RC"
+eq "kind --exit with nothing recorded: nothing on stdout" "" "$OUT"
+run kind k1
+eq "kind without --exit and nothing recorded: exit 0" 0 "$RC"
+run kind s10 --exit --current change
+eq "kind --exit, --current agreeing on a change: exit 0" 0 "$RC"
+run kind s1 --exit --current fix
+eq "kind --exit, --current agreeing on a fix: exit 3" 3 "$RC"
+run kind s1 --exit --current ""
+eq "kind --exit, an empty --current: the ledger decides" 3 "$RC"
+run kind s1 --exit --current change
+eq "kind --exit, --current disagreeing: exit 1" 1 "$RC"
+has "kind --exit, --current disagreeing: a hold line naming both" "hold: UNIT_KIND is change but the ledger records fix" "$(cat "$W/err")"
+run kind s10 --exit --current fix
+eq "kind --exit, --current fix on a change: exit 1" 1 "$RC"
+run kind s1 --current fix
+eq "kind --current without --exit: exit 64" 64 "$RC"
+run kind s1 --exit --current maybe
+eq "kind --exit, a bad --current value: exit 64" 64 "$RC"
+run kind s1 --exit --current
+eq "kind --exit, --current with no value: exit 64" 64 "$RC"
+run kind s1 --frob
+eq "kind with an unknown flag: exit 64" 64 "$RC"
 
 # --- failures ------------------------------------------------------------------
 new_session f1

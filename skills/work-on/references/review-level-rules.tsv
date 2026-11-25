@@ -141,6 +141,7 @@ class	engine	skills/work-on/scripts/decision-reasons.sh
 class	engine	skills/work-on/scripts/find-anchor-plan.sh
 class	engine	skills/work-on/scripts/fix-kind.sh
 class	engine	skills/work-on/scripts/has-commits.sh
+class	engine	skills/work-on/scripts/issue-type-route.sh
 class	engine	skills/work-on/scripts/offload-canary.sh
 class	engine	skills/work-on/scripts/panel-retry-budget.sh
 class	engine	skills/work-on/scripts/panel-scope.sh
@@ -191,6 +192,8 @@ class	engine	skills/coordinate/scripts/state-write.sh
 class	engine	skills/coordinate/scripts/template-fingerprint.jq
 class	engine	skills/coordinate/scripts/template-fingerprint.sh
 class	engine	skills/coordinate/scripts/unit-cost.sh
+class	engine	skills/coordinate/scripts/reconcile-owe.sh
+class	engine	skills/coordinate/scripts/roadmap-status.sh
 
 # Text an agent follows as instructions.
 class	instruction	**/SKILL.md

@@ -16,6 +16,7 @@
 #     cover the fix commit only;
 #   - review-round.sh records a round at the fix head both in the child at done
 #     and in the round;
+#   - --fresh writes fresh: true into the round's fix_round.json;
 #   - the route can't loop: a second round is refused while the first is open,
 #     a round started from a round counts against the original, and a fourth
 #     round is refused;
@@ -23,6 +24,11 @@
 #     round, else the child) when every commit the ledger recorded is an
 #     ancestor of the round's base, and inherits nothing when one isn't or
 #     with --fresh.
+#   - --fix-report gives a round its own report: it becomes the round's
+#     FIX_REPORT in place of the run's, and fix-kind.sh resolve on a round of a
+#     plan-outline child stores it as fix_report.txt without calling gh; a
+#     report outside koto's allowlist, or no value, is a usage error that
+#     starts nothing; a round without it keeps the run's FIX_REPORT.
 #
 # The child is a stand-in template with the variables a coordinated child
 # carries and a pr_creation that goes to done, not the shipped work-on.md
@@ -59,7 +65,7 @@ else
 fi
 OUT=$(bash "$FIX_ROUND" start --from x --stale 2>/dev/null); RC=$?
 if [[ $RC -eq 64 && -z "$OUT" ]]; then
-    pass "an unknown fourth argument is a usage error"
+    pass "a fourth argument other than --fresh is a usage error"
 else
     fail "start --from x --stale was not refused as usage (rc=$RC, out=[$OUT])"
 fi
@@ -133,6 +139,12 @@ variables:
   DELIVERY:
     required: false
   DELIVERY_REASON:
+    required: false
+  ISSUE_SOURCE:
+    required: false
+  FIX_REPORT:
+    required: false
+  PLAN_DOC:
     required: false
 states:
   pr_creation:
@@ -265,7 +277,7 @@ fi
 
 ROUND=$(koto context get "$R1" fix_round.json 2>/dev/null)
 ROUNDS=$(koto context get par.kid fix_rounds.jsonl 2>/dev/null)
-if jq -e --arg h "$DONE_HEAD" '.from == "par.kid" and .round == 1 and .base == $h' <<<"$ROUND" >/dev/null \
+if jq -e --arg h "$DONE_HEAD" '.from == "par.kid" and .round == 1 and .base == $h and (has("fresh") | not)' <<<"$ROUND" >/dev/null \
    && jq -se --arg h "$DONE_HEAD" 'length == 1 and .[0].session == "par.kid-fix-1" and .[0].base == $h' <<<"$ROUNDS" >/dev/null; then
     pass "the round names the child it fixes, and the child names the round"
 else
@@ -339,13 +351,17 @@ else
 fi
 
 tick par.kid-fix-2 '{"mode":"skipped"}'
+# --fresh inherits no ledger, even one the round could have inherited, and
+# marks the round, so its verification carries nothing from the run it
+# follows (run-verification.sh).
 ledger_at "$FIX_HEAD" | koto context add par.kid-fix-2 verdict_ledger.json >/dev/null
 OUT=$(in_repo bash "$FIX_ROUND" start --from par.kid --fresh); RC=$?
 if [[ $RC -eq 0 && "$OUT" == $'session=par.kid-fix-3\nround=3\ninherited=none' ]] \
-   && ! koto context exists par.kid-fix-3 verdict_ledger.json; then
-    pass "--fresh inherits no ledger, even one the round could have inherited"
+   && ! koto context exists par.kid-fix-3 verdict_ledger.json \
+   && koto context get par.kid-fix-3 fix_round.json 2>/dev/null | jq -e '.fresh == true and .round == 3 and .from == "par.kid"' >/dev/null; then
+    pass "--fresh inherits no ledger and writes fresh: true into the round's fix_round.json"
 else
-    fail "--fresh round 3: rc=$RC out=[$OUT]"
+    fail "--fresh round 3: rc=$RC out=[$OUT], fix_round.json $(koto context get par.kid-fix-3 fix_round.json 2>&1)"
 fi
 tick par.kid-fix-3 '{"mode":"skipped"}'
 OUT=$(in_repo bash "$FIX_ROUND" start --from par.kid 2>/dev/null); RC=$?
@@ -355,6 +371,186 @@ if [[ $RC -eq 1 && "$OUT" == "refused=cap" && $N -eq 3 ]] \
     pass "a fourth round is refused and nothing is started"
 else
     fail "a fourth round was not refused (rc=$RC, out=[$OUT], rounds=$N)"
+fi
+
+# --- the PLAN's checkout moved (#2104) -------------------------------------------
+# A plan-backed child of a coordinated run records PLAN_DOC as the run's plan_abs
+# when the child was opened. When the coordination checkout moves, the parent's
+# plan_abs is re-rooted (record-coord-setup.sh --reroot-plan), and a round started
+# after that reads the PLAN where the run reads it now. The parent is opened in a
+# directory of its own, as a coordinated run is, so the round reads it there.
+round_var() {
+    local log
+    log="$(koto session dir "$1")/koto-$1.state.jsonl"
+    jq -rs --arg k "$2" '[.[] | select(.type == "workflow_initialized")][0].payload.variables[$k] // ""' "$log"
+}
+OLD_PLAN="$W/old/docs/plans/PLAN-moved.md"
+NEW_PLAN="$W/new/docs/plans/PLAN-moved.md"
+mkdir -p "$W/coord" "$(dirname "$OLD_PLAN")" "$(dirname "$NEW_PLAN")"
+printf -- '---\nschema: plan/v2\n---\n' > "$OLD_PLAN"
+cp "$OLD_PLAN" "$NEW_PLAN"
+
+# The child is opened under the parent, so it is bound to the parent's directory,
+# then rebound to the node repository and driven to done there, as a step agent
+# drives a coordinated child in the node's worktree.
+open_plan_child() { # <parent> <plan_abs or empty> <child PLAN_DOC>
+    local c="$W/coord"
+    (cd "$c" && koto init "$1" --template "$W/parent.md" >/dev/null) \
+        || { echo "could not init the parent $1" >&2; return 1; }
+    if [ -n "$2" ]; then
+        printf '%s' "$2" | (cd "$c" && koto context add "$1" plan_abs >/dev/null) \
+            || { echo "could not record plan_abs in $1" >&2; return 1; }
+    fi
+    (cd "$c" && koto init "$1.kid" --parent "$1" --template "$W/child.md" \
+        --var ARTIFACT_PREFIX=step-1 --var PLUGIN_ROOT=/nowhere \
+        --var "PLAN_DOC=$3" >/dev/null) || { echo "could not init $1.kid" >&2; return 1; }
+    (cd "$c" && koto session rebind "$1.kid" --to "$REPO" >/dev/null) \
+        || { echo "could not rebind $1.kid to the node repository" >&2; return 1; }
+    in_repo tick "$1.kid" '{"pr_status":"shared"}'
+    [[ $(in_repo state_of "$1.kid") == done ]] || { echo "$1.kid did not reach done" >&2; return 1; }
+}
+
+# The checkout moved: the parent's plan_abs is the PLAN in the new checkout, and
+# the old checkout still exists, so a round on the old path would read a PLAN the
+# run has moved off.
+if open_plan_child mov "$NEW_PLAN" "$OLD_PLAN"; then
+    OUT=$(in_repo bash "$FIX_ROUND" start --from mov.kid 2>/dev/null); RC=$?
+    GOT=$(round_var mov.kid-fix-1 PLAN_DOC 2>/dev/null)
+    MOVED=$(round_var mov.kid-fix-1 PLAN_DOC_MOVED 2>/dev/null)
+    if [[ $RC -eq 0 && "$GOT" == "$NEW_PLAN" && -z "$MOVED" ]]; then
+        pass "after the PLAN's checkout moved, the round's PLAN_DOC is the parent's re-rooted plan_abs"
+    elif [[ "$GOT" == "$OLD_PLAN" ]]; then
+        fail "the new session's PLAN_DOC variable is the old path: [$GOT], plan_abs [$NEW_PLAN] (rc=$RC, out=[$OUT])"
+    else
+        fail "the moved round's PLAN_DOC is [$GOT] and PLAN_DOC_MOVED [$MOVED] (rc=$RC, out=[$OUT])"
+    fi
+else
+    fail "could not open the moved plan-backed child"
+fi
+
+# The checkout never moved: plan_abs is the path the child recorded, and the round
+# carries it as it does today.
+if open_plan_child stay "$OLD_PLAN" "$OLD_PLAN"; then
+    OUT=$(in_repo bash "$FIX_ROUND" start --from stay.kid 2>/dev/null); RC=$?
+    GOT=$(round_var stay.kid-fix-1 PLAN_DOC 2>/dev/null)
+    MOVED=$(round_var stay.kid-fix-1 PLAN_DOC_MOVED 2>/dev/null)
+    if [[ $RC -eq 0 && "$GOT" == "$OLD_PLAN" && -z "$MOVED" ]]; then
+        pass "a round for a child whose checkout never moved keeps the PLAN_DOC it recorded"
+    else
+        fail "the unmoved round's PLAN_DOC is [$GOT] and PLAN_DOC_MOVED [$MOVED] (rc=$RC, out=[$OUT])"
+    fi
+else
+    fail "could not open the unmoved plan-backed child"
+fi
+
+# A parent with no plan_abs (a run that never recorded one) leaves PLAN_DOC as the
+# child recorded it.
+if open_plan_child noabs "" "$OLD_PLAN"; then
+    OUT=$(in_repo bash "$FIX_ROUND" start --from noabs.kid 2>/dev/null); RC=$?
+    GOT=$(round_var noabs.kid-fix-1 PLAN_DOC 2>/dev/null)
+    if [[ $RC -eq 0 && "$GOT" == "$OLD_PLAN" ]]; then
+        pass "a round under a parent with no plan_abs keeps the PLAN_DOC the child recorded"
+    else
+        fail "the round under a parent with no plan_abs has PLAN_DOC [$GOT] (rc=$RC, out=[$OUT])"
+    fi
+else
+    fail "could not open the plan-backed child under a parent with no plan_abs"
+fi
+
+# A unit with no plan carries no PLAN_DOC, and its round has none either.
+# par.kid-fix-1 is the round the first sections of this file started for par.kid.
+if [[ -z "$(round_var par.kid-fix-1 PLAN_DOC 2>/dev/null)" ]]; then
+    pass "a round for a unit with no plan has no PLAN_DOC"
+else
+    fail "the no-plan round has PLAN_DOC [$(round_var par.kid-fix-1 PLAN_DOC)]"
+fi
+
+# A parent bound to a directory that is gone (the checkout moved and the parent
+# was not rebound) is refused: read from here it could look like a parent with
+# no plan_abs and leave the round on the old path.
+G="$W/gone"
+mkdir -p "$G"
+if (cd "$G" && koto init gone --template "$W/parent.md" >/dev/null) \
+   && printf '%s' "$NEW_PLAN" | (cd "$G" && koto context add gone plan_abs >/dev/null) \
+   && (cd "$G" && koto init gone.kid --parent gone --template "$W/child.md" \
+          --var ARTIFACT_PREFIX=step-1 --var PLUGIN_ROOT=/nowhere --var "PLAN_DOC=$OLD_PLAN" >/dev/null) \
+   && (cd "$G" && koto session rebind gone.kid --to "$REPO" >/dev/null); then
+    in_repo tick gone.kid '{"pr_status":"shared"}'
+    rm -rf "$G"
+    OUT=$(in_repo bash "$FIX_ROUND" start --from gone.kid 2>/dev/null); RC=$?
+    if [[ $RC -eq 2 && -z "$OUT" ]] && ! koto status gone.kid-fix-1 >/dev/null 2>&1; then
+        pass "a parent bound to a directory that is gone is refused and no round starts"
+    else
+        fail "a parent bound to a gone directory was not refused (rc=$RC, out=[$OUT])"
+    fi
+else
+    fail "could not open the child under a parent bound to a directory that will go"
+fi
+
+# --- a round's own report ------------------------------------------------------------
+# A plan-outline child: ISSUE_NUMBER is the PLAN's outline number, and its step
+# had a Fixes line. A round for a CI failure carries that failure as its report.
+# Everything from here runs in the scratch repository, where the child and its
+# rounds are started: fix-kind.sh's rebind attaches only from there.
+cd "$REPO" || { fail "could not enter the scratch repository"; exit 1; }
+koto init par.out --template "$W/child.md" \
+    --var ISSUE_NUMBER=4 --var ARTIFACT_PREFIX=issue_4 --var SHARED_BRANCH=feature \
+    --var PLUGIN_ROOT=/nowhere --var ISSUE_SOURCE=plan_outline \
+    --var "FIX_REPORT=zones are dropped at the render seam" >/dev/null \
+    || { fail "could not init the plan-outline child"; exit 1; }
+tick par.out '{"pr_status":"shared"}'
+[[ $(state_of par.out) == done ]] || { fail "the plan-outline child did not reach done"; exit 1; }
+
+OUT=$(in_repo bash "$FIX_ROUND" start --from par.out --fix-report 2>/dev/null); RC=$?
+if [[ $RC -eq 64 && -z "$OUT" ]] && ! koto context exists par.out fix_rounds.jsonl; then
+    pass "--fix-report without a value is a usage error, and nothing is started"
+else
+    fail "--fix-report without a value: rc=$RC out=[$OUT]"
+fi
+OUT=$(in_repo bash "$FIX_ROUND" start --from par.out --fix-report "it's broken, again" 2>/dev/null); RC=$?
+if [[ $RC -eq 64 && -z "$OUT" ]] && ! koto context exists par.out fix_rounds.jsonl \
+   && ! koto status par.out-fix-1 >/dev/null 2>&1; then
+    pass "a report outside koto's allowlist is a usage error, and nothing is started"
+else
+    fail "a report with an apostrophe and a comma: rc=$RC out=[$OUT]"
+fi
+
+CI_REPORT="bash scripts/check-tool-diagnostic-discards_test.sh fails: current tree should pass"
+OUT=$(in_repo bash "$FIX_ROUND" start --from par.out --fix-report "$CI_REPORT"); RC=$?
+R4="par.out-fix-1"
+LOG="$(koto session dir "$R4" 2>/dev/null)/koto-$R4.state.jsonl"
+VARS=$(jq -sc '[.[] | select(.type == "workflow_initialized")][0].payload.variables' "$LOG" 2>/dev/null)
+if [[ $RC -eq 0 ]] && jq -e --arg r "$CI_REPORT" '.FIX_REPORT == $r and .ISSUE_SOURCE == "plan_outline" and .ISSUE_NUMBER == "4"' <<<"$VARS" >/dev/null; then
+    pass "a round started with --fix-report carries that report as its FIX_REPORT, not the run's"
+else
+    fail "the round with its own report: rc=$RC out=[$OUT] vars=$VARS"
+fi
+
+# fix_determination's action, as the shipped template runs it, stores the
+# round's report as fix_report.txt. gh fails if it is called: the round's
+# ISSUE_NUMBER is an outline number, and no issue is read for it.
+mkdir -p "$W/nogh"
+printf '#!/bin/sh\necho "gh: must not be called" >&2\nexit 1\n' > "$W/nogh/gh"
+chmod +x "$W/nogh/gh"
+git -C "$REPO" rev-parse HEAD | koto context add "$R4" impl_base >/dev/null
+RES=$(in_repo env PATH="$W/nogh:$PATH" bash "$SCRIPT_DIR/fix-kind.sh" resolve "$R4" --current "" \
+    --issue 4 --issue-repo "" --fix-report "$CI_REPORT" --task-log "$LOG" 2>&1); RC=$?
+STORED=$(koto context get "$R4" fix_report.txt 2>/dev/null)
+if [[ $RC -eq 0 && $STORED == "$CI_REPORT" ]]; then
+    pass "the round's resolve stores its own report as fix_report.txt, without reading issue 4"
+else
+    fail "the round's resolve: rc=$RC out=[$RES] fix_report.txt=[$STORED]"
+fi
+
+# A round started without --fix-report copies the run's FIX_REPORT, as before.
+tick "$R4" '{"mode":"skipped"}'
+OUT=$(in_repo bash "$FIX_ROUND" start --from par.out); RC=$?
+LOG="$(koto session dir par.out-fix-2 2>/dev/null)/koto-par.out-fix-2.state.jsonl"
+VARS=$(jq -sc '[.[] | select(.type == "workflow_initialized")][0].payload.variables' "$LOG" 2>/dev/null)
+if [[ $RC -eq 0 ]] && jq -e '.FIX_REPORT == "zones are dropped at the render seam"' <<<"$VARS" >/dev/null; then
+    pass "a round started without --fix-report keeps the run's FIX_REPORT"
+else
+    fail "the round without its own report: rc=$RC out=[$OUT] vars=$VARS"
 fi
 
 echo
