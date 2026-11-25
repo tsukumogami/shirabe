@@ -32,7 +32,10 @@
 #             run. It also stores the unit's report once, as `fix_report.txt`:
 #             --fix-report when given, else the issue body, else the
 #             free-form task text from --task-log (the session's event log),
-#             else the session's `context.md`.
+#             else the session's `context.md`. A plan-backed child whose
+#             variables in that log say ISSUE_SOURCE=plan_outline has no
+#             GitHub issue: its --issue is the PLAN's outline number, so no
+#             issue is read for its labels or its body.
 #   declare   run by the agent at analysis, before fix_determination, which
 #             routes in the tick that enters it (or there, when a hand
 #             rebind holds the run): records the unit as a fix with source `declared`
@@ -339,6 +342,18 @@ cmd_resolve() {
         1) fix_labels="$DEFAULT_FIX_LABELS"; labels_from=default ;;
         *) die 64 "$(cat "$WORK/hdr.err")" ;;
     esac
+
+    # A plan-backed child taken from a PLAN outline (ISSUE_SOURCE=plan_outline
+    # in the session's variables) carries the outline's number as
+    # ISSUE_NUMBER, not a GitHub issue. The issue that happens to share that
+    # number is someone else's, so neither its labels nor its body are read:
+    # the report is the step's Fixes line, else context.md.
+    local isrc=""
+    if [ -n "$log" ] && [ -r "$log" ]; then
+        isrc=$(jq -Rr 'fromjson? | select(type == "object" and .type == "workflow_initialized")
+                       | .payload.variables.ISSUE_SOURCE // empty' "$log" 2>>"$ERRLOG" | head -n 1)
+    fi
+    [ "$isrc" != plan_outline ] || issue=""
 
     # The issue's labels and body, when there is an issue.
     : > "$WORK/labels"

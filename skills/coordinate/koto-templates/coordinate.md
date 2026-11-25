@@ -3207,7 +3207,10 @@ that worker's leg instead. Once that leg is read (its `legs/` key reads
 or can't be watched from this host (`unwatchable`, or a request this host's
 store doesn't hold), a message is the only way the worker can
 report, so it stands as a message report from `worker <topic>`, questions
-included. A leg report must be exactly the result koto holds
+included. So does a message whose unit's run promoted its result to an
+earlier leg of the same unit (a `legs/` key whose unit is the holding's),
+as a run that moved to a continuation under another topic does: the run stays
+bound to the leg it started on. A leg report must be exactly the result koto holds
 for that leg, promoted by the worker's own session; the gate reads the leg
 from koto rather than trusting the report's text. One that isn't goes to the
 human with the report cleared: name the worker in `report_topic`, and the
