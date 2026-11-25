@@ -379,12 +379,12 @@ Result:
   from `working` to `blocked` when its turn ended and it waited for input,
   which is still a live state.
 - **Transcript file**: exactly one `compact_boundary` record, trigger
-  `auto`. The post-boundary records were read from
-  `~/.claude/projects/<launch directory's project slug>/<launch id>.jsonl`,
-  the file the launch created: it had the same path and inode at launch as
-  after the boundary. All 79 records after the boundary carry the launch
-  `sessionId`, and no other file with the launch id exists under
-  `~/.claude/projects`.
+  `auto`. The post-boundary records were read from `<launch id>.jsonl` in
+  the launch directory's project folder under Claude Code's `projects`
+  directory, the file the launch created: it had the same path and inode at
+  launch as after the boundary. All 79 records after the boundary carry the
+  launch `sessionId`, and no other file with the launch id exists anywhere
+  under the `projects` directory.
 - **Process and job directories**: the session's process, which
   `claude agents --json` lists under the launch id, was alive after the
   boundary. One job directory appeared during the window, and it belongs to
