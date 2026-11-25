@@ -144,7 +144,7 @@ rd_idle() {
     RD_IDLE=1
 }
 rd_deadline() {
-    local secs=$1 pid watcher rc out
+    local secs=$1 pid watcher rc out tries=0
     shift
     rd_valid_secs "$secs" || secs=8
     [ -n "$RD_IDLE" ] || return 125
@@ -152,14 +152,18 @@ rd_deadline() {
     out="$RD_DIR/read.$RD_SHELL.$RD_N"
     # A name an interrupted call left files under is passed over, by builtin
     # tests so it costs no process: a stale .done would disable the deadline,
-    # and a stale .late would force 124.
-    while [ -e "$out" ] || [ -e "$out.done" ] || [ -e "$out.late" ]; do
+    # a stale .late would force 124, and a stale .ready would let the TERM
+    # below go out before this call's watcher is ready.
+    while [ -e "$out" ] || [ -e "$out.done" ] || [ -e "$out.late" ] || [ -e "$out.ready" ]; do
         RD_N=$((RD_N + 1))
         out="$RD_DIR/read.$RD_SHELL.$RD_N"
     done
     "$@" > "$out" &
     pid=$!
+    # The ready mark is the watcher's first command; the caller sends it no
+    # TERM before the mark is down (see below).
     (
+        : > "$out.ready"
         read -r -t "$secs" _ <&7
         # CMD ended and the caller is stopping this watcher: nothing is late.
         [ -e "$out.done" ] && exit 0
@@ -172,6 +176,24 @@ rd_deadline() {
     wait "$pid"
     rc=$?
     : > "$out.done"
+    # No TERM goes to the watcher until it has marked itself ready. bash 5
+    # runs a parent's traps in a subshell it has just forked when a signal
+    # lands before the subshell has run its first command, so a TERM sent the
+    # moment a quick CMD ended would run the caller's EXIT trap in the
+    # watcher: reconcile-check.sh's removes the inventory's working files and
+    # this directory mid-run, and the inventory then reports its working files
+    # removed. dispatch-common.sh's dc_with_deadline waits the same way
+    # (shirabe#987). The wait spins on builtins for the millisecond or two a
+    # fork takes, then polls 0.01s apart, and gives up after about a second or
+    # as soon as the watcher is gone, so it can't hold the call.
+    while [ ! -e "$out.ready" ] && [ "$tries" -lt 1000 ] && kill -0 "$watcher" 2>/dev/null; do
+        tries=$((tries + 1))
+    done
+    tries=0
+    while [ ! -e "$out.ready" ] && [ "$tries" -lt 100 ] && kill -0 "$watcher" 2>/dev/null; do
+        sleep 0.01
+        tries=$((tries + 1))
+    done
     # The watcher waits in a builtin, so there's no sleep of its own to stop:
     # killing it is enough. If the deadline fired, a pkill it started may
     # outlive it by a moment; CMD has ended by then either way.
@@ -179,7 +201,7 @@ rd_deadline() {
     wait "$watcher" 2>/dev/null
     [ -e "$out.late" ] && rc=124
     cat "$out"
-    rm -f "$out" "$out.done" "$out.late"
+    rm -f "$out" "$out.done" "$out.late" "$out.ready"
     return "$rc"
 }
 
