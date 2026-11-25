@@ -304,6 +304,26 @@ LIST="[{\"name\":\"ws+codex_test\",\"path\":\"/w/ws+codex_test\"},{\"name\":\"ws
 new_case host-found
 serve niwa-list 1 "$LIST"
 expect "a worker is found by its topic's slug" ".state == \"found\" and .path == \"/w/ws+coordinate_reconcile-$A8\"" "$(run host --topic coordinate-reconcile)"
+# stopped: every Claude job of the worker on this host has finished
+# (shirabe#2080); a job still working, or none seen, is not stopped.
+CH="$T/claude-host"
+mkdir -p "$CH/jobs/f1f1f1f1"
+jq -nc --arg n "coordinate_reconcile-$A8" '{name: $n, state: "done"}' > "$CH/jobs/f1f1f1f1/state.json"
+new_case host-stopped
+serve niwa-list 1 "$LIST"
+expect "a worker whose Claude jobs here have all finished reads stopped" '.state == "found" and .stopped == true' \
+    "$(DC_CLAUDE_HOME="$CH" run host --topic coordinate-reconcile)"
+mkdir -p "$CH/jobs/f2f2f2f2"
+jq -nc --arg n "coordinate_reconcile-$A8" '{name: $n, state: "working"}' > "$CH/jobs/f2f2f2f2/state.json"
+new_case host-working
+serve niwa-list 1 "$LIST"
+expect "  ... one with a job still working does not" '.state == "found" and .stopped == false' \
+    "$(DC_CLAUDE_HOME="$CH" run host --topic coordinate-reconcile)"
+mkdir -p "$T/claude-nojobs/jobs"
+new_case host-nojob
+serve niwa-list 1 "$LIST"
+expect "  ... nor one with no job seen here" '.stopped == false' \
+    "$(DC_CLAUDE_HOME="$T/claude-nojobs" run host --topic coordinate-reconcile)"
 new_case host-missed
 serve niwa-list 1 "$LIST"
 expect "a topic with no instance reads missed after one read" '.state == "missed" and .reads == 1' "$(run host --topic coordinate-dispatch)"

@@ -7,7 +7,11 @@
 # existed reads and checks exactly as it did (no pending field anywhere, the
 # same gaps); a pending worker passes the gate while a live worker neither told
 # nor pending holds it with not-told; told passes; a cleared address holds on
-# every live worker again; a merged holding needs neither; a missing worker
+# every live worker again; a merged holding whose worker has finished (its
+# Claude jobs stopped, or its leg resolved) needs neither, while one with a
+# Verified head and no pull request whose worker is live, or not seen to have
+# finished, is a live holding held by not-told and no-next-step (shirabe#2080);
+# a missing worker
 # (niwa listed no instance for it) passes the gate too, the read naming it
 # missing, and a record with no missing row printing no missing field; and
 # state-schema.jq refusing a record that holds one worker as both told and
@@ -38,6 +42,15 @@ RH="$HERE/state-handover.sh"
 SR=coordinate-roadmap-plugin-system-20260926T070000Z
 export RS_SESSION=$SR
 RM=(--scope roadmap --name plugin-system --repo "$REPO")
+# Claude jobs are read under DC_CLAUDE_HOME (dispatch-common.sh), never the
+# host's real ones; a case that needs a worker's job seeds its own.
+EMPTY_CLAUDE_HOME="$T/claude-empty"
+mkdir -p "$EMPTY_CLAUDE_HOME/jobs"
+export DC_CLAUDE_HOME="$EMPTY_CLAUDE_HOME"
+job() { # job <id> <session name> <state>: a Claude job under DC_CLAUDE_HOME
+    mkdir -p "$DC_CLAUDE_HOME/jobs/$1"
+    jq -nc --arg n "$2" --arg s "$3" '{name: $n, state: $s}' > "$DC_CLAUDE_HOME/jobs/$1/state.json"
+}
 
 # row <key> <value>: a Run row.
 row() { jq -nc --arg k "$1" --arg v "$2" '{key: $k, value: $v, set_by: "lane-v1", set: "2026-09-26T08:00Z"}'; }
@@ -98,7 +111,44 @@ echo "== clear =="
 seed "$(record '[]')"
 gate; eq "a new address with no told or pending row holds on every live worker" "1 not-told worker-f2,not-told worker-f3" "$G"
 seed "$(record '[]' | jq -c --arg s "$SHA_HEAD" '.holdings[1].verified_head = $s | .holdings[1].pull_request = ""')"
-gate; eq "a merged holding needs neither told nor pending" "1 not-told worker-f2" "$G"
+job c3c3c3c3 worker_f3-0000ccc3 done
+gate; eq "a merged holding whose worker has stopped needs neither told nor pending" "1 not-told worker-f2" "$G"
+rm -rf "$DC_CLAUDE_HOME/jobs/c3c3c3c3"
+
+echo "== a verified head and no pull request, its worker live (shirabe#2080) =="
+# A worker that continues its unit past a merged pull request keeps the
+# Verified head of that merge and a blank Pull request cell until it links
+# the next one. Only a worker that has finished makes that pair merged and
+# waiting for its teardown.
+export DC_CLAUDE_HOME="$T/claude-live"
+job d3d3d3d3 worker_f3-0000ddd3 working
+gate; eq "a live worker with a verified head and no pull request holds the gate with not-told" \
+    "1 not-told worker-f2,not-told worker-f3" "$G"
+H=$(bash "$RH" "${RM[@]}" 2>"$T/err")
+eq "  ... and the read lists it among the live workers" "worker-f2 worker-f3" \
+    "$(printf '%s' "$H" | jq -r '[.workers[].worker] | join(" ")')"
+seed "$(record '[]' | jq -c --arg s "$SHA_HEAD" '.holdings[1].verified_head = $s | .holdings[1].pull_request = ""
+    | .work = [.work[0]]')"
+gate; eq "  ... with no Work row it raises no-next-step too" \
+    "1 no-next-step Feature 3,not-told worker-f2,not-told worker-f3" "$G"
+export DC_CLAUDE_HOME="$T/claude-none"
+mkdir -p "$DC_CLAUDE_HOME/jobs"
+seed "$(record '[]' | jq -c --arg s "$SHA_HEAD" '.holdings[1].verified_head = $s | .holdings[1].pull_request = ""')"
+gate; eq "a worker with no job seen here is not known to have finished: not-told" \
+    "1 not-told worker-f2,not-told worker-f3" "$G"
+REQ=req-2080
+leg_rec() { record '[]' | jq -c --arg s "$SHA_HEAD" --arg r "$REQ" '.holdings[1].verified_head = $s | .holdings[1].pull_request = ""
+    | .holdings[1].return_path = "leg \($r):deliver"'; }
+mkdir -p "$KOTO_STORE/requests"
+jq -nc '{legs: {deliver: {disposition: "open", bound_child: "w"}}}' > "$KOTO_STORE/requests/$REQ.json"
+seed "$(leg_rec)"
+gate; eq "a leg-bound worker whose leg is still open holds the gate with not-told" \
+    "1 not-told worker-f2,not-told worker-f3" "$G"
+jq -nc '{legs: {deliver: {disposition: "resolved", result_source: "promoted", result: {status: "success"}}}}' > "$KOTO_STORE/requests/$REQ.json"
+seed "$(leg_rec)"
+gate; eq "  ... and once its leg is resolved it is merged and waiting for teardown" "1 not-told worker-f2" "$G"
+rm -f "$KOTO_STORE/requests/$REQ.json"
+export DC_CLAUDE_HOME="$EMPTY_CLAUDE_HOME"
 
 echo "== rule rows =="
 EVENTS='[{"standing":"s1","kind":"pause","on":"Feature 3","until":"lifted","what":"hold the third lane","owner":"the human","relayed_by":"","set":"2026-09-26T08:00Z"},
