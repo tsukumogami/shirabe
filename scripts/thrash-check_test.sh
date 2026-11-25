@@ -126,6 +126,38 @@ BIG=$(head -c 70000 /dev/zero | tr '\0' 'a')
 refused "a report over 65,536 bytes" "$BIG"
 refused "a leading zero in boundary_turns" "$(report 1 3 "010 020 045" unset)"
 refused "no boundary_turns line" "$(printf 'context_tokens: 1\nboundaries: 0\nwindow: unset\n')"
+
+echo "== refusals with a line name it =="
+# report() puts context_tokens on line 1, boundaries on 2, boundary_turns on
+# 3, window on 4 and hard_stop on 5.
+OUT=$(run_stdin "$(report 1 0 none unset; printf 'garbage\n')" 2>&1); rc=$?
+check "not key: value names line 5" '[ "$rc" -eq 2 ] && grep -qF "line 5: not a key: value line" <<<"$OUT"'
+OUT=$(run_stdin "$(report 1 0 none unset; printf 'extra: 1\n')" 2>&1); rc=$?
+check "unknown key names line 5" '[ "$rc" -eq 2 ] && grep -qF "line 5: unknown key" <<<"$OUT"'
+OUT=$(run_stdin "$(report 1 0 none unset; printf 'boundaries: 0\n')" 2>&1); rc=$?
+check "repeated key names line 5" '[ "$rc" -eq 2 ] && grep -qF "line 5: boundaries appears twice" <<<"$OUT"'
+OUT=$(run_stdin "$(report 1.5 0 none unset)" 2>&1); rc=$?
+check "non-integer context_tokens names line 1" '[ "$rc" -eq 2 ] && grep -qF "line 1: context_tokens is not an integer" <<<"$OUT"'
+OUT=$(run_stdin "$(report 1 x none unset)" 2>&1); rc=$?
+check "non-integer boundaries names line 2" '[ "$rc" -eq 2 ] && grep -qF "line 2: boundaries is not an integer" <<<"$OUT"'
+OUT=$(run_stdin "$(report 1 2 "4 x" unset)" 2>&1); rc=$?
+check "non-integer turn names line 3" '[ "$rc" -eq 2 ] && grep -qF "line 3: boundary_turns is not none or integers" <<<"$OUT"'
+OUT=$(run_stdin "$(report 1 0 none huge)" 2>&1); rc=$?
+check "bad window word names line 4" '[ "$rc" -eq 2 ] && grep -qF "line 4: window is not an integer" <<<"$OUT"'
+OUT=$(run_stdin "$(report 1 0 none 280000 x)" 2>&1); rc=$?
+check "non-integer hard_stop names line 5" '[ "$rc" -eq 2 ] && grep -qF "line 5: hard_stop is not an integer" <<<"$OUT"'
+OUT=$(run_stdin "$(report 1 3 "4 5" unset)" 2>&1); rc=$?
+check "count mismatch names both lines" '[ "$rc" -eq 2 ] && grep -qF "lines 2 and 3: the boundaries count differs from the number of boundary_turns" <<<"$OUT"'
+OUT=$(run_stdin "$(printf 'boundary_turns: 4 5\nwindow: unset\ncontext_tokens: 1\nboundaries: 3\n')" 2>&1); rc=$?
+check "count mismatch names the lines where the keys sit" '[ "$rc" -eq 2 ] && grep -qF "lines 4 and 1: the boundaries count differs" <<<"$OUT"'
+OUT=$(run_stdin "$(report 1 7 "40 50" unset)" 2>&1); rc=$?
+check "count mismatch prints none of the report figures" '[ "$rc" -eq 2 ] && ! grep -q "[4-9]" <<<"$OUT"'
+OUT=$(run_stdin "$(report 1 3 "4 9 5" unset)" 2>&1); rc=$?
+check "out of order names the boundary_turns line" '[ "$rc" -eq 2 ] && grep -qF "line 3: boundary_turns is out of order" <<<"$OUT"'
+OUT=$(run_stdin "$(printf 'boundary_turns: 9 5\nboundaries: 2\ncontext_tokens: 1\nwindow: unset\n')" 2>&1); rc=$?
+check "out of order names the line where boundary_turns sits" '[ "$rc" -eq 2 ] && grep -qF "line 1: boundary_turns is out of order" <<<"$OUT"'
+OUT=$(run_stdin "$(report 1 3 "40 90 50" unset)" 2>&1); rc=$?
+check "out of order prints none of the report figures" '[ "$rc" -eq 2 ] && ! grep -q "[4-9]" <<<"$OUT"'
 # A report padded with newlines to past the cap, with a repeated key and a
 # hard_stop beyond it: command substitution would drop the padding.
 {
