@@ -3815,6 +3815,122 @@ test_plan_v2_hostile_titles() {
     teardown
 }
 
+# ── Fixtures: a #N in a table description row is text, not an issue row ──
+# Every entity row is followed by an italic description row, and a
+# description may cite an issue ("Lands after #7", "Fixes acme#461"). Only a
+# row whose first cell holds the issue key is an entity row.
+write_description_ref_plan() {
+    local path="$1" mode="$2" table="$3"
+    {
+        printf -- '---\nschema: plan/v1\nstatus: Active\nexecution_mode: %s\n' "$mode"
+        printf 'milestone: "Description refs"\nissue_count: 2\n---\n\n'
+        printf '# PLAN: description refs\n\n## Status\n\nActive\n\n'
+        printf '## Scope Summary\n\nTwo issues.\n\n## Decomposition Strategy\n\nHorizontal.\n\n'
+        printf '## Implementation Issues\n\n'
+        printf '| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n'
+        printf '%s\n' "$table"
+        printf '\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1 --> I2\n```\n\n'
+        printf '## Implementation Sequence\n\ncore, then cli.\n'
+    } > "$path"
+}
+
+assert_description_ref_coordinated() {
+    local name="$1" table="$2"
+    setup
+    write_description_ref_plan "$TEST_DIR/plan-desc.md" coordinated "$table"
+
+    local output="" rc=0 err="$TEST_DIR/desc.err"
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-desc.md" 2>"$err") || rc=$?
+    if [[ $rc -ne 0 ]]; then
+        fail "$name" "expected exit 0, got $rc: $(cat "$err")"
+        teardown
+        return
+    fi
+    pass "$name (exit 0)"
+
+    local got
+    got=$(echo "$output" | jq -c '[.[] | [.name, .vars.REPO, .vars.PR_GROUP, .vars.ISSUES]]') || true
+    if [[ "$got" == '[["pr-repo-a-core","acme/repo-a","core","1"],["pr-repo-a-cli","acme/repo-a","cli","2"]]' ]]; then
+        pass "$name (only issues 1 and 2, each with its own annotation)"
+    else
+        fail "$name" "expected core=[1], cli=[2]; got: $got"
+    fi
+    teardown
+}
+
+test_coordinated_description_row_issue_refs() {
+    assert_description_ref_coordinated \
+        "coordinated description row carrying #N after the Repo/Group row" \
+        '| [#1: feat core](https://example.com/1) | None | testable |
+| ^_Repo: acme/repo-a \| Group: core_ | | |
+| _Lands after #7 merges._ | | |
+| [#2: feat cli](https://example.com/2) | [#1](https://example.com/1) | testable |
+| ^_Repo: acme/repo-a \| Group: cli_ | | |
+| _Fixes acme#461._ | | |'
+
+    assert_description_ref_coordinated \
+        "coordinated description row carrying #N above the Repo/Group row" \
+        '| [#1: feat core](https://example.com/1) | None | testable |
+| _Lands after #7 merges._ | | |
+| ^_Repo: acme/repo-a \| Group: core_ | | |
+| [#2: feat cli](https://example.com/2) | [#1](https://example.com/1) | testable |
+| _Fixes acme#461._ | | |
+| ^_Repo: acme/repo-a \| Group: cli_ | | |'
+}
+
+test_multi_pr_description_row_issue_refs() {
+    local name="multi-pr description row carrying #N"
+    setup
+    write_description_ref_plan "$TEST_DIR/plan-desc.md" multi-pr \
+        '| [#1: feat core](https://example.com/1) | None | testable |
+| _Lands after #7 merges._ | | |
+| [#2: feat cli](https://example.com/2) | [#1](https://example.com/1) | testable |
+| _Fixes acme#461._ | | |'
+
+    local output="" rc=0
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-desc.md" 2>/dev/null) || rc=$?
+    local got
+    got=$(echo "$output" | jq -c '[.[] | [.name, .waits_on]]' 2>/dev/null) || true
+    if [[ $rc -eq 0 && "$got" == '[["issue-1",[]],["issue-2",["issue-1"]]]' ]]; then
+        pass "$name (two tasks, issue-2 waits on issue-1)"
+    else
+        fail "$name" "expected exit 0 and [issue-1, issue-2 <- issue-1]; got rc=$rc tasks=$got"
+    fi
+    teardown
+}
+
+test_coordinated_struck_through_entity_row() {
+    assert_description_ref_coordinated \
+        "coordinated struck-through entity and description rows" \
+        '| ~~[#1: feat core](https://example.com/1)~~ | ~~None~~ | ~~testable~~ |
+| ^_Repo: acme/repo-a \| Group: core_ | | |
+| ~~_Lands after #7 merges._~~ | | |
+| [#2: feat cli](https://example.com/2) | [#1](https://example.com/1) | testable |
+| ^_Repo: acme/repo-a \| Group: cli_ | | |
+| _Fixes acme#461._ | | |'
+}
+
+test_multi_pr_struck_through_entity_row() {
+    local name="multi-pr struck-through entity and description rows"
+    setup
+    write_description_ref_plan "$TEST_DIR/plan-struck.md" multi-pr \
+        '| ~~[#1: feat core](https://example.com/1)~~ | ~~None~~ | ~~testable~~ |
+| ~~_Lands after #7 merges._~~ | | |
+| [#2: feat cli](https://example.com/2) | [#1](https://example.com/1) | testable |
+| _Fixes acme#461._ | | |'
+
+    local output="" rc=0
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-struck.md" 2>/dev/null) || rc=$?
+    local got
+    got=$(echo "$output" | jq -c '[.[] | [.name, .waits_on]]' 2>/dev/null) || true
+    if [[ $rc -eq 0 && "$got" == '[["issue-1",[]],["issue-2",["issue-1"]]]' ]]; then
+        pass "$name (struck-through issue-1 kept, no phantom from its description)"
+    else
+        fail "$name" "expected exit 0 and [issue-1, issue-2 <- issue-1]; got rc=$rc tasks=$got"
+    fi
+    teardown
+}
+
 build_shirabe_binary
 
 echo "Running plan-to-tasks.sh tests..." >&2
@@ -3833,6 +3949,10 @@ test_coordinated_outlines_gate_follows_split
 test_coordinated_outlines_refusals
 test_coordinated_outlines_envelope_skew
 test_coordinated_without_tracking_level_uses_table
+test_coordinated_description_row_issue_refs
+test_multi_pr_description_row_issue_refs
+test_coordinated_struck_through_entity_row
+test_multi_pr_struck_through_entity_row
 test_multi_pr_basic
 test_single_pr_basic
 test_single_pr_diamond

@@ -415,7 +415,7 @@ done
 eq "  ... min.txt's first and last" "None beyond what the documents you read record.|If a credential is exposed anyway, report it to the coordinator at once without quoting its value." \
     "$(cands "$GOLD/min.txt" | jq -r '"\(.[0])|\(.[-1])"')"
 eq "  ... none of them a heading" 0 "$(for f in min leg base; do cands "$GOLD/$f.txt"; done | jq -s '[.[][] | select(test("^#"))] | length')"
-eq "  ... and read whole, the splitter gives 62, 65 and 74" "62 65 74" \
+eq "  ... and read whole, the splitter gives 55, 65 and 67" "55 65 67" \
     "$(for f in min leg base; do jq -R -s -L "$HERE" 'include "state-schema"; file_sentences | length' "$GOLD/$f.txt"; done | tr '\n' ' ' | sed 's/ $//')"
 printf '# Brief: x\n\n## Goal\n\nGoal text.\n\n### Inside\n\nStill the goal.\n\n# Top\n\nA top rule.\n\n## Goal of the lane\n\nNot the goal section.\n\n## Out of scope\n\n- Leave the docs.\n- leave the docs\n\n## Keep-alive\n\nPing.\n' > "$T/brief.md"
 eq "a ### heading starts no section, a # heading ends one, a heading is matched whole, and a sentence comes once" \
