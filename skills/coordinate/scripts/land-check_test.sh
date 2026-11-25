@@ -386,6 +386,32 @@ eq "no round in that session: the round the worker's report carried" "permit 12 
 eq "  ... read from the report" report "$(evsrc)"
 rebriefed_case someone-else "$(bt_round)"
 eq "a stamped key of another worker is not this worker's evidence" no-evidence "$(token >/dev/null; reason)"
+# The holding's Dispatched date: the re-brief's own day keeps the stamp; a
+# later dispatch makes it stale.
+dispatched_on() {
+    jq -c --arg d "$1" '.[0].dispatched = $d' "$BT_STATE/holdings" > "$T/h" && mv "$T/h" "$BT_STATE/holdings"
+}
+rebriefed_case w "$(bt_round)"
+dispatched_on 2026-09-26
+eq "a stamp dated the holding's dispatch day is read" "permit 12 $H" "$(token)"
+rebriefed_case w "$(bt_round)"
+dispatched_on 2026-09-27
+eq "a stamp older than the holding's dispatch is stale: no-evidence" no-evidence "$(token >/dev/null; reason)"
+# other_leg <opened>: another leg key of worker w, opened at that time and
+# never stamped.
+other_leg() {
+    jq -nc --arg o "$1" '{request: "req-later", leg: "work-on", topic: "w", state: "replaced", templates: ["work-on.md"], inputs: {},
+        opened: $o}' > "$T/key2"
+    "$KOTO_BIN" context add "$S" legs/req-later/work-on --from-file "$T/key2"
+}
+rebriefed_case w "$(bt_round)"
+other_leg 2026-09-26T09:00:00Z
+eq "a leg of the topic opened before the stamp leaves it in effect" "permit 12 $H" "$(token)"
+rebriefed_case w "$(bt_round)"
+other_leg 2026-09-26T11:00:00Z
+eq "a leg of the topic opened after the stamp supersedes it: no-evidence" no-evidence "$(token >/dev/null; reason)"
+bt_report "$S" w "$(bt_round)"
+eq "  ... and the worker's report is read instead" report "$(token >/dev/null; evsrc)"
 
 echo "== the reviewed head =="
 OLD=2222222222222222222222222222222222222222
