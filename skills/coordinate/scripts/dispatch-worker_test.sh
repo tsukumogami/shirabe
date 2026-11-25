@@ -31,8 +31,9 @@
 # path that moves a worker to the message path (a re-brief, a leg-bound one
 # included; a re-brief after a leg was found unwatchable, from the importing
 # run; an execution sent to an entry point with no leg) renders a brief whose
-# dispatcher_session is the run that rendered it, with the link command
-# --dispatched-by filled in; an execution sent on a leg carries none.
+# dispatcher_session is the run that rendered it, which its Reporting resolves
+# the coordinator from, and which shows no link step; an execution sent on a
+# leg carries none.
 # A confirmed launch sends one `dispatched` event whose arguments a stand-in
 # for scripts/emit-event.sh records (from niwa's output on a launch, from the
 # listing row on a resumed run, without a leg on the message path); a re-run,
@@ -705,7 +706,9 @@ run >/dev/null 2>&1
 lacks "explore: no request opened" "$(calls)" "koto request create"
 eq  "explore: return path" message "$(row return_path)"
 
-# So does a charter (shirabe#1290), and its brief records the dispatcher itself.
+# So does a charter (shirabe#1290), and its brief names the run that rendered
+# it as the one Reporting resolves, with no link step: koto records the
+# dispatcher when the worker's session opens.
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "charter" | .entry_args = ["plugin-api"] | .run_mode = "--auto"')"
 OUT=$(run 2>/dev/null); RC=$?
 eq  "charter: dispatched" "0 session=$NIWA_NAME" "$RC $OUT"
@@ -714,9 +717,9 @@ eq  "charter: return path" message "$(row return_path)"
 eq  "charter: one launch" 1 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 lacks "charter: the invocation carries no leg" "$(cat "$ST/prompt")" "--koto-leg"
 has "charter: the prompt runs charter" "$(cat "$ST/prompt")" "/shirabe:charter plugin-api --auto"
-eq  "charter: the brief names the run that rendered it as its dispatcher" "dispatcher_session: coord" \
-    "$(grep '^dispatcher_session:' "$W/.niwa/dispatch-briefs/plugin-api.md")"
-has "charter: the brief records it with link-dispatcher.sh" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "link-dispatcher.sh\" <session> --dispatched-by coord\`"
+has "charter: the brief resolves the run that rendered it" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" 'resolve-coordinator.sh" coord`'
+lacks "charter: the brief shows no link step" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "link-dispatcher.sh"
+lacks "charter: the brief has no dispatcher_session line" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "dispatcher_session:"
 fi
 
 # --- a resumed dispatching row -------------------------------------------------------------------
@@ -1136,12 +1139,13 @@ OUT=$(run --rebrief 2>/dev/null); RC=$?
 eq  "rebrief: exit 0, with no coord/pick.json to read" 0 "$RC"
 has "rebrief: prints the brief" "$OUT" "brief=$W/.niwa/dispatch-briefs/plugin-api.md"
 # The worker is on the message path, so the brief names the run that
-# rendered it as its dispatcher, not the input's value, with the command
-# that records it.
+# rendered it, not the input's value, as the one its Reporting resolves and
+# its report step names, and shows no link step.
 B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
-eq  "rebrief: dispatcher_session is the run that rendered it" 1 "$(grep -cx 'dispatcher_session: coord' <<<"$B")"
+has "rebrief: Reporting resolves the run that rendered it" "$B" 'resolve-coordinator.sh" coord`'
+has "rebrief: the report step names it" "$B" 'render-result.sh" --session <your session> --dispatcher coord`'
 lacks "rebrief: not the input's dispatcher_session" "$B" "coord-alpha"
-has "rebrief: the link command, --dispatched-by filled in" "$B" 'link-dispatcher.sh" <session> --dispatched-by coord`'
+lacks "rebrief: no link step" "$B" "link-dispatcher.sh"
 has "rebrief: render-result.sh is the report step" "$B" "render-result.sh"
 eq  "rebrief: no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
@@ -1167,8 +1171,9 @@ eq  "rebrief, leg-bound: exit 0" 0 "$RC"
 eq  "rebrief, leg-bound: the holding moves to the message path" message "$(row return_path)"
 has "rebrief, leg-bound: the spent request is abandoned" "$(calls)" "koto request abandon-request req_1"
 lacks "rebrief, leg-bound: the brief no longer names the leg" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "--koto-leg"
-has "rebrief, leg-bound: moved to the message path, it carries the link command" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" \
-    'link-dispatcher.sh" <session> --dispatched-by coord`'
+has "rebrief, leg-bound: moved to the message path, it gets the report step" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" \
+    'render-result.sh" --session <your session> --dispatcher coord`'
+lacks "rebrief, leg-bound: and no link step" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "link-dispatcher.sh"
 fi
 
 if section "scope" "--rebrief of a leg-bound worker, then the land step's round"; then
@@ -1235,8 +1240,9 @@ printf 'plugin-api' >"$ST/ctx/report_topic"
 (cd "$W/inst" && bash "$S" --session coordinate-roadmap-plugin-system-20261024T090000Z --rebrief) >/dev/null 2>&1
 eq  "unwatchable: the importing run re-briefs the worker" 0 "$?"
 B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
-has "unwatchable: dispatcher_session is the importing run" "$B" "dispatcher_session: coordinate-roadmap-plugin-system-20261024T090000Z"
-has "unwatchable: the link command names it" "$B" '--dispatched-by coordinate-roadmap-plugin-system-20261024T090000Z`'
+has "unwatchable: Reporting resolves the importing run" "$B" 'resolve-coordinator.sh" coordinate-roadmap-plugin-system-20261024T090000Z`'
+has "unwatchable: the report step names it" "$B" '--dispatcher coordinate-roadmap-plugin-system-20261024T090000Z`'
+lacks "unwatchable: no link step" "$B" "link-dispatcher.sh"
 fi
 
 # --- a review-level bound ---------------------------------------------------------------------------------
@@ -1372,15 +1378,17 @@ fi
 
 if section "work-on" "send_execution to the message path"; then
 # An execution whose entry point takes no leg here (/work-on given a PLAN)
-# goes to the message path, and its brief carries the link command.
+# goes to the message path, and its brief names the run for Reporting, with
+# no link step.
 reset "$(printf '%s' "$INPUT_SCOPE" | jq -c '.phase = "scoping-ahead"')"; run >/dev/null 2>&1
 printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "work-on" | .entry_args = ["docs/plans/PLAN-plugin-api.md"] | .phase = "executing"' >"$ST/ctx/brief_input.json"
 log_pick send_execution plugin-api; : >"$ST/calls.log"
 run >/dev/null 2>"$ST/err"; eq "send_execution to the message path: exit 0" 0 "$?"
 eq  "send_execution to the message path: the holding reports by message" message "$(row return_path)"
 B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
-eq  "send_execution to the message path: dispatcher_session is the run" 1 "$(grep -cx 'dispatcher_session: coord' <<<"$B")"
-has "send_execution to the message path: the link command, --dispatched-by filled in" "$B" 'link-dispatcher.sh" <session> --dispatched-by coord`'
+has "send_execution to the message path: Reporting resolves the run" "$B" 'resolve-coordinator.sh" coord`'
+has "send_execution to the message path: the report step names it" "$B" 'render-result.sh" --session <your session> --dispatcher coord`'
+lacks "send_execution to the message path: no link step" "$B" "link-dispatcher.sh"
 fi
 
 if section "scope execute" "send_execution refused"; then

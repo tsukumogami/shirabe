@@ -46,13 +46,17 @@ script's header lists every field and its rule; this is the shape:
 }
 ```
 
-The first twelve fields are required; the rest add lines to their
-sections. `entry_args` is the positional argument and any flags the entry
+The first twelve fields are required, with one exception:
+`dispatcher_session` is required only for an entry point whose open takes it
+(`/coordinate`, `/explore`, `/decision`, `/release`), and render-brief.sh
+renders the others without it. The rest add lines to their sections. `entry_args` is the positional argument and any flags the entry
 point allows (`references/entry-points.tsv`), and `run_mode` holds the
 execution flags, empty only for an entry point that takes none
 (`/shirabe:release`). `dispatcher_session` is your koto run, which a request
-leg names as its requester and a message-path worker records as its
-dispatcher; it is never the address the worker reports to. That address,
+leg names as its requester, a message-path worker of `/coordinate`,
+`/explore`, `/decision` or `/release` opens with as its dispatcher, and the
+worker's Reporting resolves the newest coordinator from; it is never the
+address the worker reports to. That address,
 `reports_to`, comes from the record's Run `coordinator` row. `dispatch-worker.sh`
 writes both into the input (`dispatcher_session` as the run rendering the
 brief), so leave them out. `phase` is
@@ -193,8 +197,9 @@ settings-file line and the keep-alive note.
 ## The Dispatcher on the Message Path
 
 A worker on a request leg is joined to your run by the leg. A worker on the
-message path has no leg, so it records your run as its dispatcher itself, from
-its own session, and its brief tells it how. The Goal names your run as
+message path has no leg. When its entry point's own opener takes
+`--dispatched-by`, it opens its session with your run as its dispatcher, and
+its brief tells it how: the Goal names your run as
 `dispatcher_session: <your run>` and shows the exact command, with
 `--dispatched-by <your run>` already filled in:
 
@@ -202,9 +207,15 @@ its own session, and its brief tells it how. The Goal names your run as
 |-------------|-------------|
 | `/coordinate` | `coordinate-open.sh --plugin-root ... --dispatched-by <your run> "$ARGS_DIR/args.json"`, in place of the open its skill shows |
 | `/explore`, `/decision`, `/release` | `skill-session.sh open <skill> <topic> --dispatched-by <your run>`, in place of the open its skill shows |
-| `/scope`, `/deliver`, `/execute`, `/work-on` | `link-dispatcher.sh <session> --dispatched-by <your run>`, once the entry point has opened its session |
 
-The command links the worker's session to your run and, when the link fails,
+Every other entry point (`/scope`, `/deliver`, `/execute`, `/work-on` and the
+planning skills) gets no such step: koto records the dispatcher when the
+worker's session opens, from the name the koto-skills start hook exports, so
+its brief names no `dispatcher_session` and the worker records nothing.
+`link-dispatcher.sh`, the step those briefs once carried, stays callable for
+briefs already in flight.
+
+The open command links the worker's session to your run and, when the link fails,
 runs it once more. A second failure prints `warning=link-failed
 dispatched_by=<your run>` and records it in the worker's own context key
 `session/link-warning`; the worker's session stays open and it goes on. You
@@ -221,7 +232,8 @@ skill's text asks the worker to pass either on: the script does.
 A worker moved to the message path later (a re-brief, an execution sent to an
 entry point with no leg, a leg found unwatchable after an import) is
 re-briefed through `dispatch-worker.sh`, so its new brief carries the command
-too, and its `dispatcher_session` names the run that rendered it.
+when its entry point takes one, and its `dispatcher_session` names the run
+that rendered it.
 
 ## The Worker's Authority
 
@@ -249,9 +261,10 @@ rendered ones the same.
 <One or two sentences: what exists or works when this is done, and the
 entry point to run, for example `/shirabe:deliver <topic> --auto`.>
 
-<On the message path only: `dispatcher_session: <your run>`, and the command
-that records it in the worker's session with `--dispatched-by <your run>`
-filled in (see The Dispatcher on the Message Path).>
+<On the message path, for `/coordinate`, `/explore`, `/decision` and
+`/release` only: `dispatcher_session: <your run>`, and the entry point's open
+with `--dispatched-by <your run>` filled in (see The Dispatcher on the Message
+Path).>
 
 Run mode: `--auto` unless the human's decisions say otherwise. A
 background worker can't answer the confirmation `--interactive` waits for.
