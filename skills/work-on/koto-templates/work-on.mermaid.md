@@ -43,10 +43,9 @@ stateDiagram-v2
     ci_pass_counting --> done_blocked : counting_status: blocked, gates.fix_green.exit_code: 2, gates.tests_counted.exit_code: 0
     ci_pass_counting --> done_blocked : counting_status: blocked, gates.tests_counted.exit_code: 1
     ci_pass_counting --> done_blocked : counting_status: blocked, gates.tests_counted.exit_code: 2
-    context_injection --> setup_issue_backed : gates.context_artifact.exists: true, status: completed
-    context_injection --> setup_issue_backed : status: override
+    context_injection --> setup_issue_backed : gates.await_removals.exit_code: 0, gates.context_artifact.exists: true, status: completed
+    context_injection --> setup_issue_backed : gates.await_removals.exit_code: 0, status: override
     context_injection --> done_blocked : status: blocked
-    context_injection --> setup_issue_backed
     deferral_approval --> pr_precheck : approval_decision: approved, cleanup_done: removed, design_diagram: updated, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
     deferral_approval --> pr_precheck : approval_decision: approved, cleanup_done: removed, design_diagram: not_applicable, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
     deferral_approval --> pr_precheck : approval_decision: approved, cleanup_done: none_found, design_diagram: updated, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
@@ -115,14 +114,13 @@ stateDiagram-v2
     pass_counting --> done_blocked : counting_status: blocked, gates.fix_green.exit_code: 2, gates.tests_counted.exit_code: 0
     pass_counting --> done_blocked : counting_status: blocked, gates.tests_counted.exit_code: 1
     pass_counting --> done_blocked : counting_status: blocked, gates.tests_counted.exit_code: 2
-    plan_context_injection --> setup_plan_backed : gates.context_artifact.exists: true, issue_source: github, status: completed
-    plan_context_injection --> plan_validation : gates.context_artifact.exists: true, issue_source: plan_outline, status: completed
-    plan_context_injection --> setup_plan_backed : status: override
+    plan_context_injection --> setup_plan_backed : gates.await_removals.exit_code: 0, gates.context_artifact.exists: true, issue_source: github, status: completed
+    plan_context_injection --> plan_validation : gates.await_removals.exit_code: 0, gates.context_artifact.exists: true, issue_source: plan_outline, status: completed
+    plan_context_injection --> setup_plan_backed : gates.await_removals.exit_code: 0, status: override
     plan_context_injection --> done_blocked : status: blocked
-    plan_context_injection --> setup_plan_backed
     plan_validation --> setup_plan_backed : gates.step_detail.exit_code: 0, verdict: proceed
     plan_validation --> validation_exit : verdict: exit
-    post_research_validation --> setup_free_form : verdict: ready
+    post_research_validation --> setup_free_form : gates.await_removals.exit_code: 0, verdict: ready
     post_research_validation --> validation_exit : verdict: needs_design
     post_research_validation --> validation_exit : verdict: exit
     pr_creation --> check_exit : gates.pr_body_conformant.exit_code: 1, pr_status: check_unsatisfiable
@@ -254,6 +252,9 @@ stateDiagram-v2
         gate: tests_counted
     end note
     note left of context_injection
+        gate: await_removals
+    end note
+    note left of context_injection
         gate: context_artifact
     end note
     note left of deferral_approval
@@ -335,10 +336,16 @@ stateDiagram-v2
         gate: tests_counted
     end note
     note left of plan_context_injection
+        gate: await_removals
+    end note
+    note left of plan_context_injection
         gate: context_artifact
     end note
     note left of plan_validation
         gate: step_detail
+    end note
+    note left of post_research_validation
+        gate: await_removals
     end note
     note left of pr_creation
         gate: closing_keyword

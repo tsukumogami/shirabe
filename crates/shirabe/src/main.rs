@@ -1527,10 +1527,13 @@ fi
 # Collect staged files NUL-delimited so a filename with spaces, newlines,
 # glob characters, or a leading dash cannot split arguments or smuggle
 # options. Narrow to Markdown; shirabe's own format detection skips any
-# non-artifact .md file.
+# non-artifact .md file. Files under a tests/fixtures/ or evals/fixtures/
+# directory are test inputs, some invalid on purpose, and are skipped, the
+# same paths CI's document validation leaves out.
 docs=()
 while IFS= read -r -d '' file; do
   case "$file" in
+    tests/fixtures/*|*/tests/fixtures/*|evals/fixtures/*|*/evals/fixtures/*) ;;
     *.md) docs+=("$file") ;;
   esac
 done < <(git diff --cached -z --name-only --diff-filter=ACMR)

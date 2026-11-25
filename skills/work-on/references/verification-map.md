@@ -413,7 +413,8 @@ for the current head. A settled result is also recorded in koto context as
 | 4 | tracked files had uncommitted changes | `verification/dirty-tree` |
 | 5 | a check timed out, no check failed, and the hosted-of-record route is open: the timed-out hold | `verification/timed-out` (as at exit 4) |
 | 2 | the result could not be read | none; the gate holds |
-| 2 | the supervisor stopped before every command ran | none; the gate holds |
+| 2 | the supervisor stopped before every command ran (`supervisor-error`) | none; the gate holds |
+| 2 | a build-output removal was still running when the run's budget ran out, and no command started (`removal-running`) | none; the gate holds |
 
 A runaway kill, a command that could not start and a command that needs a person exit 4,
 never 1: none of them says the change is wrong, so none sends the run back to
@@ -431,6 +432,15 @@ to go on: move the result aside and tick to run the suite again, or submit
 `verification_status: blocked` to stop the run. The launcher reuses a result already on disk
 for the same head and merge-base, so a held tick never starts a new suite on its own; only
 moving the stopped result aside does.
+
+A build-output removal (see [`build_output`](#build_output)) deletes in the background after
+it returns. A build started in the same work tree while it deletes competes with it for the
+disk, so before its first command the supervisor waits, inside the run's budget, while any
+removal record in the work tree's git directory reads as still running. When the budget runs
+out first, it starts no command and writes a `removal-running` result naming the record. The
+gate holds on it exactly as on a stopped supervisor, and the result is never eligible for a
+re-run. `run-verification.sh --await-removals` makes the same check once, and work-on's
+`await_removals` gate runs it before setup, whose baseline builds.
 
 The whole run has a budget too: two hours, the length of the gate's wait. A command still
 running when the budget runs out is killed and reported as `verification/timed-out`, and the

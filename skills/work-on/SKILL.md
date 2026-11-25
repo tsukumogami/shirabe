@@ -766,9 +766,10 @@ leg, since one leg answers one session.
   the leg only when the leg was still open and unbound), 64 its own usage refusal
   with no koto call, 66 a live session's level or kind read under `--koto-leg`
   that failed, with no `koto init`, 127 no koto or jq, and koto's own code otherwise.
-- `scripts/fix-round.sh start --from <session> [--fresh]` — starts a fix
-  round for a run at `done` as `<session>-fix-<n>`, a new work-on session with
-  the run's variables and parent, records it in both sessions, and copies in
+- `scripts/fix-round.sh start --from <session> [--fresh] [--fix-report <text>]`
+  — starts a fix round for a run at `done` as `<session>-fix-<n>`, a new
+  work-on session with the run's variables (`FIX_REPORT` replaced by
+  `--fix-report`'s text when given) and parent, records it in both sessions, and copies in
   the verdict ledger it inherits; `--fresh` inherits nothing and marks the
   round `fresh`, so its verification carries nothing either (see **A Fix
   Round After Done**). Exit codes: 0 started, 1 refused (`not-done`,
@@ -941,12 +942,22 @@ terminal, and `koto rewind` doesn't reopen a round. From `done` it steps back to
 instead, from the branch the run worked on:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/fix-round.sh start --from <WF> [--fresh]
+${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/fix-round.sh start --from <WF> [--fresh] [--fix-report <text>]
 ```
+
+`--fix-report <text>` gives the round its own report, the CI failure or review
+finding that caused it, as the round's `FIX_REPORT` in place of the run's: the
+round is then a fix and the text is the `fix_report.txt` its red cites. The text
+must fit koto's variable allowlist (letters, digits, spaces and `. _ / : @ + -`,
+starting with a letter or digit); anything else is a usage error and starts
+nothing. Without it the round keeps the run's `FIX_REPORT`.
 
 It starts `<WF>-fix-<n>` from this plugin's `work-on.md` with the run's variables
 (not its review level or unit kind, which the round sets again) and the run's
-parent, so a child's round is a child too and never cascades. It records the round
+parent, so a child's round is a child too and never cascades. A plan-backed child's
+round takes `PLAN_DOC` from the parent's current `plan_abs` when the two differ, so
+a round started after the coordination checkout moved reads the PLAN where the run
+reads it now; a run whose checkout never moved keeps its own. It records the round
 in both sessions: `fix_round.json` in the round and a line in the run's
 `fix_rounds.jsonl`. Drive the round from `entry` with the run's entry evidence,
 and commit the fix in the round's `implementation`, not before: its `analysis`

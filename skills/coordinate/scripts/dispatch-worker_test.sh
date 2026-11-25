@@ -2187,7 +2187,7 @@ cat >"$T/coord-log-succ.sh" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
     run-facts) [ "${CL_FACTS_RC:-0}" = 0 ] || exit "$CL_FACTS_RC"
-               printf '{"scope":"%s","name":"plugin-system","repo":"acme/widgets"}\n' "${CL_SCOPE:-roadmap}" ;;
+               printf '{"scope":"%s","name":"%s","repo":"%s"}\n' "${CL_SCOPE:-roadmap}" "${CL_NAME-plugin-system}" "${CL_REPO-acme/widgets}" ;;
     vars) printf '{"SCOPE":"%s","ROADMAP":"%s","HOST_REPO":"acme/widgets"}\n' "${CL_SCOPE:-roadmap}" "${CL_ROADMAP-docs/roadmaps/ROADMAP-plugin-system.md}" ;;
     *) exit 64 ;;
 esac
@@ -2218,7 +2218,7 @@ sreset() {
     rm -f "$ST/ctx/brief_input.json" "$ST/ctx/dispatch_topic" "$ST/ctx/coord/pick.json"
     printf '%s' "${1:-$SUCC_INPUT}" >"$ST/ctx/successor_input.json"
     export NIWA_NAME=$SUCC_S RECORD_ROLE=manager
-    unset CL_FACTS_RC CL_SCOPE CL_ROADMAP SUCC_ROW SUCC_WRITE_RC
+    unset CL_FACTS_RC CL_SCOPE CL_ROADMAP CL_NAME CL_REPO SUCC_ROW SUCC_WRITE_RC
 }
 srun() { (cd "$W/inst" && DC_COORD_LOG="$T/coord-log-succ.sh" DC_RECORD_STATE="$T/state-stored-set-succ.sh" bash "$S" --session coord --successor "$@"); }
 nothing_written() { # nothing_written <label>: no row write, launch, leg or brief
@@ -2292,9 +2292,56 @@ for rc in 1 2; do
     has "successor: ... saying the facts can't be read" "$(cat "$T/err")" "this run's facts can't be read"
     nothing_written "successor: run-facts exiting $rc"
 done
-sreset; export CL_SCOPE=discipline
-srun >/dev/null 2>"$T/err"; eq "successor: a discipline run exits 1" 1 "$?"
-nothing_written "successor: a discipline run"
+
+# A discipline run: the scope is --discipline <name> --host <owner/repo>,
+# from run-facts, with --role after the four tokens.
+DGOAL='Run `/shirabe:coordinate --discipline ci-health --host acme/widgets --role director` in acme/widgets.'
+dreset() { sreset "${1:-}"; export CL_SCOPE=discipline CL_NAME=ci-health CL_ROADMAP="" RECORD_ROLE=director; }
+dreset
+OUT=$(srun 2>"$T/err"); RC=$?
+eq  "successor: a discipline run exits 0" "0 session=$SUCC_S" "$RC $OUT"
+eq  "successor: ... its Goal line the discipline invocation" "$DGOAL" "$(grep '^Run `/shirabe:coordinate ' "$SBRIEF")"
+has "successor: ... and the prompt the same" "$(cat "$ST/prompt")" '`/shirabe:coordinate --discipline ci-health --host acme/widgets --role director`'
+has "successor: ... the row written dispatched" "$(calls)" "--successor dispatched plugin-system-successor-1 --by coord"
+eq  "successor: ... the invocation line the brief's only line naming a role" "$DGOAL" "$(grep -iwE 'managers?|directors?' "$SBRIEF")"
+dreset "$(jq -c '.entry_args = ["--discipline", "ci-health", "--host", "acme/widgets"] | .repo = "acme/widgets"' <<<"$SUCC_INPUT")"
+OUT=$(srun 2>"$T/err"); eq "successor: a discipline input giving exactly the derived scope and repo is taken" "0 session=$SUCC_S" "$? $OUT"
+for c in 'entry_args:["--discipline", "release", "--host", "acme/widgets"]:release' \
+         'entry_args:["--discipline", "ci-health", "--host", "acme/other"]:acme/other' \
+         'repo:"acme/other":acme/other'; do
+    field=${c%%:*} rest=${c#*:}; val=${rest%:*} want=${rest##*:}
+    dreset "$(jq -c --arg f "$field" --argjson v "$val" '.[$f] = $v' <<<"$SUCC_INPUT")"
+    srun >/dev/null 2>"$T/err"; eq "successor: a discipline input whose $field names $want exits 1" 1 "$?"
+    has "successor: ... naming the input's value" "$(cat "$T/err")" "$want"
+    if [ "$field" = repo ]; then has "successor: ... and the run's" "$(cat "$T/err")" "this run's host is acme/widgets"
+    else has "successor: ... and the run's" "$(cat "$T/err")" '["--discipline","ci-health","--host","acme/widgets"]'; fi
+    nothing_written "successor: a discipline input whose $field names $want"
+done
+# Facts the stand-in reports wrong: a name starting with -, then a host that
+# isn't owner/repo.
+dreset; export CL_NAME=-x
+srun >/dev/null 2>"$T/err"; eq "successor: a discipline named -x exits 1" 1 "$?"
+has "successor: ... naming the token" "$(cat "$T/err")" "[-x]"
+nothing_written "successor: a discipline named -x"
+dreset; export CL_NAME=CI_Health
+srun >/dev/null 2>"$T/err"; eq "successor: a discipline name outside its pattern exits 1" 1 "$?"
+has "successor: ... naming the token" "$(cat "$T/err")" "[CI_Health]"
+nothing_written "successor: a discipline name outside its pattern"
+for h in acme -x/widgets; do
+    dreset; export CL_REPO=$h
+    srun >/dev/null 2>"$T/err"; eq "successor: a discipline host of [$h] exits 1" 1 "$?"
+    has "successor: ... naming the token" "$(cat "$T/err")" "[$h]"
+    nothing_written "successor: a discipline host of [$h]"
+done
+for rc in 1 2; do
+    dreset; export CL_FACTS_RC=$rc
+    srun >/dev/null 2>"$T/err"; eq "successor: a discipline run's run-facts exiting $rc exits 1" 1 "$?"
+    nothing_written "successor: a discipline run's run-facts exiting $rc"
+done
+dreset; export RECORD_ROLE=
+srun >/dev/null 2>"$T/err"; eq "successor: a discipline run with no role row exits 1" 1 "$?"
+has "successor: ... naming the command that sets it" "$(cat "$T/err")" "state-stored-set.sh --session coord --run role"
+nothing_written "successor: a discipline run with no role row"
 for bad_rm in -x docs/roadmaps/plugin-system.md; do
     sreset; export CL_ROADMAP=$bad_rm
     srun >/dev/null 2>"$T/err"; eq "successor: a ROADMAP of [$bad_rm] exits 1" 1 "$?"
@@ -2345,6 +2392,12 @@ done
 reset "$(jq -c '.successor = true' <<<"$INPUT_DELIVER")"
 OUT=$(run 2>"$T/err"); RC=$?
 eq  "successor: a worker input carrying successor still dispatches" "0 session=$PA_S" "$RC $OUT"
+# A coordinate brief_input.json giving the discipline shape and successor
+# itself is a lane's: the field is dropped, so the shape is refused.
+reset "$(jq -c '.entry_point = "coordinate" | .entry_args = ["--discipline", "ci-health", "--host", "acme/widgets"] | .run_mode = "" | .successor = true' <<<"$INPUT_DELIVER")"
+run >/dev/null 2>"$T/err"; eq "successor: a worker-path coordinate input setting successor with the discipline shape exits 1" 1 "$?"
+has "successor: ... with the first-token refusal" "$(cat "$T/err")" "entry_args: the first token must be the positional argument, one line, not a flag"
+eq  "successor: ... nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|request create|--successor' "$ST/calls.log")"
 unset RECORD_ROLE NIWA_MODE
 fi
 

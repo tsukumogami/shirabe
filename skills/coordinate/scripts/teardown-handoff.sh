@@ -11,7 +11,9 @@
 #   instance <name> <path>         from `niwa list --json`, matched by the
 #                                  inventory's instance path
 #   job <id> <session id>          from `claude agents --json --all`: the one
-#                                  job whose cwd is the instance path,
+#                                  job whose cwd is the instance path or a
+#                                  directory under it (a worktree; not a
+#                                  sibling such as <path>-other),
 #                                  finished as dc_job_finished reads it: its
 #                                  own jobs/<id>/state.json reads done,
 #                                  stopped or failed, and the listing shows
@@ -103,9 +105,9 @@
 #
 # It fails closed: a niwa or Claude Code listing that can't be read or parsed
 # stops the seal (exit 2), and it refuses when niwa lists an instance for the
-# topic or at the path, or Claude Code lists a job whose cwd is the path. The
-# path is only ever compared and used to name directories to read; nothing
-# here or in the pass removes anything in removed mode.
+# topic or at the path, or Claude Code lists a job whose cwd is the path or
+# lies under it. The path is only ever compared and used to name directories
+# to read; nothing here or in the pass removes anything in removed mode.
 #
 # Nothing here comes from an argument: the topic and the inventory from the
 # session, the handoff link from the session's own log of the evidence, the
@@ -262,9 +264,10 @@ stopped_mode() {
           elif type == "string" and length >= 1 and length <= 128 and (gsub("[A-Za-z0-9._:-]"; "") == "") then .
           else "invalid" end')
 
-    # The job: the one Claude Code background job whose cwd is the instance.
+    # The job: the one Claude Code background job whose cwd is the instance
+    # or a directory in it, such as a worktree a resumed worker runs from.
     agents_list
-    JOBS=$(printf '%s' "$AG" | jq -c --arg p "$IPATH" '[.[] | select(.cwd == $p)]')
+    JOBS=$(printf '%s' "$AG" | jq -c --arg p "$IPATH" "$DC_JQ_IN_DIR"'[.[] | select(.cwd | in_dir($p))]')
     NJ=$(printf '%s' "$JOBS" | jq length)
     case "$NJ" in
         1) ;;
@@ -413,8 +416,8 @@ removed_mode() {
     printf '%s' "$NL" | jq -e --arg p "$IPATH" 'any(.[]; .path == $p) | not' >/dev/null \
         || refuse "niwa lists an instance at $IPATH; it was not removed"
     agents_list
-    printf '%s' "$AG" | jq -e --arg p "$IPATH" 'any(.[]; .cwd == $p) | not' >/dev/null \
-        || refuse "Claude Code lists job $(printf '%s' "$AG" | jq -r --arg p "$IPATH" '[.[] | select(.cwd == $p) | .id] | join(", ")') in $IPATH; it was not removed"
+    printf '%s' "$AG" | jq -e --arg p "$IPATH" "$DC_JQ_IN_DIR"'any(.[]; .cwd | in_dir($p)) | not' >/dev/null \
+        || refuse "Claude Code lists job $(printf '%s' "$AG" | jq -r --arg p "$IPATH" "$DC_JQ_IN_DIR"'[.[] | select(.cwd | in_dir($p)) | .id] | join(", ")') in $IPATH; it was not removed"
     line "instance - $IPATH"
 
     # The worker's session: the main session transcript in the instance's own

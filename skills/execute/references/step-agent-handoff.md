@@ -226,3 +226,10 @@ status`, so nothing acts on `plan_doc=gone`.
 A root `/work-on` run, a single-pr child, and a coordinated child whose PLAN
 never moved are never given `PLAN_DOC_MOVED`, so each reads `PLAN_DOC` as
 before.
+
+A fix round started on a child at `done` (`fix-round.sh start --from <child>`)
+needs no `PLAN_DOC_MOVED` either. The round is a new session, so its `PLAN_DOC`
+can differ from the child's: `fix-round.sh` reads the parent's `plan_abs` in the
+directory the parent is bound to and, when it differs from the child's
+`PLAN_DOC`, opens the round with that path as its `PLAN_DOC`. Every state that
+reads `PLAN_DOC` then reads the moved PLAN, and no later attach can blank it.

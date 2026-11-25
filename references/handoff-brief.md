@@ -11,7 +11,7 @@ else.
 This reference covers the pieces that exist today: the note writer, the
 ledger entry and its cleanup, the two hooks with the stale flag and the
 checks an entry must pass, reading the note back, how to install the hooks,
-the window setting, the results of one live compaction read against them,
+the window setting, the results of two live compaction reads against them,
 and the brief a session hands forward when it stops, with the closing step
 before it, the brief's two size limits, the opt-in keep record, park and
 resume.
@@ -281,7 +281,10 @@ tokens on its one turn. That's the floor. The window was the floor plus
   the boundary. The session ended as `done` 17 seconds after the boundary,
   when its single prompt finished. That's the normal end of a one-prompt
   background session, not a loss of liveness, so liveness reads for such a
-  session have to be taken while it works.
+  session have to be taken while it works. This run didn't place its second
+  read inside the compaction, and its session had moved its transcript; the
+  [second read](#second-read-liveness-while-the-compaction-runs) settles
+  both.
 - **Re-anchor**: the `SessionStart` hook ran on `compact` and its text
   followed the boundary as additional context. The session's first tool calls
   after the boundary were a read of the recorded `SKILL.md`, then `koto status`
@@ -318,6 +321,81 @@ These runs predate the no-entry outputs. Today a deleted entry still exits 0
 but prints the no-entry summary instruction and the generic re-anchor line
 described under [No usable entry](#no-usable-entry); the other rows are
 unchanged.
+
+### Second read: liveness while the compaction runs
+
+The first read took its middle liveness read when the boundary record was
+written, which doesn't say whether that falls inside the compaction or at
+its end. It also doesn't name the transcript file its post-boundary records
+came from. A second live run, on Claude Code 2.1.332 with the default model,
+answers both.
+
+Test condition, where it differs from the first run:
+
+- The launch directory was trusted but not a git repository, so the session
+  had no worktree to move into and Claude Code kept its transcript where the
+  launch put it. `--setting-sources user` kept that directory's project
+  settings from loading, as before.
+- The `--settings` document added one test-only command to each hook event,
+  beside the two shirabe hooks. In `PreCompact` it marks the compaction's
+  start; in `SessionStart` on `compact` it marks the end. Each one appends
+  the time to the millisecond and a read of the job state file's
+  `sessionId`, `state` and `firstTerminalAt`, then prints nothing and exits
+  0.
+- A poller outside the session read the same three fields from the job state
+  file every second for the whole run and never stopped on a terminal state.
+- After the compaction the skill had the session pause for 120 seconds
+  before closing its run, so it stayed live through the third read. Claude
+  Code 2.1.332 refuses a foreground `sleep` of that length, so the session
+  ran it as a background command and waited for it.
+- `claude --bg` ignores `--session-id`, so the launch id is the one the
+  launch prints, read back from the job state file.
+
+Floor and window: a "reply ok" session launched the same way read 45,410
+tokens on its one turn. The window was the floor plus 90,000, rounded up to
+140,000.
+
+Result:
+
+- **Compaction times**: the start mark is 04:18:01.491Z and the end mark is
+  04:18:31.122Z. The `compact_boundary` record carries 04:18:31.248Z and a
+  `durationMs` of 29,584, so Claude Code writes the boundary record when the
+  compaction ends, not when it starts. A read taken when the boundary record
+  appears is an after-the-end read.
+- **Before**: read at 04:17:55.209Z, once the ledger entry existed and six
+  seconds before the start mark. `sessionId` was the launch id, `state`
+  `working`, `firstTerminalAt` null.
+- **While it runs**: 29 poller reads fall strictly between the two marks,
+  the first at 04:18:01.928Z and the last at 04:18:30.561Z. Each one shows
+  the launch id, `working` and a null `firstTerminalAt`; the one at
+  04:18:16.235Z, halfway through, reads
+  `{"sessionId":"<launch id>","state":"working","firstTerminalAt":null}`.
+  Both marks read the same.
+- **After**: read at 04:18:34.232Z, three seconds after the end mark, while
+  the session worked through its post-compaction steps: the launch id,
+  `working`, a null `firstTerminalAt`.
+- **Over the whole run**: none of the poller's 1,313 reads showed another
+  id, a terminal state or a set `firstTerminalAt`. The session later went
+  from `working` to `blocked` when its turn ended and it waited for input,
+  which is still a live state.
+- **Transcript file**: exactly one `compact_boundary` record, trigger
+  `auto`. The post-boundary records were read from `<launch id>.jsonl` in
+  the launch directory's project folder under Claude Code's `projects`
+  directory, the file the launch created: it had the same path and inode at
+  launch as after the boundary. All 79 records after the boundary carry the
+  launch `sessionId`, and no other file with the launch id exists anywhere
+  under the `projects` directory.
+- **Process and job directories**: the session's process, which
+  `claude agents --json` lists under the launch id, was alive after the
+  boundary. One job directory appeared during the window, and it belongs to
+  an unrelated session started in another directory; none appeared for this
+  session under another id.
+- **After the boundary**: the re-anchor text followed it as hook context.
+  The session's first tool calls were a read of the recorded `SKILL.md`,
+  then `koto status` on the recorded koto session, and it kept making tool
+  calls after that. `printenv CLAUDE_CODE_AUTO_COMPACT_WINDOW` printed
+  `140000`, and the compaction fired at 124,438 tokens, under the model's
+  own limit.
 
 ## The closing step
 
@@ -462,8 +540,9 @@ directory is removed when the script exits.
 Each of these exits 1, names the cause, and writes no key:
 
 - reasoning that is empty once whitespace is trimmed;
-- a line beginning `## ` in the reasoning or the standing rules, or a watch
-  value holding a newline, since either could open a forged section;
+- a line beginning `## ` in the reasoning or the standing rules, a watch
+  whose command begins with `## `, or a watch value holding a newline, since
+  any of them could open a forged section;
 - a watch that isn't `<label>=<command>`, whose label is outside
   `[A-Za-z0-9._-]{1,64}`, whose command is empty, or that holds a shell
   operator (`;`, `&`, `|`, `<`, `>`, `$`, a backtick, a backslash or a
@@ -692,7 +771,8 @@ turns), or when `context_tokens` is above `hard_stop` (`reason: hard_stop`
 with both figures); both reasons print when both hold. Otherwise it prints
 `status: continue` and exits 0. It parses integers only. It refuses a report
 with exit 2 and no status, naming the cause but never a line's text (and the
-line number, for a cause found on one line), when a line isn't of the form
+line number, for a cause found on one line, or the `boundaries` and
+`boundary_turns` lines when the count differs), when a line isn't of the form
 `key: value`, a key is unknown, repeated or missing, a figure isn't a plain
 whole number of at most fifteen digits, the `boundaries` count differs from
 the turns listed, the turns are out of order, a `hard_stop` line doesn't
@@ -713,3 +793,63 @@ the session id unchanged and the session live across a compaction. This read
 did, for a background session running one koto-backed skill under the test
 condition above. Each role's switch-on repeats the read for that role's own
 launch.
+
+### Workers
+
+A workspace switches workers on in its niwa configuration. A named dispatch
+profile, `worker`, carries the window in its `auto_compact_window`, and the
+workspace installs both hooks: `PreCompact` runs
+`shirabe compaction pre-compact` and `SessionStart` on `compact` runs
+`shirabe compaction re-anchor`, each through a two-line script that exits 0
+when the shirabe binary is missing, so a host without shirabe compacts as
+before. A worker gets the window only when its dispatch names the profile
+(`niwa dispatch --profile worker`); niwa renders it into the `env` block of
+the launch `--settings` document. The profile isn't the workspace default,
+because a default would reach every dispatch that names no profile,
+coordinators' successor dispatches among them, and niwa 0.45.0 gives a
+dispatch no way to opt out of a default (tsukumogami/niwa#579).
+
+The identity read for a worker launch, on Claude Code 2.1.332:
+
+- One test worker, started by `niwa dispatch --profile worker --detach` into
+  a fresh instance after the configuration was applied. Its task changed
+  nothing, read files whole until one compaction, printed the window and its
+  session id after it, then paused 120 seconds in a background command so it
+  stayed live through the last read.
+- It wrote no compaction note, since no shipped skill writes one yet, so the
+  hooks took their no-entry paths. That is what a worker launched this way
+  gets today.
+- A poller outside the session read the job state file's `sessionId`,
+  `state` and `firstTerminalAt`, and the transcript's inode, every second
+  from launch to the end. No test-only hooks were added; the compaction's
+  start is the boundary record's timestamp less its `durationMs`, since the
+  record is written when the compaction ends.
+
+Result:
+
+- **Window carriage**: the launch `--settings` `env` block held
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW=280000`, the value the worker profile
+  sets. The compaction fired
+  automatically at 252,957 tokens (after it, 51,208), and `printenv
+  CLAUDE_CODE_AUTO_COMPACT_WINDOW` after it printed `280000`. A session the
+  same workspace dispatched with no profile had no window in its launch
+  `env` block.
+- **Compaction times**: the boundary record carries 10:39:15.821Z and a
+  `durationMs` of 23,731, so the compaction ran from 10:38:52.090Z.
+- **Before**, **while it runs** and **after**: every read showed the launch
+  id, `working` and a null `firstTerminalAt`. That includes 23 poller reads
+  strictly inside the compaction, the first poll after the boundary, and two
+  direct reads during the pause.
+- **Transcript file**: exactly one `compact_boundary` record, trigger
+  `auto`, in the launch transcript, with the same path and inode as at
+  launch. Every record after it carries the launch `sessionId`, and no other
+  file with the launch id exists under the `projects` directory. The only job
+  directory naming the id is the launch's, and the session's process was
+  alive after the boundary.
+- **After the boundary**: both `SessionStart` hooks succeeded, and the
+  re-anchor's no-entry text followed the boundary as hook context ("This
+  session was just compacted, and no compaction note is recorded for it").
+  The summary carries the pre-compact no-entry text: the branch, and no koto
+  session, pull request or skill recorded. The session's first tool calls
+  followed the re-anchor steps, looking for a koto session and finding none,
+  then printed the window and the launch id.
