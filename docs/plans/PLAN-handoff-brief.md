@@ -29,7 +29,7 @@ names no profile, coordinators' successor dispatches among them, so a default
 worker window would reach coordinators before step 8 switches them on. niwa
 0.45.0 gives a dispatch no way to opt out of a default; until it does
 (tsukumogami/niwa#579), the window stays in the named profile. This narrows
-which sessions get a window and loosens nothing else in the step.
+which sessions get a window and changes nothing else in the step.
 
 ## Scope Summary
 
