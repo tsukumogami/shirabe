@@ -212,6 +212,21 @@ case "$OUT" in
     *"scripts/e.sh and 2 more") pass "planner: past five paths the reason counts the rest" ;;
     *) fail "planner many: printed [$OUT]" ;;
 esac
+echo "--- a path listing that fails resolves local"
+# A git wrapper that fails only the --no-renames listings the class and
+# planner checks make; every other git call reaches the real git.
+REAL_GIT=$(command -v git)
+mkdir -p "$WORKDIR/gitfail"
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = --no-renames ] && exit 128; done\nexec "%s" "$@"\n' "$REAL_GIT" > "$WORKDIR/gitfail/git"
+chmod +x "$WORKDIR/gitfail/git"
+git checkout -q -B listing-fails main
+change skills/a/f.txt
+PATH="$WORKDIR/gitfail:$PATH" plan p-listing-fails
+eq "failed listing: --plan exits 1 (local)" 1 "$RC"
+case "$OUT" in
+    "local: review-level.sh classify could not classify the changed paths") pass "failed listing: the reason says the paths weren't classified" ;;
+    *) fail "failed listing: printed [$OUT]" ;;
+esac
 git checkout -q -B planner-nested main
 change skills/a/scripts/x.sh
 plan p-planner-nested

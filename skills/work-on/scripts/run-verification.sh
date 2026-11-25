@@ -111,8 +111,8 @@
 #       changed path (both sides of a rename) is in the ci, security,
 #       template or engine class of review-level.sh classify, nor under the
 #       top-level scripts/ the hosted gate runs from the branch
-#       (PLAN_PLANNER_PREFIX); to `local` (exit 1) otherwise. "Would start" is --start's selection after a fix
-#       round's carry (step 5b): a check the carry marks `carried` runs
+#       (PLAN_PLANNER_PREFIX); to `local` (exit 1) otherwise. "Would
+#       start" is --start's selection after a fix round's carry (step 5b): a check the carry marks `carried` runs
 #       nothing, so it needs no twin, and a round with nothing left to start
 #       resolves to local, where its carried records make the result. It also
 #       resolves to local, saying why, for a non-empty --shared-branch (a
@@ -1463,7 +1463,7 @@ plan_decide() {
     # The path classes, both sides of a rename: a path in the ci, security,
     # template or engine class can change what CI itself runs, or what decides
     # this run's route.
-    classes=$(git -C "$ROOT" diff --name-only --no-renames -z "$MB..HEAD" | xargs -0 "$HERE/review-level.sh" classify) \
+    classes=$(set -o pipefail; git -C "$ROOT" diff --name-only --no-renames -z "$MB..HEAD" | xargs -0 "$HERE/review-level.sh" classify) \
         || { plan_local "review-level.sh classify could not classify the changed paths"; return 0; }
     risky=$(printf '%s\n' "$classes" | awk -F'\t' -v risk="$PLAN_RISKY_CLASSES" '
         BEGIN { n = split(risk, r, " "); for (i = 1; i <= n; i++) want[r[i]] = 1 }
@@ -1477,7 +1477,7 @@ plan_decide() {
         plan_local "the change touches a path in the ci, security, template or engine class: $risky"
         return 0
     fi
-    planner=$(git -C "$ROOT" diff --name-only --no-renames -z "$MB..HEAD" | jq -Rrs --arg p "$PLAN_PLANNER_PREFIX" '
+    planner=$(set -o pipefail; git -C "$ROOT" diff --name-only --no-renames -z "$MB..HEAD" | jq -Rrs --arg p "$PLAN_PLANNER_PREFIX" '
         split("\u0000") | map(select(startswith($p))) as $hit
         | if ($hit | length) == 0 then "" else ($hit[:5] | join(", ")) + (if ($hit | length) > 5 then " and \(($hit | length) - 5) more" else "" end) end') \
         || { plan_local "the changed paths could not be listed"; return 0; }
