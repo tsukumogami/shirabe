@@ -743,13 +743,15 @@ same commit, since CI checks the digest on every change.
 ### Phase 1: The record row
 
 Add `successor` to `run_keys` and `state-stored-set.sh --successor`, with
-the value grammar, the status moves and the entry. Add
-`dc_successor_settle` and its unit tests. Document the key in
-`references/state-keys.md`.
+the value grammar, the status moves and the entry. Document the key in
+`references/state-keys.md`. `dc_successor_settle` and its unit tests
+aren't part of this phase: they're step 4's work in the PLAN.
 
 Deliverables:
-- `state-schema.jq`, `state-stored-set.sh`, `dispatch-common.sh`
-- `state-schema_test.sh`, `state-stored-set_test.sh`, `dispatch-common_test.sh`
+- `state-schema.jq`, `state-stored-set.sh`
+- `state-schema_test.sh`, `state-stored-set_test.sh`
+- Step 4's work, not this phase's: `dispatch-common.sh`
+  (`dc_successor_settle`) and `dispatch-common_test.sh`
 
 ### Phase 2: The brief
 
@@ -957,3 +959,13 @@ None of these blocks the PRD's acceptance criteria.
   manager.
 - The merge seat's teardown step and the coordinator handoff brief's
   text, both held for a ruling; this design changes neither.
+
+## Amendments
+
+- 2026-11-25: In the `--successor` mode, the settle (`dc_successor_settle`)
+  and the exit-12 refusal of a pending successor run after
+  `successor_input.json` is read and the run's lock is taken, and before
+  the live-session check. Components above put them before the input read.
+  The refusal compares the input's topic with the pending row's, so the
+  input has to be read first, and an input error still exits 1 ahead of
+  exit 12.
