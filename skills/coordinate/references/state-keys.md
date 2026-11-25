@@ -399,7 +399,12 @@ moves only from the row as it stands: `dispatching` from no row, or from a
 `dispatched` of the same topic. Any other write is refused (exit 65) with
 nothing written. A `dispatching` or `dispatched` write's entry names the
 topic, the brief (`.niwa/dispatch-briefs/<topic>.md` under the workspace
-root) and the role the Run `role` row holds. `--successor clear --by <who>`
+root) and the role the Run `role` row holds. `dispatch-worker.sh --successor`
+settles the row against niwa's listing before every dispatch
+(`dc_successor_settle` in `dispatch-common.sh`): a `dispatching` row whose
+session is listed is written `dispatched`, and a `dispatched` row whose
+session a listing that was read doesn't show is written `stranded`; a
+listing that can't be read writes nothing. `--successor clear --by <who>`
 removes the row; the successor's opener runs it when it takes the run over
 with `--dispatched-by` naming the run in the row's Set by, and any other
 takeover keeps the row, carried with the rest of the record.

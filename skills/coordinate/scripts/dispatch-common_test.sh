@@ -479,5 +479,80 @@ printf 'not json' >"$LROWS"
 eq  "live: a working job is live whatever the listing says" \
     "0 $LN is a running Claude job: the state file of job $LJ reads working" "$(out=$(live); echo "$? $out")"
 
+
+# --- the successor row settled against niwa's listing --------------------------------
+#
+# dc_successor_settle reads the Run successor row through DC_RECORD_STATE
+# and the listing through NIWA. The stored set's stand-in keeps the row in a
+# file, so each --successor write moves it and is logged; STW_RC fails a
+# write. The niwa stand-in lists $SS/sessions.json, or fails with
+# $SS/list-fail.
+SS="$T/settle"
+mkdir -p "$SS/root"
+cat >"$SS/state.sh" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = --list ]; then
+    jq -nc --arg s "$(cat "$SS/row" 2>/dev/null)" '{run: (if $s == "" then [] else [{key: "successor", value: $s, set_by: "coord", set: "2026-09-26T08:00Z"}] end)}'
+    exit 0
+fi
+printf '%s\n' "$*" >>"$SS/writes.log"
+[ "${STW_RC:-0}" = 0 ] || { echo "state-stored-set: refused: the row as it stands" >&2; exit "$STW_RC"; }
+printf '%s %s 2026-11-25\n' "$4" "$5" >"$SS/row"
+EOF
+cat >"$SS/niwa" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" = list ] || exit 64
+[ ! -f "$SS/list-fail" ] || exit 1
+cat "$SS/sessions.json"
+EOF
+chmod +x "$SS/state.sh" "$SS/niwa"
+export SS
+SET_S=succ_one-""1a2b3c4d
+# settle <row> <listed: yes|no|fail>: prints "<rc>|<stdout>|<row after>|<writes>"
+settle() {
+    rm -f "$SS/row" "$SS/writes.log" "$SS/list-fail"
+    [ -z "$1" ] || printf '%s\n' "$1" >"$SS/row"
+    case "$2" in
+        yes) printf '[{"name":"x","path":"/p","session_name":"%s"}]\n' "$SET_S" >"$SS/sessions.json" ;;
+        no) printf '[]\n' >"$SS/sessions.json" ;;
+        fail) : >"$SS/list-fail" ;;
+    esac
+    local out rc
+    out=$(DC_RECORD_STATE="$SS/state.sh" NIWA="$SS/niwa" dc_successor_settle coord "$SS/root" 2>"$SS/err"); rc=$?
+    printf '%s|%s|%s|%s' "$rc" "$out" "$(cat "$SS/row" 2>/dev/null)" "$(cat "$SS/writes.log" 2>/dev/null)"
+}
+TAB=$(printf '\t')
+eq  "settle: no row is left alone" "0|$TAB||" "$(settle "" yes)"
+eq  "settle: a dispatch-failed row is left alone" \
+    "0|dispatch-failed succ-one 2026-09-26$TAB|dispatch-failed succ-one 2026-09-26|" "$(settle "dispatch-failed succ-one 2026-09-26" no)"
+eq  "settle: a stranded row is left alone" \
+    "0|stranded succ-one 2026-09-26$TAB|stranded succ-one 2026-09-26|" "$(settle "stranded succ-one 2026-09-26" yes)"
+eq  "settle: a listed dispatching row is written dispatched" \
+    "0|dispatched succ-one 2026-11-25$TAB$SET_S|dispatched succ-one 2026-11-25|--session coord --successor dispatched succ-one --by coord" \
+    "$(settle "dispatching succ-one 2026-09-26" yes)"
+eq  "settle: an unlisted dispatching row is left alone" \
+    "0|dispatching succ-one 2026-09-26$TAB|dispatching succ-one 2026-09-26|" "$(settle "dispatching succ-one 2026-09-26" no)"
+eq  "settle: an unlisted dispatched row is written stranded" \
+    "0|stranded succ-one 2026-11-25$TAB|stranded succ-one 2026-11-25|--session coord --successor stranded succ-one --by coord" \
+    "$(settle "dispatched succ-one 2026-09-26" no)"
+eq  "settle: a listed dispatched row is left alone" \
+    "0|dispatched succ-one 2026-09-26$TAB$SET_S|dispatched succ-one 2026-09-26|" "$(settle "dispatched succ-one 2026-09-26" yes)"
+eq  "settle: a listing that can't be read writes nothing and returns 3" \
+    "3|dispatched succ-one 2026-09-26$TAB|dispatched succ-one 2026-09-26|" "$(settle "dispatched succ-one 2026-09-26" fail)"
+eq  "settle: ... for a dispatching row too" \
+    "3|dispatching succ-one 2026-09-26$TAB|dispatching succ-one 2026-09-26|" "$(settle "dispatching succ-one 2026-09-26" fail)"
+eq  "settle: ... and no row reads no listing" "0|$TAB||" "$(settle "" fail)"
+export STW_RC=65
+eq  "settle: a write the record refuses returns the writer's code" \
+    "65|dispatched succ-one 2026-09-26$TAB|dispatched succ-one 2026-09-26|--session coord --successor stranded succ-one --by coord" \
+    "$(settle "dispatched succ-one 2026-09-26" no)"
+eq  "settle: ... its reason on stderr" "state-stored-set: refused: the row as it stands" "$(cat "$SS/err")"
+export STW_RC=10
+eq  "settle: ... a refused confirm too, the row printed as read" \
+    "10|dispatching succ-one 2026-09-26$TAB$SET_S|dispatching succ-one 2026-09-26|--session coord --successor dispatched succ-one --by coord" \
+    "$(settle "dispatching succ-one 2026-09-26" yes)"
+unset STW_RC
+eq  "settle: a row that can't be read returns 2" "2" "$(DC_RECORD_STATE=/bin/false dc_successor_settle coord "$SS/root" >/dev/null 2>&1; echo $?)"
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
