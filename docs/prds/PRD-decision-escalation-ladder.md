@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   A person running work across agent sessions is told sessions are blocked on
   them when the owning session did no work on the question, or when the
@@ -21,7 +21,7 @@ upstream: docs/briefs/BRIEF-decision-escalation-ladder.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
