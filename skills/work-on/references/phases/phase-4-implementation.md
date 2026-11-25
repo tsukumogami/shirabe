@@ -71,6 +71,9 @@ carries your reason:
 "${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/test-change.sh" note <WF> --file <test path> --reason "<why the test was wrong>"
 ```
 
+Keep the reason to 300 bytes or fewer. A longer one is refused with exit 64,
+naming the limit and its length, and nothing is recorded.
+
 ### Commit
 
 Commit format: `<type>(scope): <description>`
