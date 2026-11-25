@@ -1772,7 +1772,7 @@ lacks "stranded two topics: the brief names no other topic's stranded row on the
 # stranded row.
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "design-follow-up"')" design-follow-up
 stranded_row
-export NIWA_NAME=design_follow_up-1a2b3c4d
+export NIWA_NAME=design-follow-up-1a2b3c4d
 run >/dev/null 2>"$T/st3.err"
 eq  "stranded, continuing nothing: the other topic goes out" 0 "$?"
 lacks "stranded, continuing nothing: the brief names no stranded predecessor" "$(cat "$W/.niwa/dispatch-briefs/design-follow-up.md")" "which was stranded"
