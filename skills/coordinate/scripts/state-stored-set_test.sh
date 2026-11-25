@@ -83,6 +83,12 @@ chmod +x "$T/fake-niwa/niwa"
 printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"not-dispatched","reason":"no-mapping","grant":[]}' > "$T/niwa.answer"
 PATH="$T/fake-niwa:$PATH"
 export PATH
+# A seeded job's listing row (dispatch-common.sh dc_job_row) comes from a
+# stub `claude agents --json --all` that lists nothing, never the host's real
+# CLI.
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$T/claude-cli"
+chmod +x "$T/claude-cli"
+export DC_CLAUDE_CLI="$T/claude-cli"
 unset CLAUDE_CODE_SESSION_ID NIWA_BIN
 
 SR=coordinate-roadmap-plugin-system-20260926T070000Z
@@ -390,10 +396,14 @@ eq "a holding's first Work row does, since its dispatch brief named the address"
     "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
 bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>&1
 bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "no gaps once each is told and has a next step" 0 $?
-# A merged holding (a Verified head, its Pull request cleared) is exempt.
+# A merged holding (a Verified head, its Pull request cleared) whose worker
+# has finished (its Claude job here stopped, shirabe#2080) is exempt.
+JD="$T/claude-f3/jobs" H3=0000ccc3
+mkdir -p "$JD/c3c3c3c3"
+jq -nc --arg n "worker_f3-$H3" '{name: $n, state: "done"}' > "$JD/c3c3c3c3/state.json"
 seed "$(printf '%s' "$TWO" | jq -c --arg s "$SHA_HEAD" '.holdings[1].verified_head = $s')"
 eq "a merged holding needs no next step" "no-arguments no-cap no-coordinator no-reports-to no-role no-next-step Feature 2" \
-    "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
+    "$(DC_CLAUDE_HOME="$T/claude-f3" bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
 # PRD R15: a live holding whose leg names a request this host's store doesn't
 # hold (the run was imported here) holds the gate until its leg has an end.
 seed "$(printf '%s' "$TWO" | jq -c '.holdings[0].return_path = "leg req_1:deliver" | .holdings[1].return_path = "leg req_2:deliver"')"

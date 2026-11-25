@@ -504,5 +504,20 @@ printf 'not json' >"$LROWS"
 eq  "live: a working job is live whatever the listing says" \
     "0 $LN is a running Claude job: the state file of job $LJ reads working" "$(out=$(live); echo "$? $out")"
 
+# --- a stopped topic reads the listing row too (shirabe#2080) --------------------
+# dc_topic_stopped applies dc_session_live's listing-row pid check: a worker
+# whose state file reads done while the listing shows its live pid is not
+# stopped, so its holding stays in the live set.
+SH="$T/stop-home"
+SJ=$(printf '%s%s' 6d57 19f4)
+SN=$(printf 'stopq-%s%s' 1e2d 3c4b)
+mkdir -p "$SH/jobs/$SJ"
+jq -n --arg n "$SN" '{name: $n, state: "done"}' >"$SH/jobs/$SJ/state.json"
+stopped() { DC_CLAUDE_CLI="$LCLI" dc_topic_stopped "$SH" stopq; }
+jq -n --arg j "$SJ" --argjson p "$LIVE" '[{id: $j, status: "idle", state: "done", pid: $p}]' >"$LROWS"
+stopped; eq "stopped: a done job listed idle with a live pid is not stopped" 1 $?
+jq -n --arg j "$SJ" --argjson p "$DEAD" '[{id: $j, status: "idle", state: "done", pid: $p}]' >"$LROWS"
+stopped; eq "stopped: a done job listed with no live pid is stopped" 0 $?
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

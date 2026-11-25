@@ -21,6 +21,16 @@ step_count: 9
 
 Active
 
+Amended on 2026-11-25, for step 7: where step 7 says the workspace
+configuration "sets the worker window in its default profile", the
+configuration sets it in a named profile, `worker`, which a dispatch takes
+with `--profile worker`. A default profile reaches every `niwa dispatch` that
+names no profile, coordinators' successor dispatches among them, so a default
+worker window would reach coordinators before step 8 switches them on. niwa
+0.45.0 gives a dispatch no way to opt out of a default; until it does
+(tsukumogami/niwa#579), the window stays in the named profile. This narrows
+which sessions get a window and changes nothing else in the step.
+
 ## Scope Summary
 
 shirabe ships the pieces that let a session compact in place and still find

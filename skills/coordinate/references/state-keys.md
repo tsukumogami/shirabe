@@ -588,7 +588,9 @@ by <who>.` or `Run briefs-read <label> sha256:<digest> c/n set by <who>.`
 
 `scripts/state-handover.sh` reads the stored set back, with the holds, and
 names its gaps: no arguments, cap or address; a live holding (dispatched, and
-not merged and waiting for its teardown) with no Work row, or whose worker
+not merged and waiting for its teardown, which takes a Verified head with a
+blank Pull request cell and a worker seen to have finished: its leg resolved
+or abandoned, or every Claude job of it on this host stopped) with no Work row, or whose worker
 has been neither told the current address nor recorded pending or missing; a brief
 `record/host` names as `briefs:<label>` whose digest no Run `briefs` row
 carries (`brief-unread <label>`, its fix the intake; when the caps would
