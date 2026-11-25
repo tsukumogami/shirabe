@@ -458,7 +458,10 @@ fn an_event_after_the_note_in_the_same_state_makes_it_stale() {
         fx.add_events(&[ev(6, ty)]);
         let out = fx.pre_compact();
         assert_eq!(out.matches(STALE).count(), 1, "{ty}: {out}");
-        assert!(out.contains("first step after the compaction"), "{ty}: {out}");
+        assert!(
+            out.contains("first step after the compaction"),
+            "{ty}: {out}"
+        );
         assert!(!out.contains(UNKNOWN), "{ty}: {out}");
         // Rewriting the note puts its write after the event.
         fx.history(
@@ -483,7 +486,13 @@ fn a_manual_compaction_is_judged_the_same() {
         "custom_instructions": INPUT_MARKER,
     })
     .to_string();
-    let out = fx.run_with("pre-compact", "repo", &["kbin", "bin", "tools"], &input, &[]);
+    let out = fx.run_with(
+        "pre-compact",
+        "repo",
+        &["kbin", "bin", "tools"],
+        &input,
+        &[],
+    );
     assert_eq!(out.matches(STALE).count(), 1, "{out}");
     assert!(!out.contains(INPUT_MARKER), "{out}");
 }
@@ -1366,7 +1375,10 @@ fn assert_re_anchor_stale(ctx: &str) {
     let read = ctx.find("handoff-brief.sh read --note").unwrap();
     let rewrite = ctx.find(REWRITE).expect("no rewrite step");
     let carry_on = ctx.find("Then carry on").unwrap();
-    assert!(verdict < read && read < rewrite && rewrite < carry_on, "{ctx}");
+    assert!(
+        verdict < read && read < rewrite && rewrite < carry_on,
+        "{ctx}"
+    );
     assert!(ctx.contains("`handoff-brief.sh note`"), "{ctx}");
 }
 
