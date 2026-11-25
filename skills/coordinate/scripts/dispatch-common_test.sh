@@ -454,7 +454,8 @@ eq  "leg field: a field that isn't a string: exit 2" 2 "$?"
 # Every other coordinate script reaches those fields through dc_leg_field, so
 # a rename here can't leave a writer or a reader on the old name.
 DIRECT=$(cd "$HERE" && for f in *.sh *.jq; do
-    case "$f" in *_test.sh | dispatch-common.sh) continue ;; esac
+    # No case here: bash 3.2 misreads a case pattern's `)` inside $( ).
+    if [[ $f == *_test.sh ]] || [ "$f" = dispatch-common.sh ]; then continue; fi
     grep -nE '\.(child|rebriefed|opened)\b|[{,] *(child|rebriefed|opened) *[,}]' "$f" | grep -vE '^[0-9]+: *#' | sed "s#^#$f:#"
 done)
 eq  "leg field: no other script reads or writes child, rebriefed or opened directly" "" "$DIRECT"
