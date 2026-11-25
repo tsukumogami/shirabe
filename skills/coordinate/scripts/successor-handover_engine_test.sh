@@ -263,7 +263,7 @@ ns_reset
 if mrun handover owed; then
     A=$S
     eq "1: pick reads MV1, the only milestone, verdict_owed" "MV1 true" "$(pickf | jq -r '.units | map("\(.unit) \(.verdict_owed)") | join(",")')"
-    eq "1: the run's compat reads 2" 2 "$(cd "$WD" && bash "$PS/coord-log.sh" compat --session "$A" 2>/dev/null | cut -d' ' -f1)"
+    eq "1: the run's compat reads 3" 3 "$(cd "$WD" && bash "$PS/coord-log.sh" compat --session "$A" 2>/dev/null | cut -d' ' -f1)"
     BEFORE=$(shape)
     worker MV1
     eq "4 verdict: a worker dispatch of MV1 exits 10" 10 "$WRC"

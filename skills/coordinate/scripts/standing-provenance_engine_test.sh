@@ -357,15 +357,22 @@ if [ -n "$BASE" ]; then
     git -C "$REPO_ROOT" show "$BASE:skills/coordinate/koto-templates/coordinate.compat.json" > "$T/base.compat.json" 2> "$T/base.err" \
         || needf "the base's coordinate.compat.json can't be read: $(cat "$T/base.err")"
     CARGS+=(--base-table "$T/base.compat.json")
-    need "  ... compat unchanged from the base's" "$(jq -c .compat "$T/base.compat.json" 2>/dev/null)" \
-        "$(jq -c .compat "$REPO_ROOT/skills/coordinate/koto-templates/coordinate.compat.json")"
+    # compat stays the base's only while the template keeps the structure the
+    # base lists at its compat; a structure the base doesn't list there is a
+    # change's own raise, and check-template-compat.sh decides whether it holds.
+    FP=$(cd "$REPO_ROOT" && bash scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md --print 2>/dev/null | jq -r '.fingerprint // empty')
+    [ -n "$FP" ] || needf "check-template-compat.sh printed no fingerprint"
+    if jq -e --arg f "$FP" '.fingerprints[$f] == .compat' "$T/base.compat.json" >/dev/null; then
+        need "  ... compat unchanged from the base's over the base's own structure" "$(jq -c .compat "$T/base.compat.json" 2>/dev/null)" \
+            "$(jq -c .compat "$REPO_ROOT/skills/coordinate/koto-templates/coordinate.compat.json")"
+    fi
 else
     echo "     (no origin/main or main in this checkout: the compat check runs without a base table)"
 fi
 (cd "$REPO_ROOT" && bash scripts/check-template-compat.sh "${CARGS[@]}") > "$T/compat.out" 2>&1
 rc=$?
 [ "$rc" = 0 ] || needf "scripts/check-template-compat.sh exits $rc: $(cat "$T/compat.out")"
-crit "8. scripts/check-template-compat.sh passes against the base branch's coordinate.compat.json, compat unchanged: no gate runs the helper"
+crit "8. scripts/check-template-compat.sh passes against the base branch's coordinate.compat.json, compat the base's over the base's own structure: no gate runs the helper"
 
 report
 done_tests standing-provenance-engine
