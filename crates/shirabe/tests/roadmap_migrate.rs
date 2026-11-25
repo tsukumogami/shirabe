@@ -307,6 +307,54 @@ fn migrate_refuses_v1_schemaless_done_and_unparseable_roadmaps() {
     );
 }
 
+/// A roadmap whose migrated form fails validation: Milestone 5's block reads
+/// In progress while its Progress row reads Not started. The dry run reports
+/// the same findings with the same exit status as the real run, and neither
+/// writes the file.
+#[test]
+fn migrate_dry_run_reports_the_validation_findings_the_real_run_refuses_with() {
+    let name = "ROADMAP-invalid.md";
+    let text = fixture(V3).replacen(
+        "| Milestone 5: E | In progress | -- |",
+        "| Milestone 5: E | Not started | -- |",
+        1,
+    );
+    assert_ne!(text, fixture(V3), "the Progress row edit didn't apply");
+    let (dir, path) = place("invalid", name, &text);
+    let before = checksum(&path);
+
+    let real = shirabe(&dir, &["roadmap", "migrate", name]);
+    let dry = shirabe(&dir, &["roadmap", "migrate", name, "--dry-run"]);
+
+    assert_eq!(
+        (dry.status.code(), stderr(&dry)),
+        (real.status.code(), stderr(&real)),
+        "the dry run's exit status and findings differ from the real run's"
+    );
+    for (mode, out) in [("real", &real), ("dry run", &dry)] {
+        assert_eq!(out.status.code(), Some(1), "{mode}: exit status");
+        let err = stderr(out);
+        assert!(
+            err.contains("the migrated roadmap fails validation, so nothing was written"),
+            "{mode}: stderr lacks the validation refusal: {err}"
+        );
+        assert!(
+            err.contains(
+                "milestone 'Milestone 5: E' has Status 'In progress' in its block \
+                 but 'Not started' in its Progress table row"
+            ),
+            "{mode}: stderr lacks the disagreement finding: {err}"
+        );
+        assert!(
+            out.stdout.is_empty(),
+            "{mode}: printed {:?}",
+            stdout_lines(out)
+        );
+        assert_eq!(checksum(&path), before, "{mode}: file changed");
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn migrate_refuses_a_path_outside_the_repository() {
     let repo = scratch("repo", true);

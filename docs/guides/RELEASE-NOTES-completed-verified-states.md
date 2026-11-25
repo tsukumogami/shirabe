@@ -84,7 +84,9 @@ Shipped or Closed becomes Verified when its latest verdict line in Progress
 is verified or verified with follow-ups, and Completed otherwise (no verdict
 line, or a changes-needed one last). Every other status is kept. A
 `roadmap/v2` roadmap's `## Features` layout becomes `## Milestones` in the
-same pass.
+same pass. The preview also validates the migrated result, so a roadmap the
+real run would refuse is refused here too, with the same findings and exit
+status.
 
 **Then migrate for real.** The same command without `--dry-run` rewrites
 the file: the schema line, each changed milestone's Status and its Progress
