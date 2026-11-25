@@ -435,5 +435,29 @@ eq  "job: state file that isn't JSON" "the state file of job $JF is not readable
 rm -f "$CH/jobs/$JF/state.json"
 eq  "job: no state file" "job $JF has no state file at $CH/jobs/$JF/state.json" "$(dc_job_finished "$CH" "$JF" '{}')"
 
+# --- dc_leg_field: the one accessor for a leg key's child, rebriefed and opened ---
+LK='{"request":"req-1","leg":"work-on","topic":"w","state":"open","child":"issue_7"}'
+eq  "leg field: reads child" issue_7 "$(dc_leg_field "$LK" child)"
+eq  "leg field: a field not set reads empty, exit 0" ":0" "$(dc_leg_field "$LK" rebriefed):$?"
+eq  "leg field: sets rebriefed and keeps the rest" '2026-09-26T10:00:00Z issue_7 open' \
+    "$(dc_leg_field "$LK" rebriefed 2026-09-26T10:00:00Z | jq -r '"\(.rebriefed) \(.child) \(.state)"')"
+eq  "leg field: a set value reads back" 2026-09-26T09:00:00Z "$(dc_leg_field "$(dc_leg_field "$LK" opened 2026-09-26T09:00:00Z)" opened)"
+OUT=$(dc_leg_field "$LK" bound_child 2>&1); RC=$?
+eq  "leg field: a field it doesn't know is refused: exit 2" 2 "$RC"
+eq  "  ... and stderr names it" "dispatch-common: dc_leg_field: bound_child is not a leg key field (child, rebriefed, opened)" "$OUT"
+dc_leg_field "$LK" child x >/dev/null 2>&1 && dc_leg_field "$LK" rebriefd x >/dev/null 2>&1
+eq  "leg field: a misspelled field is refused on write too" 2 "$?"
+dc_leg_field '["not","an","object"]' child >/dev/null 2>&1
+eq  "leg field: a key that isn't an object: exit 2" 2 "$?"
+dc_leg_field '{"child":7}' child >/dev/null 2>&1
+eq  "leg field: a field that isn't a string: exit 2" 2 "$?"
+# Every other coordinate script reaches those fields through dc_leg_field, so
+# a rename here can't leave a writer or a reader on the old name.
+DIRECT=$(cd "$HERE" && for f in *.sh *.jq; do
+    case "$f" in *_test.sh | dispatch-common.sh) continue ;; esac
+    grep -nE '\.(child|rebriefed|opened)\b|[{,] *(child|rebriefed|opened) *[,}]' "$f" | grep -vE '^[0-9]+: *#' | sed "s#^#$f:#"
+done)
+eq  "leg field: no other script reads or writes child, rebriefed or opened directly" "" "$DIRECT"
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

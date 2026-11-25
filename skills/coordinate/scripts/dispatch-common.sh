@@ -164,7 +164,8 @@
 #   (koto's result for the leg, once read), new_request (a re-leg's new
 #   request), from (the request a re-legged key replaced) and rebriefed (the
 #   UTC time a --rebrief moved its holding to the message path; the land
-#   step then reads the round in child, board-lib.sh bl_rebriefed_round).
+#   step then reads the round in child, board-lib.sh bl_rebriefed_round),
+#   and opened (the UTC time dispatch-worker.sh opened the leg).
 #   templates and
 #   inputs are the leg's declaration at dispatch. state is one of:
 #     open           dispatched on this leg; no result read yet
@@ -178,6 +179,16 @@
 #     relegged       the re-leg finished: the holding names new_request
 #     unwatchable    after an import its worker can't be watched from this
 #                    host, and the holding reports by message
+#
+#   dc_leg_field <key-json> child|rebriefed|opened [<value>]
+#       The one accessor for those three fields of a leg key: every script
+#       that reads or writes them goes through it, so a field renamed here
+#       is renamed for its writers and readers at once, and a caller that
+#       names a field this doesn't know is refused on stderr (return 2)
+#       rather than reading an empty value. With no value it prints the
+#       field, or nothing when it isn't set; with one it prints the key with
+#       the field set. Returns 0, or 2 for an unknown field, a key that
+#       isn't a JSON object, or a field that isn't a string.
 #
 #   dc_record_list <session>
 #       Prints every holding row as one JSON array, in record order. Returns
@@ -602,6 +613,22 @@ dc_leg_put() {
     jq -e --arg r "$2" --arg l "$3" --arg re "$DC_RE_LEG_STATE" \
         'type == "object" and .request == $r and .leg == $l and ((.state // "") | test($re))' <<<"$4" >/dev/null || return 2
     jq -c . <<<"$4" | "${KOTO:-koto}" context add "$1" "$key" >/dev/null || return 2
+}
+
+dc_leg_field() {
+    case "$2" in
+        child | rebriefed | opened) ;;
+        *)
+            printf 'dispatch-common: dc_leg_field: %s is not a leg key field (child, rebriefed, opened)\n' "$2" >&2
+            return 2
+            ;;
+    esac
+    if [ $# -ge 3 ]; then
+        jq -c --arg f "$2" --arg v "$3" 'if type == "object" then .[$f] = $v else error("the leg key is not a JSON object") end' <<<"$1" || return 2
+    else
+        jq -r --arg f "$2" 'if type != "object" then error("the leg key is not a JSON object")
+            else .[$f] // "" | if type == "string" then . else error("the leg key'"'"'s \($f) is not a string") end end' <<<"$1" || return 2
+    fi
 }
 
 dc_record_present() {

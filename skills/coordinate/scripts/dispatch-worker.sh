@@ -944,10 +944,15 @@ EOF
     local unit
     unit=$(jq -r '.unit // "" | strings | select(length <= 200 and (test("[[:cntrl:]]") | not))' "$INPUT") || unit=""
     [[ ${unit%%: *} =~ ^[A-Za-z0-9][A-Za-z0-9\ _.#/-]{0,63}$ ]] || unit=""
-    dc_leg_put "$SESSION" "$req" "$leg" "$(jq -nc --arg r "$req" --arg l "$leg" --arg t "$TOPIC" \
+    # `opened` lets the land step tell a re-brief stamp on an earlier leg of
+    # the topic from one this leg superseded (board-lib.sh bl_rebriefed_round).
+    local newkey
+    newkey=$(jq -nc --arg r "$req" --arg l "$leg" --arg t "$TOPIC" \
         --arg tp "$templates" --argjson in "$inputs" --arg u "$unit" \
         '{request: $r, leg: $l, topic: $t, state: "open", templates: ($tp | split(",")), inputs: $in}
-         + (if $u == "" then {} else {unit: $u} end)')" ||
+         + (if $u == "" then {} else {unit: $u} end)') &&
+        newkey=$(dc_leg_field "$newkey" opened "$(date -u +%Y-%m-%dT%H:%M:%SZ)") &&
+        dc_leg_put "$SESSION" "$req" "$leg" "$newkey" ||
         die 2 "could not write the leg key for $TOPIC's leg $RETURN_PATH"
 }
 
@@ -1150,7 +1155,7 @@ stamp_rebriefed() {
     esac
     [ "$(jq -r '.topic // "" | strings' <<<"$key")" = "$TOPIC" ] || {
         printf '%s: the leg key for %s names another worker: not stamped\n' "$PROG" "$rp" >&2; return 0; }
-    child=$(jq -r '.child // "" | strings' <<<"$key")
+    child=$(dc_leg_field "$key" child) || child=
     if [ -z "$child" ] && request_view "$req"; then
         child=$(jq -r --arg l "$leg" '(.request // .) | .legs[$l].bound_child // "" | strings' <<<"$VIEW") || child=
     fi
@@ -1159,7 +1164,8 @@ stamp_rebriefed() {
         return 0
     fi
     now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    dc_leg_put "$SESSION" "$req" "$leg" "$(jq -c --arg c "$child" --arg t "$now" '.child = $c | .rebriefed = $t' <<<"$key")" ||
+    { key=$(dc_leg_field "$key" child "$child") && key=$(dc_leg_field "$key" rebriefed "$now") &&
+        dc_leg_put "$SESSION" "$req" "$leg" "$key"; } ||
         printf '%s: could not stamp the leg key for %s: the land step reads %s'"'"'s round from its report only\n' "$PROG" "$rp" "$TOPIC" >&2
 }
 
@@ -1211,7 +1217,7 @@ if [ -n "$IMPORTED" ]; then
     [ "$(jq -r '.topic // "" | strings' <<<"$KEY")" = "$TOPIC" ] ||
         die 9 "the leg key for $RP names worker [$(jq -r '.topic // ""' <<<"$KEY")], not the holding's $TOPIC"
     KSTATE=$(jq -r '.state // "" | strings' <<<"$KEY")
-    CHILD=$(jq -r '.child // "" | strings' <<<"$KEY")
+    CHILD=$(dc_leg_field "$KEY" child) || die 2 "the leg key for $RP is malformed"
 
     FROM=$(jq -r '.from // "" | strings' <<<"$KEY")
     case "$KSTATE" in
@@ -1343,9 +1349,12 @@ EOF
     fi
 
     # 3. The new leg's key, naming where it came from.
-    dc_leg_put "$SESSION" "$NEW" "$LEG" "$(jq -c --arg n "$NEW" --arg f "$REQ" --argjson in "$INPUTS" --arg t "$TEMPLATES" \
-        '{request: $n, leg, topic, state: "open", templates: ($t | split(",")), inputs: $in, child, from: $f}
-         + (if has("unit") then {unit} else {} end)' <<<"$KEY")" ||
+    NEWKEY=$(jq -c --arg n "$NEW" --arg f "$REQ" --argjson in "$INPUTS" --arg t "$TEMPLATES" \
+        '{request: $n, leg, topic, state: "open", templates: ($t | split(",")), inputs: $in, from: $f}
+         + (if has("unit") then {unit} else {} end)' <<<"$KEY") &&
+        NEWKEY=$(dc_leg_field "$NEWKEY" child "$CHILD") &&
+        NEWKEY=$(dc_leg_field "$NEWKEY" opened "$(date -u +%Y-%m-%dT%H:%M:%SZ)") &&
+        dc_leg_put "$SESSION" "$NEW" "$LEG" "$NEWKEY" ||
         die 2 "could not write the leg key for $NEW:$LEG"
     # 4. The holding's return path, then 5. the old key marked.
     write_row "$(jq -c --arg rp "$(dc_rp_to_row "$NEW:$LEG")" '.return_path = $rp' <<<"$ROW")"

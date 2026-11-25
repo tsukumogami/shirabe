@@ -1222,6 +1222,29 @@ lacks "never re-briefed: the bound session is not read" "$EV" '"source":"session
 jq -c '.topic = "someone-else" | .rebriefed = "2026-01-01T00:00:00Z"' "$ST/ctx/legs/req_1/scope" >"$ST/k" && mv "$ST/k" "$ST/ctx/legs/req_1/scope"
 EV=$(land_round 2>"$T/land.err")
 lacks "another worker's stamped key: not read" "$EV" '"source":"session"'
+# A stamp the store refuses: the re-brief still goes through, stderr names
+# the fallback, and the land step reads the round the worker's report
+# carried, since the leg key holds no stamp.
+reset "$INPUT_SCOPE"
+run >/dev/null 2>&1
+jq -c '.pull_request = "[#12](https://github.com/acme/widgets/pull/12)"' "$ST/rows/plugin-api.json" >"$ST/r" && mv "$ST/r" "$ST/rows/plugin-api.json"
+jq -c '.child = "scope-plugin-api"' "$ST/ctx/legs/req_1/scope" >"$ST/k" && mv "$ST/k" "$ST/ctx/legs/req_1/scope"
+printf '%s\n' "$ROUND" >"$ST/ctx/review_round.json"
+printf 'plugin-api' >"$ST/ctx/report_topic"
+KOTO_LEG_PUT_FAIL=1 run --rebrief >/dev/null 2>"$T/rebrief.err"; RC=$?
+eq  "refused stamp: the re-brief still exits 0" 0 "$RC"
+eq  "refused stamp: the holding is on the message path" message "$(row return_path)"
+has "refused stamp: stderr names the fallback to the report" "$(cat "$T/rebrief.err")" \
+    "could not stamp the leg key for req_1:scope: the land step reads plugin-api's round from its report only"
+eq  "refused stamp: the leg key carries no stamp" "" "$(jq -r '.rebriefed // ""' "$ST/ctx/legs/req_1/scope")"
+mkdir -p "$ST/session"
+{ printf '{"schema_version":1,"workflow":"coord","created_at":"2026-09-26T10:00:00.000Z"}\n'
+  jq -nc --arg r "$(printf 'Ready.\n\n=== RESULT ===\nsession=scope-plugin-api\npr=https://github.com/acme/widgets/pull/12\nreview_round=%s\n=== END RESULT ===\n' "$ROUND")" \
+    '{seq: 1, timestamp: "2026-09-26T10:02:00.000Z", type: "evidence_submitted", payload: {state: "wait", fields: {event: "report", unit: "plugin-api", report: $r}}}'
+} >"$ST/session/koto-coord.state.jsonl"
+EV=$(land_round 2>"$T/land.err")
+eq  "refused stamp: the land step reads the report's result block" "report scope-plugin-api ok" \
+    "$(jq -r '"\(.source) \(.session) \(.status)"' <<<"$EV" 2>/dev/null)"
 fi
 
 if section "deliver" "--rebrief from the importing run"; then
@@ -1490,7 +1513,9 @@ reset "$INPUT_DELIVER"
 run >/dev/null 2>&1
 eq  "legkey: a dispatch on a leg writes its key, open, with the worker, the declaration and the unit" \
     '{"request":"req_1","leg":"deliver","topic":"plugin-api","state":"open","templates":["deliver.md"],"inputs":{"TOPIC":"plugin-api"},"unit":"Feature 2: the plugin API"}' \
-    "$(lkey req_1 deliver)"
+    "$(lkey req_1 deliver | jq -c 'del(.opened)')"
+eq  "legkey: and the UTC time the leg was opened" true \
+    "$(lkey req_1 deliver | jq '.opened | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")')"
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature (2): the plugin API"')"
 printf '%s' "$PICK_ROADMAP" | jq -c '.units[1].unit = "Feature (2)"' >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1
