@@ -134,8 +134,16 @@
 #                                 run's facts. dispatch-worker.sh deletes it
 #                                 from every other input. Refused beside
 #                                 held_rerender or role_change_by, and a
-#                                 successor brief requires role. It changes
-#                                 nothing the brief renders
+#                                 successor brief requires role. With it,
+#                                 a discipline run's successor gives its
+#                                 scope as entry_args exactly
+#                                 ["--discipline", <name>, "--host",
+#                                 <owner/repo>], the name matching the
+#                                 template's DISCIPLINE pattern; any other
+#                                 first token that is a flag is refused, as
+#                                 without it. dc_invocation puts --role after
+#                                 those four tokens. It changes nothing else
+#                                 the brief renders
 #   launch              optional  how niwa dispatch launches the worker, an
 #                                 object with one or more of: model, one of
 #                                 balanced, fast or powerful (niwa's
@@ -279,7 +287,16 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
 ( if (.unit | type) == "string" and (oneline(.unit) | not)
   then "unit: must be one line" else empty end ),
 ( if ((.entry_args | type) == "array") and ((.entry_args | length) >= 1) and all(.entry_args[]; type == "string")
-  then ( if (.entry_args[0] | test("^\\s*$|^-|[\\r\\n]")) then "entry_args: the first token must be the positional argument, one line, not a flag" else empty end )
+  then ( if .successor == true and .entry_point == "coordinate" and (.entry_args[0] | startswith("-")) then
+           # The scope of a discipline run'"'"'s successor: four tokens, in this order.
+           ( if (.entry_args | length) != 4 or .entry_args[0] != "--discipline" or .entry_args[2] != "--host"
+             then "entry_args: a successor brief whose scope is a discipline gives exactly [\"--discipline\", <name>, \"--host\", <owner/repo>], not \(shown(.entry_args))"
+             elif (.entry_args[1] | test("^[a-z0-9][a-z0-9-]*$") | not)
+             then "entry_args: the discipline name must match ^[a-z0-9][a-z0-9-]*$, not \(shown(.entry_args[1]))"
+             elif (.entry_args[3] | test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$") | not)
+             then "entry_args: the discipline host must be owner/repo, not \(shown(.entry_args[3]))"
+             else empty end )
+         elif (.entry_args[0] | test("^\\s*$|^-|[\\r\\n]")) then "entry_args: the first token must be the positional argument, one line, not a flag" else empty end )
   else "entry_args: required, an array of 1+ strings" end ),
 ( if (.checkpoints | type) == "array" and (.checkpoints | length) >= 1 and strs("checkpoints") then
     ( .checkpoints[] | select(test("approv|wait for"; "i")) | "checkpoints: a checkpoint may not wait for approval: \(.)" )
@@ -374,6 +391,11 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
 CHECK_OUT=$(jq -r "$JQ_CHECKS" "$INPUT") || { printf '%s: jq failed reading the input\n' "$PROG" >&2; exit 2; }
 [ -n "$CHECK_OUT" ] && refuse "$CHECK_OUT"
 
+# SCOPE_N: how many leading entry_args tokens are the scope, the positional
+# or a discipline successor's four (dispatch-common.sh DC_JQ_SCOPE_N). The
+# flag checks below read the tokens after them.
+SCOPE_N=$(jq -r "$DC_JQ_SCOPE_N"' | $n' "$INPUT") || { printf '%s: jq failed reading the scope of entry_args\n' "$PROG" >&2; exit 2; }
+
 # --- checks that need the entry-point table -------------------------------------
 
 TOPIC=$(jq -r '.topic // "" | strings' "$INPUT")
@@ -395,7 +417,7 @@ if [ -n "$ENTRY" ]; then
                     refuse "$field: ${flag%%=*} is written from the role field by dispatch-worker.sh, never given in $field" ;;
             esac
         done <<EOF
-$(jq -r '(if (.entry_args | type) == "array" then .entry_args[1:][] | strings | ["entry_args", .] else empty end),
+$(jq -r --argjson n "$SCOPE_N" '(if (.entry_args | type) == "array" then .entry_args[$n:][] | strings | ["entry_args", .] else empty end),
     (.run_mode // "" | strings | split(" ")[] | select(. != "") | ["run_mode", .]) | @tsv' "$INPUT")
 EOF
         while IFS= read -r flag; do
@@ -411,7 +433,7 @@ EOF
             case "$flag" in --review-floor | --review-floor=* | --review-ceiling | --review-ceiling=* | --role | --role=* | --role-change-*) continue ;; esac
             dc_flag_allowed "$ENTRY" "$flag" || refuse "entry_args: $ENTRY doesn't allow $flag"
         done <<EOF
-$(jq -r 'if (.entry_args | type) == "array" then .entry_args[1:][] | strings else empty end' "$INPUT")
+$(jq -r --argjson n "$SCOPE_N" 'if (.entry_args | type) == "array" then .entry_args[$n:][] | strings else empty end' "$INPUT")
 EOF
         while IFS= read -r flag; do
             [ -n "$flag" ] || continue
@@ -432,8 +454,8 @@ fi
 
 # The flags as the worker's invocation will carry them: none twice, and never
 # both execution modes.
-FLAGS=$(jq -r 'if (.entry_args | type) == "array" and (.run_mode | type) == "string" then
-    ((.run_mode | split(" ") | map(select(. != ""))) + .entry_args[1:])[] else empty end' "$INPUT")
+FLAGS=$(jq -r --argjson n "$SCOPE_N" 'if (.entry_args | type) == "array" and (.run_mode | type) == "string" then
+    ((.run_mode | split(" ") | map(select(. != ""))) + .entry_args[$n:])[] else empty end' "$INPUT")
 DUPALL=$(printf '%s\n' "$FLAGS" | sed '/^$/d' | sort | uniq -d)
 DUP=${DUPALL%%$'\n'*}
 [ -n "$DUP" ] && refuse "run_mode and entry_args: $DUP is given twice"

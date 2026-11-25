@@ -13,7 +13,7 @@
 #       (niwa cuts the session slug at 40 anyway).
 #
 #   dc_invocation <brief-input-file> [<return-path>]
-#       Prints the worker's invocation: `/shirabe:<entry> <positional>
+#       Prints the worker's invocation: `/shirabe:<entry> <scope>
 #       [--role <role>] [--role-change-by <role_change_by>
 #       --role-change-source dispatcher] <run_mode flags> <entry_args
 #       flags>`, then `--review-floor=<x>` and
@@ -27,7 +27,10 @@
 #       on a coordinate brief (docs/designs/DESIGN-coordinator-named-roles.md,
 #       Decision 2), so the invocation line is a coordinator brief's one role
 #       line and the dispatch prompt carries the same setting. Neither is in
-#       the holding's mode.
+#       the holding's mode. <scope> is the positional, or on a discipline
+#       run's successor brief its four scope tokens, `--discipline <name>
+#       --host <owner/repo>` (DC_JQ_SCOPE_N), so `--role` follows the whole
+#       scope group.
 #
 #   dc_opener <brief-input-file>
 #       Prints, tab-separated, how a message-path worker records the
@@ -422,14 +425,24 @@ dc_session_matches() {
 DC_JQ_TOKENS='
     ([.entry_args[0]] + ((.run_mode // "") | split(" ") | map(select(. != ""))) + (.entry_args[1:]))'
 
+# DC_JQ_SCOPE_N binds $n, how many leading entry_args tokens are the scope:
+# four for a discipline run's successor (`successor` set, entry point
+# coordinate, first token --discipline: --discipline <name> --host
+# <owner/repo>, the shape render-brief.sh admits), one, the positional,
+# otherwise. A holding's mode (dc_mode) never sees four: no holding is
+# written for a successor.
+DC_JQ_SCOPE_N='
+    (if .successor == true and .entry_point == "coordinate" and ((.entry_args | type) == "array")
+        and ((.entry_args[0] // "") == "--discipline") then 4 else 1 end) as $n'
+
 dc_mode() {
     jq -r "$DC_JQ_TOKENS"' | .[1:] | join(" ")' "$1"
 }
 
 dc_invocation() {
     local inv
-    inv=$(jq -r "$DC_JQ_TOKENS"' as $t
-        | ($t[0] | if test("\\s") then "\"" + . + "\"" else . end) as $pos
+    inv=$(jq -r "$DC_JQ_SCOPE_N"' | (.entry_args[0:$n] | map(if test("\\s") then "\"" + . + "\"" else . end)) as $scope
+        | (((.run_mode // "") | split(" ") | map(select(. != ""))) + .entry_args[$n:]) as $flags
         | (if (.review_level | type) == "object" then
              ([ (.review_level.floor // empty | strings | "--review-floor=" + .),
                 (.review_level.ceiling // empty | strings | "--review-ceiling=" + .) ])
@@ -437,7 +450,7 @@ dc_invocation() {
         | (if (.role | type) == "string" and .role != "" then ["--role", .role] else [] end) as $role
         | (if (.role_change_by | type) == "string" and .role_change_by != ""
              then ["--role-change-by", .role_change_by, "--role-change-source", "dispatcher"] else [] end) as $change
-        | "/shirabe:" + .entry_point + " " + ([$pos] + $role + $change + $t[1:] + $bound | join(" "))' "$1") || return 2
+        | "/shirabe:" + .entry_point + " " + ($scope + $role + $change + $flags + $bound | join(" "))' "$1") || return 2
     case "${2:-message}" in
         message) ;;
         *) inv="$inv --koto-leg=$2" ;;
