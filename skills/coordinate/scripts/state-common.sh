@@ -826,7 +826,9 @@ lib_pr_held() {
 # its worker's teardown: a Verified head kept and the Pull request cell
 # blank, which only the cleared cell after a confirmed merge writes
 # (state-confirm.sh; state-holding.sh's header keeps the rule). The record's
-# rule, which the quiet check and the handover read. pick and dispatch_check
+# rule, which the quiet check reads; the handover reads it only beside
+# lib_worker_finished, since a worker that goes on to its unit's next pull
+# request carries the same pair while it is live. pick and dispatch_check
 # read lib_parked instead, which also counts a holding as merged for the cap
 # when GitHub reads its linked pull request merged (lib_link_merge_frees).
 # Reconcile's report reads the same row more narrowly, as merged only when
@@ -834,6 +836,36 @@ lib_pr_held() {
 # measured.
 lib_row_merged() {
     printf '%s' "$1" | jq -e '((.verified_head // "") != "") and ((.pull_request // "") == "")' > /dev/null
+}
+
+# lib_worker_finished <row-json>: has the row's worker finished, so it has
+# nothing left to report? The pair lib_row_merged reads doesn't say so alone:
+# a worker that goes on past its unit's first merged pull request keeps that
+# Verified head and a blank Pull request cell until it links the next one
+# (shirabe#2080). A leg-bound row's worker has finished when its leg is no
+# longer open (resolved or abandoned), read from this host's request store
+# (koto request get; KOTO_BIN names koto); a message row's when every Claude
+# job of its worker on this host has finished (dispatch-common.sh
+# dc_topic_stopped, under DC_CLAUDE_HOME, default $HOME/.claude). A leg this
+# store doesn't hold, a failed read, or no job seen here is not finished: the
+# worker is treated as live. The handover's live set and the reconcile
+# report's teardown read it beside lib_row_merged; a merged row (the pair)
+# whose worker has finished is merged and waiting only for its teardown.
+lib_worker_finished() {
+    local rp req leg out
+    rp=$(printf '%s' "$1" | jq -r '.return_path // ""') || return 1
+    case "$rp" in
+        "leg "*)
+            rp=${rp#leg }
+            req=${rp%%:*} leg=${rp#*:}
+            out=$("${KOTO:-${KOTO_BIN:-koto}}" request get "$req" < /dev/null 2> /dev/null) || return 1
+            printf '%s' "$out" | jq -e --arg l "$leg" '(.legs[$l].disposition // "") | IN("resolved", "abandoned")' > /dev/null
+            ;;
+        *)
+            declare -F dc_topic_stopped > /dev/null || . "$HERE/dispatch-common.sh" || return 1
+            dc_topic_stopped "${DC_CLAUDE_HOME:-$HOME/.claude}" "$(printf '%s' "$1" | jq -r '.worker // ""')"
+            ;;
+    esac
 }
 
 # LIB_MERGE_ROW_JQ: a jq def, merge_row($re; $pr; $sha), true for the Side

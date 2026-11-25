@@ -305,7 +305,10 @@
 #       0 when the topic's worker is stopped on this host: at least one
 #       Claude job under <claude-home>/jobs carries the topic's session (its
 #       state file's `name` passes dc_session_matches) and every such job is
-#       finished (dc_job_finished). 1 otherwise: no job for the topic is seen
+#       finished (dc_job_finished, given the job's dc_job_row: the same
+#       listing-row pid check dc_session_live applies, so a worker whose state
+#       file reads done while its listing row shows its live pid is not
+#       stopped, shirabe#1594). 1 otherwise: no job for the topic is seen
 #       here (a worker on another host, or none yet), one of them is
 #       unfinished, or a state file that names the topic's slug can't be
 #       read. Only a positive answer frees anything, so every doubt reads as
@@ -1017,7 +1020,7 @@ dc_topic_stopped() {
         dc_session_matches "$topic" "$name" || continue
         job=${f%/state.json}
         job=${job##*/}
-        dc_job_finished "$home" "$job" '{}' > /dev/null || return 1
+        dc_job_finished "$home" "$job" "$(dc_job_row "$job")" > /dev/null || return 1
         seen=1
     done < <(grep -lF -- "$slug-" "$home"/jobs/*/state.json 2>/dev/null)
     [ "$seen" = 1 ]

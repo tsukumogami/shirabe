@@ -159,10 +159,34 @@ check_next "merged -> drop"              "$(holding a "[$(pr MERGED "$VH")]")" "
 # A confirmed merge clears the Pull request cell and keeps the row and its
 # Verified head until teardown (the shirabe#490 comment): a restart reads it
 # as merged and waiting for teardown, not as a pull request that appeared.
-MAT=$(holding mt "[$(jq -nc '{kind: "appeared", status: "ok", prs: [{number: 12, url: "https://github.com/acme/widgets/pull/12", state: "MERGED"}], read_at: "t"}'),$(host found)]" '{"pull_request": ""}')
+# Its worker has finished: every Claude job of it on this host has stopped
+# (the host fact's stopped) or, for a leg-bound holding, its leg is resolved.
+APM=$(jq -nc '{kind: "appeared", status: "ok", prs: [{number: 12, url: "https://github.com/acme/widgets/pull/12", state: "MERGED"}], read_at: "t"}')
+MAT=$(holding mt "[$APM,$(host found | jq -c '.stopped = true')]" '{"pull_request": ""}')
 check_next "a merged row awaiting teardown -> tear down" "$MAT" "merged; tear down its worker, which removes the row"
 facts "[$MAT]" | report | jq -e '.holdings[0].state == "merged" and (.changes == []) and ([.table[] | select(.session == "mt")] == [])' >/dev/null \
   && ok "a merged row awaiting teardown is no change and has no table row" || bad "a merged row awaiting teardown is no change and has no table row" "$(facts "[$MAT]" | report | jq -c '{h: .holdings[0], changes, table}')"
+# shirabe#2080: the same pair on a holding whose worker is live (it goes on to
+# its unit's next pull request) is not waiting for teardown. It is listed in
+# Where things stand, waited on, and its merged pull request is no news.
+MLV=$(holding ml "[$APM,$(host found | jq -c '.stopped = false')]" '{"pull_request": ""}')
+check_next "a merged row whose worker is live -> wait on it" "$MLV" "wait on worker"
+facts "[$MLV]" | report | jq -e '.holdings[0].state == "merged; worker still live" and (.changes == [])
+    and ([.table[] | select(.session == "ml") | .kind] == ["Ongoing"])' >/dev/null \
+  && ok "a merged row whose worker is live is listed as Ongoing and is no change" || bad "a merged row whose worker is live is listed as Ongoing and is no change" "$(facts "[$MLV]" | report | jq -c '{h: .holdings[0], changes, table}')"
+MLW=$(facts "[$MLV]" | render | sed -n '/^## Where things stand$/,/^$/p')
+case "$(grep 'unit ml' <<<"$MLW")" in
+    *'wait on worker'*) ok "  ... and the rendered Where things stand table has its row" ;;
+    *) bad "  ... and the rendered Where things stand table has its row" "$(facts "[$MLV]" | render)" ;;
+esac
+MNS=$(holding mn "[$APM,$(host found)]" '{"pull_request": ""}')
+check_next "a merged row whose worker isn't known to have stopped -> wait on it" "$MNS" "wait on worker"
+LEGR=$(jq -nc '{kind: "leg", status: "ok", disposition: "resolved", source: "promoted", result: "success at done", read_at: "t"}')
+MLG=$(holding mg "[$APM,$(host found),$LEGR]" '{"pull_request": "", "return_path": "leg req-1:deliver"}')
+check_next "a merged leg-bound row whose leg is resolved -> tear down" "$MLG" "merged; tear down its worker, which removes the row"
+LEGO=$(jq -nc '{kind: "leg", status: "ok", disposition: "bound", source: null, result: "", read_at: "t"}')
+MLO=$(holding mo "[$APM,$(host found | jq -c '.stopped = true'),$LEGO]" '{"pull_request": "", "return_path": "leg req-1:deliver"}')
+check_next "a merged leg-bound row whose leg is still open -> wait on it" "$MLO" "wait on worker"
 OPN=$(holding op "[$(jq -nc '{kind: "appeared", status: "ok", prs: [{number: 12, url: "https://github.com/acme/widgets/pull/12", state: "OPEN"}], read_at: "t"}'),$(host found)]" '{"pull_request": "", "verified_head": ""}')
 facts "[$OPN]" | report | jq -e '.changes | any(.what == "pull request appeared")' >/dev/null \
   && ok "an open pull request on a row with none is still reported as appeared" || bad "an open pull request on a row with none is still reported as appeared" "$(facts "[$OPN]" | report | jq -c '.changes')"
