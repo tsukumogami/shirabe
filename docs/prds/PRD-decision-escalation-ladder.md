@@ -14,7 +14,8 @@ goals: |
   decision is on the record with who decided. The person can open any session
   in a reporting chain, see what is waiting on them, answer in the terminal,
   and have that answer take effect and carry through the chain.
-upstream: docs/briefs/BRIEF-decision-escalation-ladder.md
+absorbed:
+  - docs/briefs/BRIEF-decision-escalation-ladder.md
 ---
 
 # PRD: Decision Escalation Ladder
@@ -22,6 +23,40 @@ upstream: docs/briefs/BRIEF-decision-escalation-ladder.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-decision-escalation-ladder](docs/briefs/BRIEF-decision-escalation-ladder.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because of a paragraph its author kept typing. Coordinators
+would report sessions blocked on them, and the author would answer: have the
+session that owns the problem decide first, answer what you can yourself, and
+bring me only the rest, with context, the problem, the question, a
+recommendation and reasoned alternatives. It worked each time and lapsed
+within hours, because it lived in a session's memory. The brief framed the
+problem as that and its consequences: questions arrive unexamined or
+misaddressed, a question that reaches the person has no durable home, nothing
+lists what is waiting on them, and an answer given once is not reused. This
+document's Problem Statement states that in full.
+
+The outcome it asked for is a person who can open a session at any level of a
+reporting chain, see what is waiting on them, answer in the terminal with
+nothing further required, and stay away without losing anything. It named
+resolving with the top coordinator as the normal path, because what is said
+there flows down, and answering a worker as a shortcut whose answer still
+reaches the coordinators above. That is this document's Goals. Its five
+journeys (a worker alone while the person is away, a question settled before
+it reaches the person, resolving with the top coordinator, answering in the
+worker, and a second worker reusing an earlier answer) are User Stories US1 to
+US5.
+
+Its boundary put inside the feature: sorting by addressee, deciding first,
+the durable record, reading what is open, presenting only when the person
+started the turn, exact restore, precedent, and the three session shapes. It
+put outside: any answering surface but the terminal prompt, the status view,
+reads across machines, how a structured decision does its research, longer
+prose rules, and recording dispatch links. Those are this document's
+Requirements and Out of Scope.
 
 ## Problem Statement
 
