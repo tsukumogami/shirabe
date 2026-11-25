@@ -109,8 +109,9 @@
 #       result. It resolves to `hosted-ci` (exit 0) when every command the
 #       run would start has a `hosted` twin in the merge-base's map and no
 #       changed path (both sides of a rename) is in the ci, security,
-#       template or engine class of review-level.sh classify; to `local`
-#       (exit 1) otherwise. "Would start" is --start's selection after a fix
+#       template or engine class of review-level.sh classify, nor under the
+#       top-level scripts/ the hosted gate runs from the branch
+#       (PLAN_PLANNER_PREFIX); to `local` (exit 1) otherwise. "Would start" is --start's selection after a fix
 #       round's carry (step 5b): a check the carry marks `carried` runs
 #       nothing, so it needs no twin, and a round with nothing left to start
 #       resolves to local, where its carried records make the result. It also
@@ -302,6 +303,11 @@ PLAN_SCHEMA=shirabe-verification-plan/v1
 GONE_KEY=verification_twin_gone
 HOSTED_REASON="hosted twins cover every selected command"
 PLAN_RISKY_CLASSES="ci security template engine"
+# The top-level directory a hosted twin's job runs from the branch itself: the
+# skill gate plans and runs its suites with scripts/skill-gate.sh,
+# scripts/check-skill.sh and scripts/lib/. A change there could make the twin
+# pass without running a suite, so it keeps the run local whatever the map says.
+PLAN_PLANNER_PREFIX="scripts/"
 # The failure lines a timeout_form is matched against: the pattern
 # check-skill.sh's show_suite_failure uses to pick a failed suite's FAIL lines,
 # in jq's regex syntax (passed with --arg, so read as written).
@@ -1401,7 +1407,7 @@ plan_local() {
 # question it can't answer resolves to local, which runs the map and reports
 # the cause there; only a koto read that fails is exit 2.
 plan_decide() {
-    local rc dirty map_entry err classes risky started untwinned
+    local rc dirty map_entry err classes risky planner started untwinned
     PLAN_STARTED="[]"
     PLAN_CARRIED="[]"
     if [ -n "$SHARED_BRANCH" ]; then
@@ -1469,6 +1475,14 @@ plan_decide() {
         END { if (count > 5) list = list " and " (count - 5) " more"; print list }')
     if [ -n "$risky" ]; then
         plan_local "the change touches a path in the ci, security, template or engine class: $risky"
+        return 0
+    fi
+    planner=$(git -C "$ROOT" diff --name-only --no-renames -z "$MB..HEAD" | jq -Rrs --arg p "$PLAN_PLANNER_PREFIX" '
+        split("\u0000") | map(select(startswith($p))) as $hit
+        | if ($hit | length) == 0 then "" else ($hit[:5] | join(", ")) + (if ($hit | length) > 5 then " and \(($hit | length) - 5) more" else "" end) end') \
+        || { plan_local "the changed paths could not be listed"; return 0; }
+    if [ -n "$planner" ]; then
+        plan_local "the change touches the hosted gate's own scripts under $PLAN_PLANNER_PREFIX, which its job runs from the branch: $planner"
         return 0
     fi
 

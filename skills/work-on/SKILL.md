@@ -146,7 +146,9 @@ definition-of-done gate runs, set at init with `--verification=<value>` (see
   of record when every command the run would start has a `hosted` twin in the
   merge-base's map (`references/verification-map.md`) and no changed path, either
   side of a rename, is in the ci, security, template or engine class of
-  `references/review-level-rules.tsv` (`review-level.sh classify`). In a fix round
+  `references/review-level-rules.tsv` (`review-level.sh classify`), and none is
+  under the top-level `scripts/`, which the hosted skill gate runs from the
+  branch. In a fix round
   a check the carry marks `carried` starts nothing, so it needs no twin, and its
   carried result stays as recorded. Then the run goes to `verification_deferred`
   with its own reason, `hosted twins cover every selected command`, and everything

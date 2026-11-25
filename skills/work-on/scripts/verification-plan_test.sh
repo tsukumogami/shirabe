@@ -19,6 +19,9 @@
 #   - a change that also selects the untwinned command resolves to local;
 #   - a template, ci, security or engine path beside the same skills change
 #     resolves to local, naming the class;
+#   - a path under the top-level scripts/ the hosted gate runs from the
+#     branch resolves to local even where the map twins it, while a skill's
+#     own scripts/ does not;
 #   - a fix round whose only started command has a twin resolves to hosted-ci,
 #     its carried checks listed with the run they came from, while the same
 #     diff in a fresh session (nothing carried) resolves to local;
@@ -93,6 +96,7 @@ MAP=$(jq -cn --arg f "$REC" --argjson t "$TWIN" '{
         chk: {run: ["bin/rec.sh", $f, "chk"], each: "skills/*", hosted: [$t]},
         plain: {run: ["bin/rec.sh", $f, "plain"]}},
     entries: [{paths: ["skills/**"], commands: ["chk"]},
+              {paths: ["scripts/**"], commands: ["chk"]},
               {paths: ["top.txt"], commands: ["plain"]}]}')
 
 # mkrepo <name>: a repository whose main carries the map, the workflow the
@@ -185,6 +189,33 @@ for case in "template|skills/a/koto-templates/x.md" "ci|.github/workflows/ci.yml
         *) fail "$cls path: printed [$OUT]" ;;
     esac
 done
+
+echo "--- the hosted gate's own scripts"
+# The map gives scripts/** a twinned command, so only the planner rule keeps
+# these local.
+for path in scripts/skill-gate.sh scripts/check-skill.sh scripts/lib/script-cases.py; do
+    tag=$(printf '%s' "$path" | tr '/.' '--')
+    git checkout -q -B "planner-$tag" main
+    change skills/a/f.txt "$path"
+    plan "p-planner-$tag"
+    eq "planner $path: --plan exits 1 (local)" 1 "$RC"
+    case "$OUT" in
+        "local: the change touches the hosted gate's own scripts under scripts/, which its job runs from the branch: $path")
+            pass "planner $path: the reason names it" ;;
+        *) fail "planner $path: printed [$OUT]" ;;
+    esac
+done
+git checkout -q -B planner-many main
+change skills/a/f.txt scripts/a.sh scripts/b.sh scripts/c.sh scripts/d.sh scripts/e.sh scripts/f.sh scripts/g.sh
+plan p-planner-many
+case "$OUT" in
+    *"scripts/e.sh and 2 more") pass "planner: past five paths the reason counts the rest" ;;
+    *) fail "planner many: printed [$OUT]" ;;
+esac
+git checkout -q -B planner-nested main
+change skills/a/scripts/x.sh
+plan p-planner-nested
+eq "a skill's own scripts/ is not the gate's: --plan exits 0 (hosted-ci)" 0 "$RC"
 
 echo "--- a rename out of a risky class still counts its old side"
 git checkout -q -B risky-rename main

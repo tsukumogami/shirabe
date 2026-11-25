@@ -501,10 +501,15 @@ On each way into verification, `run-verification.sh --plan` resolves `auto`:
   merge-base's map and no changed path, either side of a rename, is in the ci, security,
   template or engine class of `skills/work-on/references/review-level-rules.tsv`
   (`review-level.sh classify`). Those classes can change what CI itself runs, or what
-  decides the run's route, so they keep it local. "Would start" is `--start`'s selection
+  decides the run's route, so they keep it local. A changed path under the top-level
+  `scripts/` keeps it local too, whatever the map says: the skill gate's job runs
+  `scripts/skill-gate.sh`, `scripts/check-skill.sh` and `scripts/lib/` from the branch
+  itself, so a change there could let the twin pass without running a suite. A skill's own
+  `skills/<name>/scripts/` is not part of it. "Would start" is `--start`'s selection
   after a fix round's carry: a check the carry marks `carried` runs nothing, so it needs no
   twin, and its carried result stays as recorded;
-- to **`local`** otherwise: a started command with no twin, a path in one of those classes,
+- to **`local`** otherwise: a started command with no twin, a path in one of those classes
+  or under the top-level `scripts/`,
   a fix round with nothing left to start, a step on `/execute`'s shared branch, a dirty
   tree, no map or a bad one, a selection of nothing, an attended command, or anything the
   resolution can't decide.
