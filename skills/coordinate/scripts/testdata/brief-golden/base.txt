@@ -8,16 +8,6 @@ The plugin API ships with its loader.
 
 Run `/shirabe:deliver plugin-api --auto --no-merge` in acme/widgets.
 
-Your dispatcher is the coordinator run that sent you this brief:
-
-dispatcher_session: coordinate-roadmap-plugin-system-20261006T153752Z
-
-Record it in your own session: once your entry point has opened its session, run this, with `<session>` that session's name:
-
-`"${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/link-dispatcher.sh" <session> --dispatched-by coordinate-roadmap-plugin-system-20261006T153752Z`
-
-`${CLAUDE_PLUGIN_ROOT}` is the shirabe plugin root your entry point's own commands start from. Run it from the directory your session is opened in. If it prints `warning=link-failed`, go on: your session is open, and your result carries the warning (see Reporting).
-
 Run mode: `--auto`. A background worker can't answer the confirmation `--interactive` waits for.
 
 You are executing: take the work to the last checkpoint.

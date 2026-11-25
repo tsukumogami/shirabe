@@ -42,13 +42,20 @@
 #                it), `skill-session.sh open <entry> <topic>` for /explore,
 #                /decision and /release (`<topic>` the one the entry point
 #                derives)
-#         link   link-dispatcher.sh `<session>`, run once the entry point has
-#                opened its session (`<session>` that session), for /scope,
-#                /deliver, /execute and /work-on, whose openers take a
-#                dispatcher only through a request leg
+#       Every other entry point (/scope, /deliver, /execute, /work-on and
+#       the planning skills) prints nothing and returns 0: koto records the
+#       dispatcher on the session's anchor when it opens, from the name the
+#       koto-skills start hook exports, so the worker records nothing. Their
+#       briefs once carried a link-dispatcher.sh step; the script stays for
+#       briefs already in flight.
 #       The commands start from "${CLAUDE_PLUGIN_ROOT}", as the skills' own
-#       commands do. Returns 1 when dispatcher_session isn't a koto session
-#       name, which render-brief.sh refuses first.
+#       commands do. Returns 1 when an open entry point's dispatcher_session
+#       isn't a koto session name, which render-brief.sh refuses first.
+#
+#   dc_opener_takes_dispatcher <entry_point>
+#       0 for an entry point whose own opener takes --dispatched-by
+#       (/coordinate, /explore, /decision, /release), the ones dc_opener
+#       prints an open row for; 1 otherwise.
 #
 #   dc_mode <brief-input-file>
 #       Prints the flags part of the invocation (run_mode, then entry_args
@@ -464,15 +471,22 @@ dc_invocation() {
 dc_opener() {
     local entry d root='${CLAUDE_PLUGIN_ROOT}'
     entry=$(jq -r '.entry_point // "" | strings' "$1") || return 2
+    dc_opener_takes_dispatcher "$entry" || return 0
     d=$(jq -r '.dispatcher_session // "" | strings' "$1") || return 2
     { [ "${#d}" -le 200 ] && [[ $d =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; } || return 1
     case "$entry" in
         coordinate)
             printf 'open\t"%s/skills/coordinate/scripts/coordinate-open.sh" --plugin-root "%s" --dispatched-by %s "$ARGS_DIR/args.json"\n' "$root" "$root" "$d" ;;
-        explore | decision | release)
-            printf 'open\t"%s/scripts/skill-session.sh" open %s <topic> --dispatched-by %s\n' "$root" "$entry" "$d" ;;
         *)
-            printf 'link\t"%s/skills/coordinate/scripts/link-dispatcher.sh" <session> --dispatched-by %s\n' "$root" "$d" ;;
+            printf 'open\t"%s/scripts/skill-session.sh" open %s <topic> --dispatched-by %s\n' "$root" "$entry" "$d" ;;
+    esac
+}
+
+# render-brief.sh requires dispatcher_session for these entry points alone.
+dc_opener_takes_dispatcher() {
+    case "$1" in
+        coordinate | explore | decision | release) return 0 ;;
+        *) return 1 ;;
     esac
 }
 
