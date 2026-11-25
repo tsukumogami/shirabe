@@ -692,7 +692,8 @@ turns), or when `context_tokens` is above `hard_stop` (`reason: hard_stop`
 with both figures); both reasons print when both hold. Otherwise it prints
 `status: continue` and exits 0. It parses integers only. It refuses a report
 with exit 2 and no status, naming the cause but never a line's text (and the
-line number, for a cause found on one line), when a line isn't of the form
+line number, for a cause found on one line, or the `boundaries` and
+`boundary_turns` lines when the count differs), when a line isn't of the form
 `key: value`, a key is unknown, repeated or missing, a figure isn't a plain
 whole number of at most fifteen digits, the `boundaries` count differs from
 the turns listed, the turns are out of order, a `hard_stop` line doesn't
