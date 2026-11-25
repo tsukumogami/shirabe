@@ -147,7 +147,8 @@ tearing down a workspace. An action is **outward-facing** when its effect is
 visible outside the workspace's own sessions and unpublished branches, such as
 posting, publishing, sending, or changing a shared branch. A choice is **cheap
 to undo** when undoing it needs only changes inside the deciding session's own
-unpublished work, and **costly to undo** otherwise. A **recorded attempt** is
+unpublished work, and **costly to undo** otherwise. A session is **live** until its workflow has
+reached its end or the session has been removed. A **recorded attempt** is
 a decision record for the question whose outcome is either a chosen option or
 the undecided outcome of R7.
 
@@ -163,7 +164,7 @@ evidence, an answer the person already gave, or the scope it was given covers
 it, including cases it judges similar to one already answered. It passes a
 question up only when settling it would: contradict an answer the person gave;
 change the scope of the work; take an action that is outward-facing, spends
-money, or cannot be undone by any later action of the session; or take a
+money in any amount, or cannot be undone by any later action of the session; or take a
 reserved step. Whether a case is similar to one already answered, and whether
 settling it would contradict an answer or change scope, is the session's
 judgment; the session records which of these grounds it relied on when it
@@ -173,7 +174,9 @@ passes a question up.
 addresses that session. A session with no dispatcher, or whose dispatcher is a
 person, addresses the person. A session whose dispatcher link was not recorded
 addresses the person and marks the question as raised from an unlinked
-session.
+session. A need (R12) is addressed to whoever can meet it: a credential or a
+step reserved to the person goes to the person directly, from any session,
+and does not pass through a coordinator that cannot supply it.
 
 **R4. A coordinator applies the same rule.** A coordinator that is addressed
 a question settles it under R2 or passes it up. Passing up does not create a
@@ -206,7 +209,8 @@ evidence gives no clear answer, the session judges whether the choice is cheap
 or costly to undo, as defined above, and records that judgment. Cheap: it decides, records the decision as
 provisional, and continues. Costly: it raises a question and continues with
 work that does not depend on the answer. Provisional decisions are listable as
-a group for review.
+a group for review, and the person can overturn one by recording their own
+answer for it, which is then the one in effect (R23).
 
 **R9. Precedent before asking.** Before raising a question, a session reads
 the answers the person has already given in its reporting chain. When it
@@ -232,8 +236,9 @@ The content does not change after it is raised, and is at most 16 KiB.
 step the person reserved, or an action outside the session's reach is recorded
 in the same way as a question, with its kind and what is needed, and is
 counted, listed and restored like one. It skips R5 and R6 and is presented as
-a request. A credential need records that a credential was requested and
-supplied, never the credential.
+a request. It carries a subject label like any question. A credential need records
+that a credential was requested and, once met, that it was supplied, never
+the credential.
 
 **R13. Every decision has a decider.** Every outcome of this procedure, a
 session's own decision, a coordinator's, a person's, or a provisional one, is
@@ -244,7 +249,8 @@ open" directly: a single read, with no joining by the caller, that returns the
 open questions at and below a position, and another that returns the open
 questions addressed to a given person. A question that has been passed up is
 returned once. With 1,000 sessions and 200 open questions in the store, each read
-returns within five seconds on every storage backend the engine supports.
+returns within five seconds on the engine's local storage backend and on its
+cloud storage backend.
 
 **R15. No question is invisible.** A question addressed to a person is
 returned by the read for that person whether or not the session that raised it
@@ -261,7 +267,8 @@ addressed to under R2, or the session that raised it when new evidence or an
 earlier answer (R9) now covers it. The raising session can also withdraw a
 question that no longer matters, with a reason. Each of these is recorded with
 its decider, and a closed or withdrawn question is no longer returned by the
-open reads.
+open reads. An answer from a session that is neither the raiser nor the
+addressee, and is not recording the person's answer, is refused.
 
 **R16b. Answering again.** The person can answer a question again. The most
 recently recorded answer from the person is the one in effect, and the earlier
@@ -363,7 +370,9 @@ an answer the person gave in a session is.
 **R32. One word for one thing.** The procedure's documents and prompts say
 "raise a question" and "pass up". The existing decision-block status
 `escalated`, which means a decision was handed to the heavier decision skill,
-keeps its meaning.
+keeps its meaning, and existing workflow state and value names
+that contain the word, such as `scope_changed_escalate`, are not renamed by
+this work.
 
 **R33. Delivery order.** The workflow engine's part is released before any
 skill depends on it, and the minimum engine version the skills check for is
@@ -400,6 +409,9 @@ that record or list must show.
   session; a session with no dispatcher or a person dispatcher raises to the
   person; a session whose link was not recorded raises to the person and the
   question is marked as raised from an unlinked session. (R3, R29)
+- [ ] (checked) A credential need raised by a worker under two coordinators
+  is addressed to the person, is returned by the read for that person, and is
+  also returned by each coordinator's read of what is open below it. (R3, R12)
 - [ ] (checked) A question a coordinator passes up keeps its identity and is
   returned once by the open reads. (R4, R14)
 - [ ] (observed) The person reviews every question that reached them in the
@@ -433,6 +445,9 @@ that record or list must show.
 - [ ] (observed) The dogfooding record shows the solo unattended worker made
   at least one provisional decision or raised at least one question, and
   recorded further workflow steps after it. (R8, R17)
+- [ ] (checked) The person recording an answer for a provisional decision
+  makes that answer the one in effect, and the provisional decision remains
+  readable. (R8)
 - [ ] (checked) Raising a question with no subject label is refused, and the
   read of the person's answers narrowed to a subject returns only answers to
   questions with that label. (R9)
@@ -457,14 +472,15 @@ that record or list must show.
   refused. (R11)
 - [ ] (checked) A need that is not a decision is recorded with its kind and
   what is needed, with no recorded attempt; it is returned by the open reads;
-  it is rendered as a request with no options; and no field of a credential
-  need holds a secret. (R12)
+  it is rendered as a request with no options; it is restored byte-identically
+  like a question; once met it records that it was supplied and leaves the open
+  reads; and no field of a credential need holds a secret. (R12)
 - [ ] (checked) A single engine read returns the open questions at and below
   a position, and a single engine read returns those addressed to a named
   person; neither requires the caller to combine results. (R14)
 - [ ] (checked) With 1,000 sessions and 200 open questions in the store, each
-  open read returns within five seconds on every storage backend the engine
-  supports. (R14)
+  open read returns within five seconds on the engine's local storage backend
+  and on its cloud storage backend. (R14)
 - [ ] (checked) A question raised by a session with no recorded links is
   returned by the read for the person it is addressed to. (R15)
 - [ ] (checked) An open question is still returned after the session that
@@ -476,7 +492,9 @@ that record or list must show.
   each of: an answer from the person; an answer from the session it is
   addressed to; an answer from the raising session citing an earlier answer; a
   withdrawal by the raising session with a reason. A withdrawal with no reason
-  is refused, and each closing records its decider. (R16a)
+  is refused, each closing records its decider, and an answer from a session
+  that is neither raiser nor addressee and is not recording the person's answer
+  is refused. (R16a)
 - [ ] (checked) After the person answers a question twice, reads return the
   second answer as the one in effect and both remain readable; answering a
   question identity that does not exist is refused. (R16b)
@@ -501,7 +519,8 @@ that record or list must show.
   two, in descending order of recorded waiting work items, then oldest first,
   then by identity; a question recorded as depending on another is not
   presented before that one is answered; recording a dependency that would
-  form a cycle is refused. (R19)
+  form a cycle is refused; presenting continues until the read of what is open
+  for the person returns nothing. (R19)
 - [ ] (checked) A session asked for what is pending returns the open
   questions at and below it and those addressed to the person. (R20)
 - [ ] (checked) The command of R20a, run in a session that no workflow
@@ -525,7 +544,7 @@ that record or list must show.
   precedent read run from each coordinator above it. (R24)
 - [ ] (checked) The presentation rendered from the record after the raising
   session's working state is discarded is byte-identical to the one rendered
-  before. (R25)
+  before, whether rendered in the raising session or in another session. (R25)
 - [ ] (checked) A free-text answer is stored verbatim. (R26)
 - [ ] (checked) An answer can be recorded given only the question's identity,
   the answer and who gave it, from a process that is not the raising session.
@@ -539,11 +558,13 @@ that record or list must show.
 - [ ] (checked) A run of each affected workflow that reaches no exit in
   Appendix A produces the same states and result as before this change. (R30)
 - [ ] (checked) Each passage listed in Appendix B has been changed, and a
-  search of each file named there for the phrase listed beside it finds none.
-  (R31)
+  search of each file named there for the phrase listed beside it finds none;
+  the decision record named there is marked superseded and names the record
+  that replaces it. (R31)
 - [ ] (checked) A search of the procedure's documents and prompts finds no
   use of "escalate" for raising or passing up a question, and the
-  decision-block status `escalated` is unchanged. (R32)
+  decision-block status `escalated` and existing workflow state and value names
+  are unchanged. (R32)
 - [ ] (checked) The skills refuse to run the new steps on an engine older
   than the release that carries the engine's part, naming the version needed.
   (R33)
@@ -660,6 +681,10 @@ nothing can prompt them when a question appears. Leaving them out would change
 nothing for them; requiring a workflow session would turn this feature into a
 migration. The author chose a command that runs the procedure on demand in any
 session.
+
+**A need goes straight to whoever can meet it.** Routing a credential request
+through coordinators that cannot supply it is a relay with no purpose. The
+coordinators still see it when they read what is open below them.
 
 **Solicited prompts stay as they are.** A skill asking its author to confirm
 a step in a turn the author started is not a question under this record, and
