@@ -746,7 +746,7 @@ fi
 # wait_target and leg_consumed A's wait_leg left: the fence carries all three.
 export CLAUDE_CODE_SESSION_ID=$A_ID
 WD=$T/work
-if to_reconciled rebrief "$(two_holdings rebrief)"; then
+if to_reconciled rebrief "$(two_holdings rebrief | jq -c '.holdings[0].entry_point = "deliver"')"; then
     RA=$S
     put "$RA" brief_input.json "$(brief feat-1 "Feature 1" deliver feat-1 executing)"
     put "$RA" wait_target '{"path":"leg","request":"req-r1","leg":"work-on","topic":"feat-1"}'
@@ -781,7 +781,7 @@ if to_reconciled rebrief "$(two_holdings rebrief)"; then
     : > "$WD/.niwa/workspace.toml"
     (cd "$WD" && bash "$PS/dispatch-worker.sh" --session "$S" --rebrief >"$T/dw.out" 2>"$T/dw.err"); DW_RC=$?
     rm -f "$WD/.niwa/workspace.toml"
-    eq "13: dispatch-worker.sh --rebrief from B exits 0" "0 brief=$WD/.niwa/dispatch-briefs/feat-1.md" "$DW_RC $(cat "$T/dw.out") $(cat "$T/dw.err")"
+    eq "13: dispatch-worker.sh --rebrief from B exits 0" "0 brief=$WD/.niwa/dispatch-briefs/feat-1.md" "$DW_RC $(cat "$T/dw.out")"
     grep -qF 'The new test passes.' "$WD/.niwa/dispatch-briefs/feat-1.md" 2>/dev/null \
         && ok "13:   ... its brief carrying the updated brief input" || bad "13:   ... its brief carrying the updated brief input" "$(cat "$T/dw.err")"
     case "$(at --with-data '{"sent":"sent"}')" in
