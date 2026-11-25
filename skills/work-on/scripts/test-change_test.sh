@@ -871,6 +871,36 @@ eq "no subcommand called gh" "" "$(cat "$GH_LOG")"
 eq "test-change.sh has no gh pr edit or gh pr comment" 0 "$(grep -cE 'gh pr (edit|comment)' "$SCRIPT")"
 run render rec
 eq "there is no render subcommand" 64 "$RC"
+
+# --- reason length -------------------------------------------------------------------
+# A note's reason is the record of why a test changed. One over the cap is
+# refused before anything is written, never clipped.
+echo "--- reason length"
+S=rlen
+start "$S"
+LONG=$(head -c 909 /dev/zero | tr '\0' r)
+run note "$S" --file tests/greet_test.sh --reason "$LONG"
+eq "Over the cap, refuse with a usage error: note exits 64" 64 "$RC"
+has "the note refusal names the limit" "300-byte limit" "$(cat "$W/err")"
+has "the note refusal names the reason's length" "909 bytes" "$(cat "$W/err")"
+eq "an over-cap note records nothing" 0 "$(ledger "$S" | jq -s '[.[] | select(.event == "note")] | length')"
+# The cap counts bytes, as the stored copy did: 150 two-byte characters fit,
+# 151 don't, and neither is cut through a character.
+AT_CAP=$(head -c 300 /dev/zero | tr '\0' r)
+run note "$S" --file tests/greet_test.sh --reason "$AT_CAP"
+eq "a reason at the cap is recorded" 0 "$RC"
+eq "a reason at the cap is stored whole" "$AT_CAP" "$(ledger "$S" | jq -r 'select(.event == "note") | .reason' | tail -n 1)"
+WIDE=$(printf 'é%.0s' $(seq 1 150))
+run note "$S" --file tests/greet_test.sh --reason "$WIDE"
+eq "150 two-byte characters (300 bytes) are recorded" 0 "$RC"
+eq "the multi-byte reason is stored whole" "$WIDE" "$(ledger "$S" | jq -r 'select(.event == "note") | .reason' | tail -n 1)"
+run note "$S" --file tests/greet_test.sh --reason "${WIDE}é"
+eq "151 two-byte characters (302 bytes) are refused" 64 "$RC"
+has "the multi-byte refusal counts bytes" "302 bytes" "$(cat "$W/err")"
+eq "only the two reasons that fit were recorded" 2 "$(ledger "$S" | jq -s '[.[] | select(.event == "note")] | length')"
+run note "$S" --file tests/greet_test.sh
+has "the usage text names the limit" "note's --reason is at most 300 bytes" "$(cat "$W/err")"
+
 echo
 echo "test-change: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

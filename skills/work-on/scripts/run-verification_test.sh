@@ -25,6 +25,7 @@
 
 set -u
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
+unset SHIRABE_VERIFICATION_TEST_PAUSE
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 START="$SCRIPT_DIR/run-verification.sh"
@@ -65,6 +66,9 @@ ktg_on_exit cleanup
 
 export HOME="$WORKDIR/home"
 export XDG_STATE_HOME="$WORKDIR/state"
+# A fix round's switches, from whatever ran this suite, would change what the
+# fix-round cases carry.
+unset SHIRABE_VERIFY_FULL SHIRABE_VERIFY_BASE
 mkdir -p "$HOME" "$WORKDIR/bin"
 export GIT_CONFIG_NOSYSTEM=1
 git config --global user.email t@example.com
@@ -78,10 +82,16 @@ git config --global init.defaultBranch main
 # 9 when there is none (session-role.sh then answers child). Every call is
 # logged to $KOTO_STUB_STORE/calls. KOTO_STUB_FAIL=<subcommand> makes that
 # subcommand exit 7.
+# KOTO_STUB_LOCK=<path> also logs each call to $KOTO_STUB_STORE/lockcalls as
+# `lock[<the path's symlink target>] <args>`, so a case can see which process
+# held a lock at each call; KOTO_STUB_FAIL_KEY=<key> makes any `context` call
+# on that key exit 7.
 cat > "$WORKDIR/bin/koto" <<'EOF'
 #!/bin/sh
 echo "$*" >> "$KOTO_STUB_STORE/calls"
 [ -n "${KOTO_STUB_FAIL-}" ] && [ "${2-}" = "$KOTO_STUB_FAIL" ] && exit 7
+[ -n "${KOTO_STUB_LOCK-}" ] && printf 'lock[%s] %s\n' "$(readlink "$KOTO_STUB_LOCK" 2>/dev/null)" "$*" >> "$KOTO_STUB_STORE/lockcalls"
+[ -n "${KOTO_STUB_FAIL_KEY-}" ] && [ "${1-}" = context ] && [ "${4-}" = "$KOTO_STUB_FAIL_KEY" ] && exit 7
 case "$1 ${2-}" in
     "context add")
         mkdir -p "$KOTO_STUB_STORE/$3"
@@ -401,7 +411,7 @@ rf_test_refusals "--verdict" skills/work-on/scripts/check-verification.sh verifi
 # it route the run back (1).
 # check-verification.sh sources verification-route.sh, which runs
 # session-role.sh, so a stage copy carries both.
-VERDICT_PATHS="skills/work-on/scripts/check-verification.sh skills/work-on/scripts/run-verification.sh skills/work-on/scripts/verification-route.sh skills/work-on/scripts/session-role.sh"
+VERDICT_PATHS="skills/work-on/scripts/check-verification.sh skills/work-on/scripts/run-verification.sh skills/work-on/scripts/verification-eligibility.sh skills/work-on/scripts/verification-route.sh skills/work-on/scripts/session-role.sh"
 verdict_in_copy() { # <copy>
     cd "$WORKDIR/r-fail" && "$1/skills/work-on/scripts/check-verification.sh" --verdict --session s-fail
 }
@@ -548,6 +558,288 @@ if jq -e '.status == "supervisor-error"' "$SRES" >/dev/null 2>&1; then
 else
     fail "no supervisor-error result to hold on: $(head -c 300 "$SRES" 2>&1)"
 fi
+
+# --- a build-output removal still running ------------------------------------------------
+#
+# clean-build-output.sh records each removal as removal-<stamp>.json in the
+# work tree's git directory, and deletes in the background. The supervisor
+# waits on a record that reads live before its first command, inside the
+# run's budget. A stand-in deleter, named and called as the real one is
+# (`clean-build-output.sh --delete <stamp>`), so bo_record_live reads its
+# record live, waits for <records dir>/go-<stamp>, rewrites the record as done
+# with ended_at, and exits. It lives under the suite's marker directory, so
+# the leak check and the cleanup see it.
+FAKE_DELETER="$WORKDIR/fake/clean-build-output.sh"
+mkdir -p "$WORKDIR/fake"
+cat > "$FAKE_DELETER" <<'EOF'
+#!/bin/sh
+stamp=$2 dir=$3
+rec="$dir/removal-$stamp.json"
+while [ ! -e "$dir/go-$stamp" ]; do sleep 0.1; done
+jq -c --arg e "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.status = "done" | .ended_at = $e' "$rec" > "$rec.tmp" \
+    && mv -f "$rec.tmp" "$rec"
+EOF
+chmod +x "$FAKE_DELETER"
+RM_N=0
+
+# bo_records: the current repository's records directory, created.
+bo_records() { mkdir -p "$(pwd -P)/.git/shirabe-build-output" && printf '%s\n' "$(pwd -P)/.git/shirabe-build-output"; }
+# record_json <status> [<pid>]: a removal record's text.
+record_json() {
+    jq -cn --arg s "$1" --argjson pid "${2:-1}" '{schema: "shirabe-build-output-removal/v1",
+        started_at: "2026-11-16T08:04:12Z", pid: $pid, paths: {"1": "target"}, reaped: [], status: $s}
+        | if $s == "running" then . else . + {ended_at: "2026-11-16T08:05:00Z"} end'
+}
+# live_record: a running record in the current repository, its stand-in
+# deleter started and waiting. Sets RM_STAMP, RM_REC and RM_DIR.
+live_record() {
+    RM_N=$((RM_N + 1))
+    RM_DIR=$(bo_records)
+    RM_STAMP="20261116T0804$(printf '%02d' "$RM_N")Z-$$"
+    RM_REC="$RM_DIR/removal-$RM_STAMP.json"
+    "$FAKE_DELETER" --delete "$RM_STAMP" "$RM_DIR" </dev/null >/dev/null 2>&1 &
+    record_json running "$!" > "$RM_REC"
+}
+# release_record: let the stand-in go, and wait until the record reads done.
+release_record() {
+    local n=0
+    : > "$RM_DIR/go-$RM_STAMP"
+    while ! jq -e '.status == "done"' "$RM_REC" >/dev/null 2>&1 && [ "$n" -lt 100 ]; do
+        sleep 0.1; n=$((n + 1))
+    done
+}
+# snapshot <dir>: every entry under <dir> with its checksum, for a before
+# and after comparison.
+snapshot() {
+    (cd "$1" && find . -print | LC_ALL=C sort | while IFS= read -r p; do
+        if [ -L "$p" ]; then printf '%s -> %s\n' "$p" "$(readlink "$p")"
+        elif [ -f "$p" ]; then printf '%s %s\n' "$p" "$(cksum < "$p")"
+        else printf '%s/\n' "$p"; fi
+    done)
+}
+# A command that writes the UTC second it started.
+STAMP_CMD() { jq -cn --arg f "$1" '{run: ["bin/stamp.sh", $f], timeout_secs: 60}'; }
+stamp_script() {
+    printf '#!/bin/sh\ndate -u +%%Y-%%m-%%dT%%H:%%M:%%SZ > "$1"\n' > bin/stamp.sh
+    chmod +x bin/stamp.sh
+}
+
+echo "--- a removal still running: the supervisor waits for it"
+mkrepo rmwait "$(map "{\"st\": $(STAMP_CMD "$WORKDIR/rmwait.start")}" '[]' '["st"]')"
+stamp_script
+git add -A && git commit -q -m stamp
+change top.txt
+live_record
+printf 'not json\n' > "$RM_DIR/removal-20261116T080400Z-1.json"
+start s-rmwait
+sleep 3
+RMRES=$(result_of s-rmwait)
+if [ ! -e "$WORKDIR/rmwait.start" ] && [ ! -e "$RMRES" ]; then
+    pass "while the record reads live, no command starts and no result is written"
+else
+    fail "a command started or a result was written while the record read live: $(cat "$WORKDIR/rmwait.start" 2>&1)"
+fi
+release_record
+settle s-rmwait
+expect_rc "a run that waited on a removal" 0
+ENDED=$(jq -r '.ended_at' "$RM_REC")
+STARTED=$(cat "$WORKDIR/rmwait.start" 2>/dev/null)
+if [ -n "$STARTED" ] && [ -n "$ENDED" ] && [ "$ENDED" != null ] && ! [ "$STARTED" \< "$ENDED" ]; then
+    pass "the first command started at $STARTED, at or after the record's ended_at $ENDED"
+else
+    fail "the first command started at [$STARTED], the record ended at [$ENDED]"
+fi
+SUPLOG="$(dirname "$RMRES")/supervisor.log"
+c=$(grep -c 'removal-20261116T080400Z-1.json does not parse' "$SUPLOG" 2>/dev/null)
+[ "$c" = 1 ] && pass "an unparsable record beside the live one is named once on stderr, across the wait's polls" \
+    || fail "the unparsable record was named $c times: $(head -c 600 "$SUPLOG" 2>&1)"
+
+echo "--- a running record that reads ended: the supervisor starts at once"
+mkrepo rmended "$(map "{\"st\": $(STAMP_CMD "$WORKDIR/rmended.start")}" '[]' '["st"]')"
+stamp_script
+git add -A && git commit -q -m stamp
+change top.txt
+RMD=$(bo_records)
+sh -c 'exit 0' &
+DEAD=$!
+wait "$DEAD"
+record_json running "$DEAD" > "$RMD/removal-20261116T080401Z-$DEAD.json"
+mkdir -p "$RMD/trash-20261116T080401Z-$DEAD/1"
+echo x > "$RMD/trash-20261116T080401Z-$DEAD/1/f"
+"$WORKDIR/r-rmended/bin/slow.sh" </dev/null >/dev/null 2>&1 &
+OTHER=$!
+record_json running "$OTHER" > "$RMD/removal-20261116T080402Z-$OTHER.json"
+mkdir -p "$RMD/trash-20261116T080402Z-$OTHER"
+BEFORE=$(snapshot "$RMD")
+start s-rmended
+settle s-rmended
+expect_rc "only ended records (a dead pid, a pid running another program)" 0
+[ -s "$WORKDIR/rmended.start" ] && pass "the command ran" || fail "the command did not run"
+[ "$(snapshot "$RMD")" = "$BEFORE" ] \
+    && pass "the records and their trash are left as they were, for the script's next call" \
+    || fail "the runner changed the records directory"
+kill -KILL "$OTHER" 2>/dev/null
+
+echo "--- a removal that outlasts the run's budget"
+mkrepo rmbudget "$(map "{\"st\": $(STAMP_CMD "$WORKDIR/rmbudget.start")}" '[]' '["st"]')"
+stamp_script
+git add -A && git commit -q -m stamp
+change top.txt
+live_record
+BEFORE=$(snapshot "$RM_DIR")
+RB_BUDGET=3
+T0=$(now_ms)
+SHIRABE_VERIFICATION_BUDGET_SECS=$RB_BUDGET start s-rmbudget
+settle s-rmbudget
+T1=$(now_ms)
+RBRES=$(result_of s-rmbudget)
+if jq -e --arg rec "$RM_REC" '.status == "removal-running" and .commands == [] and (.detail | contains($rec))' \
+        "$RBRES" >/dev/null 2>&1 && [ ! -e "$WORKDIR/rmbudget.start" ]; then
+    pass "out of budget with the record live: no command, a removal-running result naming the record"
+else
+    fail "the out-of-budget result: $(head -c 400 "$RBRES" 2>&1); started [$(cat "$WORKDIR/rmbudget.start" 2>&1)]"
+fi
+# The wait runs inside the budget: the result lands within the budget plus a
+# poll and the harness's own settling, never a full wait past it.
+[ $((T1 - T0)) -lt $(( (RB_BUDGET + 4) * 1000 )) ] \
+    && pass "the wait ended inside the run's budget ($((T1 - T0))ms for a ${RB_BUDGET}s budget)" \
+    || fail "the wait took $((T1 - T0))ms under a ${RB_BUDGET}s budget"
+expect_rc "a removal-running result" 2
+expect_no_finding "a removal-running result"
+[ ! -e "$KOTO_STUB_STORE/s-rmbudget/verification_results.json" ] \
+    && pass "a removal-running result is not recorded in koto context" \
+    || fail "a removal-running result was recorded in koto context"
+if grep -q -F -- "$RM_REC" "$WORKDIR/verdict.err" && grep -q -F -- "$RBRES" "$WORKDIR/verdict.err" \
+    && grep -q 'move the result aside' "$WORKDIR/verdict.err" \
+    && grep -q 'verification_status: blocked' "$WORKDIR/verdict.err"; then
+    pass "the hold names the record and the result, and the two ways on"
+else
+    fail "the removal-running hold's message: $(cat "$WORKDIR/verdict.err")"
+fi
+RBBEFORE=$(cat "$RBRES")
+SHIRABE_VERIFICATION_BUDGET_SECS=$RB_BUDGET start s-rmbudget
+sleep 1
+if [ "$(cat "$RBRES" 2>/dev/null)" = "$RBBEFORE" ] && [ ! -e "$(dirname "$RBRES")/lock" ] \
+    && jq -e '.status == "removal-running"' "$RBRES" >/dev/null 2>&1; then
+    pass "a later --start keeps the removal-running result and starts no supervisor"
+else
+    fail "a later --start replaced the removal-running result or started a run"
+fi
+GOT=$(. "$SCRIPT_DIR/verification-eligibility.sh" && : > "$WORKDIR/rb.ledger" \
+    && verification_eligibility "$RBRES" "$WORKDIR/rb.ledger")
+[ "$GOT" = "ineligible removal-running" ] && pass "verification_eligibility: a removal-running result is ineligible" \
+    || fail "verification_eligibility on a removal-running result: [$GOT]"
+"$START" --archive --session s-rmbudget --reason "removal ended" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -ne 0 ] && grep -q -F 'ineligible removal-running' "$WORKDIR/archive.err" \
+    && [ "$(cat "$RBRES")" = "$RBBEFORE" ] && [ ! -e "$KOTO_STUB_STORE/s-rmbudget/verification_attempts" ]; then
+    pass "--archive refuses a removal-running result and moves and records nothing"
+else
+    fail "--archive on a removal-running result: exit $RC, stderr $(cat "$WORKDIR/archive.err")"
+fi
+[ "$(snapshot "$RM_DIR")" = "$BEFORE" ] && pass "the runner changed nothing in the records directory" \
+    || fail "the runner changed the records directory"
+release_record
+
+echo "--- the wait spends the run's budget"
+# A removal that ends after about three seconds, then a command that would run
+# 30: under a 7-second budget the command gets what the wait left, not 7.
+mkrepo rmspend "$(map '{"slow": {"run": ["bin/slow.sh"], "timeout_secs": 60}}' '[]' '["slow"]')"
+change top.txt
+live_record
+SHIRABE_VERIFICATION_BUDGET_SECS=7 start s-rmspend
+sleep 3
+release_record
+settle s-rmspend
+SPRES=$(result_of s-rmspend)
+SPDUR=$(jq -r '.commands[0].duration_secs' "$SPRES" 2>/dev/null)
+if jq -e '.status == "timed-out"' "$SPRES" >/dev/null 2>&1 && [ -n "$SPDUR" ] && [ "$SPDUR" -le 5 ]; then
+    pass "the command ran ${SPDUR}s of a 7-second budget the wait had spent part of"
+else
+    fail "the command after the wait: $(head -c 400 "$SPRES" 2>&1)"
+fi
+
+echo "--- no records, or only ended ones: the run is unchanged"
+NOREC_CMDS=$(jq -cn --arg f "$WORKDIR/norec.rec" '{ok: {run: ["bin/rec.sh", $f, "ok"]}}')
+mkrepo norec "$(map "$NOREC_CMDS" '[]' '["ok"]')"
+change top.txt
+start s-norec
+settle s-norec
+expect_rc "no records directory" 0
+NOREC=$(jq -c '[.status, .detail, [.commands[] | {id, check, argv, exit_status, outcome}]]' "$(result_of s-norec)")
+NORUN=$(jq -c '.invocations' "$(dirname "$(result_of s-norec)")/run.json")
+mkrepo oldrec "$(map "$NOREC_CMDS" '[]' '["ok"]')"
+change top.txt
+RMD=$(bo_records)
+record_json done > "$RMD/removal-20261116T080403Z-1.json"
+record_json failed > "$RMD/removal-20261116T080404Z-2.json"
+start s-oldrec
+settle s-oldrec
+expect_rc "only done and failed records" 0
+OLDREC=$(jq -c '[.status, .detail, [.commands[] | {id, check, argv, exit_status, outcome}]]' "$(result_of s-oldrec)")
+OLDRUN=$(jq -c '.invocations' "$(dirname "$(result_of s-oldrec)")/run.json")
+[ "$OLDREC" = "$NOREC" ] && [ "$OLDRUN" = "$NORUN" ] \
+    && pass "done and failed records change neither the invocations nor the result" \
+    || fail "with ended records: $OLDREC / $OLDRUN; without: $NOREC / $NORUN"
+
+echo "--- --await-removals"
+# await <dir> [args...]: run --await-removals from <dir> with a state
+# directory of its own; sets RC.
+await() {
+    local d=$1; shift
+    rm -rf "$WORKDIR/await-state"
+    (cd "$d" && XDG_STATE_HOME="$WORKDIR/await-state" "$START" --await-removals "$@") \
+        >"$WORKDIR/await.out" 2>"$WORKDIR/await.err"
+    RC=$?
+}
+mkdir -p "$WORKDIR/notgit"
+await "$WORKDIR/notgit"
+[ "$RC" -eq 0 ] && pass "--await-removals outside a repository: exit 0" || fail "outside a repository: exit $RC"
+mkrepo awnone NONE
+await "$(pwd -P)"
+[ "$RC" -eq 0 ] && pass "--await-removals with no records directory: exit 0" || fail "no records directory: exit $RC"
+await "$(pwd -P)/src/x"
+[ "$RC" -eq 0 ] && pass "--await-removals from a subdirectory: exit 0" || fail "from a subdirectory: exit $RC"
+RMD=$(bo_records)
+await "$(pwd -P)"
+[ "$RC" -eq 0 ] && pass "--await-removals with an empty records directory: exit 0" || fail "an empty directory: exit $RC"
+record_json done > "$RMD/removal-20261116T080405Z-1.json"
+record_json failed > "$RMD/removal-20261116T080406Z-2.json"
+sh -c 'exit 0' &
+DEAD=$!
+wait "$DEAD"
+record_json running "$DEAD" > "$RMD/removal-20261116T080407Z-$DEAD.json"
+printf 'not json\n' > "$RMD/removal-20261116T080408Z-3.json"
+await "$(pwd -P)"
+if [ "$RC" -eq 0 ] && grep -q 'removal-20261116T080408Z-3.json does not parse' "$WORKDIR/await.err"; then
+    pass "--await-removals with only ended and unparsable records: exit 0, the unparsable one named"
+else
+    fail "ended and unparsable records: exit $RC, stderr $(cat "$WORKDIR/await.err")"
+fi
+live_record
+await "$(pwd -P)/src"
+if [ "$RC" -eq 1 ] && grep -q -F -- "$RM_REC" "$WORKDIR/await.err"; then
+    pass "--await-removals while a record reads live: exit 1, naming it"
+else
+    fail "a live record: exit $RC, stderr $(cat "$WORKDIR/await.err")"
+fi
+[ ! -e "$WORKDIR/await-state" ] && [ -z "$(cat "$WORKDIR/await.out")" ] \
+    && pass "--await-removals starts nothing and writes no state" \
+    || fail "--await-removals wrote [$(cat "$WORKDIR/await.out")] or a state directory"
+release_record
+await "$(pwd -P)"
+[ "$RC" -eq 0 ] && pass "--await-removals once the record reads done: exit 0" || fail "after done: exit $RC"
+await "$(pwd -P)" --session s-x
+[ "$RC" -eq 2 ] && pass "--await-removals --session is a usage error: exit 2" || fail "--session: exit $RC"
+await "$(pwd -P)" extra
+[ "$RC" -eq 2 ] && pass "--await-removals with an argument is a usage error: exit 2" || fail "an argument: exit $RC"
+# A repository whose default branch resolves to nothing: no main, no origin.
+mkdir -p "$WORKDIR/r-trunk"
+git -C "$WORKDIR/r-trunk" init -q -b trunk
+git -C "$WORKDIR/r-trunk" commit -q --allow-empty -m init
+await "$WORKDIR/r-trunk"
+[ "$RC" -eq 0 ] && pass "--await-removals where the default branch doesn't resolve: exit 0" \
+    || fail "an unresolvable default branch: exit $RC, stderr $(cat "$WORKDIR/await.err")"
 
 echo "--- a command that cannot start"
 mkrepo nostart "$(map '{"gone": {"run": ["bin/missing.sh"]}}' '[]' '["gone"]')"
@@ -730,8 +1022,9 @@ expect_rc "a timeout-looking failure with no timeout_form" 1
 expect_record "a timeout-looking failure with no timeout_form" s-faillike bad \
     '.outcome == "failed" and .timed_out == false and .suites == null'
 
+# A limit of 3, not 1: the supervisor's clock reads whole seconds, so a limit of 1 can stop the fixture before it writes its summary.
 echo "--- outcome: stopped at the limit, with a suite summary"
-mkrepo sumclean "$(map '{"chk": {"run": ["bin/sumslow.sh", "clean"], "timeout_secs": 1}}' '[]' '["chk"]')"
+mkrepo sumclean "$(map '{"chk": {"run": ["bin/sumslow.sh", "clean"], "timeout_secs": 3}}' '[]' '["chk"]')"
 add_outcome_fixtures
 change top.txt
 start s-sumclean
@@ -742,7 +1035,7 @@ expect_record "stopped at the limit, no failed suite" s-sumclean chk \
     '.timed_out == true and .outcome == "timed-out-limit"
      and .suites == {"passed": ["s/a_test.sh"], "failed": [], "running": ["s/b_test.sh"], "not_started": ["s/c_test.sh"]}'
 
-mkrepo sumfailed "$(map '{"chk": {"run": ["bin/sumslow.sh", "failed"], "timeout_secs": 1}}' '[]' '["chk"]')"
+mkrepo sumfailed "$(map '{"chk": {"run": ["bin/sumslow.sh", "failed"], "timeout_secs": 3}}' '[]' '["chk"]')"
 add_outcome_fixtures
 change top.txt
 start s-sumfailed
@@ -953,7 +1246,7 @@ add_recslow() {
     chmod +x bin/recslow.sh
 }
 HOLD_REC="$WORKDIR/hold.rec"
-CMDS=$(jq -cn --arg f "$HOLD_REC" --argjson h "$HOSTED" '{chk: {run: ["bin/recslow.sh", $f], timeout_secs: 1, hosted: $h}}')
+CMDS=$(jq -cn --arg f "$HOLD_REC" --argjson h "$HOSTED" '{chk: {run: ["bin/recslow.sh", $f], timeout_secs: 5, hosted: $h}}')
 mkrepo hold "$(map "$CMDS" '[]' '["chk"]')"
 add_outcome_fixtures
 add_recslow
@@ -1005,6 +1298,12 @@ if grep -q '^\. "\$HERE/verification-route.sh" ||' "$VERDICT" \
     pass "check-verification.sh sources verification-route.sh and never runs it as a second process"
 else
     fail "check-verification.sh does not source verification-route.sh, or runs it"
+fi
+if grep -q '^\. "\$HERE/verification-eligibility.sh" ||' "$VERDICT" \
+    && grep -q '^\. "\$HERE/verification-eligibility.sh" ||' "$START"; then
+    pass "check-verification.sh sources verification-eligibility.sh, as run-verification.sh does"
+else
+    fail "check-verification.sh or run-verification.sh does not source verification-eligibility.sh"
 fi
 
 # --- the check id, finished_at and a stale hosted_of_record key -----------------------
@@ -1146,6 +1445,257 @@ bo_case 4 'build_output with a number and an empty string (not invalid)' '["targ
 [ "$BO_SEL" = "$BO_NONE" ] && pass 'build_output holding a number and an empty string selects the same invocations as the map without it' \
     || fail "build_output with a number and an empty string selected $BO_SEL, without it $BO_NONE"
 
+# --- a fix round's carry ------------------------------------------------------------------
+#
+# A session whose context holds fix_round.json ({from, round, base}) carries
+# the checks the run it follows passed at the round's base and that the
+# round's own diff doesn't select. The fixtures:
+#   recenv.sh <rec> <label> [<leaf>]  records its argv and SHIRABE_VERIFY_BASE;
+#   flaky.sh <mode file> <rec>        records itself and SHIRABE_VERIFY_BASE,
+#                                     and passes when the file says pass.
+# The map: an each row over skills/*, and two plain rows for top.txt.
+
+# fix_round <session> <from> <round> <base> [<extra json>]: the session's
+# fix_round.json in the stand-in's store.
+fix_round() {
+    local x=${5:-}
+    [ -n "$x" ] || x='{}'
+    mkdir -p "$KOTO_STUB_STORE/$1"
+    jq -cn --arg from "$2" --argjson round "$3" --arg base "$4" --argjson x "$x" \
+        '{from: $from, round: $round, base: $base} + $x' > "$KOTO_STUB_STORE/$1/fix_round.json"
+}
+
+# expect_check <label> <session> <check> <jq condition>: the result's record
+# for <check> meets <condition>.
+expect_check() {
+    local res
+    res=$(result_of "$2")
+    if jq -e --arg c "$3" "[.commands[] | select(.check == \$c)] | length == 1 and (.[0] | $4)" "$res" >/dev/null 2>&1; then
+        pass "$1: the $3 record has $4"
+    else
+        fail "$1: the $3 record fails $4: $(jq -c --arg c "$3" '[.commands[] | select(.check == $c)]' "$res" 2>&1 | head -c 600)"
+    fi
+}
+
+# ran <label> <want>: what the fixture commands recorded since the last
+# reset, sorted and space-joined, is <want>.
+ran() {
+    local got
+    got=$(LC_ALL=C sort "$CR" 2>/dev/null | tr '\n' ' ')
+    [ "$got" = "$2" ] && pass "$1: ran [$2]" || fail "$1: ran [$got], want [$2]"
+}
+
+echo "--- fix round: the run the round follows"
+CR="$WORKDIR/carry.rec"
+FLAKY="$WORKDIR/flaky.mode"
+CMDS=$(jq -cn --arg f "$CR" --arg m "$FLAKY" '{
+    chk: {run: ["bin/recenv.sh", $f, "chk"], each: "skills/*"},
+    plain: {run: ["bin/recenv.sh", $f, "plain"]},
+    flaky: {run: ["bin/flaky.sh", $m, $f]}}')
+CARRY_ENTRIES='[{"paths": ["skills/**"], "commands": ["chk"]}, {"paths": ["top.txt"], "commands": ["plain", "flaky"]}]'
+# carry_repo <name>: a repository with the carry map and its two fixtures,
+# uncommitted, so the branch's first change commits them.
+carry_repo() {
+    mkrepo "$1" "$(map "$CMDS" "$CARRY_ENTRIES")"
+    printf '#!/bin/sh\nrec=$1; shift\nprintf "%%s base=%%s\\n" "$*" "${SHIRABE_VERIFY_BASE-}" >> "$rec"\n' > bin/recenv.sh
+    printf '#!/bin/sh\nprintf "flaky base=%%s\\n" "${SHIRABE_VERIFY_BASE-}" >> "$2"\n[ "$(cat "$1")" = pass ]\n' > bin/flaky.sh
+    chmod +x bin/recenv.sh bin/flaky.sh
+}
+carry_repo carry
+echo fail > "$FLAKY"
+change skills/a/f.txt skills/b/f.txt top.txt
+start s-orig
+settle s-orig
+expect_rc "the run a fix round follows, flaky failing" 1
+ran "the run a fix round follows" "chk a base= chk b base= flaky base= plain base= "
+DONE_HEAD=$(git rev-parse HEAD)
+
+echo "--- fix round: a fix touching one skill"
+rm -f "$CR"
+echo pass > "$FLAKY"
+fix_round s-orig-fix-1 s-orig 1 "$DONE_HEAD"
+change skills/a/f.txt
+start s-orig-fix-1
+grep -q 'fix round: carried 2 check(s) s-orig passed' "$WORKDIR/start.out" \
+    && pass "fix round: --start says what it carried" || fail "fix round: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-orig-fix-1
+expect_rc "a fix round whose carried checks stand beside passed ones" 0
+expect_no_finding "a fix round whose carried checks stand beside passed ones"
+ran "a fix round touching skills/a runs that skill's check with the round's base, and the check the run failed" \
+    "chk a base=$DONE_HEAD flaky base= "
+expect_check "a fix round touching skills/a" s-orig-fix-1 chk:a '.outcome == "passed" and (has("carried_from") | not)'
+expect_check "a fix round touching skills/a" s-orig-fix-1 chk:b \
+    ".outcome == \"carried\" and .carried_from == {session: \"s-orig\", head: \"$DONE_HEAD\"}
+     and .exit_status == 0 and .duration_secs == 0 and .not_started == false and .argv[-1] == \"b\" and .id == \"chk\""
+expect_check "a fix round touching skills/a" s-orig-fix-1 plain \
+    ".outcome == \"carried\" and .carried_from == {session: \"s-orig\", head: \"$DONE_HEAD\"}"
+expect_check "a check the run failed runs again" s-orig-fix-1 flaky '.outcome == "passed"'
+jq -e '[.commands[].check] == ["chk:a", "chk:b", "plain", "flaky"]' "$(result_of s-orig-fix-1)" >/dev/null 2>&1 \
+    && pass "fix round: the result holds the full run's checks, in the map's order" \
+    || fail "fix round: the result's checks: $(jq -c '[.commands[].check]' "$(result_of s-orig-fix-1)" 2>&1)"
+FIX1_HEAD=$(git rev-parse HEAD)
+
+echo "--- fix round: a second skill touched"
+rm -f "$CR"
+change skills/b/f.txt
+start s-orig-fix-1
+settle s-orig-fix-1
+expect_rc "a fix round touching two skills" 0
+ran "a fix round touching skills/a and skills/b runs both skills' checks" \
+    "chk a base=$DONE_HEAD chk b base=$DONE_HEAD flaky base= "
+expect_check "a fix round touching two skills" s-orig-fix-1 plain '.outcome == "carried"'
+FIX1_HEAD2=$(git rev-parse HEAD)
+
+echo "--- fix round: a second round follows the first"
+# Round 2's base is the head round 1 left; the original's fix_rounds.jsonl
+# names round 1, so that is the run round 2 follows.
+rm -f "$CR"
+printf '%s\n%s\n' \
+    "$(jq -cn --arg h "$DONE_HEAD" '{round: 1, session: "s-orig-fix-1", base: $h, ts: "t"}')" \
+    "$(jq -cn --arg h "$FIX1_HEAD2" '{round: 2, session: "s-orig-fix-2", base: $h, ts: "t"}')" \
+    > "$KOTO_STUB_STORE/s-orig/fix_rounds.jsonl"
+fix_round s-orig-fix-2 s-orig 2 "$FIX1_HEAD2"
+start s-orig-fix-2
+settle s-orig-fix-2
+expect_rc "a second round with no change of its own" 0
+ran "a second round with no change of its own runs nothing" ""
+for c in chk:a chk:b plain flaky; do
+    expect_check "a second round" s-orig-fix-2 "$c" \
+        ".outcome == \"carried\" and .carried_from == {session: \"s-orig-fix-1\", head: \"$FIX1_HEAD2\"}"
+done
+
+echo "--- fix round: a run with no result at all"
+# s-ghost never verified, so it has no result at the round's base or before.
+rm -f "$CR"
+fix_round s-nobase s-ghost 1 "$FIX1_HEAD"
+start s-nobase
+grep -q 'has no verification result at the round' "$WORKDIR/start.out" \
+    && pass "no parent result: --start says nothing is carried" || fail "no parent result: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-nobase
+expect_rc "a fix round with no parent result at its base" 0
+ran "a fix round with no parent result at its base runs everything" "chk a base= chk b base= flaky base= plain base= "
+jq -e '[.commands[] | select(.outcome == "carried" or has("carried_from"))] | length == 0' "$(result_of s-nobase)" >/dev/null 2>&1 \
+    && pass "no parent result: no record is carried" || fail "no parent result: a record was carried"
+
+echo "--- fix round: --fresh and SHIRABE_VERIFY_FULL=1 carry nothing"
+rm -f "$CR"
+fix_round s-fresh s-orig 1 "$DONE_HEAD" '{"fresh": true}'
+start s-fresh
+grep -q 'fresh: true' "$WORKDIR/start.out" \
+    && pass "fresh: --start says why nothing is carried" || fail "fresh: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-fresh
+expect_rc "a fresh fix round" 0
+ran "a fresh fix round runs everything, with no base" "chk a base= chk b base= flaky base= plain base= "
+jq -e '[.commands[] | select(.outcome == "carried")] | length == 0' "$(result_of s-fresh)" >/dev/null 2>&1 \
+    && pass "fresh: no record is carried" || fail "fresh: a record was carried"
+
+rm -f "$CR"
+fix_round s-full s-orig 1 "$DONE_HEAD"
+SHIRABE_VERIFY_FULL=1 start s-full
+grep -q 'SHIRABE_VERIFY_FULL=1' "$WORKDIR/start.out" \
+    && pass "SHIRABE_VERIFY_FULL=1: --start says why nothing is carried" || fail "full: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-full
+expect_rc "a fix round under SHIRABE_VERIFY_FULL=1" 0
+ran "a fix round under SHIRABE_VERIFY_FULL=1 runs everything, with no base" "chk a base= chk b base= flaky base= plain base= "
+jq -e '[.commands[] | select(.outcome == "carried")] | length == 0' "$(result_of s-full)" >/dev/null 2>&1 \
+    && pass "SHIRABE_VERIFY_FULL=1: no record is carried" || fail "SHIRABE_VERIFY_FULL=1: a record was carried"
+
+echo "--- the verdict on carried records"
+# Results written by hand at this head, from the second round's: every record
+# carried, passed and carried mixed, and a carried record beside a failed one.
+CARRY_RES=$(result_of s-orig-fix-2)
+# verdict_on <session> <jq edit>: write the edited result as <session>'s and
+# take its verdict.
+verdict_on() {
+    local res
+    res=$(result_of "$1")
+    mkdir -p "$(dirname "$res")"
+    jq "$2" "$CARRY_RES" > "$res"
+    verdict "$1"
+}
+verdict_on s-cv-carried '.'
+expect_rc "every record carried" 0
+expect_no_finding "every record carried"
+verdict_on s-cv-mixed '.commands |= map(if .check == "chk:a" then .outcome = "passed" | del(.carried_from) else . end)'
+expect_rc "passed and carried records" 0
+verdict_on s-cv-failed '.commands |= map(if .check == "flaky" then .outcome = "failed" | .exit_status = 3 | del(.carried_from) else . end)'
+expect_rc "a carried record beside a failed one" 1
+expect_rule "a carried record beside a failed one" verification/command-failed
+
+echo "--- fix round: shared code reruns the full selection"
+# s-orig-fix-2 passed or carried everything at this head. A round whose diff
+# touches scripts/lib/x.sh (outside every skill, and matched by no entry)
+# carries nothing.
+rm -f "$CR"
+SHARED_BASE=$(git rev-parse HEAD)
+fix_round s-shared s-orig 3 "$SHARED_BASE"
+printf '%s\n' "$(jq -cn --arg h "$SHARED_BASE" '{round: 3, session: "s-shared", base: $h, ts: "t"}')" \
+    >> "$KOTO_STUB_STORE/s-orig/fix_rounds.jsonl"
+change scripts/lib/x.sh
+start s-shared
+grep -qF 'touches shared code (scripts/lib/x.sh)' "$WORKDIR/start.out" \
+    && pass "shared code: --start says the round reruns the full selection" \
+    || fail "shared code: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-shared
+expect_rc "a fix round touching scripts/lib/x.sh" 0
+ran "a fix round touching scripts/lib/x.sh runs everything, with no base" "chk a base= chk b base= flaky base= plain base= "
+jq -e '[.commands[] | select(.outcome == "carried")] | length == 0' "$(result_of s-shared)" >/dev/null 2>&1 \
+    && pass "shared code: no record is carried" || fail "shared code: a record was carried"
+
+# The next round touches only one skill's files, so it still carries the rest.
+rm -f "$CR"
+SKILL_BASE=$(git rev-parse HEAD)
+fix_round s-skillonly s-shared 1 "$SKILL_BASE"
+change skills/a/g.txt
+start s-skillonly
+settle s-skillonly
+expect_rc "a fix round touching only skills/a after the shared round" 0
+ran "a fix round touching only skills/a runs that skill's check and carries the other skills" "chk a base=$SKILL_BASE "
+expect_check "a fix round touching only skills/a" s-skillonly chk:b \
+    ".outcome == \"carried\" and .carried_from == {session: \"s-shared\", head: \"$SKILL_BASE\"}"
+
+echo "--- fix round: the parent verified an earlier head"
+# s-anc verified at ANC1; a later commit touching skills/b is the head the
+# round starts from. The round finds the result at ANC1, an ancestor of its
+# base, and the commit after it is the round's own change: chk:b runs with
+# ANC1 as its base, the rest carry from ANC1.
+rm -f "$CR"
+echo pass > "$FLAKY"
+carry_repo anc
+change skills/a/f.txt skills/b/f.txt top.txt
+start s-anc
+settle s-anc
+expect_rc "the run verified at its earlier head" 0
+ANC1=$(git rev-parse HEAD)
+change skills/b/f.txt
+ANC_BASE=$(git rev-parse HEAD)
+rm -f "$CR"
+fix_round s-anc-fix-1 s-anc 1 "$ANC_BASE"
+start s-anc-fix-1
+grep -qF "carrying from its result at $ANC1, an ancestor of it" "$WORKDIR/start.out" \
+    && pass "an earlier verified head: --start names the result it carries from" \
+    || fail "an earlier verified head: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-anc-fix-1
+expect_rc "a fix round whose parent verified an earlier head" 0
+ran "a commit after the parent's verified head runs that skill's check from that head" "chk b base=$ANC1 "
+for c in chk:a plain flaky; do
+    expect_check "an earlier verified head" s-anc-fix-1 "$c" \
+        ".outcome == \"carried\" and .carried_from == {session: \"s-anc\", head: \"$ANC1\"}"
+done
+
+echo "--- fix round: no result at an ancestor of the base"
+# The base is main's commit, which the parent's verified head descends from,
+# not the other way round: no result counts, and everything runs.
+rm -f "$CR"
+fix_round s-anc-fix-old s-anc 1 "$(git rev-parse main)"
+start s-anc-fix-old
+grep -qF 'or at a done head before it' "$WORKDIR/start.out" \
+    && pass "no ancestor result: --start says nothing is carried" \
+    || fail "no ancestor result: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-anc-fix-old
+expect_rc "a fix round with no ancestor result" 0
+ran "a fix round with no ancestor result runs everything" "chk a base= chk b base= flaky base= plain base= "
+
 # --- the lock, the state directories ------------------------------------------------------
 
 echo "--- a stale lock"
@@ -1161,6 +1711,141 @@ start s-lock
 settle s-lock
 expect_rc "a stale lock whose process is gone" 0
 [ -e "$WORKDIR/lock.rec" ] && pass "a stale lock does not block a new start" || fail "the stale lock blocked the start"
+
+# --start stopped partway: SHIRABE_VERIFICATION_TEST_PAUSE stops it at a named
+# point, the case kills it there with KILL (what koto does to an action's
+# process group past its limit) and checks what the next --start does. The
+# command waits for a marker file, so a supervisor lives as long as the case
+# needs it to.
+GATED="$WORKDIR/gated.sh"
+cat > "$GATED" <<'EOF'
+#!/bin/sh
+# Record the start, then wait for the marker, for at most 60 seconds.
+printf 'started\n' >> "$1"
+n=0
+while [ ! -e "$2" ] && [ "$n" -lt 600 ]; do
+    sleep 0.1
+    n=$((n + 1))
+done
+EOF
+chmod +x "$GATED"
+
+# gated_map <rec> <marker>: a map whose one command is the gated fixture.
+gated_map() {
+    map "$(jq -cn --arg c "$GATED" --arg r "$1" --arg m "$2" '{gated: {run: [$c, $r, $m], timeout_secs: 120}}')" '[]' '["gated"]'
+}
+
+# wait_file <path>: true once <path> exists, waiting at most 10 seconds.
+wait_file() {
+    local n=0
+    while [ ! -e "$1" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+    [ -e "$1" ]
+}
+
+# paused_start <session> <point>: --start in the background, armed to stop at
+# <point>; sets PS_PID and PS_DIR. False when it doesn't reach the point.
+paused_start() {
+    PS_DIR="$WORKDIR/pause-$1"
+    mkdir -p "$PS_DIR"
+    : > "$PS_DIR/$2.wait"
+    SHIRABE_VERIFICATION_TEST_PAUSE="$PS_DIR" "$START" --start --session "$1" >"$WORKDIR/ps-$1.out" 2>&1 &
+    PS_PID=$!
+    wait_file "$PS_DIR/$2.reached"
+}
+
+# rec_count <rec>: how many times the gated command started.
+rec_count() { grep -c . "$1" 2>/dev/null || true; }
+
+echo "--- a --start killed after its supervisor started"
+SK_REC="$WORKDIR/sk.rec"
+SK_GO="$WORKDIR/sk.go"
+mkrepo startkill "$(gated_map "$SK_REC" "$SK_GO")"
+change top.txt
+HD=$(dirname "$(result_of s-startkill)")
+if paused_start s-startkill started && wait_file "$SK_REC"; then
+    kill -KILL "$PS_PID" 2>/dev/null
+    wait "$PS_PID" 2>/dev/null
+    "$START" --start --session s-startkill >"$WORKDIR/sk2.out" 2>&1
+    SK_RC=$?
+    SK_LOCK=$(readlink "$HD/lock" 2>/dev/null)
+    SK_CMD=""
+    case "$SK_LOCK" in ''|*[!0-9]*) ;; *) SK_CMD=$(ps -p "$SK_LOCK" -o command= 2>/dev/null) ;; esac
+    if [ "$SK_RC" -eq 0 ] && [ ! -e "$HD/attempts/2" ] && jq -e '.attempt == 1' "$HD/run.json" >/dev/null 2>&1 \
+        && case "$SK_CMD" in *run-verification.sh*) true ;; *) false ;; esac; then
+        pass "startkill: the lock names the live supervisor, and the next --start starts no second attempt"
+    else
+        fail "startkill: the next --start exited $SK_RC; lock [$SK_LOCK] is [$SK_CMD]; run.json attempt [$(jq -c .attempt "$HD/run.json" 2>&1)]; attempts/ holds [$(ls "$HD/attempts" 2>/dev/null | tr '\n' ' ')]"
+    fi
+else
+    fail "startkill: --start never stopped after its supervisor started, or the command never ran"
+fi
+: > "$SK_GO"
+settle s-startkill
+expect_rc "startkill: the suite finishes" 0
+[ "$(rec_count "$SK_REC")" = 1 ] && pass "startkill: the command ran once" \
+    || fail "startkill: the command ran $(rec_count "$SK_REC") times"
+
+echo "--- a --start killed while its supervisor is held"
+HE_REC="$WORKDIR/he.rec"
+HE_GO="$WORKDIR/he.go"
+mkrepo held "$(gated_map "$HE_REC" "$HE_GO")"
+change top.txt
+HD=$(dirname "$(result_of s-held)")
+if paused_start s-held held; then
+    # The lock names the held supervisor, and attempts/1 and run.json exist.
+    HE_SUP=$(readlink "$HD/lock" 2>/dev/null)
+    HE_CMD=""
+    case "$HE_SUP" in ''|*[!0-9]*) ;; *) HE_CMD=$(ps -p "$HE_SUP" -o command= 2>/dev/null) ;; esac
+    kill -KILL "$PS_PID" 2>/dev/null
+    wait "$PS_PID" 2>/dev/null
+    n=0
+    while [ -n "$HE_CMD" ] && kill -0 "$HE_SUP" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+    if case "$HE_CMD" in *run-verification.sh*) true ;; *) false ;; esac \
+        && ! kill -0 "$HE_SUP" 2>/dev/null && [ ! -e "$HD/lock" ] && [ ! -e "$HD/result.json" ] && [ ! -e "$HE_REC" ]; then
+        pass "held: the held supervisor reads end of file, removes its lock and exits, and nothing runs"
+    else
+        fail "held: lock [$HE_SUP] was [$HE_CMD]; after the kill the lock is [$(readlink "$HD/lock" 2>/dev/null)], result.json $( [ -e "$HD/result.json" ] && echo present || echo absent), the command ran $(rec_count "$HE_REC") times"
+    fi
+else
+    fail "held: --start never stopped with its supervisor held"
+fi
+: > "$HE_GO"
+start s-held
+settle s-held
+expect_rc "held: the next --start runs the suite" 0
+if jq -e '.attempt == 2' "$HD/run.json" >/dev/null 2>&1 && [ -d "$HD/attempts/1" ] && [ "$(rec_count "$HE_REC")" = 1 ]; then
+    pass "held: it runs in the next attempt folder, attempt 2, and the command ran once"
+else
+    fail "held: run.json attempt [$(jq -c .attempt "$HD/run.json" 2>&1)]; attempts/ holds [$(ls "$HD/attempts" 2>/dev/null | tr '\n' ' ')]; the command ran $(rec_count "$HE_REC") times"
+fi
+
+echo "--- a supervisor that finishes while another --start is on its way to the lock"
+FL_REC="$WORKDIR/fl.rec"
+FL_GO="$WORKDIR/fl.go"
+mkrepo finlock "$(gated_map "$FL_REC" "$FL_GO")"
+change top.txt
+HD=$(dirname "$(result_of s-finlock)")
+start s-finlock
+if wait_file "$FL_REC" && paused_start s-finlock lock; then
+    # The first supervisor writes its result, then removes its lock, while
+    # the second --start has read no result and not yet looked at the lock.
+    : > "$FL_GO"
+    n=0
+    while { [ ! -f "$HD/result.json" ] || [ -e "$HD/lock" ]; } && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+    : > "$PS_DIR/lock.go"
+    wait "$PS_PID"
+    FL_RC=$?
+    if [ "$FL_RC" -eq 0 ] && [ ! -e "$HD/attempts/2" ] && jq -e '.attempt == 1' "$HD/run.json" >/dev/null 2>&1 \
+        && [ "$(rec_count "$FL_REC")" = 1 ]; then
+        pass "finlock: the second --start finds the result under the lock and starts no second attempt"
+    else
+        fail "finlock: the second --start exited $FL_RC; run.json attempt [$(jq -c .attempt "$HD/run.json" 2>&1)]; attempts/ holds [$(ls "$HD/attempts" 2>/dev/null | tr '\n' ' ')]; the command ran $(rec_count "$FL_REC") times"
+    fi
+else
+    fail "finlock: the first command never ran, or the second --start never stopped before the lock"
+fi
+settle s-finlock
+expect_rc "finlock: the result stands" 0
 
 echo "--- directory modes and pruning"
 mkrepo prune "$(map "{\"ok\": $(rec "$WORKDIR/prune.rec" ok)}" '[]' '["ok"]')"
@@ -1228,6 +1913,995 @@ for f in "$START" "$VERDICT"; do
     c=$(grep -c -E '\bsetsid\b|\btimeout ' "$f")
     [ "$c" -eq 0 ] && pass "$(basename "$f") uses neither setsid nor GNU timeout" || fail "$(basename "$f"): $c matches"
 done
+
+# --- attempt folders, the archive, a re-run request ------------------------------------------
+
+echo "--- attempt folders, --archive and verification_rerun_request"
+
+# head_dir <session>: the head directory --locate names, in the current repository.
+head_dir() { dirname "$(result_of "$1")"; }
+# locate_line <session> <n>: line <n> of --locate (1 the head, 2 the merge-base).
+locate_line() { "$START" --locate --session "$1" | sed -n "$2p"; }
+# archived_count <head dir>: how many attempt folders hold a result.json.
+archived_count() { ls "$1"/attempts/*/result.json 2>/dev/null | wc -l | tr -d ' '; }
+
+# A first suite's logs: attempts/1/<index>-<id>.log, the id made safe.
+CMDS=$(jq -cn --arg f "$WORKDIR/att.rec" '{ok: {run: ["bin/rec.sh", $f, "ok"]}, "a b/c": {run: ["bin/rec.sh", $f, "abc"]}}')
+mkrepo att "$(map "$CMDS" '[]' '["ok", "a b/c"]')"
+change top.txt
+start s-att
+settle s-att
+expect_rc "two passing commands, one with an unsafe id" 0
+HD=$(head_dir s-att)
+if [ -f "$HD/attempts/1/0-ok.log" ] && [ -f "$HD/attempts/1/1-a_b_c.log" ] \
+    && [ ! -e "$HD/0-ok.log" ] && [ ! -e "$HD/1-a_b_c.log" ]; then
+    pass "a first suite writes its logs under attempts/1/ as <index>-<id>.log, the id's unsafe characters replaced by _"
+else
+    fail "the first suite's logs: $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+fi
+jq -e --arg a "$HD/attempts/1/0-ok.log" --arg b "$HD/attempts/1/1-a_b_c.log" \
+    '[.commands[].log] == [$a, $b]' "$HD/result.json" >/dev/null 2>&1 \
+    && pass "the result records each log's path under attempts/1/" \
+    || fail "the result's log paths: $(jq -c '[.commands[].log]' "$HD/result.json" 2>&1)"
+[ "$(mode_of "$HD/attempts")" = 700 ] && [ "$(mode_of "$HD/attempts/1")" = 700 ] \
+    && pass "attempts/ and attempts/1/ have mode 0700" \
+    || fail "attempts/ is $(mode_of "$HD/attempts"), attempts/1/ is $(mode_of "$HD/attempts/1")"
+BAD=""
+for f in "$HD/attempts/1/0-ok.log" "$HD/attempts/1/1-a_b_c.log"; do
+    [ "$(mode_of "$f")" = 600 ] || BAD="$BAD $f=$(mode_of "$f")"
+done
+[ -z "$BAD" ] && pass "every command log has mode 0600" || fail "logs not 0600:$BAD"
+if [ -f "$HD/result.json" ] && [ -f "$HD/run.json" ] && [ ! -e "$HD/attempts/1/result.json" ] \
+    && jq -e '.attempt == 1' "$HD/run.json" >/dev/null 2>&1; then
+    pass "result.json and run.json sit at the head directory, run.json recording attempt 1"
+else
+    fail "the head directory: $(ls "$HD" | tr '\n' ' '); run.json $(head -c 300 "$HD/run.json" 2>&1)"
+fi
+
+# expect_archive_refused <label> <session> <reason> <message>: --archive exits
+# non-zero, says <message> on stderr, leaves result.json and run.json where
+# they were, archives no result and writes no ledger.
+expect_archive_refused() {
+    local hd before rc
+    hd=$(head_dir "$2")
+    before=$(cat "$hd/result.json" 2>/dev/null)
+    "$START" --archive --session "$2" --reason "$3" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+    rc=$?
+    if [ "$rc" -ne 0 ] && grep -q -F -- "$4" "$WORKDIR/archive.err" \
+        && [ -f "$hd/result.json" ] && [ "$(cat "$hd/result.json")" = "$before" ] && [ -f "$hd/run.json" ] \
+        && [ "$(archived_count "$hd")" -eq 0 ] && [ ! -e "$KOTO_STUB_STORE/$2/verification_attempts" ]; then
+        pass "$1: --archive refuses (exit $rc) and moves and records nothing"
+    else
+        fail "$1: --archive exit $rc, stderr $(cat "$WORKDIR/archive.err"), head dir $(ls -R "$hd" 2>&1 | tr '\n' ' ')"
+    fi
+}
+
+# Refusals: an empty or blank reason, a passing result, a running suite.
+mkrepo arcfail "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+change top.txt
+start s-arcfail
+settle s-arcfail
+expect_rc "a failed command to archive" 1
+expect_archive_refused "an empty reason" s-arcfail "" "the reason is empty"
+expect_archive_refused "a blank reason" s-arcfail "   " "the reason is empty"
+
+cd "$WORKDIR/r-att" || exit 2
+start s-arcpass
+settle s-arcpass
+expect_rc "a passing result to archive" 0
+expect_archive_refused "a passing result" s-arcpass "flaky" "ineligible passed"
+
+mkrepo arclock "$(map '{"slow": {"run": ["bin/slow.sh"], "timeout_secs": 60}}' '[]' '["slow"]')"
+change top.txt
+start s-arclock
+HD=$(head_dir s-arclock)
+n=0
+while [ ! -e "$HD/attempts/1/0-slow.log" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+SUP=$(readlink "$HD/lock" 2>/dev/null)
+SLOWPID=""
+command -v pgrep >/dev/null 2>&1 && SLOWPID=$(pgrep -f "$WORKDIR/r-arclock/bin/slow.sh" 2>/dev/null | head -n 1)
+if [ -n "$SUP" ] && kill -0 "$SUP" 2>/dev/null; then
+    # An eligible result for this head beside the live lock, so the lock is
+    # the only thing that can refuse the archive.
+    jq -cn --arg h "$(locate_line s-arclock 1)" --arg mb "$(locate_line s-arclock 2)" \
+        '{schema: "shirabe-verification-result/v1", head: $h, merge_base: $mb, status: "done", detail: "",
+          commands: [{id: "slow", argv: ["bin/slow.sh"], exit_status: 1, duration_secs: 1, timed_out: false,
+                      runaway: false, not_started: false, pgid: 1, log: null}]}' > "$HD/result.json"
+    expect_archive_refused "a running suite" s-arclock "flaky" "still running"
+    kill -TERM "$SUP" 2>/dev/null
+    n=0
+    while kill -0 "$SUP" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+else
+    fail "a running suite: the slow suite never started (supervisor [$SUP])"
+fi
+[ -n "$SLOWPID" ] && kill -KILL -- "-$SLOWPID" 2>/dev/null
+
+# A successful archive of a failed command's result.
+cd "$WORKDIR/r-arcfail" || exit 2
+HD=$(head_dir s-arcfail)
+AH=$(locate_line s-arcfail 1)
+AMB=$(jq -r .merge_base "$HD/result.json")
+REASON='flaky "net" test'
+LEDGER="$KOTO_STUB_STORE/s-arcfail/verification_attempts"
+"$START" --archive --session s-arcfail --reason "$REASON" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+[ "$RC" -eq 0 ] && pass "an eligible failed result archives (exit 0)" \
+    || fail "an eligible failed result: --archive exit $RC, stderr $(cat "$WORKDIR/archive.err")"
+if [ -f "$LEDGER" ] && [ "$(wc -l < "$LEDGER" | tr -d ' ')" -eq 1 ] \
+    && head -n 1 "$LEDGER" | jq -e --arg h "$AH" --arg mb "$AMB" --arg r "$REASON" \
+        '.attempt == 1 and .folder == 1 and .head == $h and .merge_base == $mb and .reason == $r' >/dev/null 2>&1; then
+    pass "the archive writes one parseable ledger line: attempt 1, folder 1, the head, the merge-base, the reason as given"
+else
+    fail "the ledger after the archive: $(cat "$LEDGER" 2>&1)"
+fi
+if [ -f "$HD/attempts/1/result.json" ] && [ -f "$HD/attempts/1/run.json" ] \
+    && [ ! -e "$HD/result.json" ] && [ ! -e "$HD/run.json" ]; then
+    pass "the archive moves result.json and run.json into attempts/1/"
+else
+    fail "after the archive, the head directory holds: $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+fi
+
+# A re-run request beside a passing result: dropped, the pass reused.
+mkrepo rrpass "$(map "{\"ok\": $(rec "$WORKDIR/rrpass.rec" ok)}" '[]' '["ok"]')"
+change top.txt
+start s-rrpass
+settle s-rrpass
+expect_rc "a passing result before a re-run request" 0
+HD=$(head_dir s-rrpass)
+cp "$HD/result.json" "$WORKDIR/rrpass.before"
+mkdir -p "$KOTO_STUB_STORE/s-rrpass"
+printf 'please run it again\n' > "$KOTO_STUB_STORE/s-rrpass/verification_rerun_request"
+"$START" --start --session s-rrpass >"$WORKDIR/rr.out" 2>"$WORKDIR/rr.err"
+RC=$?
+[ "$RC" -eq 0 ] && pass "a re-run request beside a pass: --start exits 0" \
+    || fail "a re-run request beside a pass: --start exit $RC, stderr $(cat "$WORKDIR/rr.err")"
+[ ! -e "$KOTO_STUB_STORE/s-rrpass/verification_rerun_request" ] \
+    && grep -q -F 'remove s-rrpass verification_rerun_request' "$KOTO_STUB_STORE/log" \
+    && pass "a re-run request beside a pass is removed" \
+    || fail "the re-run request beside a pass is still there"
+grep -q -F 'rerun request dropped' "$WORKDIR/rr.err" \
+    && pass "a dropped re-run request says why on stderr" \
+    || fail "a dropped re-run request printed no reason: $(cat "$WORKDIR/rr.err")"
+if cmp -s "$HD/result.json" "$WORKDIR/rrpass.before" && [ ! -e "$HD/attempts/2" ] \
+    && [ ! -e "$HD/lock" ] && [ ! -e "$KOTO_STUB_STORE/s-rrpass/verification_attempts" ]; then
+    pass "the pass is reused: result.json unchanged, no attempts/2, no supervisor, no ledger"
+else
+    fail "a re-run request beside a pass changed something: $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+fi
+
+# A re-run request beside an eligible failed result: archived, run again.
+mkrepo rrfail "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+change top.txt
+start s-rrfail
+settle s-rrfail
+expect_rc "a failed command before a re-run request" 1
+HD=$(head_dir s-rrfail)
+LEDGER="$KOTO_STUB_STORE/s-rrfail/verification_attempts"
+mkdir -p "$KOTO_STUB_STORE/s-rrfail"
+printf 'flaky once\n' > "$KOTO_STUB_STORE/s-rrfail/verification_rerun_request"
+"$START" --start --session s-rrfail >"$WORKDIR/rr.out" 2>"$WORKDIR/rr.err"
+RC=$?
+[ "$RC" -eq 0 ] && pass "a re-run request beside a failure: --start exits 0" \
+    || fail "a re-run request beside a failure: --start exit $RC, stderr $(cat "$WORKDIR/rr.err")"
+[ ! -e "$KOTO_STUB_STORE/s-rrfail/verification_rerun_request" ] \
+    && pass "a re-run request beside a failure is removed" \
+    || fail "the re-run request beside a failure is still there"
+if [ -f "$LEDGER" ] && [ "$(wc -l < "$LEDGER" | tr -d ' ')" -eq 1 ] \
+    && head -n 1 "$LEDGER" | jq -e '.attempt == 1 and .folder == 1 and .reason == "flaky once"' >/dev/null 2>&1; then
+    pass "the re-run request's archive writes one parseable ledger line: attempt 1, folder 1, the reason"
+else
+    fail "the ledger after the re-run request: $(cat "$LEDGER" 2>&1)"
+fi
+[ -f "$HD/attempts/1/result.json" ] && [ -f "$HD/attempts/1/run.json" ] \
+    && pass "the re-run request archives result.json and run.json into attempts/1/" \
+    || fail "attempts/1/ after the re-run request: $(ls "$HD/attempts/1" 2>&1 | tr '\n' ' ')"
+settle s-rrfail
+expect_rc "the re-run's failed command" 1
+if [ -f "$HD/attempts/2/0-bad.log" ] && [ -f "$HD/result.json" ] \
+    && jq -e --arg l "$HD/attempts/2/0-bad.log" '.commands[0].log == $l' "$HD/result.json" >/dev/null 2>&1 \
+    && jq -e '.attempt == 2' "$HD/run.json" >/dev/null 2>&1; then
+    pass "a new supervisor runs the suite again, its logs under attempts/2/ and its result at the head directory"
+else
+    fail "after the re-run: $(ls -R "$HD" 2>&1 | tr '\n' ' '); result $(head -c 300 "$HD/result.json" 2>&1)"
+fi
+
+# A second lap at the same head: attempt 2 of this head and merge-base.
+"$START" --archive --session s-rrfail --reason "flaky twice" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+[ "$RC" -eq 0 ] && pass "a second failure at the same head archives (exit 0)" \
+    || fail "a second failure at the same head: --archive exit $RC, stderr $(cat "$WORKDIR/archive.err")"
+FIRST_HEAD=$(head -n 1 "$LEDGER" | jq -r .head 2>/dev/null)
+if [ -f "$LEDGER" ] && [ "$(wc -l < "$LEDGER" | tr -d ' ')" -eq 2 ] && [ -n "$FIRST_HEAD" ] \
+    && tail -n 1 "$LEDGER" | jq -e --arg h "$FIRST_HEAD" \
+        '.attempt == 2 and .folder == 2 and .head == $h' >/dev/null 2>&1; then
+    pass "the second archive at a head adds a second ledger line: attempt 2, folder 2, the same head"
+else
+    fail "the ledger after the second archive: $(cat "$LEDGER" 2>&1)"
+fi
+[ -f "$HD/attempts/2/result.json" ] \
+    && pass "the second archive moves result.json into attempts/2/" \
+    || fail "attempts/2/ after the second archive: $(ls "$HD/attempts/2" 2>&1 | tr '\n' ' ')"
+
+# Ledger lines for another head or another merge-base do not count toward
+# this head's attempt number.
+mkrepo arcother "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+change top.txt
+start s-arcother
+settle s-arcother
+expect_rc "a failed command beside other heads' ledger lines" 1
+HD=$(head_dir s-arcother)
+AH=$(locate_line s-arcother 1)
+AMB=$(jq -r .merge_base "$HD/result.json")
+OTHER_SHA=0123456789abcdef0123456789abcdef01234567
+LEDGER="$KOTO_STUB_STORE/s-arcother/verification_attempts"
+mkdir -p "$KOTO_STUB_STORE/s-arcother"
+{
+    jq -nc --arg h "$OTHER_SHA" --arg mb "$AMB" '{attempt: 1, folder: 1, head: $h, merge_base: $mb, reason: "another head"}'
+    jq -nc --arg h "$AH" --arg mb "$OTHER_SHA" '{attempt: 1, folder: 1, head: $h, merge_base: $mb, reason: "another merge-base"}'
+} > "$WORKDIR/arcother.seed"
+cp "$WORKDIR/arcother.seed" "$LEDGER"
+"$START" --archive --session s-arcother --reason "flaky" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+[ "$RC" -eq 0 ] && pass "a failure beside other heads' ledger lines archives (exit 0)" \
+    || fail "a failure beside other heads' ledger lines: --archive exit $RC, stderr $(cat "$WORKDIR/archive.err")"
+if [ -f "$LEDGER" ] && [ "$(wc -l < "$LEDGER" | tr -d ' ')" -eq 3 ] \
+    && tail -n 1 "$LEDGER" | jq -e --arg h "$AH" --arg mb "$AMB" \
+        '.attempt == 1 and .folder == 1 and .head == $h and .merge_base == $mb' >/dev/null 2>&1; then
+    pass "lines for another head or merge-base do not count: the new line is attempt 1, folder 1, this head and merge-base"
+else
+    fail "the ledger beside other heads' lines: $(cat "$LEDGER" 2>&1)"
+fi
+head -n 2 "$LEDGER" > "$WORKDIR/arcother.head2"
+cmp -s "$WORKDIR/arcother.head2" "$WORKDIR/arcother.seed" \
+    && pass "the archive keeps the earlier ledger lines byte for byte" \
+    || fail "the earlier ledger lines changed: $(cat "$LEDGER" 2>&1)"
+
+# A ledger line that will not parse refuses the archive before anything is
+# written or moved.
+mkrepo arcbad "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+change top.txt
+start s-arcbad
+settle s-arcbad
+expect_rc "a failed command beside a ledger line that will not parse" 1
+HD=$(head_dir s-arcbad)
+LEDGER="$KOTO_STUB_STORE/s-arcbad/verification_attempts"
+mkdir -p "$KOTO_STUB_STORE/s-arcbad"
+{
+    jq -nc --arg h "$OTHER_SHA" --arg mb "$OTHER_SHA" '{attempt: 1, folder: 1, head: $h, merge_base: $mb, reason: "another head"}'
+    printf 'not json\n'
+} > "$LEDGER"
+cp "$LEDGER" "$WORKDIR/arcbad.before"
+"$START" --archive --session s-arcbad --reason "flaky" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -ne 0 ] && grep -q -F 'could not count the attempts' "$WORKDIR/archive.err" \
+    && cmp -s "$LEDGER" "$WORKDIR/arcbad.before" \
+    && [ -f "$HD/result.json" ] && [ -f "$HD/run.json" ] && [ "$(archived_count "$HD")" -eq 0 ]; then
+    pass "a ledger line that will not parse: --archive refuses (exit $RC), the ledger unchanged and nothing moved"
+else
+    fail "a ledger line that will not parse: --archive exit $RC, stderr $(cat "$WORKDIR/archive.err"), ledger $(cat "$LEDGER" 2>&1), head dir $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+fi
+
+# --- the cap, the ledger's integrity and the gate's ledger read -----------------------------
+
+echo "--- verification_eligibility and the ledger"
+VE_DIR="$WORKDIR/ve"
+mkdir -p "$VE_DIR"
+VE_H=1111111111111111111111111111111111111111
+VE_M=2222222222222222222222222222222222222222
+VE_O=3333333333333333333333333333333333333333
+# ve_result <file> <commands json> [<status>]: a result at VE_H and VE_M,
+# `done` unless a status is given.
+ve_result() {
+    jq -cn --arg h "$VE_H" --arg mb "$VE_M" --argjson c "$2" --arg st "${3:-done}" \
+        '{schema: "shirabe-verification-result/v1", head: $h, merge_base: $mb, status: $st, detail: "", commands: $c}' > "$1"
+}
+ve_result "$VE_DIR/fail.json" '[{"id": "bad", "exit_status": 3, "timed_out": false, "runaway": false, "not_started": false}]'
+ve_result "$VE_DIR/pass.json" '[{"id": "ok", "exit_status": 0, "timed_out": false, "runaway": false, "not_started": false}]'
+ve_result "$VE_DIR/mixed.json" '[{"id": "bad", "exit_status": 3, "timed_out": false, "runaway": false, "not_started": false},
+    {"id": "slow", "exit_status": 143, "timed_out": true, "runaway": false, "not_started": false}]'
+# ledger_line <head> <merge-base> <attempt> <folder> <reason>: one ledger line
+# whose only command, bad, failed.
+ledger_line() {
+    jq -cn --arg h "$1" --arg mb "$2" --argjson a "$3" --argjson f "$4" --arg r "$5" \
+        '{attempt: $a, folder: $f, head: $h, merge_base: $mb, exit: 1, status: "done", reason: $r,
+          commands: [{id: "bad", exit_status: 3, timed_out: false, duration_secs: 0, log: null}]}'
+}
+: > "$VE_DIR/empty.ledger"
+{
+    ledger_line "$VE_H" "$VE_M" 1 1 one
+    ledger_line "$VE_H" "$VE_M" 2 2 two
+} > "$VE_DIR/two.ledger"
+{
+    ledger_line "$VE_H" "$VE_O" 1 1 one
+    ledger_line "$VE_H" "$VE_O" 2 2 two
+    ledger_line "$VE_H" "$VE_M" 1 3 three
+} > "$VE_DIR/other.ledger"
+{
+    ledger_line "$VE_H" "$VE_M" 1 1 one
+    printf 'not json\n'
+} > "$VE_DIR/bad.ledger"
+# ve_case <label> <result file> <ledger file> <want>: the line the sourced
+# function prints.
+ve_case() {
+    local got
+    got=$(. "$SCRIPT_DIR/verification-eligibility.sh" && verification_eligibility "$2" "$3")
+    if [ "$got" = "$4" ]; then
+        pass "verification_eligibility: $1: $4"
+    else
+        fail "verification_eligibility: $1: [$got], want [$4]"
+    fi
+}
+ve_case "an eligible result and an empty ledger" "$VE_DIR/fail.json" "$VE_DIR/empty.ledger" eligible
+ve_case "two lines at the result's head and merge-base" "$VE_DIR/fail.json" "$VE_DIR/two.ledger" over-cap
+ve_case "two lines at another merge-base, one at the pair" "$VE_DIR/fail.json" "$VE_DIR/other.ledger" eligible
+ve_case "a ledger line that does not parse" "$VE_DIR/fail.json" "$VE_DIR/bad.ledger" "ineligible unreadable"
+ve_case "no ledger file" "$VE_DIR/fail.json" "$VE_DIR/none.ledger" "ineligible unreadable"
+ve_case "a passing result beside two lines at the pair" "$VE_DIR/pass.json" "$VE_DIR/two.ledger" "ineligible passed"
+ve_case "a failed and a timed-out command beside two lines at the pair" "$VE_DIR/mixed.json" "$VE_DIR/two.ledger" \
+    over-cap
+ve_case "a failed and a timed-out command and an empty ledger" "$VE_DIR/mixed.json" "$VE_DIR/empty.ledger" eligible
+
+# Every result the gate holds at exit 5 is eligible under the cap and over-cap
+# at two lines: a command stopped at its timeout, one that timed out inside
+# itself, and a stop at the total budget that left nothing unstarted (its
+# run.json lists as many invocations as the result has records). A budget
+# stop that left a command unstarted, and a runaway beside a timeout, are not.
+ve_result "$VE_DIR/limit.json" '[{"id": "slow", "exit_status": 143, "timed_out": true, "runaway": false,
+    "not_started": false, "outcome": "timed-out-limit"}]'
+ve_result "$VE_DIR/inside.json" '[{"id": "form", "exit_status": 1, "timed_out": false, "runaway": false,
+    "not_started": false, "outcome": "timed-out-inside"}]'
+mkdir -p "$VE_DIR/budget" "$VE_DIR/budget-unstarted"
+VE_BUDGET_CMDS='[{"id": "ok", "exit_status": 0, "timed_out": false, "runaway": false, "not_started": false, "outcome": "passed"},
+    {"id": "slow", "exit_status": 143, "timed_out": true, "runaway": false, "not_started": false, "outcome": "timed-out-limit"}]'
+ve_result "$VE_DIR/budget/result.json" "$VE_BUDGET_CMDS" timed-out
+jq -cn '{invocations: [{id: "ok"}, {id: "slow"}]}' > "$VE_DIR/budget/run.json"
+ve_result "$VE_DIR/budget-unstarted/result.json" "$VE_BUDGET_CMDS" timed-out
+jq -cn '{invocations: [{id: "ok"}, {id: "slow"}, {id: "later"}]}' > "$VE_DIR/budget-unstarted/run.json"
+ve_result "$VE_DIR/runaway-timeout.json" '[{"id": "slow", "exit_status": 143, "timed_out": true, "runaway": false,
+    "not_started": false}, {"id": "storm", "exit_status": 137, "timed_out": false, "runaway": true, "not_started": false}]'
+ve_case "a command stopped at its timeout and an empty ledger" "$VE_DIR/limit.json" "$VE_DIR/empty.ledger" eligible
+ve_case "a command stopped at its timeout beside two lines at the pair" "$VE_DIR/limit.json" "$VE_DIR/two.ledger" over-cap
+ve_case "a command that timed out inside itself and an empty ledger" "$VE_DIR/inside.json" "$VE_DIR/empty.ledger" eligible
+ve_case "a command that timed out inside itself beside two lines at the pair" "$VE_DIR/inside.json" "$VE_DIR/two.ledger" \
+    over-cap
+ve_case "a whole-budget stop with nothing unstarted and an empty ledger" "$VE_DIR/budget/result.json" \
+    "$VE_DIR/empty.ledger" eligible
+ve_case "a whole-budget stop with nothing unstarted beside two lines at the pair" "$VE_DIR/budget/result.json" \
+    "$VE_DIR/two.ledger" over-cap
+ve_case "a whole-budget stop that left a command unstarted" "$VE_DIR/budget-unstarted/result.json" \
+    "$VE_DIR/empty.ledger" "ineligible not-started"
+ve_case "a runaway beside a timed-out command" "$VE_DIR/runaway-timeout.json" "$VE_DIR/empty.ledger" \
+    "ineligible runaway"
+
+# verification_gate_exit: the exit an eligible result came through.
+ve_exit_case() {
+    local got
+    got=$(. "$SCRIPT_DIR/verification-eligibility.sh" && verification_gate_exit "$2")
+    if [ "$got" = "$3" ]; then
+        pass "verification_gate_exit: $1: $3"
+    else
+        fail "verification_gate_exit: $1: [$got], want [$3]"
+    fi
+}
+ve_exit_case "a failed command" "$VE_DIR/fail.json" 1
+ve_exit_case "a failed and a timed-out command" "$VE_DIR/mixed.json" 1
+ve_exit_case "a command stopped at its timeout" "$VE_DIR/limit.json" 5
+ve_exit_case "a command that timed out inside itself" "$VE_DIR/inside.json" 5
+ve_exit_case "a whole-budget stop" "$VE_DIR/budget/result.json" 5
+
+# lock_pids <keys>: the distinct lock targets lockcalls logged for the context
+# calls on the keys <keys> names (an extended regular expression), one per
+# line; a call made with no lock in place logs an empty target.
+lock_pids() {
+    grep -E " ($1)( |\$)" "$KOTO_STUB_STORE/lockcalls" 2>/dev/null | sed -n 's/^lock\[\([^]]*\)\].*/\1/p' | sort -u
+}
+
+echo "--- the cap: two re-runs per head and merge-base, and the gate's message"
+mkrepo cap "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+change top.txt
+start s-cap
+settle s-cap
+expect_rc "cap: the first attempt fails" 1
+HD=$(head_dir s-cap)
+CAP_STORE="$KOTO_STUB_STORE/s-cap"
+CAP_LEDGER="$CAP_STORE/verification_attempts"
+CAP_REQ="$CAP_STORE/verification_rerun_request"
+if grep -q -F 'this is attempt' "$WORKDIR/verdict.err" || grep -q -F 'earlier attempts' "$WORKDIR/verdict.err"; then
+    fail "cap: with no verification_attempts key the exit-1 message changed: $(cat "$WORKDIR/verdict.err")"
+else
+    pass "cap: with no verification_attempts key the exit-1 message lists no attempts"
+fi
+
+# A request, consumed by --start under the lock.
+mkdir -p "$CAP_STORE"
+printf 'first flake\n' > "$CAP_REQ"
+rm -f "$KOTO_STUB_STORE/lockcalls"
+KOTO_STUB_LOCK="$HD/lock" "$START" --start --session s-cap >"$WORKDIR/cap.out" 2>"$WORKDIR/cap.err"
+RC=$?
+CAP_SUP=$(readlink "$HD/lock" 2>/dev/null)
+if [ "$RC" -eq 0 ] && [ ! -e "$CAP_REQ" ] && [ -f "$HD/attempts/1/result.json" ] \
+    && [ "$(wc -l < "$CAP_LEDGER" | tr -d ' ')" -eq 1 ]; then
+    pass "cap: --start archives attempt 1 for the request and removes the key"
+else
+    fail "cap: --start with a request: exit $RC, stderr $(cat "$WORKDIR/cap.err"), head dir $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+fi
+CAP_P=$(lock_pids 'verification_rerun_request|verification_attempts')
+case "$CAP_P" in
+    ''|*[!0-9]*) fail "cap: --start's request and ledger calls ran under the locks [$CAP_P]: $(cat "$KOTO_STUB_STORE/lockcalls" 2>&1)" ;;
+    *)
+        if grep -q -F "lock[$CAP_P] context remove s-cap verification_rerun_request" "$KOTO_STUB_STORE/lockcalls" \
+            && grep -q -F "lock[$CAP_P] context add s-cap verification_attempts" "$KOTO_STUB_STORE/lockcalls" \
+            && { [ -z "$CAP_SUP" ] || [ "$CAP_SUP" != "$CAP_P" ]; }; then
+            pass "cap: --start reads the request, writes the ledger and removes the key under one lock (pid $CAP_P), not the supervisor's"
+        else
+            fail "cap: the lock at each call: $(cat "$KOTO_STUB_STORE/lockcalls" 2>&1); supervisor [$CAP_SUP]"
+        fi
+        ;;
+esac
+
+# One earlier attempt.
+settle s-cap
+expect_rc "cap: attempt 2 fails too" 1
+if grep -q -F 'this is attempt 2 at head' "$WORKDIR/verdict.err" \
+    && grep -q -F 'attempt 1: bad failed; reason [first flake]' "$WORKDIR/verdict.err" \
+    && grep -q -F 'data recorded by earlier runs' "$WORKDIR/verdict.err" \
+    && grep -q -F "$HD/attempts/2/" "$WORKDIR/verdict.err" \
+    && ! grep -q -F 're-run cap is spent' "$WORKDIR/verdict.err"; then
+    pass "cap: the exit-1 message gives attempt 2, attempt 1's failed id and reason as data, and attempt 2's log folder"
+else
+    fail "cap: the message after one earlier attempt: $(cat "$WORKDIR/verdict.err")"
+fi
+
+# A second archive by hand, under the lock.
+rm -f "$KOTO_STUB_STORE/lockcalls"
+KOTO_STUB_LOCK="$HD/lock" "$START" --archive --session s-cap --reason "second flake" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(wc -l < "$CAP_LEDGER" | tr -d ' ')" -eq 2 ] \
+    && tail -n 1 "$CAP_LEDGER" | jq -e '.attempt == 2 and .folder == 2 and .reason == "second flake"' >/dev/null 2>&1 \
+    && [ -f "$HD/attempts/2/result.json" ]; then
+    pass "cap: a second archive adds attempt 2, folder 2"
+else
+    fail "cap: the second archive: exit $RC, stderr $(cat "$WORKDIR/archive.err"), ledger $(cat "$CAP_LEDGER" 2>&1)"
+fi
+CAP_P=$(lock_pids verification_attempts)
+case "$CAP_P" in
+    ''|*[!0-9]*) fail "cap: --archive's ledger calls ran under the locks [$CAP_P]: $(cat "$KOTO_STUB_STORE/lockcalls" 2>&1)" ;;
+    *)
+        [ ! -e "$HD/lock" ] && pass "cap: --archive reads and writes the ledger under one lock (pid $CAP_P) and releases it" \
+            || fail "cap: --archive left the lock [$(readlink "$HD/lock" 2>/dev/null)]"
+        ;;
+esac
+
+# Two earlier attempts: the cap is spent.
+start s-cap
+settle s-cap
+expect_rc "cap: attempt 3 fails" 1
+CAP_L1=$(grep -n -F 'attempt 1: bad failed; reason [first flake]' "$WORKDIR/verdict.err" | head -n 1 | cut -d: -f1)
+CAP_L2=$(grep -n -F 'attempt 2: bad failed; reason [second flake]' "$WORKDIR/verdict.err" | head -n 1 | cut -d: -f1)
+if grep -q -F 'this is attempt 3 at head' "$WORKDIR/verdict.err" \
+    && [ -n "$CAP_L1" ] && [ -n "$CAP_L2" ] && [ "$CAP_L1" -lt "$CAP_L2" ] \
+    && grep -q -F 're-run cap is spent' "$WORKDIR/verdict.err" \
+    && grep -q -F 'a new head' "$WORKDIR/verdict.err" \
+    && grep -q -F 'implementation_status: blocked' "$WORKDIR/verdict.err"; then
+    pass "cap: the exit-1 message lists attempts 1 and 2 oldest first and names the ways out"
+else
+    fail "cap: the message after two earlier attempts: $(cat "$WORKDIR/verdict.err")"
+fi
+
+# Over the cap, by hand: refused, nothing moved, the ledger byte for byte.
+cp "$CAP_LEDGER" "$WORKDIR/cap.ledger"
+cp "$HD/result.json" "$WORKDIR/cap.result"
+"$START" --archive --session s-cap --reason "third flake" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -eq 1 ] && grep -q -F 'cap is spent' "$WORKDIR/archive.err" \
+    && cmp -s "$CAP_LEDGER" "$WORKDIR/cap.ledger" && cmp -s "$HD/result.json" "$WORKDIR/cap.result" \
+    && [ -f "$HD/run.json" ] && [ ! -e "$HD/attempts/3/result.json" ] && [ ! -e "$HD/lock" ]; then
+    pass "cap: a third --archive refuses (exit 1), naming the cap, and moves and writes nothing"
+else
+    fail "cap: the third --archive: exit $RC, stderr $(cat "$WORKDIR/archive.err"), head dir $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+fi
+
+# Over the cap, through a request: the key goes, nothing else changes.
+printf 'third flake\n' > "$CAP_REQ"
+"$START" --start --session s-cap >"$WORKDIR/rr.out" 2>"$WORKDIR/rr.err"
+RC=$?
+if [ "$RC" -eq 0 ] && [ ! -e "$CAP_REQ" ] && grep -q -F 'cap is spent' "$WORKDIR/rr.err" \
+    && cmp -s "$CAP_LEDGER" "$WORKDIR/cap.ledger" && cmp -s "$HD/result.json" "$WORKDIR/cap.result" \
+    && [ ! -e "$HD/attempts/4" ] && [ ! -e "$HD/attempts/3/result.json" ] && [ ! -e "$HD/lock" ]; then
+    pass "cap: a third request is removed, says the cap is spent, and starts no attempt"
+else
+    fail "cap: the third request: exit $RC, stderr $(cat "$WORKDIR/rr.err"), head dir $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+fi
+
+# A failed ledger read at the gate holds it and records nothing.
+rm -f "$CAP_STORE/verification_results.json"
+OUT=$(KOTO_STUB_FAIL_KEY=verification_attempts "$VERDICT" --verdict --session s-cap 2>"$WORKDIR/verdict.err")
+RC=$?
+expect_rc "cap: a failed read of verification_attempts holds the gate" 2
+if grep -q -F 'could not read verification_attempts' "$WORKDIR/verdict.err" \
+    && [ ! -e "$CAP_STORE/verification_results.json" ]; then
+    pass "cap: a failed ledger read says so and records no verification_results.json"
+else
+    fail "cap: a failed ledger read: stderr $(cat "$WORKDIR/verdict.err"); results $(ls "$CAP_STORE" | tr '\n' ' ')"
+fi
+
+# A ledger that reads but doesn't parse keeps exit 1 with its own line.
+printf 'not json\n' >> "$CAP_LEDGER"
+verdict s-cap
+expect_rc "cap: a ledger that does not parse keeps the failed route" 1
+if grep -q -F "re-run history can't be read" "$WORKDIR/verdict.err" \
+    && grep -q -F 'no re-run is offered' "$WORKDIR/verdict.err" \
+    && ! grep -q -F 'this is attempt' "$WORKDIR/verdict.err"; then
+    pass "cap: a ledger that does not parse says the re-run history can't be read and offers no re-run"
+else
+    fail "cap: a ledger that does not parse: stderr $(cat "$WORKDIR/verdict.err")"
+fi
+cp "$WORKDIR/cap.ledger" "$CAP_LEDGER"
+
+echo "--- the gate's message for a failed command beside a timed-out one"
+# The mixed result exits 1 and is eligible for a re-run as a plain failure is,
+# so with two lines at the pair it gets the listing of earlier attempts and the
+# ways-out line. The lines are seeded newest first; the message sorts them.
+cd "$WORKDIR/r-mixed" || exit 2
+MX_H=$(locate_line s-mixed 1)
+MX_M=$(locate_line s-mixed 2)
+mkdir -p "$KOTO_STUB_STORE/s-mixed"
+{
+    jq -cn --arg h "$MX_H" --arg mb "$MX_M" '{attempt: 2, folder: 2, head: $h, merge_base: $mb, reason: "seeded two",
+        commands: [{id: "bad", exit_status: 3, timed_out: false}, {id: "slow", exit_status: 143, timed_out: true}]}'
+    jq -cn --arg h "$MX_H" --arg mb "$MX_M" '{attempt: 1, folder: 1, head: $h, merge_base: $mb, reason: "seeded one",
+        commands: [{id: "bad", exit_status: 3, timed_out: false}, {id: "slow", exit_status: 143, timed_out: true}]}'
+} > "$KOTO_STUB_STORE/s-mixed/verification_attempts"
+verdict s-mixed
+expect_rc "mixed: a failed command beside a timed-out one, two lines at the pair" 1
+MX_L1=$(grep -n -F 'attempt 1: bad failed, slow timed out; reason [seeded one]' "$WORKDIR/verdict.err" | head -n 1 | cut -d: -f1)
+MX_L2=$(grep -n -F 'attempt 2: bad failed, slow timed out; reason [seeded two]' "$WORKDIR/verdict.err" | head -n 1 | cut -d: -f1)
+if grep -q -F 'this is attempt 3 at head' "$WORKDIR/verdict.err" \
+    && [ -n "$MX_L1" ] && [ -n "$MX_L2" ] && [ "$MX_L1" -lt "$MX_L2" ] \
+    && grep -q -F 're-run cap is spent' "$WORKDIR/verdict.err" \
+    && grep -q -F 'a new head' "$WORKDIR/verdict.err" \
+    && grep -q -F 'implementation_status: blocked' "$WORKDIR/verdict.err"; then
+    pass "mixed: the message lists both attempts oldest first, failed and timed-out ids named, and names the ways out"
+else
+    fail "mixed: the message: $(cat "$WORKDIR/verdict.err")"
+fi
+# Under the cap the mixed result archives as a failure: one line, exit 1.
+rm -f "$KOTO_STUB_STORE/s-mixed/verification_attempts"
+MX_HD=$(head_dir s-mixed)
+"$START" --archive --session s-mixed --reason "flaky beside a slow check" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(grep -c . "$KOTO_STUB_STORE/s-mixed/verification_attempts" 2>/dev/null)" = 1 ] \
+    && jq -e '.attempt == 1 and .exit == 1 and .status == "done"
+              and ([.commands[] | select(.timed_out == true)] | length) == 1' \
+        "$KOTO_STUB_STORE/s-mixed/verification_attempts" >/dev/null \
+    && [ -f "$MX_HD/attempts/1/result.json" ]; then
+    pass "mixed: --archive archives a failed command beside a timed-out one, its ledger line at exit 1"
+else
+    fail "mixed: --archive: exit $RC, stderr $(cat "$WORKDIR/archive.err"), ledger $(cat "$KOTO_STUB_STORE/s-mixed/verification_attempts" 2>&1)"
+fi
+
+echo "--- the hold: a re-run at exit 5"
+# A timed-out check with nothing failed holds at 5 with the route open. A
+# rerun there is a self-loop whose request --start reads; the cases below run
+# that half of the lap, the order where --archive runs first (the gate then
+# reads 75), a request beside a running suite, and the cap, which the hold
+# shares with the failed route.
+HR_REC="$WORKDIR/holdrr.rec"
+CMDS=$(jq -cn --arg f "$HR_REC" --argjson h "$HOSTED" '{chk: {run: ["bin/recslow.sh", $f], timeout_secs: 3, hosted: $h}}')
+mkrepo holdrr "$(map "$CMDS" '[]' '["chk"]')"
+add_outcome_fixtures
+add_recslow
+change top.txt
+start s-holdrr
+settle s-holdrr
+expect_rc "holdrr: a timed-out check, none failed, the route open" 5
+HR_HD=$(head_dir s-holdrr)
+HR_STORE="$KOTO_STUB_STORE/s-holdrr"
+HR_LEDGER="$HR_STORE/verification_attempts"
+HR_REQ="$HR_STORE/verification_rerun_request"
+mkdir -p "$HR_STORE"
+if grep -q -F 'verification_status: rerun with the reason in detail' "$WORKDIR/verdict.err" \
+    && grep -q -F 'verification_status: hosted_of_record' "$WORKDIR/verdict.err" \
+    && ! grep -q -F 'this is attempt' "$WORKDIR/verdict.err"; then
+    pass "holdrr: with no verification_attempts key the hold offers rerun beside hosted_of_record, fix and blocked, and lists no attempt"
+else
+    fail "holdrr: the hold's message with no ledger key: $(cat "$WORKDIR/verdict.err")"
+fi
+
+# A failed ledger read at the hold holds the gate, records nothing, and leaves
+# no temporary file behind.
+rm -f "$HR_STORE/verification_results.json"
+mkdir -p "$WORKDIR/cvtmp-fail"
+OUT=$(TMPDIR="$WORKDIR/cvtmp-fail" KOTO_STUB_FAIL_KEY=verification_attempts "$VERDICT" --verdict --session s-holdrr \
+    2>"$WORKDIR/verdict.err")
+RC=$?
+expect_rc "holdrr: a failed read of verification_attempts at the hold holds the gate" 2
+if grep -q -F 'could not read verification_attempts' "$WORKDIR/verdict.err" \
+    && [ ! -e "$HR_STORE/verification_results.json" ] && [ -z "$(ls -A "$WORKDIR/cvtmp-fail")" ]; then
+    pass "holdrr: a failed ledger read at exit 5 says so, records no verification_results.json and leaves no temporary file"
+else
+    fail "holdrr: a failed ledger read at exit 5: stderr $(cat "$WORKDIR/verdict.err"); results $(ls "$HR_STORE" | tr '\n' ' '); tmp $(ls -A "$WORKDIR/cvtmp-fail" | tr '\n' ' ')"
+fi
+
+# The rerun lap's launcher half: --start archives the timed-out attempt, its
+# ledger line at exit 5, and starts attempt 2.
+printf 'the host was loaded\n' > "$HR_REQ"
+"$START" --start --session s-holdrr >"$WORKDIR/hr.out" 2>"$WORKDIR/hr.err"
+RC=$?
+if [ "$RC" -eq 0 ] && [ ! -e "$HR_REQ" ] && [ -f "$HR_HD/attempts/1/result.json" ] \
+    && [ "$(grep -c . "$HR_LEDGER" 2>/dev/null)" = 1 ] \
+    && jq -e '.attempt == 1 and .folder == 1 and .exit == 5 and .status == "done" and .reason == "the host was loaded"
+              and .commands[0].id == "chk" and .commands[0].timed_out == true' "$HR_LEDGER" >/dev/null; then
+    pass "holdrr: a request at the hold archives the timed-out attempt with exit 5 in its ledger line and removes the key"
+else
+    fail "holdrr: a request at the hold: exit $RC, stderr $(cat "$WORKDIR/hr.err"), ledger $(cat "$HR_LEDGER" 2>&1)"
+fi
+
+# One earlier attempt: the hold lists it and still offers rerun. This gate
+# run reads the ledger and leaves none of its temporary files behind.
+settle s-holdrr
+mkdir -p "$WORKDIR/cvtmp"
+OUT=$(TMPDIR="$WORKDIR/cvtmp" "$VERDICT" --verdict --session s-holdrr 2>"$WORKDIR/verdict.err")
+RC=$?
+expect_rc "holdrr: attempt 2 times out too: the hold again" 5
+if grep -q -F 'this is attempt 2 at head' "$WORKDIR/verdict.err" \
+    && grep -q -F 'attempt 1: chk timed out; reason [the host was loaded]' "$WORKDIR/verdict.err" \
+    && grep -q -F 'data recorded by earlier runs' "$WORKDIR/verdict.err" \
+    && grep -q -F "$HR_HD/attempts/2/" "$WORKDIR/verdict.err" \
+    && grep -q -F 'verification_status: rerun with the reason in detail' "$WORKDIR/verdict.err" \
+    && ! grep -q -F 're-run cap is spent' "$WORKDIR/verdict.err"; then
+    pass "holdrr: the exit-5 message gives attempt 2, attempt 1's timed-out id and reason as data, and offers rerun"
+else
+    fail "holdrr: the exit-5 message after one earlier attempt: $(cat "$WORKDIR/verdict.err")"
+fi
+[ -z "$(ls -A "$WORKDIR/cvtmp")" ] \
+    && pass "holdrr: a gate run that reads the ledger leaves none of its temporary files behind" \
+    || fail "holdrr: the gate run left $(ls -A "$WORKDIR/cvtmp" | tr '\n' ' ')"
+n=$(grep -c '^[[:space:]]*trap ' "$VERDICT")
+[ "$n" -eq 1 ] && pass "check-verification.sh sets one EXIT trap" \
+    || fail "check-verification.sh sets $n traps"
+
+# The archive-first order: --archive at the hold, the gate reads 75, and the
+# request that follows starts the next attempt with one ledger line for the
+# archived attempt.
+"$START" --archive --session s-holdrr --reason "the host was loaded again" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(grep -c . "$HR_LEDGER" 2>/dev/null)" = 2 ] \
+    && tail -n 1 "$HR_LEDGER" | jq -e '.attempt == 2 and .folder == 2 and .exit == 5' >/dev/null \
+    && [ -f "$HR_HD/attempts/2/result.json" ]; then
+    pass "holdrr: --archive at the hold archives attempt 2, its ledger line at exit 5"
+else
+    fail "holdrr: --archive at the hold: exit $RC, stderr $(cat "$WORKDIR/archive.err"), ledger $(cat "$HR_LEDGER" 2>&1)"
+fi
+verdict s-holdrr
+expect_rc "holdrr: after --archive at the hold the gate waits" 75
+cp "$HR_LEDGER" "$WORKDIR/holdrr.ledger"
+printf 'the host was loaded again\n' > "$HR_REQ"
+"$START" --start --session s-holdrr >"$WORKDIR/hr.out" 2>"$WORKDIR/hr.err"
+RC=$?
+HR_SUP=$(readlink "$HR_HD/lock" 2>/dev/null)
+if [ "$RC" -eq 0 ] && [ ! -e "$HR_REQ" ] && grep -q -F 'rerun request dropped' "$WORKDIR/hr.err" \
+    && cmp -s "$HR_LEDGER" "$WORKDIR/holdrr.ledger" && [ -n "$HR_SUP" ]; then
+    pass "holdrr: a request at 75 after --archive starts the next attempt, the ledger still one line per archived attempt"
+else
+    fail "holdrr: a request at 75: exit $RC, stderr $(cat "$WORKDIR/hr.err"), lock [$HR_SUP], ledger $(cat "$HR_LEDGER" 2>&1)"
+fi
+# Attempt 3 logs to attempts/3/. Its supervisor creates that log as it starts
+# the command, so the wait below is for that file, and the snapshots that
+# follow are of what an archive changes: the archived results and the attempt
+# folders, not the running attempt's log.
+n=0
+while [ ! -e "$HR_HD/attempts/3/0-chk.log" ] && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+[ -e "$HR_HD/attempts/3/0-chk.log" ] && pass "holdrr: attempt 3 logs to attempts/3/" \
+    || fail "holdrr: attempts/3/ holds [$(ls "$HR_HD/attempts/3" 2>/dev/null | tr '\n' ' ')]"
+# Attempt 3 is still running: another request is dropped and archives nothing.
+if [ -n "$HR_SUP" ] && kill -0 "$HR_SUP" 2>/dev/null; then
+    ls "$HR_HD/attempts" > "$WORKDIR/holdrr.before" 2>&1
+    HR_ARCHIVED=$(archived_count "$HR_HD")
+    printf 'while running\n' > "$HR_REQ"
+    "$START" --start --session s-holdrr >"$WORKDIR/hr.out" 2>"$WORKDIR/hr.err"
+    RC=$?
+    ls "$HR_HD/attempts" > "$WORKDIR/holdrr.after" 2>&1
+    if [ "$RC" -eq 0 ] && [ ! -e "$HR_REQ" ] && grep -q -F 'no longer current' "$WORKDIR/hr.err" \
+        && cmp -s "$HR_LEDGER" "$WORKDIR/holdrr.ledger" && cmp -s "$WORKDIR/holdrr.before" "$WORKDIR/holdrr.after" \
+        && [ "$(archived_count "$HR_HD")" = "$HR_ARCHIVED" ] && [ ! -e "$HR_HD/attempts/3/result.json" ]; then
+        pass "holdrr: a request at 75 beside a running suite is removed and archives nothing"
+    else
+        fail "holdrr: a request beside the running attempt 3: exit $RC, stderr $(cat "$WORKDIR/hr.err"), ledger $(cat "$HR_LEDGER" 2>&1), attempts $(tr '\n' ' ' < "$WORKDIR/holdrr.before") then $(tr '\n' ' ' < "$WORKDIR/holdrr.after")"
+    fi
+else
+    fail "holdrr: attempt 3's supervisor [$HR_SUP] was not running after the request at 75"
+fi
+
+# Two earlier attempts: the cap is spent, and the hold says so and offers only
+# the other three values.
+settle s-holdrr
+expect_rc "holdrr: attempt 3 times out: the hold again" 5
+HR_L1=$(grep -n -m 1 -F 'attempt 1: chk timed out; reason [the host was loaded]' "$WORKDIR/verdict.err" | cut -d: -f1)
+HR_L2=$(grep -n -m 1 -F 'attempt 2: chk timed out; reason [the host was loaded again]' "$WORKDIR/verdict.err" | cut -d: -f1)
+if grep -q -F 'this is attempt 3 at head' "$WORKDIR/verdict.err" \
+    && [ -n "$HR_L1" ] && [ -n "$HR_L2" ] && [ "$HR_L1" -lt "$HR_L2" ] \
+    && grep -q -F 're-run cap is spent' "$WORKDIR/verdict.err" \
+    && grep -q -F 'verification_status: hosted_of_record' "$WORKDIR/verdict.err" \
+    && ! grep -q -F 'verification_status: rerun' "$WORKDIR/verdict.err"; then
+    pass "holdrr: over the cap the exit-5 message lists attempts 1 and 2 oldest first, says the cap is spent and offers no rerun"
+else
+    fail "holdrr: the exit-5 message after two earlier attempts: $(cat "$WORKDIR/verdict.err")"
+fi
+
+# A rerun over the cap: the key goes, the ledger and the attempt folders stay
+# as they were, nothing starts, and the gate holds at 5 again.
+cp "$HR_LEDGER" "$WORKDIR/holdrr.ledger"
+cp "$HR_HD/result.json" "$WORKDIR/holdrr.result"
+ls -R "$HR_HD/attempts" > "$WORKDIR/holdrr.before" 2>&1
+printf 'a third time\n' > "$HR_REQ"
+"$START" --start --session s-holdrr >"$WORKDIR/hr.out" 2>"$WORKDIR/hr.err"
+RC=$?
+ls -R "$HR_HD/attempts" > "$WORKDIR/holdrr.after" 2>&1
+if [ "$RC" -eq 0 ] && [ ! -e "$HR_REQ" ] && grep -q -F 'cap is spent' "$WORKDIR/hr.err" \
+    && cmp -s "$HR_LEDGER" "$WORKDIR/holdrr.ledger" && cmp -s "$HR_HD/result.json" "$WORKDIR/holdrr.result" \
+    && cmp -s "$WORKDIR/holdrr.before" "$WORKDIR/holdrr.after" && [ ! -e "$HR_HD/attempts/4" ] \
+    && [ ! -e "$HR_HD/lock" ]; then
+    pass "holdrr: a rerun over the cap removes the key, says the cap is spent, and leaves the ledger and attempt folders unchanged"
+else
+    fail "holdrr: a rerun over the cap: exit $RC, stderr $(cat "$WORKDIR/hr.err"), head dir $(ls -R "$HR_HD" 2>&1 | tr '\n' ' ')"
+fi
+verdict s-holdrr
+expect_rc "holdrr: after a rerun over the cap the gate holds at 5 again" 5
+
+echo "--- a re-run request while a suite is running"
+mkrepo rrlive "$(map '{"slow": {"run": ["bin/slow.sh"], "timeout_secs": 60}}' '[]' '["slow"]')"
+change top.txt
+start s-rrlive
+HD=$(head_dir s-rrlive)
+n=0
+while [ ! -e "$HD/attempts/1/0-slow.log" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+SUP=$(readlink "$HD/lock" 2>/dev/null)
+SLOWPID=""
+command -v pgrep >/dev/null 2>&1 && SLOWPID=$(pgrep -f "$WORKDIR/r-rrlive/bin/slow.sh" 2>/dev/null | head -n 1)
+if [ -n "$SUP" ] && kill -0 "$SUP" 2>/dev/null; then
+    LIVE_STORE="$KOTO_STUB_STORE/s-rrlive"
+    mkdir -p "$LIVE_STORE"
+    ledger_line "$OTHER_SHA" "$OTHER_SHA" 1 1 "another head" > "$LIVE_STORE/verification_attempts"
+    cp "$LIVE_STORE/verification_attempts" "$WORKDIR/rrlive.ledger"
+    ls -R "$HD/attempts" > "$WORKDIR/rrlive.before" 2>&1
+    printf 'flaky while running\n' > "$LIVE_STORE/verification_rerun_request"
+    "$START" --start --session s-rrlive >"$WORKDIR/rr.out" 2>"$WORKDIR/rr.err"
+    RC=$?
+    ls -R "$HD/attempts" > "$WORKDIR/rrlive.after" 2>&1
+    if [ "$RC" -eq 0 ] && [ ! -e "$LIVE_STORE/verification_rerun_request" ] \
+        && grep -q -F 'rerun request dropped' "$WORKDIR/rr.err" && grep -q -F 'no longer current' "$WORKDIR/rr.err" \
+        && cmp -s "$LIVE_STORE/verification_attempts" "$WORKDIR/rrlive.ledger" \
+        && cmp -s "$WORKDIR/rrlive.before" "$WORKDIR/rrlive.after" \
+        && [ "$(archived_count "$HD")" -eq 0 ] && [ "$(readlink "$HD/lock" 2>/dev/null)" = "$SUP" ]; then
+        pass "a request beside a running suite is removed, says the result it named is no longer current, and archives nothing"
+    else
+        fail "a request beside a running suite: exit $RC, stderr $(cat "$WORKDIR/rr.err"), ledger $(cat "$LIVE_STORE/verification_attempts" 2>&1), attempts $(tr '\n' ' ' < "$WORKDIR/rrlive.after")"
+    fi
+    kill -TERM "$SUP" 2>/dev/null
+    n=0
+    while kill -0 "$SUP" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+else
+    fail "a request beside a running suite: the slow suite never started (supervisor [$SUP])"
+fi
+[ -n "$SLOWPID" ] && kill -KILL -- "-$SLOWPID" 2>/dev/null
+
+echo "--- an earlier merge-base's attempts don't count"
+mkrepo mbmove "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+change top.txt
+change top.txt
+start s-mbmove
+settle s-mbmove
+expect_rc "mbmove: the first attempt fails" 1
+HD=$(head_dir s-mbmove)
+MB_LEDGER="$KOTO_STUB_STORE/s-mbmove/verification_attempts"
+MB0=$(locate_line s-mbmove 2)
+"$START" --archive --session s-mbmove --reason "flaky at the first merge-base" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+[ "$RC" -eq 0 ] && pass "mbmove: the first merge-base's failure archives" \
+    || fail "mbmove: the first archive: exit $RC, stderr $(cat "$WORKDIR/archive.err")"
+git branch -f main HEAD~1
+MB1=$(locate_line s-mbmove 2)
+[ -n "$MB1" ] && [ "$MB1" != "$MB0" ] && pass "mbmove: moving main moves the merge-base at the same head" \
+    || fail "mbmove: the merge-base is still [$MB1]"
+start s-mbmove
+settle s-mbmove
+expect_rc "mbmove: the first attempt at the new merge-base fails" 1
+! grep -q -F 'this is attempt' "$WORKDIR/verdict.err" \
+    && pass "mbmove: the gate lists no attempt from the earlier merge-base" \
+    || fail "mbmove: the gate counted the earlier merge-base: $(cat "$WORKDIR/verdict.err")"
+"$START" --archive --session s-mbmove --reason "flaky at the second merge-base" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(wc -l < "$MB_LEDGER" | tr -d ' ')" -eq 2 ] \
+    && tail -n 1 "$MB_LEDGER" | jq -e --arg mb "$MB1" '.attempt == 1 and .folder == 2 and .merge_base == $mb' >/dev/null 2>&1 \
+    && [ -f "$HD/attempts/2/result.json" ]; then
+    pass "mbmove: the earlier merge-base's line and folder don't count: attempt 1, folder 2, the new merge-base"
+else
+    fail "mbmove: the second archive: exit $RC, stderr $(cat "$WORKDIR/archive.err"), ledger $(cat "$MB_LEDGER" 2>&1)"
+fi
+
+echo "--- the ledger and the disk disagree"
+mkrepo disagree "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+change top.txt
+start s-disagree
+settle s-disagree
+expect_rc "disagree: the first attempt fails" 1
+HD=$(head_dir s-disagree)
+DG_LEDGER="$KOTO_STUB_STORE/s-disagree/verification_attempts"
+"$START" --archive --session s-disagree --reason "flaky" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+[ "$RC" -eq 0 ] && pass "disagree: attempt 1 archives" \
+    || fail "disagree: the first archive: exit $RC, stderr $(cat "$WORKDIR/archive.err")"
+start s-disagree
+settle s-disagree
+expect_rc "disagree: attempt 2 fails" 1
+cp "$DG_LEDGER" "$WORKDIR/disagree.ledger"
+cp "$HD/result.json" "$WORKDIR/disagree.result"
+rm -f "$DG_LEDGER"
+"$START" --archive --session s-disagree --reason "flaky again" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -eq 1 ] && grep -q -F 'disagree' "$WORKDIR/archive.err" && [ ! -e "$DG_LEDGER" ] \
+    && cmp -s "$HD/result.json" "$WORKDIR/disagree.result" && [ -f "$HD/run.json" ] \
+    && [ "$(archived_count "$HD")" -eq 1 ] && [ ! -e "$HD/attempts/2/result.json" ]; then
+    pass "disagree: a removed ledger key beside an archived attempt refuses, moving and writing nothing"
+else
+    fail "disagree: a removed key: exit $RC, stderr $(cat "$WORKDIR/archive.err"), head dir $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+fi
+cp "$WORKDIR/disagree.ledger" "$DG_LEDGER"
+rm -rf "$HD/attempts/1"
+"$START" --archive --session s-disagree --reason "flaky again" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -eq 1 ] && grep -q -F 'disagree' "$WORKDIR/archive.err" \
+    && cmp -s "$DG_LEDGER" "$WORKDIR/disagree.ledger" && cmp -s "$HD/result.json" "$WORKDIR/disagree.result" \
+    && [ -f "$HD/run.json" ] && [ "$(archived_count "$HD")" -eq 0 ]; then
+    pass "disagree: a ledger line whose folder was pruned refuses, the ledger unchanged and nothing moved"
+else
+    fail "disagree: a pruned folder: exit $RC, stderr $(cat "$WORKDIR/archive.err"), head dir $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+fi
+
+echo "--- an archive stopped between its ledger write and its move"
+mkrepo recover "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+change top.txt
+start s-recover
+settle s-recover
+expect_rc "recover: the first attempt fails" 1
+HD=$(head_dir s-recover)
+RV_H=$(locate_line s-recover 1)
+RV_M=$(jq -r .merge_base "$HD/result.json")
+RV_LEDGER="$KOTO_STUB_STORE/s-recover/verification_attempts"
+mkdir -p "$KOTO_STUB_STORE/s-recover"
+# recover_refused <label>: --archive refuses beside the seeded ledger, which
+# stays byte for byte, and nothing moves.
+recover_refused() {
+    local rc
+    cp "$RV_LEDGER" "$WORKDIR/recover.ledger"
+    "$START" --archive --session s-recover --reason "flaky" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+    rc=$?
+    if [ "$rc" -eq 1 ] && cmp -s "$RV_LEDGER" "$WORKDIR/recover.ledger" \
+        && [ -f "$HD/result.json" ] && [ -f "$HD/run.json" ] && [ "$(archived_count "$HD")" -eq 0 ]; then
+        pass "recover: $1: --archive refuses, moving and writing nothing"
+    else
+        fail "recover: $1: --archive exit $rc, stderr $(cat "$WORKDIR/archive.err"), head dir $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+    fi
+}
+{
+    ledger_line "$RV_H" "$RV_M" 1 1 "stopped"
+    ledger_line "$RV_H" "$OTHER_SHA" 1 1 "another merge-base"
+} > "$RV_LEDGER"
+recover_refused "the last line is at another merge-base"
+ledger_line "$RV_H" "$RV_M" 1 2 "stopped" > "$RV_LEDGER"
+recover_refused "the last line names another folder"
+ledger_line "$RV_H" "$RV_M" 1 1 "stopped" > "$RV_LEDGER"
+cp "$RV_LEDGER" "$WORKDIR/recover.ledger"
+"$START" --archive --session s-recover --reason "flaky" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -eq 0 ] && cmp -s "$RV_LEDGER" "$WORKDIR/recover.ledger" \
+    && [ -f "$HD/attempts/1/result.json" ] && [ -f "$HD/attempts/1/run.json" ] \
+    && [ ! -e "$HD/result.json" ] && [ ! -e "$HD/run.json" ] \
+    && grep -q -F 'its ledger line was already written' "$WORKDIR/archive.out"; then
+    pass "recover: a last line naming this attempt's empty folder finishes the move and writes no second line"
+else
+    fail "recover: exit $RC, stdout $(cat "$WORKDIR/archive.out"), stderr $(cat "$WORKDIR/archive.err"), ledger $(cat "$RV_LEDGER" 2>&1)"
+fi
+
+# The same ledger shape beside a passing result: still refused.
+cd "$WORKDIR/r-att" || exit 2
+start s-recpass
+settle s-recpass
+expect_rc "recpass: a passing result" 0
+HD=$(head_dir s-recpass)
+mkdir -p "$KOTO_STUB_STORE/s-recpass"
+ledger_line "$(locate_line s-recpass 1)" "$(locate_line s-recpass 2)" 1 1 "stopped" > "$KOTO_STUB_STORE/s-recpass/verification_attempts"
+cp "$KOTO_STUB_STORE/s-recpass/verification_attempts" "$WORKDIR/recpass.ledger"
+"$START" --archive --session s-recpass --reason "flaky" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -eq 1 ] && grep -q -F 'ineligible passed' "$WORKDIR/archive.err" \
+    && cmp -s "$KOTO_STUB_STORE/s-recpass/verification_attempts" "$WORKDIR/recpass.ledger" \
+    && [ -f "$HD/result.json" ] && [ "$(archived_count "$HD")" -eq 0 ]; then
+    pass "recpass: recovery still refuses a passing result, moving and writing nothing"
+else
+    fail "recpass: exit $RC, stderr $(cat "$WORKDIR/archive.err"), head dir $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+fi
+
+echo "--- run.json's attempt"
+mkrepo runbad "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+change top.txt
+start s-runbad
+settle s-runbad
+expect_rc "runbad: a failed command" 1
+HD=$(head_dir s-runbad)
+jq '.attempt = 1.5' "$HD/run.json" > "$WORKDIR/runbad.json"
+mv "$WORKDIR/runbad.json" "$HD/run.json"
+expect_archive_refused "a run.json attempt of 1.5" s-runbad "flaky" "not a whole number"
+jq '.attempt = "1/../x"' "$HD/run.json" > "$WORKDIR/runbad.json"
+mv "$WORKDIR/runbad.json" "$HD/run.json"
+expect_archive_refused "a run.json attempt that is a path" s-runbad "flaky" "not a whole number"
+# No attempt key at all: a run.json from before attempt folders, archived into
+# the next free folder (attempts/1 already holds this run's logs).
+jq 'del(.attempt)' "$HD/run.json" > "$WORKDIR/runbad.json"
+mv "$WORKDIR/runbad.json" "$HD/run.json"
+"$START" --archive --session s-runbad --reason "flaky" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -eq 0 ] && [ -f "$HD/attempts/2/result.json" ] && [ -f "$HD/attempts/2/run.json" ] \
+    && head -n 1 "$KOTO_STUB_STORE/s-runbad/verification_attempts" | jq -e '.attempt == 1 and .folder == 2' >/dev/null 2>&1; then
+    pass "runbad: a run.json with no attempt key archives into the next free folder"
+else
+    fail "runbad: no attempt key: exit $RC, stderr $(cat "$WORKDIR/archive.err"), head dir $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+fi
+
+echo "--- cleaning the reason and the command ids"
+mkrepo clean "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+change top.txt
+start s-clean
+settle s-clean
+expect_rc "clean: a failed command" 1
+HD=$(head_dir s-clean)
+# Built with jq: bash 3.2 has no \u escapes in $'...'. The code points past
+# ASCII come from implode, so this file stays ASCII: 8203 is U+200B (zero-width
+# space), 65279 U+FEFF (byte-order mark), 8238 U+202E (right-to-left override).
+EMPTY_DIRTY=$(jq -rn '"\u001b]0;title\u0007" + ([8203] | implode) + "\n" + ([65279] | implode)')
+expect_archive_refused "a reason empty after cleaning" s-clean "$EMPTY_DIRTY" "the reason is empty"
+DIRTY=$(jq -rn '"flaky\nnet \u001b[31mred\u001b[0m " + ([8238] | implode) + "evil" + ([range(600) | "x"] | add)')
+WANT=$(jq -rn '"flaky net red evil" + ([range(482) | "x"] | add)')
+jq -c --arg id "$DIRTY" --arg legacy "$HD/0-legacy.log" --arg out "$WORKDIR/elsewhere/0-outside.log" '
+    .commands[0].id = $id
+    | .commands += [
+        {id: "legacy", check: "legacy", argv: ["bin/fail.sh"], exit_status: 3, duration_secs: 0, timed_out: false,
+         runaway: false, not_started: false, pgid: 1, log: $legacy, outcome: "failed", suites: null},
+        {id: "outside", check: "outside", argv: ["bin/fail.sh"], exit_status: 3, duration_secs: 0, timed_out: false,
+         runaway: false, not_started: false, pgid: 1, log: $out, outcome: "failed", suites: null}]' \
+    "$HD/result.json" > "$WORKDIR/clean.result"
+mv "$WORKDIR/clean.result" "$HD/result.json"
+"$START" --archive --session s-clean --reason "$DIRTY" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+CL_LEDGER="$KOTO_STUB_STORE/s-clean/verification_attempts"
+if [ "$RC" -eq 0 ] && [ "$(wc -l < "$CL_LEDGER" | tr -d ' ')" -eq 1 ] \
+    && head -n 1 "$CL_LEDGER" | jq -e --arg w "$WANT" '.reason == $w and (.reason | length) == 500
+        and .commands[0].id == $w and [.commands[].log] == ["attempts/1/0-bad.log", null, null]' >/dev/null 2>&1; then
+    pass "clean: a reason and an id holding a newline, ANSI escapes, U+202E and 600 characters are stored cleaned and capped at 500 as one line; only attempts/<n>/ log paths are kept"
+else
+    fail "clean: exit $RC, stderr $(cat "$WORKDIR/archive.err"), ledger $(head -c 1200 "$CL_LEDGER" 2>&1)"
+fi
+
+echo "--- a failed ledger read at --start"
+mkrepo ledfail "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+change top.txt
+start s-ledfail
+settle s-ledfail
+expect_rc "ledfail: a failed command" 1
+HD=$(head_dir s-ledfail)
+LF_STORE="$KOTO_STUB_STORE/s-ledfail"
+mkdir -p "$LF_STORE"
+printf 'flaky\n' > "$LF_STORE/verification_rerun_request"
+KOTO_STUB_FAIL_KEY=verification_attempts "$START" --start --session s-ledfail >"$WORKDIR/rr.out" 2>"$WORKDIR/rr.err"
+RC=$?
+if [ "$RC" -eq 0 ] && [ -e "$LF_STORE/verification_rerun_request" ] && grep -q -F 'is kept' "$WORKDIR/rr.err" \
+    && [ -f "$HD/result.json" ] && [ ! -e "$HD/attempts/1/result.json" ] \
+    && [ ! -e "$LF_STORE/verification_attempts" ] && [ ! -e "$HD/lock" ]; then
+    pass "ledfail: a failed ledger read keeps the request and re-runs nothing"
+else
+    fail "ledfail: exit $RC, stderr $(cat "$WORKDIR/rr.err"), head dir $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+fi
 
 # --- a real koto ---------------------------------------------------------------------------
 

@@ -44,8 +44,8 @@ stateDiagram-v2
     plan_completion --> done_blocked : gates.ready_owned_pr.exit_code: 2
     plan_completion --> done_blocked : gates.ready_owned_pr.exit_code: 0, gates.shared_hosted_read.exit_code: 1
     plan_completion --> done_blocked : gates.ready_owned_pr.exit_code: 0, gates.shared_hosted_read.exit_code: 3
-    pr_finalization --> paused_for_review : finalization_status: updated, gates.deferral_recorded.exit_code: 0, gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 0, gates.settled_commits.exit_code: 0, gates.settled_docs_visibility.exit_code: 0, vars.PAUSE_BEFORE_FINALIZE: true
-    pr_finalization --> plan_completion : finalization_status: updated, gates.deferral_recorded.exit_code: 0, gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 0, gates.settled_commits.exit_code: 0, gates.settled_docs_visibility.exit_code: 0, vars.PAUSE_BEFORE_FINALIZE: false
+    pr_finalization --> paused_for_review : finalization_status: updated, gates.deferral_recorded.exit_code: 0, gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 0, gates.rerun_recorded.exit_code: 0, gates.settled_commits.exit_code: 0, gates.settled_docs_visibility.exit_code: 0, vars.PAUSE_BEFORE_FINALIZE: true
+    pr_finalization --> plan_completion : finalization_status: updated, gates.deferral_recorded.exit_code: 0, gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 0, gates.rerun_recorded.exit_code: 0, gates.settled_commits.exit_code: 0, gates.settled_docs_visibility.exit_code: 0, vars.PAUSE_BEFORE_FINALIZE: false
     pr_finalization --> done_blocked : finalization_status: update_failed, gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 1
     pr_finalization --> done_blocked : finalization_status: update_failed, gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 2
     pr_finalization --> done_blocked : gates.final_owned_pr.exit_code: 3
@@ -147,6 +147,9 @@ stateDiagram-v2
     end note
     note left of pr_finalization
         gate: owned_pr_body_conformant
+    end note
+    note left of pr_finalization
+        gate: rerun_recorded
     end note
     note left of pr_finalization
         gate: settled_commits

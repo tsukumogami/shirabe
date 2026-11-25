@@ -243,7 +243,7 @@ build() {
 " ;;
             pr_precheck) blocks="$blocks$(stub_block "$(extract_state $s)" branch_docs_visibility=0 tests_still_counted=0)
 " ;;
-            pr_creation) blocks="$blocks$(stub_block "$(extract_state $s)" closing_keyword=0 pr_body_conformant=0 verification_deferral_recorded=0)
+            pr_creation) blocks="$blocks$(stub_block "$(extract_state $s)" closing_keyword=0 pr_body_conformant=0 verification_deferral_recorded=0 verification_rerun_recorded=0)
 " ;;
             ci_monitor) blocks="$blocks$(stub_block "$(extract_state $s)" ci_passing=0 merge_state_clean=0)
 " ;;

@@ -11,8 +11,8 @@
 #
 #   run/setup                  store, coordination_pr, repos, mode, nodes,
 #                              run_lines
-#   run/node/<node>            repo, pr, head, deferrals, public_reason,
-#                              merged_head
+#   run/node/<node>            repo, pr, head, deferrals, reruns,
+#                              public_reason, merged_head
 #   run/hosted/<node>          the node's hosted-of-record route: head,
 #                              taken_at, reason, checks, work_tree (written
 #                              by work-on's verification-route.sh --collect
@@ -21,6 +21,16 @@
 #   run/cascade                verdict, head, step
 #   run/recovered              pr, source
 #   run/adopted                id, login, at
+#   run/cleanup/<id>           path, pin: a worktree the run's successful end
+#                              cleans and the base it pinned for it (id
+#                              `single` on single-pr, the node id on
+#                              coordinated; written once by
+#                              build-output-pin.sh, read by
+#                              build-output-end.sh)
+#
+# A single-pr session holds no run record but may hold run/cleanup/single, so
+# a reader decides the mode from run/setup, never from the presence of run/
+# keys.
 #
 # A key under `run/` outside that layout (RR_KEY_RE, with the node id
 # `coordination` refused) is reported on stderr and ignored, never read as part
@@ -52,7 +62,7 @@
 #
 # Requires: bash 3.2+, jq, koto.
 
-RR_KEY_RE='^run/(setup|cascade|recovered|adopted|node/[a-z][a-z0-9-]*|hosted/[a-z][a-z0-9-]*|follow-up/[a-z][a-z0-9-]*/[1-9][0-9]*)$'
+RR_KEY_RE='^run/(setup|cascade|recovered|adopted|node/[a-z][a-z0-9-]*|hosted/[a-z][a-z0-9-]*|follow-up/[a-z][a-z0-9-]*/[1-9][0-9]*|cleanup/[a-z][a-z0-9-]*)$'
 
 # rr_valid_key <key> -- the key is in the record's fixed layout.
 rr_valid_key() {

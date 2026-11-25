@@ -10,6 +10,7 @@
 #   pr_finalization     final_owned_pr          the same lookup (routing)
 #                       owned_pr_body_conformant, settled_commits,
 #                       settled_docs_visibility, deferral_recorded
+#                       rerun_recorded
 #                                               the output the state presents
 #                       finalization_status: updated, vars.PAUSE_BEFORE_FINALIZE
 #                                               the pause, routed by koto once
@@ -257,6 +258,13 @@ mkdir -p "$FAKE_ROOT/scripts/lib" "$FAKE_ROOT/skills/work-on/references"
 cp "$SCRIPT_DIR/ci-fix-tests.sh" "$FAKE_ROOT/skills/execute/scripts/"
 cp "$REAL_ROOT/scripts/lib/test-classify.sh" "$FAKE_ROOT/scripts/lib/"
 cp "$REAL_ROOT/skills/work-on/references/review-level-rules.tsv" "$FAKE_ROOT/skills/work-on/references/"
+cat > "$FAKE_ROOT/skills/execute/scripts/shared-rerun-record.sh" <<EOF
+#!/usr/bin/env bash
+f="$RC_DIR/shared-rerun-record.sh\$1"
+rc=0
+[ -f "\$f" ] && rc=\$(cat "\$f")
+exit "\$rc"
+EOF
 chmod +x "$FAKE_ROOT"/skills/work-on/scripts/* "$FAKE_ROOT"/skills/execute/scripts/*
 
 # The run's children, as ci-fix-tests.sh reads them: execute-x (the gate
@@ -444,6 +452,7 @@ PAUSE=false drive pr_finalization "$UPDATED"
 expect "updated, every gate passing, PAUSE_BEFORE_FINALIZE false" plan_completion
 for key in check-pr-output.sh--pr-body:owned_pr_body_conformant check-branch-output.sh--commits:settled_commits \
            check-branch-output.sh--docs-visibility:settled_docs_visibility \
+           shared-rerun-record.sh--session:rerun_recorded \
            shared-deferral-record.sh--session:deferral_recorded; do
     for rc in 1 2; do
         for p in true false; do

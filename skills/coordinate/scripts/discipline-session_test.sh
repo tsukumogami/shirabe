@@ -10,9 +10,11 @@
 # each refused (65) with no key written; --reasoning-check. The find's session
 # path seals found, first, predecessor <session> or unreadable <session>: one
 # case per rule an earlier session breaks (its
-# name, provenance, discipline, host, a predecessor another rotation names, two
+# name, discipline, host, a predecessor another rotation names, two
 # at one stamp, and, called directly, a rotation still open), and a
-# predecessor whose record/meta is malformed; a third rotation after a carried
+# predecessor whose record/meta is malformed; a predecessor that fails only
+# provenance (opened from another template) is the predecessor, and one that
+# fails provenance and another rule stops on that rule; a third rotation after a carried
 # second finds the second. state-open.sh opens a first rotation in the
 # session, building the empty record itself from the window it is given (no
 # body), with no GitHub write and no store row; --carry carries a
@@ -151,9 +153,22 @@ unreadable() { # unreadable <label> <discipline> <expected-session> <reason-subs
 P=coordinate-discipline-badname-20261001T100000Zx
 rotation "$P" badname "$WEEK_AGO" "$YESTERDAY"; ended "$P"
 unreadable "an earlier session whose name isn't coordinate-<slug>-<stamp>" badname "$P" "is not named"
+# A predecessor opened from another template (an older plugin's) fails
+# provenance and nothing else: it is carried, as a roadmap start carries one.
 P=coordinate-discipline-prov-20261001T100000Z
 HASH=0ddba11 rotation "$P" prov "$WEEK_AGO" "$YESTERDAY"; ended "$P"
-unreadable "an earlier session that fails provenance" prov "$P" "fails provenance"
+TOK=$(run_find coordinate-discipline-prov-20261005T100000Z prov)
+[ "$TOK" = "predecessor $P" ] && ok "an ended earlier rotation that fails only provenance is the predecessor" \
+    || bad "an ended earlier rotation that fails only provenance is the predecessor" "want [predecessor $P], got [$TOK]: $(cat "$T/find.err")"
+grep -q -- "another template" "$T/find.err" && ok "  ... saying it was opened from another template" || bad "  ... saying it was opened from another template" "$(cat "$T/find.err")"
+# Provenance carries no rule past it: one that also fails another rule still
+# stops the find on that rule.
+P=coordinate-discipline-provhost-20261001T100000Z
+HASH=0ddba11 VARS_JSON=$(discipline_vars provhost | jq -c '.HOST_REPO = "acme/gadgets"') rotation "$P" provhost "$WEEK_AGO" "$YESTERDAY"; ended "$P"
+unreadable "an earlier session that fails provenance and is on another host" provhost "$P" "not acme/widgets"
+P=coordinate-discipline-provopen-20261001T100000Z
+HASH=0ddba11 rotation "$P" provopen "$WEEK_AGO" "$TOMORROW"; ended "$P"
+unreadable "an earlier session that fails provenance and is still open, called directly" provopen "$P" "still open"
 P=coordinate-discipline-disc-20261001T100000Z
 VARS_JSON=$(discipline_vars other) rotation "$P" disc "$WEEK_AGO" "$YESTERDAY"; ended "$P"
 unreadable "an earlier session of another discipline" disc "$P" "another discipline"
@@ -207,8 +222,8 @@ O=coordinate-discipline-oldprov-20260901T100000Z
 rotation "$O" oldprov "$WEEK_AGO" "$WEEK_AGO"; ended "$O"
 P=coordinate-discipline-oldprov-20261001T100000Z
 HASH=0ddba11 rotation "$P" oldprov "$WEEK_AGO" "$YESTERDAY"; ended "$P"
-verdict_with "an older session koto can't read leaves the latest one's own rule to decide" \
-    "unreadable $P" "fails provenance" "$O" coordinate-discipline-oldprov-20261005T100000Z oldprov
+verdict_with "an older session koto can't read leaves the latest one's own rules to decide" \
+    "predecessor $P" "another template" "$O" coordinate-discipline-oldprov-20261005T100000Z oldprov
 P=coordinate-discipline-newer-20261001T100000Z
 rotation "$P" newer "$WEEK_AGO" "$YESTERDAY"; ended "$P"
 N=coordinate-discipline-newer-20261003T100000Z

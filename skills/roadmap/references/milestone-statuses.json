@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "schemas": {
+    "v1-v3": {
+      "Done":    {"spellings": ["Done", "Shipped", "Closed"], "satisfies": true,  "closes": true, "takes_work": false, "renders": {"struck": true,  "class": "done"}},
+      "Dropped": {"spellings": ["Dropped"], "satisfies": false, "closes": true, "takes_work": false, "renders": {"struck": false, "class": null}}
+    },
+    "v4": {
+      "Completed": {"spellings": ["Completed"], "satisfies": true,  "closes": false, "takes_work": false, "renders": {"struck": false, "class": "completed"}},
+      "Verified":  {"spellings": ["Verified"],  "satisfies": true,  "closes": true,  "takes_work": false, "renders": {"struck": true,  "class": "done"}},
+      "Dropped":   {"spellings": ["Dropped"],   "satisfies": false, "closes": true,  "takes_work": false, "renders": {"struck": true,  "class": "dropped"}}
+    }
+  },
+  "open": {"spellings": ["Not started", "In progress"], "satisfies": false, "closes": false, "takes_work": true, "renders": {"struck": false, "class": null}},
+  "transitions": {
+    "v4": [
+      {"from": ["Not started", "In progress"], "to": "Completed", "trigger": "finished"},
+      {"from": ["Not started", "In progress", "Completed"], "to": "Verified", "trigger": "verified"},
+      {"from": ["Not started", "In progress", "Completed"], "to": "In progress", "trigger": "changes-needed"},
+      {"from": ["Completed", "Verified"], "to": "In progress", "trigger": "reopen"},
+      {"from": ["Not started", "In progress", "Completed"], "to": "Dropped", "trigger": "drop"}
+    ]
+  }
+}

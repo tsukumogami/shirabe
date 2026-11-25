@@ -6,15 +6,19 @@
 # defects may send the work back to implementation again, and records the
 # retries it grants in the koto context key `panel_retries`. The rule is in
 # docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md: two
-# retries whatever the counts, a third only when the same panel's count fell,
-# never a fourth.
+# retries whatever the counts, a third only when the same panel's count fell
+# or none of the round's open findings was open on the run's previous
+# blocking round, never a fourth.
 #
 # The script takes no count: it reads the panel's open blocking findings from
-# the findings ledger through panel-scope.sh --open-count. Each sequence case
-# starts a fresh session and feeds it rounds in order, each round
-# "<panel>:<count>": the case writes a ledger holding <count> open blocking
-# findings for the panel, then asks the script, and asserts the verdict of
-# every round. A granted round is recorded; a refused one is not, so a
+# the findings ledger through panel-scope.sh --open-count and --open-ids. Each
+# sequence case starts a fresh session and feeds it rounds in order, each
+# round "<panel>:<count>" or "<panel>:<count>:<set>": the case writes a ledger
+# holding <count> open blocking findings for the panel, then asks the script,
+# and asserts the verdict of every round. <set> is one digit naming which
+# findings they are: rounds of one panel with the same set share their ids
+# (the first <count> of the set), rounds with different sets share none. The
+# default set is 0. A granted round is recorded; a refused one is not, so a
 # sequence can continue past a refusal only to show that the refusal left the
 # record alone.
 #
@@ -104,11 +108,14 @@ mkdir -p "$REPO"
     || { echo "FAIL: could not create the fixture repository" >&2; exit 1; }
 HEAD_SHA=$(cd "$REPO" && git rev-parse HEAD)
 
-# ledger_json <ledger> <state panel> <count>: the ledger with the panel's
-# findings replaced by <count> unclosed blocking ones, every seat of the panel
-# recorded, and the other panels' findings left as they were.
+# ledger_json <ledger> <state panel> <count> [<set>]: the ledger with the
+# panel's findings replaced by <count> unclosed blocking ones, every seat of
+# the panel recorded, and the other panels' findings left as they were. A
+# finding's id is the panel's code digit, the set digit (0 by default) and
+# its index in 14 digits: set 0's ids are 1000000000000000, 1000000000000001
+# and so on for scrutiny.
 ledger_json() {
-    local lp code seats
+    local lp code seats fset=${4:-0}
     case "$2" in
         scrutiny) lp=scrutiny; code=1; seats="completeness justification intent" ;;
         review) lp=review; code=2; seats="pragmatic architect maintainer" ;;
@@ -116,7 +123,7 @@ ledger_json() {
         light_review) lp=light; code=4; seats="reviewer" ;;
         *) lp="$2"; code=9; seats="x" ;;
     esac
-    printf '%s' "$1" | jq -c --arg p "$lp" --arg code "$code" --arg seats "$seats" --arg h "$HEAD_SHA" \
+    printf '%s' "$1" | jq -c --arg p "$lp" --arg code "$code$fset" --arg seats "$seats" --arg h "$HEAD_SHA" \
         --argjson n "${3:-0}" '
         ($seats | split(" ")) as $s
         | .rev = ((.rev // 0) + 1)
@@ -124,7 +131,7 @@ ledger_json() {
         | .seats = ((.seats // {}) + (reduce $s[] as $x ({}; . + {($p + "/" + $x):
               {panel: $p, seat: $x, verdict: (if $n > 0 then "blocking" else "passed" end), judged_at: $h, rev: 1}})))
         | .findings = (((.findings // {}) | with_entries(select(.value.panel != $p)))
-            + (reduce range(0; $n) as $i ({}; ($code + ("000000000000000" + ($i | tostring))[-15:]) as $id
+            + (reduce range(0; $n) as $i ({}; ($code + ("00000000000000" + ($i | tostring))[-14:]) as $id
                 | . + {($id): {id: $id, panel: $p, severity: "blocking", round: 1,
                     raiser: {kind: "reviewer", name: $s[0]}, run: ("run-" + $p),
                     location: {kind: "none", at: $h}, summary: ("finding \($i)"),
@@ -132,16 +139,25 @@ ledger_json() {
                                round: 1, commit: $h, rev: 1}]}})))
         | .history = (.history // [])'
 }
-# set_count <session> <state panel> <count>: writes that ledger to the stand-in.
+# set_count <session> <state panel> <count> [<set>]: writes that ledger to the
+# stand-in.
 set_count() {
     mkdir -p "$SHIM_STORE/$1"
-    ledger_json "$(cat "$SHIM_STORE/$1/verdict_ledger.json" 2>/dev/null || echo '{}')" "$2" "$3" \
+    ledger_json "$(cat "$SHIM_STORE/$1/verdict_ledger.json" 2>/dev/null || echo '{}')" "$2" "$3" "${4:-0}" \
         > "$SHIM_STORE/$1/verdict_ledger.json.new" && mv "$SHIM_STORE/$1/verdict_ledger.json.new" "$SHIM_STORE/$1/verdict_ledger.json"
 }
 
-# budget <session> <panel> <count>: puts <count> open findings for the panel
-# in the ledger, then asks the script, which takes no count.
-budget() { set_count "$1" "$2" "$3"; (cd "$REPO" && PATH="$SHIM_BIN:$PATH" "$SCRIPT" "$1" "$2"); }
+# budget <session> <panel> <count> [<set>]: puts <count> open findings of
+# <set> for the panel in the ledger, then asks the script, which takes no count.
+budget() { set_count "$1" "$2" "$3" "${4:-0}"; (cd "$REPO" && PATH="$SHIM_BIN:$PATH" "$SCRIPT" "$1" "$2"); }
+# budget_new_head: budget, after a commit, so each round is at a new HEAD.
+budget_new_head() {
+    (cd "$REPO" && git -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m round) || return 70
+    HEAD_SHA=$(cd "$REPO" && git rev-parse HEAD)
+    budget "$@"
+}
+# seed <session> <lines>: a record written before #2061, two fields a line.
+seed() { mkdir -p "$SHIM_STORE/$1"; printf '%s\n' "$2" > "$SHIM_STORE/$1/panel_retries"; }
 # raw <args>: the script exactly as called, from the repository.
 raw() { (cd "$REPO" && PATH="$SHIM_BIN:$PATH" "$SCRIPT" "$@"); }
 record() { cat "$SHIM_STORE/$1/panel_retries" 2>/dev/null; }
@@ -153,13 +169,15 @@ SEQ=0
 expect() {
     local name=$1 runner=$2; shift 2
     SEQ=$((SEQ + 1))
-    local session="seq-$SEQ" item round panel count want out rc got ok=1 detail=""
+    local session="seq-$SEQ" item round panel count fset want out rc got ok=1 detail=""
     for item in "$@"; do
         round=${item%=*}
         want=${item#*=}
-        panel=${round%:*}
+        panel=${round%%:*}
         count=${round#*:}
-        out=$("$runner" "$session" "$panel" "$count" 2>/dev/null)
+        fset=0
+        case "$count" in *:*) fset=${count#*:}; count=${count%%:*} ;; esac
+        out=$("$runner" "$session" "$panel" "$count" "$fset" 2>/dev/null)
         rc=$?
         case "$rc:$out" in
             0:verdict=retry*)    got=retry ;;
@@ -194,8 +212,20 @@ expect "the ceiling escalates even a falling count" budget \
 expect "the first two retries are granted whatever the counts" budget \
     scrutiny:1=retry scrutiny:5=retry
 
-expect "a panel with no earlier blocking round escalates past the floor" budget \
-    scrutiny:7=retry scrutiny:5=retry review:1=escalate
+# Until #2061 this round escalated: review had no earlier blocking round of
+# its own. Its finding wasn't open on the previous blocking round (scrutiny's),
+# so every finding that round raised was cleared and the retry is progress.
+expect "past the floor, a panel with no earlier round of its own whose findings are all new gets its retry" budget \
+    scrutiny:7=retry scrutiny:5=retry review:1=retry
+# The same rounds against a record written before #2061, whose lines name no
+# findings: there is nothing to show the findings are new, so the count rule
+# alone decides and review, with no earlier round of its own, escalates.
+seed old-a "$(printf 'scrutiny 7\nscrutiny 5')"
+OUT=$(budget old-a review 1 2>/dev/null); RC=$?
+[ "$RC" -eq 1 ] && [ "${OUT%% *}" = verdict=escalate ] \
+    && [ "$(record old-a)" = "$(printf 'scrutiny 7\nscrutiny 5')" ] \
+    && pass "a record of two-field lines: a panel with no earlier blocking round escalates past the floor, and nothing is recorded" \
+    || fail "two-field record, review past the floor: rc=$RC out=[$OUT] record [$(record old-a)]"
 
 expect "progress is judged against the same panel, not the last round" budget \
     scrutiny:4=retry review:9=retry scrutiny:3=retry
@@ -210,8 +240,15 @@ expect "qa_validation compares its own failed scenarios" budget \
 # own: it spends from the same run-wide retries and is judged on its own counts.
 expect "light_review gets a third retry on a falling count" budget \
     light_review:4=retry light_review:3=retry light_review:1=retry light_review:1=escalate
-expect "light_review shares the run's retries and has no earlier round of its own" budget \
-    scrutiny:5=retry scrutiny:4=retry light_review:1=escalate
+# Until #2061 this escalated too, for the same reason as review above.
+expect "light_review shares the run's retries, and past the floor its all-new findings get a retry" budget \
+    scrutiny:5=retry scrutiny:4=retry light_review:1=retry
+seed old-b "$(printf 'scrutiny 5\nscrutiny 4')"
+OUT=$(budget old-b light_review 1 2>/dev/null); RC=$?
+[ "$RC" -eq 1 ] && [ "${OUT%% *}" = verdict=escalate ] \
+    && [ "$(record old-b)" = "$(printf 'scrutiny 5\nscrutiny 4')" ] \
+    && pass "a record of two-field lines: light_review, with no earlier round of its own, escalates past the floor" \
+    || fail "two-field record, light_review past the floor: rc=$RC out=[$OUT] record [$(record old-b)]"
 expect "light_review is held to the shared ceiling" budget \
     scrutiny:5=retry scrutiny:4=retry scrutiny:3=retry light_review:1=escalate
 OUT=$(budget "seq-$SEQ" light_review 1 2>/dev/null)
@@ -220,10 +257,122 @@ case "$OUT" in
     *) fail "light_review past the ceiling printed [$OUT]" ;;
 esac
 
+# --- progress by findings (#2061) ----------------------------------------------
+#
+# Past the floor, a round none of whose open findings was open on the run's
+# previous blocking round shows progress, whatever its count. Each round here
+# runs at a new HEAD, as a retry's fix commit leaves it.
+
+# The reported case: one blocking finding, then a different one, past the
+# floor, in another panel and in the same one.
+expect "one blocking finding, then a different one, past the floor and at successive heads, gets a third retry" budget_new_head \
+    scrutiny:1:0=retry scrutiny:1:1=retry review:1:0=retry
+if [ "$(record "seq-$SEQ")" = "$(printf '%s\n' 'scrutiny 1 1000000000000000' 'scrutiny 1 1100000000000000' 'review 1 2000000000000000')" ]; then
+    pass "each grant records its round's open finding ids"
+else
+    fail "record of the reported case: [$(record "seq-$SEQ")]"
+fi
+expect "the same panel's single finding, a different one each round, gets a third retry" budget_new_head \
+    scrutiny:1:0=retry scrutiny:1:1=retry scrutiny:1:2=retry
+
+# The ceiling of 3 still holds, all-new findings or not.
+expect "the ceiling refuses a fourth retry even when every finding is new" budget_new_head \
+    scrutiny:1:0=retry scrutiny:1:1=retry review:1:0=retry scrutiny:1:2=escalate
+OUT=$(budget_new_head "seq-$SEQ" review 1 3 2>/dev/null)
+case "$OUT" in
+    "verdict=escalate reason=this run has used all 3 blocking retries") pass "past the ceiling, all-new findings are refused by the ceiling" ;;
+    *) fail "all-new findings past the ceiling printed [$OUT]" ;;
+esac
+
+# The count rule still grants, though its findings carry over.
+expect "a falling count past the floor gets its retry though its findings were open before" budget_new_head \
+    scrutiny:3:0=retry scrutiny:3:0=retry scrutiny:2:0=retry
+
+# A finding still open on the previous blocking round is not progress.
+expect "the previous round's single finding, still open at the same count, is refused" budget_new_head \
+    scrutiny:1:0=retry scrutiny:1:1=retry scrutiny:1:1=escalate
+OUT=$(budget_new_head "seq-$SEQ" scrutiny 1 1 2>/dev/null)
+case "$OUT" in
+    *"1100000000000000 were open on the previous blocking round too") pass "the refusal names the finding still open" ;;
+    *) fail "still-open refusal printed [$OUT]" ;;
+esac
+# A partial overlap: one finding carried over beside a new one, at the same
+# count, is refused, and the refusal records nothing.
+set_count over scrutiny 2 0
+OUT=$(raw over scrutiny 2>/dev/null)
+(cd "$REPO" && git -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m round)
+HEAD_SHA=$(cd "$REPO" && git rev-parse HEAD)
+set_count over scrutiny 2 0
+OUT=$(raw over scrutiny 2>/dev/null)
+(cd "$REPO" && git -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m round)
+HEAD_SHA=$(cd "$REPO" && git rev-parse HEAD)
+set_count over scrutiny 1 0
+jq '.findings["1100000000000000"] = (.findings["1000000000000000"] | .id = "1100000000000000" | .summary = "a new finding")
+    | .findings["1000000000000001"] = (.findings["1000000000000000"] | .id = "1000000000000001")
+    | del(.findings["1000000000000000"])' \
+    "$SHIM_STORE/over/verdict_ledger.json" > "$WORKDIR/l" && mv "$WORKDIR/l" "$SHIM_STORE/over/verdict_ledger.json"
+OUT=$(raw over scrutiny 2>/dev/null); RC=$?
+[ "$RC" -eq 1 ] && case "$OUT" in *"1000000000000001 were open on the previous blocking round too") true ;; *) false ;; esac \
+    && [ "$(record over)" = "$(printf '%s\n' 'scrutiny 2 1000000000000000,1000000000000001' 'scrutiny 2 1000000000000000,1000000000000001')" ] \
+    && pass "one finding still open beside a new one, at the same count, is refused and recorded nowhere" \
+    || fail "partial overlap: rc=$RC out=[$OUT] record [$(record over)]"
+
+# A record written before #2061 keeps the count rule.
+seed old-c "$(printf 'review 3\nreview 2')"
+OUT=$(budget old-c review 1 5 2>/dev/null); RC=$?
+[ "$RC" -eq 0 ] && [ "$(record old-c)" = "$(printf '%s\n' 'review 3' 'review 2' 'review 1 2500000000000000')" ] \
+    && pass "a record of two-field lines: a falling count is granted, and the new line names its findings" \
+    || fail "two-field record, falling count: rc=$RC out=[$OUT] record [$(record old-c)]"
+seed old-d "$(printf 'scrutiny 1\nreview 1')"
+OUT=$(budget old-d review 1 5 2>/dev/null); RC=$?
+[ "$RC" -eq 1 ] && [ "$(record old-d)" = "$(printf 'scrutiny 1\nreview 1')" ] \
+    && pass "a record of two-field lines: a flat count is refused, though the findings may be new" \
+    || fail "two-field record, flat count: rc=$RC out=[$OUT] record [$(record old-d)]"
+
+# The must-hold: a grant closes nothing. After a third retry granted on
+# all-new findings the ledger is byte-identical, --open-count reads the same,
+# and --verdict still blocks on the finding until a later round closes it.
+set_count hold scrutiny 1 0
+OUT=$(raw hold scrutiny 2>/dev/null)
+set_count hold scrutiny 1 1
+OUT=$(raw hold scrutiny 2>/dev/null)
+set_count hold review 1 2
+cp "$SHIM_STORE/hold/verdict_ledger.json" "$WORKDIR/hold.before"
+COUNT_BEFORE=$(cd "$REPO" && PATH="$SHIM_BIN:$PATH" "$SCRIPT_DIR/panel-scope.sh" --open-count review hold 2>/dev/null)
+OUT=$(raw hold review 2>/dev/null); RC=$?
+COUNT_AFTER=$(cd "$REPO" && PATH="$SHIM_BIN:$PATH" "$SCRIPT_DIR/panel-scope.sh" --open-count review hold 2>/dev/null)
+(cd "$REPO" && PATH="$SHIM_BIN:$PATH" "$SCRIPT_DIR/panel-scope.sh" --verdict review hold >/dev/null 2>&1); VRC=$?
+if [ "$RC" -eq 0 ] && cmp -s "$WORKDIR/hold.before" "$SHIM_STORE/hold/verdict_ledger.json" \
+    && [ "$COUNT_BEFORE" = 1 ] && [ "$COUNT_AFTER" = 1 ] && [ "$VRC" -eq 1 ]; then
+    pass "a grant on all-new findings closes nothing: the ledger is unchanged and --verdict still blocks"
+else
+    fail "must-hold: grant rc=$RC, ledger $(cmp -s "$WORKDIR/hold.before" "$SHIM_STORE/hold/verdict_ledger.json" && echo same || echo changed), count $COUNT_BEFORE -> $COUNT_AFTER, --verdict rc=$VRC"
+fi
+
+# A record line whose ids are malformed, or don't number its count, is a line
+# this script didn't write.
+for line in 'scrutiny 2 1000000000000000' 'scrutiny 1 100000000000000g' 'scrutiny 1 1000000000000000,' \
+    'scrutiny 2 1000000000000000,,1000000000000001' 'scrutiny 1 1000000000000000 extra'; do
+    seed bad-ids "$line"
+    OUT=$(budget bad-ids scrutiny 1 2>/dev/null); RC=$?
+    [ "$RC" -eq 64 ] && [ "$(record bad-ids)" = "$line" ] && pass "a record line with malformed ids refuses (64): [$line]" \
+        || fail "record line [$line] gave rc=$RC out=[$OUT]"
+done
+# A ledger whose open finding has a malformed id gives no ids, so no answer.
+set_count bad-ledger scrutiny 1 0
+jq '.findings["1000000000000000"].id = "nope"' "$SHIM_STORE/bad-ledger/verdict_ledger.json" > "$WORKDIR/l" \
+    && mv "$WORKDIR/l" "$SHIM_STORE/bad-ledger/verdict_ledger.json"
+OUT=$(raw bad-ledger scrutiny 2>/dev/null); RC=$?
+[ "$RC" -eq 64 ] && [ -z "$(record bad-ledger)" ] && pass "a ledger id that isn't 16 hex characters: a refusal (64), and nothing recorded" \
+    || fail "a malformed ledger id gave rc=$RC out=[$OUT]"
+
 # A refusal records nothing, and the ceiling counts recorded grants only.
 expect "a refusal leaves the record as it was" budget \
     scrutiny:7=retry scrutiny:2=retry scrutiny:2=escalate scrutiny:1=retry
-if [ "$(record "seq-$SEQ")" = "$(printf 'scrutiny 7\nscrutiny 2\nscrutiny 1')" ]; then
+if [ "$(record "seq-$SEQ")" = "$(printf '%s\n' \
+    'scrutiny 7 1000000000000000,1000000000000001,1000000000000002,1000000000000003,1000000000000004,1000000000000005,1000000000000006' \
+    'scrutiny 2 1000000000000000,1000000000000001' \
+    'scrutiny 1 1000000000000000')" ]; then
     pass "the record holds the three grants and not the refusal"
 else
     fail "record after a refusal: [$(record "seq-$SEQ")]"
@@ -311,7 +460,8 @@ set_count cnt review 4
 (cd "$REPO" && PATH="$SHIM_BIN:$PATH" "$SCRIPT_DIR/panel-scope.sh" --verdict review cnt > "$WORKDIR/verdict.out" 2>/dev/null)
 PRINTED=$(grep -c '^::koto-finding::' "$WORKDIR/verdict.out")
 OUT=$(raw cnt review 2>/dev/null); RC=$?
-if [ "$RC" -eq 0 ] && [ "$(record cnt)" = "review $PRINTED" ] && [ "$PRINTED" = 4 ]; then
+if [ "$RC" -eq 0 ] && [ "$PRINTED" = 4 ] \
+    && [ "$(record cnt)" = "review 4 2000000000000000,2000000000000001,2000000000000002,2000000000000003" ]; then
     pass "the recorded count is the ledger's, and equals the findings --verdict printed ($PRINTED)"
 else
     fail "count: rc=$RC record [$(record cnt)], --verdict printed $PRINTED"
@@ -320,14 +470,15 @@ fi
 jq '.findings["2000000000000099"] = (.findings["2000000000000000"] | .id = "2000000000000099" | .severity = "advisory")' \
     "$SHIM_STORE/cnt/verdict_ledger.json" > "$WORKDIR/l" && mv "$WORKDIR/l" "$SHIM_STORE/cnt/verdict_ledger.json"
 OUT=$(raw cnt review 2>/dev/null)
-[ "$(record cnt | tail -n 1)" = "review 4" ] && pass "an advisory finding is not counted" \
+[ "$(record cnt | tail -n 1)" = "review 4 2000000000000000,2000000000000001,2000000000000002,2000000000000003" ] \
+    && pass "an advisory finding is not counted" \
     || fail "with an advisory finding the record is [$(record cnt)]"
 # The ledger panels behind the two state names.
 set_count map qa_validation 2
 OUT=$(raw map qa_validation 2>/dev/null)
 set_count map light_review 1
 OUT=$(raw map light_review 2>/dev/null)
-[ "$(record map)" = "$(printf 'qa_validation 2\nlight_review 1')" ] \
+[ "$(record map)" = "$(printf '%s\n' 'qa_validation 2 3000000000000000,3000000000000001' 'light_review 1 4000000000000000')" ] \
     && pass "qa_validation reads the ledger's qa panel and light_review its light panel" \
     || fail "mapped record [$(record map)]"
 
@@ -443,7 +594,7 @@ real() {
         printf 'plan\n' | (cd "$RUN" && koto context add "$1" plan.md)
     fi
     cur=$(cd "$RUN" && koto context get "$1" verdict_ledger.json 2>/dev/null) || cur='{}'
-    ledger_json "${cur:-{\}}" "$2" "$3" | (cd "$RUN" && koto context add "$1" verdict_ledger.json)
+    ledger_json "${cur:-{\}}" "$2" "$3" "${4:-0}" | (cd "$RUN" && koto context add "$1" verdict_ledger.json)
     (cd "$RUN" && "$SCRIPT" "$1" "$2")
 }
 expect "real koto: falling count gets a third retry" real \
@@ -452,6 +603,10 @@ expect "real koto: the ceiling refuses a still-falling fourth" real \
     scrutiny:9=retry scrutiny:5=retry scrutiny:3=retry scrutiny:1=escalate
 expect "real koto: flat count past the floor escalates" real \
     review:4=retry review:3=retry review:3=escalate
+expect "real koto: a different single finding past the floor gets a third retry, and a fourth is refused" real \
+    scrutiny:1:0=retry scrutiny:1:1=retry review:1:0=retry scrutiny:1:2=escalate
+expect "real koto: a single finding still open past the floor escalates" real \
+    scrutiny:1:0=retry scrutiny:1:1=retry scrutiny:1:1=escalate
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

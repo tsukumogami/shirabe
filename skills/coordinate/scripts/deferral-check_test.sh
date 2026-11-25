@@ -48,6 +48,12 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 EMPTY_CLAUDE_HOME="$T/claude-empty"
 mkdir -p "$EMPTY_CLAUDE_HOME/jobs"
 export DC_CLAUDE_HOME="$EMPTY_CLAUDE_HOME"
+# A seeded job's listing row (dispatch-common.sh dc_job_row) comes from a
+# stub `claude agents --json --all` that lists nothing, never the host's real
+# CLI.
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$T/claude-cli"
+chmod +x "$T/claude-cli"
+export DC_CLAUDE_CLI="$T/claude-cli"
 DC="$HERE/deferral-check.sh"
 CL="$HERE/coord-log.sh"
 tok_shape() {
@@ -132,6 +138,17 @@ OUT=$(check); eq "filed #<n> naming no issue is open" "deferral-open 1" "$OUT"
 tok_shape "deferral-open is in koto's capture alphabet" "$OUT"
 seed "$(with_deferrals "$(def 'filed #13')")"
 eq "filed #<n> naming a pull request is open" "deferral-open 1" "$(check)"
+# The open rows reach jq through a file, not an argument: Linux caps one
+# argument at 131072 bytes, and a long-running record's open deferrals grow
+# past that. Each row's text is 200 three-byte characters after its cut.
+jq -nc '[range(240) | {deferral: ("d\(.)-" + ("漢" * 200)), reason: "r", raised: "2026-09-25T10:00Z", disposition: ""}]' > "$T/many.json"
+record_json roadmap plugin-system | jq -c --slurpfile d "$T/many.json" '.deferrals = $d[0]' > "$T/many-rec.json"
+seed "$(cat "$T/many-rec.json")"
+eq "240 open deferrals, over 131072 bytes, are open" "deferral-open 240" "$(check)"
+D="$KOTO_STORE/context/$S/coord/dispatch_check.json"
+jq -c .open_deferrals "$D" > "$T/many-open.json"
+[ "$(wc -c < "$T/many-open.json")" -gt 131072 ] && ok "  ... the open rows are over 131072 bytes" || bad "  ... the open rows are over 131072 bytes" "$(wc -c < "$T/many-open.json") bytes; $(head -3 "$T/err")"
+eq "  ... and the detail lists every one" 240 "$(jq length "$T/many-open.json")"
 seed "$(with_deferrals "$(def 'filed #0')")"
 eq "filed #0 is open" "deferral-open 1" "$(check)"
 seed "$(with_deferrals "$(def 'carried 2026-09-25T08:30Z: last run')" "$(def '')")"
@@ -303,6 +320,24 @@ eq "dispatching the topic a verdict-owed row names, its holding gone, is refused
 session "$(roadmap_vars plugin-system)" dispatch gamma
 eq "another topic is clear" "ok gamma" "$(check)"
 
+echo "== check mode: roadmap/v4, a dependent of a milestone owed its verdict =="
+# On a roadmap/v4 roadmap a milestone owed its verdict frees its dependents
+# (pick-facts.sh), so a brief for Milestone 2, which depends on Milestone 1,
+# goes through while Milestone 1's own topic is still refused. The check reads
+# no roadmap: the refusal is the owed milestone's alone, whatever the schema.
+# exit_of <output>: coord-verdict.sh's exit for that sealed token.
+exit_of() { bash "$HERE/coord-verdict.sh" --session "$S" --state dispatch_check --capture "$1" >/dev/null 2>&1; echo $?; }
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding m1 '{"unit": "Milestone 1: Loader", "phase": "executing", "pull_request": ""}')" \
+    --argjson o "$(OWEDROW "Milestone 1" m1)" '.holdings = [$h] | .work = [$o]')"
+db '.files["acme/widgets"][$k] = $t' --arg k "main:docs/roadmaps/ROADMAP-plugin-system.md" \
+    --arg t "$(printf -- '---\nschema: roadmap/v4\nstatus: Active\n---\n\n# ROADMAP\n\n## Milestones\n\n### Milestone 1: Loader\n**Dependencies:** None\n**Status:** In progress\n\n### Milestone 2: Registry\n**Dependencies:** Milestone 1\n**Status:** Not started\n')"
+session "$(roadmap_vars plugin-system)" dispatch m2
+OUT=$(bash "$DC" --session "$S" 2>"$T/err")
+eq "v4: a brief for Milestone 2 is clear" "ok m2 40" "${OUT% sealed:*} $(exit_of "$OUT")"
+session "$(roadmap_vars plugin-system)" send_execution m1
+OUT=$(bash "$DC" --session "$S" 2>"$T/err")
+eq "v4: a brief for Milestone 1, its verdict owed, is refused" "verdict-owed Milestone 1 49" "${OUT% sealed:*} $(exit_of "$OUT")"
+
 echo "== check mode: the topic is the one this visit's path chose =="
 # A pick from an earlier visit of pick is not the one checked: a later visit
 # whose evidence names another unit is.
@@ -414,6 +449,24 @@ seed "$(with_holdings "$(parked p1 31)" "$(parked p2 32)" "$(parked p3 33)")"
 for n in 31 32 33; do pr $n OPEN false; done
 session "$(roadmap_vars plugin-system)"
 eq "three parked workers is at the parked bound" "at-cap 0/5 3/3" "$(check)"
+# A Run parked-bound row a person set wins over PARKED_BOUND (shirabe#2106):
+# raised to 5 the same dispatch passes, and set back to 3 it is refused again.
+# The rows go in through state-stored-set.sh, on this run's record by name,
+# since the earlier cases left other live sessions of the same roadmap.
+set_pb() {
+    RS_SESSION="$S" bash "$HERE/state-stored-set.sh" --session "$S" --scope roadmap --name plugin-system \
+        --repo acme/widgets --skip-session-checks --run parked-bound "$@" >/dev/null 2>"$T/err"
+}
+set_pb 5 --by "the human"
+eq "a parked-bound row raising the bound to 5 is written" 0 $?
+eq "  ... and the dispatch refused at the variable's bound passes" "ok beta" "$(check)"
+eq "  ... with the row's bound in the detail" "3 5" "$(jq -r '"\(.parked) \(.parked_bound)"' "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
+set_pb 3 --by "the human"
+eq "the row set back to 3 is written" 0 $?
+eq "  ... and the dispatch is refused again" "at-cap 0/5 3/3" "$(check)"
+set_pb 4 --inferred "The reviewer's answer raises the parked bound to 4." --by "the coordinator"
+eq "a parked-bound worked out by the coordinator is written with --inferred" 0 $?
+eq "  ... and it binds as well" "ok beta" "$(check)"
 seed "$(with_holdings "$(parked p1 31)" "$(parked p2 32)" "$(parked p3 33)" "$(scoping s1 34)")"
 for n in 31 32 33; do pr $n OPEN false; done; pr 34 OPEN true
 session "$(roadmap_vars plugin-system)" send_execution s1

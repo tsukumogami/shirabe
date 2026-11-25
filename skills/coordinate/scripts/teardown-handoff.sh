@@ -11,7 +11,9 @@
 #   instance <name> <path>         from `niwa list --json`, matched by the
 #                                  inventory's instance path
 #   job <id> <session id>          from `claude agents --json --all`: the one
-#                                  job whose cwd is the instance path,
+#                                  job whose cwd is the instance path or a
+#                                  directory under it (a worktree; not a
+#                                  sibling such as <path>-other),
 #                                  finished as dc_job_finished reads it: its
 #                                  own jobs/<id>/state.json reads done,
 #                                  stopped or failed, and the listing shows
@@ -22,9 +24,11 @@
 #   transcript <path>              <claude home>/projects/*/<session id>.jsonl
 #   pr <owner/repo>#<n> <sha>      each pull request GitHub lists as merged
 #                                  from the holding's branch, with its merge
-#                                  commit; one line per pull request. A
-#                                  stopped unit with none is refused; see
-#                                  Removed mode for `pr none`
+#                                  commit; one line per pull request, or
+#                                  `pr none` for a unit that ended with no
+#                                  pull request (below)
+#   branch none | branch <owner/repo> <name>
+#                                  only beside `pr none` with a handoff link
 #   handoff <url>                  the comment link submitted with `teardown:
 #                                  stopped` (or `removed`; see Removed mode)
 #                                  at the latest visit to teardown,
@@ -35,6 +39,20 @@
 #                                  row: `-` when the row has none, `invalid`
 #                                  when it isn't ^[A-Za-z0-9._:-]{1,128}$
 #   inventory <sealed:...>         the sealed inventory the verdict stands on
+#
+# A unit that ends with no pull request (shirabe#1075): a report-only spike, a
+# worker stopped before it pushed anything, one whose open failed. When no
+# pull request from the holding's branch merged, or the holding names no
+# branch, the verdict is ready only when the handoff link is a comment on the
+# unit's own issue and the holding's branch, if it names one, holds no commit
+# beyond its repository's default branch on GitHub (dc_branch_ahead: a branch
+# GitHub doesn't have counts as empty, since the inventory has read the
+# instance durable). It then says `pr none`, with `branch none` or `branch
+# <owner/repo> <name>` before it. A branch with a commit beyond its base, an
+# unmerged pull request's included, is refused, as is a stopped unit with no
+# link, a unit that names no issue, and a link anywhere but the issue. This
+# holds in stopped and removed mode alike; a removed unit with no link takes
+# the `pr none` / `handoff none` route below instead, branch or none.
 #
 # Removed mode. When the sealed inventory is `absent` (niwa lists no instance
 # for the topic; teardown-verdict.sh read answers 5) and the latest teardown
@@ -87,9 +105,9 @@
 #
 # It fails closed: a niwa or Claude Code listing that can't be read or parsed
 # stops the seal (exit 2), and it refuses when niwa lists an instance for the
-# topic or at the path, or Claude Code lists a job whose cwd is the path. The
-# path is only ever compared and used to name directories to read; nothing
-# here or in the pass removes anything in removed mode.
+# topic or at the path, or Claude Code lists a job whose cwd is the path or
+# lies under it. The path is only ever compared and used to name directories
+# to read; nothing here or in the pass removes anything in removed mode.
 #
 # Nothing here comes from an argument: the topic and the inventory from the
 # session, the handoff link from the session's own log of the evidence, the
@@ -246,9 +264,10 @@ stopped_mode() {
           elif type == "string" and length >= 1 and length <= 128 and (gsub("[A-Za-z0-9._:-]"; "") == "") then .
           else "invalid" end')
 
-    # The job: the one Claude Code background job whose cwd is the instance.
+    # The job: the one Claude Code background job whose cwd is the instance
+    # or a directory in it, such as a worktree a resumed worker runs from.
     agents_list
-    JOBS=$(printf '%s' "$AG" | jq -c --arg p "$IPATH" '[.[] | select(.cwd == $p)]')
+    JOBS=$(printf '%s' "$AG" | jq -c --arg p "$IPATH" "$DC_JQ_IN_DIR"'[.[] | select(.cwd | in_dir($p))]')
     NJ=$(printf '%s' "$JOBS" | jq length)
     case "$NJ" in
         1) ;;
@@ -397,8 +416,8 @@ removed_mode() {
     printf '%s' "$NL" | jq -e --arg p "$IPATH" 'any(.[]; .path == $p) | not' >/dev/null \
         || refuse "niwa lists an instance at $IPATH; it was not removed"
     agents_list
-    printf '%s' "$AG" | jq -e --arg p "$IPATH" 'any(.[]; .cwd == $p) | not' >/dev/null \
-        || refuse "Claude Code lists job $(printf '%s' "$AG" | jq -r --arg p "$IPATH" '[.[] | select(.cwd == $p) | .id] | join(", ")') in $IPATH; it was not removed"
+    printf '%s' "$AG" | jq -e --arg p "$IPATH" "$DC_JQ_IN_DIR"'any(.[]; .cwd | in_dir($p)) | not' >/dev/null \
+        || refuse "Claude Code lists job $(printf '%s' "$AG" | jq -r --arg p "$IPATH" "$DC_JQ_IN_DIR"'[.[] | select(.cwd | in_dir($p)) | .id] | join(", ")') in $IPATH; it was not removed"
     line "instance - $IPATH"
 
     # The worker's session: the main session transcript in the instance's own
@@ -501,20 +520,24 @@ REPO=$(printf '%s' "$ROW" | jq -r '.repo // ""')
 BRANCH=$(printf '%s' "$ROW" | jq -r '.branch // ""')
 UNIT=$(printf '%s' "$ROW" | jq -r '.unit // ""')
 grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' <<<"$REPO" || refuse "the holding names no repository"
-[ -n "$BRANCH" ] || refuse "the holding names no branch"
 # The pull request is in the repository its link names, which can differ from
 # the holding's repo (shirabe#1581); a link that names none means the repo.
 PR_REPO=$REPO
 RE_LINK='^\[#[0-9]+\]\(https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/[0-9]+\)$'
 PR_CELL=$(printf '%s' "$ROW" | jq -r '.pull_request // ""')
 [[ $PR_CELL =~ $RE_LINK ]] && PR_REPO=${BASH_REMATCH[1]}
-dc_with_deadline "$FETCH_SECS" "$GH" pr list --repo "$PR_REPO" --head "$BRANCH" --state merged --limit 100 \
-    --json number,mergeCommit,headRepositoryOwner >"$T/prs" 2>"$T/gh.err" || die2 "the merged pull requests could not be read: $(tail -1 "$T/gh.err")"
-# --head matches a branch name in any fork; only the branch in the pull
-# request's own repository is the unit's.
-jq -r --arg o "${PR_REPO%%/*}" '.[] | select((.headRepositoryOwner.login // "" | ascii_downcase) == ($o | ascii_downcase))
-    | select((.mergeCommit.oid // "") | test("^[0-9a-f]{40}$")) | "\(.number) \(.mergeCommit.oid)"' "$T/prs" >"$T/merged" \
-    || die2 "the merged pull requests are not readable JSON"
+# A holding that names no branch never pushed one, so no pull request of it
+# can have merged (shirabe#1075): there is nothing to list.
+: >"$T/merged"
+if [ -n "$BRANCH" ]; then
+    dc_with_deadline "$FETCH_SECS" "$GH" pr list --repo "$PR_REPO" --head "$BRANCH" --state merged --limit 100 \
+        --json number,mergeCommit,headRepositoryOwner >"$T/prs" 2>"$T/gh.err" || die2 "the merged pull requests could not be read: $(tail -1 "$T/gh.err")"
+    # --head matches a branch name in any fork; only the branch in the pull
+    # request's own repository is the unit's.
+    jq -r --arg o "${PR_REPO%%/*}" '.[] | select((.headRepositoryOwner.login // "" | ascii_downcase) == ($o | ascii_downcase))
+        | select((.mergeCommit.oid // "") | test("^[0-9a-f]{40}$")) | "\(.number) \(.mergeCommit.oid)"' "$T/prs" >"$T/merged" \
+        || die2 "the merged pull requests are not readable JSON"
+fi
 # The handoff: the link submitted at the latest visit to teardown.
 URL=$(printf '%s' "$EV" | jq -r '.fields.handoff // ""')
 # A unit removed outside the pass before any pull request of it merged, with
@@ -530,45 +553,83 @@ if [ ! -s "$T/merged" ] && [ -z "$URL" ] && [ "$REMOVED" = 1 ]; then
     line "inventory $INV_TOKEN"
     emit ready
 fi
-[ -s "$T/merged" ] || refuse "no pull request from $BRANCH in $PR_REPO is merged"
-# A handoff comment may be on one of NUMS in PR_REPO, or on one of INUMS in
-# REPO; with one repository, NUMS holds both.
-NUMS="" INUMS=""
-while read -r n sha; do
-    line "pr $PR_REPO#$n $sha"
-    NUMS="$NUMS $n"
-done <"$T/merged"
-# The holding's issue, when its unit names one in the holding's repository.
-case "$UNIT" in
-    \#[0-9]*) INUMS="$INUMS ${UNIT#\#}" ;;
-    "$REPO#"[0-9]*) INUMS="$INUMS ${UNIT#"$REPO#"}" ;;
-esac
-[ "$PR_REPO" = "$REPO" ] && { NUMS="$NUMS$INUMS"; INUMS=""; }
-
-# A unit removed outside the pass may come with no link: its worker is gone
-# and can't write one. The verdict says `handoff none`, once the worker's
-# own sessions are shown to be over; the pass then records an entry in place
-# of the link. A stopped unit with no link is still refused below, and a
-# link that is there is checked in full, never read as none.
-if [ -z "$URL" ] && [ "$REMOVED" = 1 ]; then
-    no_handoff_checks
-    line "handoff none"
-    line "dispatch $DISPATCH"
-    line "inventory $INV_TOKEN"
-    emit ready
-fi
-[ -n "$URL" ] || refuse "teardown: $EVWORD carried no handoff link"
 RE_URL='^https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/(pull|issues)/([1-9][0-9]*)#issuecomment-([1-9][0-9]*)$'
+# The holding's issue, when its unit names one in the holding's repository.
+INUM=""
+case "$UNIT" in
+    \#[0-9]*) INUM=${UNIT#\#} ;;
+    "$REPO#"[0-9]*) INUM=${UNIT#"$REPO#"} ;;
+esac
+
+# A unit that ends with no pull request (shirabe#1075): a report-only spike,
+# a worker stopped before it pushed, an open that failed. Nothing of it
+# merged, so its handoff comment must be on its own issue, and its branch, if
+# it names one, must hold no commit beyond its repository's default branch on
+# GitHub; the inventory has already read everything in the instance durable.
+# The verdict then says `pr none` beside the handoff link, and a `branch`
+# line: `branch none` when the holding names no branch, `branch <owner/repo>
+# <name>` when it names one with nothing beyond its base, which the pass
+# reads again. A branch with a commit beyond its base, an unmerged pull
+# request's included, is still refused, as is a link anywhere but the issue.
+if [ ! -s "$T/merged" ]; then
+    if [ -n "$BRANCH" ]; then WHAT="no pull request from $BRANCH in $PR_REPO is merged"; else WHAT="the holding names no branch"; fi
+    [ -n "$URL" ] || refuse "$WHAT, and teardown: $EVWORD carried no handoff link"
+    [ -n "$INUM" ] || refuse "$WHAT, and the unit names no issue in $REPO for its handoff comment"
+    if ! [[ $URL =~ $RE_URL ]] || [ "${BASH_REMATCH[1]}" != "$REPO" ] || [ "${BASH_REMATCH[3]}" != "$INUM" ]; then
+        refuse "$WHAT, and the handoff link is not a comment on the unit's issue $REPO#$INUM"
+    fi
+    if [ -n "$BRANCH" ]; then
+        dc_valid_branch "$BRANCH" || refuse "$WHAT, and the branch name [$BRANCH] is not one this check reads"
+        AHEAD=$(dc_branch_ahead "$FETCH_SECS" "$PR_REPO" "$BRANCH" 2>"$T/gh.err") \
+            || die2 "the branch $BRANCH in $PR_REPO could not be read: $(tail -1 "$T/gh.err")"
+        case "$AHEAD" in
+            absent | 0) ;;
+            *) refuse "$WHAT, and $BRANCH holds $AHEAD commits beyond $PR_REPO's default branch" ;;
+        esac
+        line "branch $PR_REPO $BRANCH"
+    else
+        line "branch none"
+    fi
+    line "pr none"
+    NUMS=$INUM
+else
+    # A handoff comment may be on one of NUMS in PR_REPO, or on one of INUMS
+    # in REPO; with one repository, NUMS holds both.
+    NUMS="" INUMS=""
+    while read -r n sha; do
+        line "pr $PR_REPO#$n $sha"
+        NUMS="$NUMS $n"
+    done <"$T/merged"
+    [ -n "$INUM" ] && INUMS=" $INUM"
+    [ "$PR_REPO" = "$REPO" ] && { NUMS="$NUMS$INUMS"; INUMS=""; }
+
+    # A unit removed outside the pass may come with no link: its worker is
+    # gone and can't write one. The verdict says `handoff none`, once the
+    # worker's own sessions are shown to be over; the pass then records an
+    # entry in place of the link. A stopped unit with no link is still
+    # refused below, and a link that is there is checked in full, never read
+    # as none.
+    if [ -z "$URL" ] && [ "$REMOVED" = 1 ]; then
+        no_handoff_checks
+        line "handoff none"
+        line "dispatch $DISPATCH"
+        line "inventory $INV_TOKEN"
+        emit ready
+    fi
+    [ -n "$URL" ] || refuse "teardown: $EVWORD carried no handoff link"
+    [[ $URL =~ $RE_URL ]] || refuse "the handoff link is not a GitHub comment link"
+    U_REPO=${BASH_REMATCH[1]} U_NUM=${BASH_REMATCH[3]}
+    if [ "$PR_REPO" = "$REPO" ]; then
+        [ "$U_REPO" = "$REPO" ] || refuse "the handoff comment is in $U_REPO, not the holding's $REPO"
+    elif [ "$U_REPO" = "$REPO" ]; then
+        NUMS=$INUMS
+    else
+        [ "$U_REPO" = "$PR_REPO" ] || refuse "the handoff comment is in $U_REPO, not the holding's $REPO or its pull request's $PR_REPO"
+    fi
+    case " $NUMS " in *" $U_NUM "*) ;; *) refuse "the handoff comment is on #$U_NUM, which is neither a merged pull request of the unit nor its issue" ;; esac
+fi
 [[ $URL =~ $RE_URL ]] || refuse "the handoff link is not a GitHub comment link"
 U_REPO=${BASH_REMATCH[1]} U_NUM=${BASH_REMATCH[3]} U_ID=${BASH_REMATCH[4]}
-if [ "$PR_REPO" = "$REPO" ]; then
-    [ "$U_REPO" = "$REPO" ] || refuse "the handoff comment is in $U_REPO, not the holding's $REPO"
-elif [ "$U_REPO" = "$REPO" ]; then
-    NUMS=$INUMS
-else
-    [ "$U_REPO" = "$PR_REPO" ] || refuse "the handoff comment is in $U_REPO, not the holding's $REPO or its pull request's $PR_REPO"
-fi
-case " $NUMS " in *" $U_NUM "*) ;; *) refuse "the handoff comment is on #$U_NUM, which is neither a merged pull request of the unit nor its issue" ;; esac
 dc_with_deadline "$FETCH_SECS" "$GH" api "repos/$U_REPO/issues/comments/$U_ID" >"$T/comment" 2>"$T/gh.err"
 case $? in
     0) ;;

@@ -375,6 +375,18 @@ dc_unit_matches "#6001" "$T/pick-big.json"; eq "unit matches: a unit pick didn't
 printf 'not json\n' > "$T/pick-bad.json"
 dc_unit_matches "#1" "$T/pick-bad.json"; eq "unit matches: a file that isn't pick_facts' JSON is 2" 2 $?
 
+# --- a roadmap/v4 milestone owed its verdict ----------------------------------------
+# pick-facts.sh's facts on a roadmap/v4 roadmap where Milestone 2 depends on
+# Milestone 1, whose verdict is owed: Milestone 2 is free and its brief's unit
+# matches, while Milestone 1 has no form, so no brief for it renders.
+jq -n '{scope: "roadmap", host: "acme/widgets", units: [
+    {unit: "Milestone 1", number: 1, title: "Loader", done: true, takes_work: false, blocked: false, verdict_owed: true, landed: null},
+    {unit: "Milestone 2", number: 2, title: "Registry", done: false, takes_work: true, blocked: false, verdict_owed: false, landed: null}]}' > "$T/pick-v4.json"
+dc_unit_matches "Milestone 2: Registry" "$T/pick-v4.json"; eq "unit matches: v4, the dependent of an owed milestone" 0 $?
+dc_unit_matches "Milestone 2" "$T/pick-v4.json"; eq "unit matches: v4, ... by its tag too" 0 $?
+dc_unit_matches "Milestone 1" "$T/pick-v4.json"; eq "unit matches: v4, never the milestone owed its verdict" 1 $?
+dc_unit_matches "Milestone 1: Loader" "$T/pick-v4.json"; eq "unit matches: v4, ... nor its titled form" 1 $?
+
 # --- a finished job (shirabe#1182) -------------------------------------------------
 # Finished means the job's own state file reads done, stopped or failed and
 # the listing shows no live pid. The listing's state is never read: Claude
@@ -422,6 +434,65 @@ jstate 'not json'
 eq  "job: state file that isn't JSON" "the state file of job $JF is not readable JSON" "$(dc_job_finished "$CH" "$JF" '{}')"
 rm -f "$CH/jobs/$JF/state.json"
 eq  "job: no state file" "job $JF has no state file at $CH/jobs/$JF/state.json" "$(dc_job_finished "$CH" "$JF" '{}')"
+
+# --- a live, idle worker whose turn ended (shirabe#1594) ------------------------
+# A worker that ends its turn to wait for its coordinator gets a state file
+# reading done while its process lives on and `claude agents` lists it idle
+# with a pid. The probe reads the job's own listing row, so that live pid makes
+# it live; with no live pid listed the state file decides, as before.
+LH="$T/live-home"
+LJ=5c4608e3
+LN=$(printf 'feat_9-%s' 0c9c9c9c)
+mkdir -p "$LH/jobs/$LJ"
+jq -n --arg n "$LN" '{name: $n, state: "done", pid: null}' >"$LH/jobs/$LJ/state.json"
+LCLI="$T/claude-stub"
+LROWS="$T/claude-agents.json"
+printf '#!/usr/bin/env bash\n[ "$*" = "agents --json --all" ] || exit 1\n[ -f "%s.fail" ] && exit 1\ncat "%s"\n' \
+    "$LROWS" "$LROWS" >"$LCLI"
+chmod +x "$LCLI"
+live() { DC_CLAUDE_HOME="$LH" DC_CLAUDE_CLI="$LCLI" dc_session_live "" "" "$LN"; }
+jq -n --arg j "$LJ" --argjson p "$LIVE" '[{id: $j, status: "idle", state: "done", pid: $p}]' >"$LROWS"
+eq  "live: a done job listed idle with a live pid is live" \
+    "0 $LN is a running Claude job: job $LJ is still running (pid $LIVE)" "$(out=$(live); echo "$? $out")"
+jq -n --arg j "$LJ" --argjson p "$LIVE" '[{id: "0000ffff", status: "idle", pid: 1}, {id: $j, status: "busy", state: "working", pid: $p}]' >"$LROWS"
+eq  "live: ... found among other rows, busy" \
+    "0 $LN is a running Claude job: job $LJ is still running (pid $LIVE)" "$(out=$(live); echo "$? $out")"
+jq -n --arg j "$LJ" --argjson p "$DEAD" '[{id: $j, status: "idle", state: "done", pid: $p}]' >"$LROWS"
+eq  "live: a done job listed with a dead pid has finished" \
+    "1 $LN's Claude job $LJ has finished" "$(out=$(live); echo "$? $out")"
+jq -n --arg j "$LJ" '[{id: $j, state: "done"}]' >"$LROWS"
+eq  "live: a done job listed with no pid has finished" \
+    "1 $LN's Claude job $LJ has finished" "$(out=$(live); echo "$? $out")"
+jq -n '[{id: "0000ffff", status: "idle", pid: 1}]' >"$LROWS"
+eq  "live: a done job the listing doesn't show has finished" \
+    "1 $LN's Claude job $LJ has finished" "$(out=$(live); echo "$? $out")"
+printf 'not json' >"$LROWS"
+eq  "live: a listing that isn't JSON leaves the state file to decide" \
+    "1 $LN's Claude job $LJ has finished" "$(out=$(live); echo "$? $out")"
+jq -n --arg j "$LJ" --argjson p "$LIVE" '[{id: $j, status: "idle", pid: $p}]' >"$LROWS"
+touch "$LROWS.fail"
+eq  "live: a listing that can't be read leaves the state file to decide" \
+    "1 $LN's Claude job $LJ has finished" "$(out=$(live); echo "$? $out")"
+rm -f "$LROWS.fail"
+jq -n --arg n "$LN" '{name: $n, state: "working"}' >"$LH/jobs/$LJ/state.json"
+printf 'not json' >"$LROWS"
+eq  "live: a working job is live whatever the listing says" \
+    "0 $LN is a running Claude job: the state file of job $LJ reads working" "$(out=$(live); echo "$? $out")"
+
+# --- a stopped topic reads the listing row too (shirabe#2080) --------------------
+# dc_topic_stopped applies dc_session_live's listing-row pid check: a worker
+# whose state file reads done while the listing shows its live pid is not
+# stopped, so its holding stays in the live set.
+SH="$T/stop-home"
+SJ=$(printf '%s%s' 6d57 19f4)
+SN=$(printf 'stopq-%s%s' 1e2d 3c4b)
+mkdir -p "$SH/jobs/$SJ"
+jq -n --arg n "$SN" '{name: $n, state: "done"}' >"$SH/jobs/$SJ/state.json"
+stopped() { DC_CLAUDE_CLI="$LCLI" dc_topic_stopped "$SH" stopq; }
+jq -n --arg j "$SJ" --argjson p "$LIVE" '[{id: $j, status: "idle", state: "done", pid: $p}]' >"$LROWS"
+stopped; eq "stopped: a done job listed idle with a live pid is not stopped" 1 $?
+jq -n --arg j "$SJ" --argjson p "$DEAD" '[{id: $j, status: "idle", state: "done", pid: $p}]' >"$LROWS"
+stopped; eq "stopped: a done job listed with no live pid is stopped" 0 $?
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

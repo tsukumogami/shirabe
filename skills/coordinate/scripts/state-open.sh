@@ -41,6 +41,16 @@
 # the row lands with the copy. A post that fails is warned about on stderr and
 # the carry goes on.
 #
+# A carried Run `successor` row (the successor the predecessor dispatched
+# with dispatch-worker.sh --successor) is cleared once the carry lands, through
+# state-stored-set.sh --successor clear, when this run's own
+# koto/links/dispatched-by/ holds the run in the row's Set by: this rotation is
+# that successor, started after the predecessor's window with --dispatched-by
+# naming it. With no such link, or one naming only other runs, the row stays
+# for the new rotation's reconcile to settle. A carry run again after it landed
+# clears it the same way, and a clear that fails exits with
+# state-stored-set.sh's code, the carry standing.
+#
 # The run's role (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1;
 # PRD R5) is a Run row, `role`, manager or director. A fresh seed takes
 # --role, the role= value coordinate-open.sh printed, and writes the row in the
@@ -90,7 +100,7 @@
 # write core's code (10, 11, 12 or 65), and a failed window write with
 # state-stored-set.sh's. --carry exits 0 carried, 65 refused, 2 a read failed,
 # and with state-stored-set.sh's code when the carry landed but its role write
-# didn't (run the step again with the same flags).
+# or its successor clear didn't (run the step again with the same flags).
 #
 # It makes no GitHub call of its own; the write core reads repository
 # visibility.
@@ -205,6 +215,33 @@ carry_role_settle() {
     exit "$rc"
 }
 
+# carry_successor_settle <state-file>: once the carry has landed, the carried
+# Run `successor` row (the successor the predecessor dispatched with
+# dispatch-worker.sh --successor) removed when this run's own
+# koto/links/dispatched-by/ names the run in its Set by: this rotation is that
+# successor, started after the predecessor's window with --dispatched-by
+# naming it. A run with no such link, or one naming another run (a next
+# rotation started by hand, or by another dispatcher), keeps the row for the
+# new rotation's reconcile to settle. The clear writes nothing when the row is
+# gone, so a carry run again settles the same way. A read that fails exits 2,
+# and a clear that fails exits with state-stored-set.sh's code, the carry
+# standing; the step run again clears it.
+carry_successor_settle() {
+    local by who
+    by=$(jq -r '[(.run // [])[] | select(.key == "successor") | .set_by][0] // ""' "$1") || lib_die2 "jq failed"
+    [ -n "$by" ] || return 0
+    "$KOTO" context list "$SESSION" --prefix koto/links/dispatched-by/ < /dev/null > "$T/dby.json" 2> "$T/dby.err" \
+        && jq -e 'type == "array"' "$T/dby.json" > /dev/null 2>&1 \
+        || lib_die2 "the carry landed, but $SESSION's dispatched-by links couldn't be read for the successor row ($(lib_scrub < "$T/dby.err" | head -1)); run this step again with the same flags"
+    jq -e --arg k "koto/links/dispatched-by/$by" 'index($k) != null' "$T/dby.json" > /dev/null || return 0
+    [ -n "${LIB_CALLER_NAME+x}" ] || lib_caller
+    who=${LIB_CALLER_NAME:-$SESSION}
+    bash "$HERE/state-stored-set.sh" --session "$SESSION" --successor clear --by "$who" < /dev/null > /dev/null 2> "$T/succ.err" && return 0
+    local rc=$?
+    echo "$PROG: the carry landed, but the successor row set by $by wasn't cleared: $(tr -s '\t\n' '  ' < "$T/succ.err" | head -c 400); run this step again with the same flags to clear it" >&2
+    exit "$rc"
+}
+
 # seed_state <out>: the scope's empty record, and with --role the Run `role`
 # row, set by ROLE_BY at NOW.
 seed_state() {
@@ -259,6 +296,7 @@ if [ "$CARRY" = 1 ]; then
             # A run again settles the role before it reads as carried, so a
             # change the first run didn't write is written now.
             carry_role_settle "$T/landed"
+            carry_successor_settle "$T/landed"
             carry_report carried "the carry had landed" "$T/landed"
         fi
         carry_report refused "this run already holds a rotation that names another predecessor"
@@ -322,6 +360,7 @@ if [ "$CARRY" = 1 ]; then
     fi
     SEEDED=1
     carry_role_settle "$T/next.json"
+    carry_successor_settle "$T/next.json"
     carry_report carried "carried from $PRED" "$T/next.json"
 fi
 

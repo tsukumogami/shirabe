@@ -59,7 +59,13 @@
 # from the brief input's `role` and `role_change_by` fields, which only
 # dispatch-worker.sh writes and dispatch-common.sh's dc_invocation renders;
 # render-brief.sh refuses them in entry_args and run_mode
-# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 2).
+# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 2). The one
+# exception is a discipline run's successor, whose brief input
+# dispatch-worker.sh --successor writes with the script-only `successor`
+# field: its entry_args are exactly `--discipline <name> --host <owner/repo>`,
+# the scope rather than flags, and --role follows them. A lane's brief can't
+# take that shape (docs/designs/DESIGN-coordinate-successor-role.md,
+# Decision 3).
 #
 scope	scope	scope.md	TOPIC=arg	--auto,--interactive,--intent=continue,--intent=stop,--coordinated,--no-coordinated,--max-rounds=*	any	-
 execute	execute	execute.md,execute-coordinated.md	PLAN_SLUG=plan-slug	--auto,--interactive,--merge,--review-floor=*,--review-ceiling=*	any	-

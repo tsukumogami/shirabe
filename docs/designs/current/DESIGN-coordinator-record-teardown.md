@@ -268,15 +268,16 @@ start, `state-find.sh` lists the discipline's sessions with `koto session list`
 by the scope's slug, as `coord-log.sh` already does for a roadmap scope's
 earlier runs, and takes the one with the latest stamp earlier than this run's
 that holds `record/meta`. A candidate is the predecessor only when its name
-matches `coordinate-<slug>-<YYYYMMDDTHHMMSSZ>` whole, it passes the provenance
-check a resume applies today (`coord-log.sh provenance`, built from the shipped
-template, or a template the carry-across already accepted), its own
+matches `coordinate-<slug>-<YYYYMMDDTHHMMSSZ>` whole, its own
 `DISCIPLINE` and `HOST_REPO` variables equal this run's, its rotation has
 ended (the same rule as below; the opener never hands the find an open one, and
 a direct call on one is `unreadable`), and no other session of the discipline
 already names it as its predecessor (one predecessor is never carried
 twice). Two candidates with the same stamp, or a candidate that fails any of
-these, is `unreadable`. It seals one of: `found` (this run's own state exists,
+these, is `unreadable`. Provenance (`coord-log.sh provenance`) is not one of
+them: a candidate opened from another template, an older plugin's, is carried,
+as a roadmap start carries a run that fails it, since the carry reads only its
+record through `state-schema.jq` and never runs that template. It seals one of: `found` (this run's own state exists,
 a resume), `predecessor <session>`, `first` (no earlier rotation) or
 `unreadable <session>` (the predecessor's `record/meta` or a section key fails
 `state-schema.jq`). A new `predecessor_carry` state runs `state-open.sh
@@ -872,8 +873,7 @@ work it holds. The removal takes away the GitHub copy that a hand edit couldn't
 touch without leaving a trace. The reconcile pass re-checks Holdings against
 GitHub before acting, so a forged holding can't merge anything GitHub doesn't
 show. It can't re-check a Standing approval or a hold's absence, so a
-discipline carry binds its predecessor by name pattern, provenance, discipline
-and host, refuses a predecessor another session of the discipline already
+discipline carry binds its predecessor by name pattern, discipline and host, refuses a predecessor another session of the discipline already
 names in its `record/rotation` (so one predecessor is never carried twice),
 stops on any ambiguity, and reports every hold and Standing row it carried to
 the owner before the run acts on them.

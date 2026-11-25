@@ -83,6 +83,12 @@ chmod +x "$T/fake-niwa/niwa"
 printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"not-dispatched","reason":"no-mapping","grant":[]}' > "$T/niwa.answer"
 PATH="$T/fake-niwa:$PATH"
 export PATH
+# A seeded job's listing row (dispatch-common.sh dc_job_row) comes from a
+# stub `claude agents --json --all` that lists nothing, never the host's real
+# CLI.
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$T/claude-cli"
+chmod +x "$T/claude-cli"
+export DC_CLAUDE_CLI="$T/claude-cli"
 unset CLAUDE_CODE_SESSION_ID NIWA_BIN
 
 SR=coordinate-roadmap-plugin-system-20260926T070000Z
@@ -202,6 +208,13 @@ entries | jq -e 'any(.[]; .kind == "pause" and (.text | test("^s2 \\(pause on al
 entries | jq -e '.[0].text | test("^Run arguments set to --roadmap .* by the human\\.$")' >/dev/null && ok "  ... each naming who" || bad "  ... each naming who" "$(entries | jq -r '.[0].text')"
 eq "  ... the holding's row left Work with its count" "Feature 2 (worker-f2) left Work after 0 wakes." "$(entries | jq -r '.[-1].text')"
 eq "  ... and a holding's row carries a Wakes count, a local agent's 0" "0" "$(live | jq -r '[(.work // [])[] | .wakes] | unique | join(",") | if . == "" then "0" else . end')"
+
+# The parked bound has a Run row like the cap's (shirabe#2106).
+bash "$RS" "${W[@]}" --run parked-bound 5 --by "the human" >/dev/null 2>"$T/err"; eq "a parked bound is set" 0 $?
+bash "$RS" "${W[@]}" --run parked-bound 4 --by "the human" >/dev/null 2>"$T/err"; eq "a parked bound is changed" 0 $?
+eq "  ... one parked-bound row, the new one" "4 1" "$(live | jq -r '[.run[] | select(.key == "parked-bound")] | "\(.[0].value) \(length)"')"
+bash "$RS" "${W[@]}" --run parked-bound 0 --by x >/dev/null 2>"$T/err"; eq "a parked bound that isn't a number from 1 to 99 is refused" 65 $?
+bash "$RS" "${W[@]}" --run parked-bound 4 --inferred "" --by x >/dev/null 2>"$T/err"; eq "--inferred with --run parked-bound still takes a sentence" 64 $?
 
 echo "== a unit parked on a decision, and a follow-up =="
 # Entry 4 is open, entry 5 settled; Feature 3 is held by worker-f3.
@@ -383,10 +396,14 @@ eq "a holding's first Work row does, since its dispatch brief named the address"
     "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
 bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>&1
 bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "no gaps once each is told and has a next step" 0 $?
-# A merged holding (a Verified head, its Pull request cleared) is exempt.
+# A merged holding (a Verified head, its Pull request cleared) whose worker
+# has finished (its Claude job here stopped, shirabe#2080) is exempt.
+JD="$T/claude-f3/jobs" H3=0000ccc3
+mkdir -p "$JD/c3c3c3c3"
+jq -nc --arg n "worker_f3-$H3" '{name: $n, state: "done"}' > "$JD/c3c3c3c3/state.json"
 seed "$(printf '%s' "$TWO" | jq -c --arg s "$SHA_HEAD" '.holdings[1].verified_head = $s')"
 eq "a merged holding needs no next step" "no-arguments no-cap no-coordinator no-reports-to no-role no-next-step Feature 2" \
-    "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
+    "$(DC_CLAUDE_HOME="$T/claude-f3" bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
 # PRD R15: a live holding whose leg names a request this host's store doesn't
 # hold (the run was imported here) holds the gate until its leg has an end.
 seed "$(printf '%s' "$TWO" | jq -c '.holdings[0].return_path = "leg req_1:deliver" | .holdings[1].return_path = "leg req_2:deliver"')"
@@ -1054,5 +1071,82 @@ eq "  ... keeping the long deferral whole" 61000 "$(live | jq -r '.deferrals[0].
 bash "$RS" "${RM[@]}" --list > "$T/list" 2>"$T/err"
 eq "  ... and --list reads it back" "0 director" "$? $(jq -r '.run[] | select(.key == "role") | .value' "$T/list")"
 eq "no role write reached GitHub" "" "$(gh_writes)"
+
+echo "== --successor: the pending successor's Run row =="
+# The row a successor dispatch writes (dispatch-worker.sh --successor): its
+# value grammar, the moves each status takes from the row as read, the entry
+# naming the brief and the role, the clear, and --run successor refused.
+DAY=$(date -u +%Y-%m-%d)
+PRED=coordinate-roadmap-plugin-system-20260925T070000Z
+succ_of() { live | jq -c '[(.run // [])[] | select(.key == "successor") | {value, set_by}]'; }
+seed "$(printf '%s' "$TWO" | jq -c '.run = [{key: "role", value: "manager", set_by: "the human", set: "2026-09-26T08:00Z"}]')"
+SNAP=$(session_snapshot "$SR")
+bash "$RS" "${W[@]}" --run successor "dispatching plugin-system-successor-1 $DAY" --by "$PRED" >/dev/null 2>"$T/err"
+eq "--run successor is a usage error" 64 $?
+bash "$RS" "${W[@]}" --successor pending plugin-system-successor-1 --by "$PRED" >/dev/null 2>"$T/err"
+eq "--successor with a status it doesn't take is a usage error" 64 $?
+bash "$RS" "${W[@]}" --successor dispatching plugin-system-successor-1 >/dev/null 2>"$T/err"
+eq "--successor without --by is a usage error" 64 $?
+bash "$RS" "${W[@]}" --successor dispatching Plugin_Successor --by "$PRED" >/dev/null 2>"$T/err"
+eq "--successor with a topic outside the grammar is refused" 65 $?
+bash "$RS" "${W[@]}" --successor dispatching plugin-system-successor-1 --by "the human" >/dev/null 2>"$T/err"
+eq "--successor set by something that isn't a run is refused" 65 $?
+bash "$RS" "${W[@]}" --successor dispatched plugin-system-successor-1 --by "$PRED" >/dev/null 2>"$T/err"
+eq "dispatched with no row is refused" 65 $?
+grep -q 'the successor row reads nothing' "$T/err" && ok "  ... naming the row as it stands" || bad "  ... naming the row as it stands" "$(cat "$T/err")"
+eq "  ... and none of them writes anything" "$SNAP" "$(session_snapshot "$SR")"
+bash "$RS" "${W[@]}" --successor dispatching plugin-system-successor-1 --by "$PRED" >/dev/null 2>"$T/err"
+eq "dispatching with no row is written" 0 $?
+eq "  ... one row, its value and Set by" "[{\"value\":\"dispatching plugin-system-successor-1 $DAY\",\"set_by\":\"$PRED\"}]" "$(succ_of)"
+eq "  ... told as an entry naming the topic, the brief and the role" \
+    "Run successor dispatching plugin-system-successor-1 $DAY set by $PRED: the brief .niwa/dispatch-briefs/plugin-system-successor-1.md, role manager." \
+    "$(entries | jq -r '.[-1].text')"
+bash "$RS" "${RM[@]}" --list > "$T/list" 2>"$T/err"
+eq "  ... and --list reads it back" "0 dispatching plugin-system-successor-1 $DAY" "$? $(jq -r '.run[] | select(.key == "successor") | .value' "$T/list")"
+SNAP=$(session_snapshot "$SR")
+bash "$RS" "${W[@]}" --successor dispatching plugin-system-successor-2 --by "$PRED" >/dev/null 2>"$T/err"
+eq "a second dispatching while one is pending is refused" 65 $?
+bash "$RS" "${W[@]}" --successor dispatched plugin-system-successor-2 --by "$PRED" >/dev/null 2>"$T/err"
+eq "dispatched under another topic is refused" 65 $?
+bash "$RS" "${W[@]}" --successor stranded plugin-system-successor-1 --by "$PRED" >/dev/null 2>"$T/err"
+eq "stranded from dispatching is refused" 65 $?
+eq "  ... and none of them writes anything" "$SNAP" "$(session_snapshot "$SR")"
+bash "$RS" "${W[@]}" --successor dispatched plugin-system-successor-1 --by "$PRED" >/dev/null 2>"$T/err"
+eq "dispatched from dispatching of the same topic is written" "0 [{\"value\":\"dispatched plugin-system-successor-1 $DAY\",\"set_by\":\"$PRED\"}]" "$? $(succ_of)"
+eq "  ... its entry naming the brief and the role" \
+    "Run successor dispatched plugin-system-successor-1 $DAY set by $PRED: the brief .niwa/dispatch-briefs/plugin-system-successor-1.md, role manager." \
+    "$(entries | jq -r '.[-1].text')"
+bash "$RS" "${W[@]}" --successor stranded plugin-system-successor-1 --by "$PRED" >/dev/null 2>"$T/err"
+eq "stranded from dispatched is written" "0 [{\"value\":\"stranded plugin-system-successor-1 $DAY\",\"set_by\":\"$PRED\"}]" "$? $(succ_of)"
+eq "  ... its entry naming the row" "Run successor stranded plugin-system-successor-1 $DAY set by $PRED." "$(entries | jq -r '.[-1].text')"
+bash "$RS" "${W[@]}" --successor dispatching plugin-system-successor-1 --by "$PRED" >/dev/null 2>"$T/err"
+eq "a new attempt under the stranded row's topic is refused" 65 $?
+bash "$RS" "${W[@]}" --successor dispatching plugin-system-successor-2 --by "$PRED" >/dev/null 2>"$T/err"
+eq "a new attempt under a new topic replaces the stranded row" "0 [{\"value\":\"dispatching plugin-system-successor-2 $DAY\",\"set_by\":\"$PRED\"}]" "$? $(succ_of)"
+bash "$RS" "${W[@]}" --successor dispatch-failed plugin-system-successor-2 --by "$PRED" >/dev/null 2>"$T/err"
+eq "dispatch-failed from dispatching is written" "0 [{\"value\":\"dispatch-failed plugin-system-successor-2 $DAY\",\"set_by\":\"$PRED\"}]" "$? $(succ_of)"
+bash "$RS" "${W[@]}" --successor dispatching plugin-system-successor-3 --by "$PRED" >/dev/null 2>"$T/err"
+eq "a dispatch-failed row takes a new attempt under a new topic" 0 $?
+bash "$RS" "${W[@]}" --successor clear --by "the successor" >/dev/null 2>"$T/err"
+eq "clear removes the row" "0 []" "$? $(succ_of)"
+eq "  ... told as an entry" "Run successor dispatching plugin-system-successor-3 $DAY cleared by the successor." "$(entries | jq -r '.[-1].text')"
+SNAP=$(session_snapshot "$SR")
+OUT=$(bash "$RS" "${W[@]}" --successor clear --by "the successor" 2>"$T/err")
+eq "clear with no row exits 0, printing nothing" "0 " "$? $OUT"
+eq "  ... and writes nothing" "$SNAP" "$(session_snapshot "$SR")"
+# Rows no writer here makes, put in the session's key as a newer or broken
+# plugin's would be.
+seed "$TWO"
+jq -nc --arg d "$DAY" '[{key: "successor", value: "dispatched x-successor \($d)", set_by: "a", set: "2026-09-26T08:00Z"},
+    {key: "successor", value: "dispatched y-successor \($d)", set_by: "a", set: "2026-09-26T08:00Z"}]' | koto context add "$SR" record/run
+bash "$RS" "${RM[@]}" --list >/dev/null 2>"$T/err"
+eq "a record with two successor rows is refused" 65 $?
+grep -q 'the successor row is used twice' "$T/err" && ok "  ... naming the row" || bad "  ... naming the row" "$(cat "$T/err")"
+seed "$TWO"
+printf '%s' '[{"key":"successor","value":"pending x-successor 2026-09-26","set_by":"a","set":"2026-09-26T08:00Z"}]' | koto context add "$SR" record/run
+bash "$RS" "${RM[@]}" --list >/dev/null 2>"$T/err"
+eq "a successor row outside its grammar is refused" 65 $?
+grep -q 'a successor row is' "$T/err" && ok "  ... naming the grammar" || bad "  ... naming the grammar" "$(cat "$T/err")"
+eq "no successor write reached GitHub" "" "$(gh_writes)"
 
 done_tests state-stored-set_test

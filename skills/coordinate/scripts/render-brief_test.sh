@@ -14,13 +14,16 @@
 # its flags before --koto-leg; without it the brief matches the goldens in
 # testdata/brief-golden/ byte for byte; a bad level, a floor above the
 # ceiling, an unknown key, an entry point that doesn't take the flags, or
-# the flags given in entry_args or run_mode is refused. On the message path the
-# Goal names dispatcher_session and shows the command that records it with
-# --dispatched-by filled in, per entry point (skill-session.sh open for
-# /explore, /decision and /release, coordinate-open.sh for /coordinate,
-# link-dispatcher.sh for /deliver and a /work-on PLAN), and Reporting names
-# render-result.sh; a leg brief carries none of it; a dispatcher_session
-# that isn't a koto session name is refused.
+# the flags given in entry_args or run_mode is refused. On the message path
+# an entry point whose own opener takes --dispatched-by (skill-session.sh open
+# for /explore, /decision and /release, coordinate-open.sh for /coordinate)
+# has its Goal name dispatcher_session and show that open with the flag
+# filled in, and needs dispatcher_session; every other entry point (/scope,
+# /deliver, /execute, /work-on, /charter) shows no link step, names no
+# dispatcher_session and no link-dispatcher.sh, with the field given, empty
+# or absent, and renders either way; Reporting names render-result.sh; a leg
+# brief carries none of it; a dispatcher_session that isn't a koto session
+# name is refused.
 # A launch field leaves the brief golden, and a key or value outside its
 # fixed sets is refused. A coordinate brief carries its role as one role line,
 # `--role <role>` on the Goal's invocation (a Goal saying "you are the
@@ -31,6 +34,11 @@
 # the fresh-args clause; every role, held_rerender and role_change_by refusal,
 # --role in entry_args and an address over 80 characters among them, exits 1
 # and writes nothing.
+# A discipline run's successor brief (the script-only `successor` field)
+# takes entry_args --discipline <name> --host <owner/repo>, with --role after
+# all four tokens; every other first flag, a name or host outside its
+# pattern, the field on another entry point or beside held_rerender or
+# role_change_by, and the shape on a lane's brief are refused.
 #
 # Usage: bash skills/coordinate/scripts/render-brief_test.sh
 # Exit codes: 0 all pass; 1 a failure. Needs jq. bash 3.2.
@@ -291,32 +299,60 @@ done
 
 # --- the dispatcher, on the message path ---------------------------------------------
 #
-# A worker with no request leg records the coordinator run that dispatched it
-# itself: its brief's Goal names the run as dispatcher_session and shows the
-# exact command that records it, --dispatched-by filled in, and its Reporting
-# names render-result.sh as the report step. A leg brief has none of it.
+# A worker with no request leg whose entry point's own opener takes
+# --dispatched-by opens its session with it: its brief's Goal names the run
+# as dispatcher_session and shows that open, the flag filled in. Every other
+# entry point's brief shows no step: koto records the dispatcher when the
+# worker's session opens. Reporting names render-result.sh as the report
+# step either way. A leg brief has none of it.
 D=coordinate-roadmap-plugin-system-20261006T153752Z
 G=$(section "$B" Goal)
-has "dispatcher: the Goal names dispatcher_session" "$G" "dispatcher_session: $D"
-has "dispatcher: /deliver records it with link-dispatcher.sh" "$G" \
-    "\`\"\${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/link-dispatcher.sh\" <session> --dispatched-by $D\`"
-has "dispatcher: run once the entry point opened its session" "$G" "once your entry point has opened its session, run this"
-has "dispatcher: a failed link is no stop" "$G" 'If it prints `warning=link-failed`, go on'
+# no_link_step <name> <brief>: the brief carries no link step of any kind.
+no_link_step() {
+    lacks "$1: no dispatcher_session line" "$2" "dispatcher_session:"
+    lacks "$1: no link-dispatcher.sh" "$2" "link-dispatcher.sh"
+    lacks "$1: no step that records the dispatcher" "$2" "Record it in your own session"
+    lacks "$1: no dispatcher paragraph" "$2" "Your dispatcher is the coordinator run"
+    lacks "$1: no --dispatched-by" "$2" "--dispatched-by"
+    lacks "$1: no link warning to act on" "$2" "warning=link-failed"
+}
+no_link_step "dispatcher: /deliver" "$B"
+for ep in scope execute work-on; do
+    E=$(bash "$S" --input "$(variant "ep-$ep" ".entry_point = \"$ep\" | .entry_args = [\"docs/plans/PLAN-x.md\"]")" --stdout); RC=$?
+    eq  "dispatcher: /$ep renders" 0 "$RC"
+    no_link_step "dispatcher: /$ep" "$E"
+done
+# With the input's dispatcher_session empty or left out, those entry points
+# still render, still with no link step; Reporting then sends to reports_to
+# alone, since there is no run to resolve the newest coordinator from.
+for ep in scope deliver execute work-on; do
+    for how in empty absent; do
+        if [ "$how" = empty ]; then f='.dispatcher_session = ""'; else f='del(.dispatcher_session)'; fi
+        E=$(bash "$S" --input "$(variant "nodisp-$ep-$how" ".entry_point = \"$ep\" | .entry_args = [\"docs/plans/PLAN-x.md\"] | $f")" --stdout 2>"$T/err"); RC=$?
+        eq  "dispatcher $how: /$ep renders" "0 " "$RC $(cat "$T/err")"
+        no_link_step "dispatcher $how: /$ep" "$E"
+        R=$(section "$E" Reporting)
+        lacks "dispatcher $how: /$ep resolves no coordinator" "$R" "resolve-coordinator.sh"
+        has "dispatcher $how: /$ep's report step runs render-result.sh without --dispatcher" "$R" \
+            "render-result.sh\" --session <your session>\`, adding"
+        has "dispatcher $how: /$ep's result goes to the record's address" "$R" \
+            'just before the `=== WORK IN FLIGHT ===` block, sent to `coord-alpha`.'
+    done
+done
 for ep in explore decision release; do
     E=$(bash "$S" --input "$(variant "ep-$ep" ".entry_point = \"$ep\" | .entry_args = [\"plugin-api\"] | .run_mode = (if \"$ep\" == \"release\" then \"\" else \"--auto\" end)")" --stdout)
+    has "dispatcher: /$ep's Goal names dispatcher_session" "$(section "$E" Goal)" "dispatcher_session: $D"
     has "dispatcher: /$ep opens with skill-session.sh open --dispatched-by" "$(section "$E" Goal)" \
         "\`\"\${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh\" open $ep <topic> --dispatched-by $D\`"
     has "dispatcher: /$ep's command replaces its skill's open" "$(section "$E" Goal)" "in place of the open your entry point's skill shows"
     has "dispatcher: /$ep, re-briefed with its session open, runs it anyway" "$(section "$E" Goal)" "If your session is already open (this brief re-briefs you), run it anyway"
+    has "dispatcher: /$ep, a failed link is no stop" "$(section "$E" Goal)" 'If it prints `warning=link-failed`, go on'
+    lacks "dispatcher: /$ep names no link-dispatcher.sh" "$E" "link-dispatcher.sh"
 done
-lacks "dispatcher: the link command needs no already-open note" "$G" "this brief re-briefs you"
 E=$(bash "$S" --input "$(variant ep-coordinate '.entry_point = "coordinate" | .entry_args = ["docs/roadmaps/ROADMAP-sub.md"] | .run_mode = "" | .role = "manager"')" --stdout)
 has "dispatcher: /coordinate opens with coordinate-open.sh --dispatched-by" "$(section "$E" Goal)" \
     "\`\"\${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh\" --plugin-root \"\${CLAUDE_PLUGIN_ROOT}\" --dispatched-by $D \"\$ARGS_DIR/args.json\"\`"
 has "dispatcher: /coordinate's args file is its first step's" "$(section "$E" Goal)" '`$ARGS_DIR/args.json` the args file its first step writes'
-E=$(bash "$S" --input "$(variant ep-workon '.entry_point = "work-on" | .entry_args = ["docs/plans/PLAN-x.md"]')" --stdout)
-has "dispatcher: /work-on given a PLAN records it with link-dispatcher.sh" "$(section "$E" Goal)" \
-    "link-dispatcher.sh\" <session> --dispatched-by $D"
 has "dispatcher: the template's Reporting names render-result.sh too" \
     "$(awk '/^```markdown$/ { on = 1; next } on && /^```$/ { exit } on' "$HERE/../references/brief-template.md" | awk '/^## / { on = ($0 == "## Reporting"); next } on')" \
     'scripts/render-result.sh --session <your session>'
@@ -380,9 +416,19 @@ refused() {
     if [ -e "$BRIEFS" ]; then bad "$name: nothing written" "$(ls -A "$BRIEFS")"; else ok "$name: nothing written"; fi
 }
 
-for k in topic repo unit entry_point run_mode phase authority goal dispatcher_session reports_to; do
+for k in topic repo unit entry_point run_mode phase authority goal reports_to; do
     refused "missing $k" "$(variant "no-$k" "del(.$k)")" "$k: required"
 done
+# dispatcher_session is required where the brief's open uses it.
+for ep in explore decision release; do
+    refused "missing dispatcher_session for /$ep" \
+        "$(variant "no-disp-$ep" ".entry_point = \"$ep\" | .entry_args = [\"plugin-api\"] | .run_mode = (if \"$ep\" == \"release\" then \"\" else \"--auto\" end) | del(.dispatcher_session)")" \
+        "dispatcher_session: required"
+done
+refused "missing dispatcher_session for /coordinate" \
+    "$(variant no-disp-coordinate '.entry_point = "coordinate" | .entry_args = ["docs/roadmaps/ROADMAP-sub.md"] | .run_mode = "" | .role = "manager" | .dispatcher_session = ""')" \
+    "dispatcher_session: required"
+refused "dispatcher_session not a string" "$(variant disp-num '.dispatcher_session = 7')" "dispatcher_session: must be a string"
 refused "empty goal"            "$(variant empty-goal '.goal = "  "')"                     "goal: required"
 refused "empty run mode"        "$(variant empty-mode '.run_mode = ""')"                   "run_mode: required for deliver, which takes --auto or --interactive"
 refused "address with a slash"  "$(variant bad-addr '.reports_to = "a/b"')"                "reports_to: must be a session name"
@@ -397,13 +443,12 @@ has "release: the invocation" "$R" 'Run `/shirabe:release v0.25.0 --dry-run` in 
 has "release: says it takes no run mode" "$R" 'Run mode: none; `/shirabe:release` takes no execution mode.'
 refused "release with --auto"   "$(variant rel-auto '.entry_point = "release" | .entry_args = ["v0.25.0"] | .run_mode = "--auto"')" "run_mode: release doesn't allow --auto"
 # A charter (shirabe#1290): no leg, its SKILL.md's flags, and on the message
-# path the dispatcher is recorded with link-dispatcher.sh once its session is open.
+# path no link step: koto records the dispatcher when its session opens.
 CH=$(variant charter '.entry_point = "charter" | .entry_args = ["plugin-api"] | .run_mode = "--auto"')
 C=$(bash "$S" --input "$CH" --stdout 2>"$T/ch.err"); eq "charter: renders with --auto" 0 "$?"
 has "charter: the invocation" "$C" 'Run `/shirabe:charter plugin-api --auto` in acme/widgets.'
 has "charter: the run mode" "$C" 'Run mode: `--auto`.'
-has "charter: records its dispatcher with link-dispatcher.sh" "$(section "$C" Goal)" \
-    "link-dispatcher.sh\" <session> --dispatched-by coordinate-roadmap-plugin-system-20261006T153752Z"
+no_link_step "charter" "$C"
 C=$(bash "$S" --input "$(variant charter-rounds '.entry_point = "charter" | .entry_args = ["plugin-api", "--max-rounds=2"] | .run_mode = "--interactive"')" --stdout 2>"$T/ch.err")
 eq  "charter: takes --interactive and --max-rounds=N" 0 "$?"
 has "charter: --max-rounds=N on the invocation" "$C" 'Run `/shirabe:charter plugin-api --interactive --max-rounds=2` in acme/widgets.'
@@ -733,6 +778,73 @@ bash "$S" --input "$(variant rcb-80 "$COORD"' | .held_rerender = true | .role = 
 eq "role_change_by: one of 80 characters renders" 0 "$?"
 refused "role_change_by: an address other than reports_to" "$(variant rcb-other "$COORD"' | .held_rerender = true | .role = "director" | .role_change_by = "lane-other"')" \
     'role_change_by: must be reports_to, the dispatching run'"'"'s own address, not "lane-other"'
+
+# --- a successor's brief ----------------------------------------------------------------
+#
+# docs/designs/DESIGN-coordinate-successor-role.md, Decisions 3 and 5. The
+# script-only `successor` field marks the brief of a run's own successor,
+# which dispatch-worker.sh --successor writes: it renders as the same brief
+# without it, its invocation line its one line naming a role, and every
+# coordinate brief's keep-alive line names niwa rather than a role.
+rm -rf "$BRIEFS"
+SUCC_IN=$(variant succ-field "$COORD"' | .role = "manager" | .entry_args = ["docs/roadmaps/ROADMAP-plugin-system.md"] | .grant = [] | .successor = true | .goal = "Continue the plugin-system roadmap from where its record stands."')
+SUCC_B=$(bash "$S" --input "$SUCC_IN" --stdout); eq "successor: a successor brief renders" 0 "$?"
+eq "successor: its Goal line carries the record's role" \
+    'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role manager` in acme/widgets.' "$(role_lines "$SUCC_B")"
+jq 'del(.successor)' "$SUCC_IN" > "$T/succ-none.json"
+eq "successor: the field changes nothing the brief renders" "$SUCC_B" "$(bash "$S" --input "$T/succ-none.json" --stdout)"
+eq "successor: the invocation line is the brief's only line naming manager or director" \
+    'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role manager` in acme/widgets.' \
+    "$(printf '%s\n' "$SUCC_B" | grep -iwE 'managers?|directors?')"
+has "successor: a coordinate brief's keep-alive line names niwa" "$(section "$SUCC_B" Keep-alive)" "niwa schedules your keep-alive at dispatch. Don't schedule one."
+lacks "successor: ... and never the workspace manager" "$SUCC_B" "workspace manager"
+has "successor: a lane brief's keep-alive line names niwa too" "$(section "$LB" Keep-alive)" "niwa schedules your keep-alive at dispatch. Don't schedule one."
+has "successor: a worker brief keeps its keep-alive line" "$(section "$B" Keep-alive)" "The workspace manager schedules your keep-alive at dispatch. Don't schedule one."
+refused "successor: false"            "$(variant succ-false "$COORD"' | .role = "manager" | .successor = false')"         'successor: true or absent, never false'
+refused "successor: a string"         "$(variant succ-str "$COORD"' | .role = "manager" | .successor = "yes"')"         'successor: true or absent, never "yes"'
+refused "successor: on a worker entry point" "$(variant succ-worker '.successor = true')"                           'successor: only on a coordinate brief, not on deliver: true'
+refused "successor: beside held_rerender" "$(variant succ-held "$COORD"' | .role = "manager" | .held_rerender = true | .successor = true')" \
+    'successor: a successor brief is a new dispatch, never beside held_rerender or role_change_by'
+refused "successor: beside role_change_by" "$(variant succ-rcb "$COORD"' | .role = "director" | .role_change_by = "coord-alpha" | .successor = true')" \
+    'successor: a successor brief is a new dispatch, never beside held_rerender or role_change_by'
+refused "successor: with no role"     "$(variant succ-norole "$COORD"' | .successor = true')"                          'role: required on a successor brief, manager or director, and missing'
+
+# A discipline run's successor: entry_args is its four scope tokens, and
+# --role follows all four. Only `successor` admits the shape; every other
+# first flag is refused with it, and a lane never takes the shape.
+DISC='.entry_args = ["--discipline", "ci-health", "--host", "acme/widgets"]'
+DGOAL='Run `/shirabe:coordinate --discipline ci-health --host acme/widgets --role director` in acme/widgets.'
+DSUCC=$(variant succ-disc "$COORD"' | .role = "director" | .grant = [] | .successor = true | '"$DISC"' | .goal = "Continue the ci-health rotation from where its record stands."')
+DB=$(bash "$S" --input "$DSUCC" --stdout); eq "successor: a discipline successor brief renders" 0 "$?"
+eq "successor: its Goal line is the discipline invocation with --role after the scope" "$DGOAL" "$(role_lines "$DB")"
+eq "successor: ... the brief's only line naming manager or director" "$DGOAL" "$(printf '%s\n' "$DB" | grep -iwE 'managers?|directors?')"
+eq "successor: dc_invocation prints the discipline invocation" '/shirabe:coordinate --discipline ci-health --host acme/widgets --role director' \
+    "$( (. "$HERE/dispatch-common.sh" && dc_invocation "$DSUCC") )"
+RSUCC=$(variant succ-road "$COORD"' | .role = "director" | .successor = true | .entry_args = ["docs/roadmaps/ROADMAP-plugin-system.md"]')
+eq "successor: ... and over a roadmap successor the positional and --role" '/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role director' \
+    "$( (. "$HERE/dispatch-common.sh" && dc_invocation "$RSUCC") )"
+for c in 'a name outside the DISCIPLINE pattern|["--discipline","CI_Health","--host","acme/widgets"]|entry_args: the discipline name must match' \
+         'a host that is not owner/repo|["--discipline","ci-health","--host","acme"]|entry_args: the discipline host must be owner/repo' \
+         'the pair reordered|["--host","acme/widgets","--discipline","ci-health"]|entry_args: a successor brief whose scope is a discipline gives exactly' \
+         'no --host|["--discipline","ci-health"]|entry_args: a successor brief whose scope is a discipline gives exactly' \
+         'a fifth token|["--discipline","ci-health","--host","acme/widgets","--auto"]|entry_args: a successor brief whose scope is a discipline gives exactly'; do
+    label=${c%%|*} rest=${c#*|}; args=${rest%%|*} want=${rest#*|}
+    refused "successor: discipline shape, $label" "$(variant succ-dshape "$COORD"' | .role = "director" | .successor = true | .entry_args = '"$args")" "$want"
+    OUT=$(bash "$S" --input "$T/succ-dshape.json" --stdout 2>/dev/null); eq "successor: discipline shape, $label: prints no brief" "" "$OUT"
+done
+refused "successor: discipline shape on a work-on input" "$(variant succ-dworkon '.entry_point = "work-on" | .entry_args = ["acme/widgets#12"] | .successor = true')" \
+    'successor: only on a coordinate brief, not on work-on: true'
+refused "successor: discipline shape beside held_rerender" "$(variant succ-dheld "$COORD"' | .role = "director" | .held_rerender = true | .successor = true | '"$DISC")" \
+    'successor: a successor brief is a new dispatch, never beside held_rerender or role_change_by'
+refused "successor: discipline shape beside role_change_by" "$(variant succ-drcb "$COORD"' | .role = "director" | .role_change_by = "coord-alpha" | .successor = true | '"$DISC")" \
+    'successor: a successor brief is a new dispatch, never beside held_rerender or role_change_by'
+refused "successor: discipline shape with no role" "$(variant succ-dnorole "$COORD"' | .successor = true | '"$DISC")" \
+    'role: required on a successor brief, manager or director, and missing'
+refused "successor: a lane can't take the discipline shape" "$(variant succ-dlane "$COORD"' | .role = "manager" | '"$DISC")" \
+    'entry_args: the first token must be the positional argument, one line, not a flag'
+refused "successor: a lane can't add --discipline after a roadmap" \
+    "$(variant succ-dlane2 "$COORD"' | .role = "manager" | .entry_args = ["docs/roadmaps/ROADMAP-sub.md", "--discipline", "ci-health"]')" \
+    "entry_args: coordinate doesn't allow --discipline"
 
 (cd "$T/nowhere" && bash "$S" --input "$BASE" >/dev/null 2>&1); eq "no workspace root is exit 2" 2 "$?"
 bash "$S" --input "$BASE" --workspace-root "$T/nowhere" >/dev/null 2>&1; eq "a root without workspace.toml is exit 2" 2 "$?"

@@ -243,9 +243,8 @@ to_implementation() {
     # The review level, chosen before implementation: full keeps all three
     # panels on the code route this harness walks.
     "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$1" full >/dev/null 2>&1
-    # Into fix_determination, whose action binds UNIT_KIND; koto routes on it
-    # from the next tick, to implementation.
-    koto next "$1" >/dev/null 2>&1
+    # Into fix_determination, whose action records the kind and whose
+    # kind_route gate routes on it in the same tick, to implementation.
     koto next "$1" >/dev/null 2>&1
 }
 
@@ -443,7 +442,7 @@ echo "--- Case 5/6: the two summary_exists gates"
 to_finalization sum-hold
 seed_finishing sum-hold
 koto context remove sum-hold summary.md >/dev/null 2>&1
-submit sum-hold '{"finalization_status":"ready_for_pr"}'
+submit sum-hold '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
 if [ "$NEXT_STATE" = "finalization" ]; then
     pass "finalization: summary.md cleared + ready_for_pr -> state holds"
 else
@@ -462,7 +461,7 @@ seed_finishing defer-hold
 submit defer-hold '{"finalization_status":"deferral_requested"}'
 if [ "$NEXT_STATE" = "deferral_approval" ]; then
     koto context remove defer-hold summary.md >/dev/null 2>&1
-    submit defer-hold '{"approval_decision":"approved"}'
+    submit defer-hold '{"approval_decision":"approved","cleanup_done":"none_found","design_diagram":"not_applicable"}'
     if [ "$NEXT_STATE" = "deferral_approval" ]; then
         pass "deferral_approval: summary.md cleared + approved -> state holds"
     else
@@ -471,19 +470,19 @@ if [ "$NEXT_STATE" = "deferral_approval" ]; then
     # The mirror, so the case above cannot pass by way of a malformed submission
     # that the state would have refused whatever the key's status.
     seed_finishing defer-hold
-    submit defer-hold '{"approval_decision":"approved"}'
-    # The approved path now stops at pre_pr_evidence rather than chaining on to
-    # pr_creation. That is the pre-PR obligation state doing its job: it declares
-    # required evidence and conditional edges, so a tick cannot pass through it
-    # unattended. Before it existed this tick chained deferral_approval ->
-    # pr_precheck -> pr_creation in one invocation, which is precisely how a
-    # finishing obligation gets skipped without anyone seeing it. What this case
-    # pins is unchanged: with summary.md present the state ADVANCES, and with it
-    # cleared the state HOLDS.
-    if [ "$NEXT_STATE" = "pre_pr_evidence" ]; then
-        pass "deferral_approval: summary.md present + approved -> advances to pre_pr_evidence"
+    submit defer-hold '{"approval_decision":"approved","cleanup_done":"none_found","design_diagram":"not_applicable"}'
+    # The approved edge goes straight to pr_precheck, which reads the branch on
+    # entry and advances on its own when its gates pass, so the response's state
+    # may already be past it; the state log records the arrival. The pre-PR
+    # records are checked on the approved edge itself, so nothing is skipped by
+    # chaining on. What this case pins is unchanged: with summary.md present the
+    # state ADVANCES, and with it cleared the state HOLDS.
+    ARRIVED=$(jq -s '[.[] | select(.type == "transitioned" and .payload.from == "deferral_approval" and .payload.to == "pr_precheck")] | length' \
+        "$HOME/.koto/sessions/defer-hold/koto-defer-hold.state.jsonl" 2>/dev/null)
+    if [ "$NEXT_STATE" != "deferral_approval" ] && [ "$ARRIVED" = 1 ]; then
+        pass "deferral_approval: summary.md present + approved -> advances to pr_precheck"
     else
-        fail "deferral_approval: summary.md present + approved -> expected pre_pr_evidence, got [$NEXT_STATE]"
+        fail "deferral_approval: summary.md present + approved -> expected pr_precheck, got [$NEXT_STATE] (arrivals: [$ARRIVED])"
     fi
     # And the rejected exit stays reachable with the key absent -- deferral_approval's
     # own route to a terminal state, the analogue of the escalate exits elsewhere.
@@ -503,7 +502,7 @@ fi
 
 to_finalization sum-adv
 seed_finishing sum-adv
-submit sum-adv '{"finalization_status":"ready_for_pr"}'
+submit sum-adv '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
 if [ "$NEXT_STATE" != "finalization" ] && [ -n "$NEXT_STATE" ]; then
     pass "finalization: summary.md present + ready_for_pr -> advances to $NEXT_STATE"
 else
@@ -576,7 +575,7 @@ check_no_direct_finalization_to_panel() {
     seed graph-check summary.md
     submit graph-check '{"finalization_status":"deferral_requested"}'
     if [ "$NEXT_STATE" = "deferral_approval" ]; then
-        submit graph-check '{"approval_decision":"approved"}'
+        submit graph-check '{"approval_decision":"approved","cleanup_done":"none_found","design_diagram":"not_applicable"}'
         case "$NEXT_STATE" in
             scrutiny|review|qa_validation)
                 fail "deferral_approval reaches a panel directly -- summary.md in the panel blocks is now load-bearing and the DESIGN says it is not"
@@ -1010,7 +1009,7 @@ else
     if [ -n "$BCTX" ] && [ -d "$BCTX" ]; then
         LOCKED_DIR="$BCTX"
         chmod a-rx "$BCTX"
-        koto next buffered --with-data '{"finalization_status":"ready_for_pr"}' >/dev/null 2>&1
+        koto next buffered --with-data '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}' >/dev/null 2>&1
         chmod u+rwx "$BCTX" 2>/dev/null
         settled=$(koto next buffered 2>/dev/null | grep -o '"state":"[^"]*"' | tail -1 | cut -d'"' -f4)
         if [ -n "$settled" ] && [ "$settled" != "finalization" ]; then

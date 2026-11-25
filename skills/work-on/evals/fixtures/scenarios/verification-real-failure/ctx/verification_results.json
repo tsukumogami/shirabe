@@ -1,0 +1,22 @@
+{
+  "schema": "shirabe-verification-result/v1",
+  "head": "c4e7a1d9b3f60e28a5c1d7b9e4f2a6c0d8b3e1f5",
+  "merge_base": "8a1b4c7d0e3f6a9b2c5d8e1f4a7b0c3d6e9f2a5b",
+  "status": "done",
+  "detail": "",
+  "commands": [
+    {
+      "id": "unit",
+      "argv": ["go", "test", "./..."],
+      "exit_status": 1,
+      "duration_secs": 12,
+      "timed_out": false,
+      "runaway": false,
+      "not_started": false,
+      "pgid": 51877,
+      "log": "/tmp/state/shirabe/verification/work-on/c4e7a1d9b3f60e28a5c1d7b9e4f2a6c0d8b3e1f5/attempts/1/0-unit.log",
+      "outcome": "failed",
+      "suites": null
+    }
+  ]
+}

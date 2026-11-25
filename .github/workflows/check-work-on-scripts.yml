@@ -560,6 +560,15 @@ jobs:
         if: runner.os == 'Linux'
         run: bash scripts/lib/default-remote-ref_test.sh
 
+      # The await_removals gate: the shipped work-on.md driven through a real
+      # koto while a stand-in removal's record reads live, holding before
+      # setup on each path and moving on once it reads done. The engine cases
+      # skip without koto; the macOS leg runs it on the floor through the
+      # work-on suite.
+      - name: Run await-removals route tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/await-removals-routes_test.sh
+
       # fix-kind.sh (a fix from a label, a Fixes line or a declaration, never
       # withdrawn) and red-first.sh (the red on the base, observations, the
       # green, and both gates) against git fixtures through koto and gh

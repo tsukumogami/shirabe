@@ -797,11 +797,11 @@ ladder "$LOGS/elsewhere.jsonl" g t/multi
 
 # The same gate in two states: the state is read from the latest transition.
 mklog "$LOGS/moved.jsonl" finalization "$(fail_ev finalization g t/multi 2)"
-printf '%s\n' '{"seq":9,"timestamp":"t","type":"transitioned","payload":{"from":"finalization","to":"pre_pr_evidence"}}' >> "$LOGS/moved.jsonl"
+printf '%s\n' '{"seq":9,"timestamp":"t","type":"transitioned","payload":{"from":"finalization","to":"pr_precheck"}}' >> "$LOGS/moved.jsonl"
 ladder "$LOGS/moved.jsonl" g t/multi
 [ "$(released t/multi)" = 0 ] && pass "ladder: a count recorded in another state doesn't follow the gate" \
     || fail "ladder moved" "err=[$(cat "$T/lerr")]"
-printf '%s\n' '{"seq":10,"timestamp":"t","type":"rewound","payload":{"from":"pre_pr_evidence","to":"finalization"}}' >> "$LOGS/moved.jsonl"
+printf '%s\n' '{"seq":10,"timestamp":"t","type":"rewound","payload":{"from":"pr_precheck","to":"finalization"}}' >> "$LOGS/moved.jsonl"
 ladder "$LOGS/moved.jsonl" g t/multi
 [ "$(released t/multi)" = 1 ] && [ "$(notices)" = 1 ] \
     && pass "ladder: a rewind back makes the earlier state's count current" || fail "ladder rewound" "err=[$(cat "$T/lerr")]"

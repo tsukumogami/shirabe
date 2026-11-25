@@ -7,8 +7,10 @@
 #
 # Usage:
 #   state-stored-set.sh --session S --run KEY VALUE --by WHO
-#   state-stored-set.sh --session S --run reports-to|cap VALUE --inferred SENTENCE --by WHO
+#   state-stored-set.sh --session S --run reports-to|cap|parked-bound VALUE --inferred SENTENCE --by WHO
 #   state-stored-set.sh --session S --run role manager|director --by WHO [--intervention dispatcher|person]
+#   state-stored-set.sh --session S --successor dispatching|dispatched|dispatch-failed|stranded TOPIC --by RUN
+#   state-stored-set.sh --session S --successor clear --by WHO
 #   state-stored-set.sh --session S --host KEY VALUE [--host KEY VALUE]...
 #   state-stored-set.sh --session S --rule-files FILE --by WHO
 #   state-stored-set.sh --session S --rotation FILE
@@ -34,7 +36,8 @@
 # tests only, with RS_SESSION naming the session that holds the record.
 #
 # --run sets one Run key: arguments (the run's arguments as given), cap (a
-# number), coordinator (the address messages to this coordinator reach: a
+# number), parked-bound (a number: how many parked workers may wait before pick
+# dispatches nothing new, over the PARKED_BOUND variable), coordinator (the address messages to this coordinator reach: a
 # session name a worker can message, `_` allowed, or a dispatch topic; never
 # an id or a path). `store` is no Run key here (65): the record's store is
 # always the coordinator's session, and the legacy `store session` row a session
@@ -65,7 +68,7 @@
 # coordinator that dispatched it) and, for a coordinator, its messaging
 # address. --run doesn't take `briefs-read`: only --intake writes or removes
 # that row (64).
-# --inferred SENTENCE marks a `reports-to` or `cap` value the coordinator
+# --inferred SENTENCE marks a `reports-to`, `cap` or `parked-bound` value the coordinator
 # worked out rather than read from its brief, its dispatch link or a
 # person's message (docs/designs/DESIGN-coordinator-standing-rule-provenance.md,
 # Decision 5): the same write also adds a Standing `rule` row whose What is
@@ -76,7 +79,8 @@
 # bytes, the 120-rule and 60-inferred caps, the forge reads), so a refusal
 # of either writes neither (65, or 2 for a read that fails). Two entries
 # follow it: the `run` entry, then the `rule` entry `s<n> (rule): SENTENCE.
-# Source: inferred.` --inferred goes only with --run reports-to or --run cap,
+# Source: inferred.` --inferred goes only with --run reports-to, --run cap or
+# --run parked-bound,
 # once, and not empty (64, before anything is read).
 # Where those files live
 # goes in record/host, through
@@ -107,6 +111,26 @@
 # run yet), the path --rule-files takes below; without it --run role needs a
 # found record, as every other --run key does. The only other writer of the
 # row is state-open.sh's seed. Readers read it through state-read.sh --run.
+#
+# --successor writes the run's one Run `successor` row, the successor this
+# run dispatched and how its dispatch stands, `<status> <topic>
+# <YYYY-MM-DD>` with the day written, its Set by RUN (the run that
+# dispatched it, which dispatch-worker.sh --successor names). `--run
+# successor` is a usage error (64): this mode is the row's only writer. TOPIC
+# is a dispatch topic (^[a-z0-9][a-z0-9-]*$, at most 64 characters) and RUN
+# a koto session name, else 65. Each status moves only from the row as
+# read: `dispatching` from no row, or from a `dispatch-failed` or `stranded`
+# row under another topic (a new attempt takes a new topic); `dispatched` and
+# `dispatch-failed` from a `dispatching` row of the same topic; `stranded`
+# from a `dispatched` row of the same topic. Any other move is refused (65),
+# naming the row as it stands, and nothing is written. `--successor clear`
+# removes the row, whatever it reads, and with no row writes and prints
+# nothing and exits 0: a successor's opener runs it on the record it took
+# over, when its --dispatched-by names the run in the row's Set by
+# (coordinate-open.sh). Each write is told as a `run` entry naming the row,
+# and a `dispatching` or `dispatched` one also names the successor's brief
+# (.niwa/dispatch-briefs/<topic>.md under the workspace root) and the role
+# the record's Run `role` row holds, which the brief renders.
 #
 # --rule-files FILE writes the `rules` rows of the files the session loaded
 # as rules, from rule-files.sh's list in FILE: one {label, path, digest}
@@ -388,6 +412,8 @@ set -uo pipefail
 PROG=state-stored-set
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= MODE=
+# --successor's status and topic.
+SSTATUS= STOPIC=
 KEY= VALUE= BY= WHO= KIND= WHAT= OWNER= RELAYED= ID= ITEM= NEXT= ON= UNTIL= RFILE=
 # --intake's brief label.
 ILABEL=
@@ -416,6 +442,8 @@ while [ $# -gt 0 ]; do
         --host) [ $# -ge 3 ] || usage; [ "$MODE" = host ] || setmode host
                 case "$2$3" in *$'\t'*|*$'\n'*) echo "$PROG: refused: a --host key or value holds a tab or a newline" >&2; exit 65 ;; esac
                 HOSTKV="$HOSTKV$2"$'\t'"$3"$'\n'; shift 3 ;;
+        --successor) [ $# -ge 2 ] || usage; setmode successor; SSTATUS=$2
+                     if [ "$2" = clear ]; then shift 2; else [ $# -ge 3 ] || usage; STOPIC=$3; shift 3; fi ;;
         --rotation) [ $# -ge 2 ] || usage; setmode rotation; RFILE=$2; shift 2 ;;
         --rule-files) [ $# -ge 2 ] || usage; setmode rule-files; RFILE=$2; shift 2 ;;
         --reasoning-file) [ $# -ge 2 ] || usage; setmode reasoning; RFILE=$2; shift 2 ;;
@@ -451,9 +479,12 @@ done
 case "$MODE" in
     run) [ "$KEY" != store ] || { echo "$PROG: refused: run.key: store is not a Run key this script sets; the record's store is always the coordinator's session" >&2; exit 65; }
          [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage
-         case "$KEY" in arguments|cap|coordinator|rules|briefs|friction|reports-to|role) ;;
-             *) echo "$PROG: --run takes arguments, cap, coordinator, rules, briefs, friction, reports-to or role" >&2; exit 64 ;; esac ;;
+         case "$KEY" in arguments|cap|parked-bound|coordinator|rules|briefs|friction|reports-to|role) ;;
+             *) echo "$PROG: --run takes arguments, cap, parked-bound, coordinator, rules, briefs, friction, reports-to or role" >&2; exit 64 ;; esac ;;
     host) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
+    successor) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage
+               case "$SSTATUS" in dispatching|dispatched|dispatch-failed|stranded|clear) ;;
+                   *) echo "$PROG: --successor takes dispatching, dispatched, dispatch-failed, stranded or clear" >&2; exit 64 ;; esac ;;
     rule-files) [ -n "$BY" ] && [ -r "$RFILE" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     rotation|reasoning) [ -r "$RFILE" ] && [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     reasoning-check) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
@@ -487,11 +518,11 @@ fi
 if [ "$HAS_SOURCE" = 1 ] && { [ "$MODE" != standing ] || [ "$KIND" != rule ]; }; then
     echo "$PROG: --source goes only with --standing rule" >&2; exit 64
 fi
-# --inferred goes only with --run reports-to or --run cap, a value the
-# coordinator worked out, and carries the reading's sentence.
+# --inferred goes only with --run reports-to, --run cap or --run parked-bound,
+# a value the coordinator worked out, and carries the reading's sentence.
 if [ "$HAS_INFERRED" = 1 ]; then
-    { [ "$MODE" = run ] && { [ "$KEY" = reports-to ] || [ "$KEY" = cap ]; }; } \
-        || { echo "$PROG: --inferred goes only with --run reports-to or --run cap" >&2; exit 64; }
+    { [ "$MODE" = run ] && { [ "$KEY" = reports-to ] || [ "$KEY" = cap ] || [ "$KEY" = parked-bound ]; }; } \
+        || { echo "$PROG: --inferred goes only with --run reports-to or --run cap, or with --run parked-bound" >&2; exit 64; }
     [ -n "$INFERRED" ] || { echo "$PROG: --inferred takes the reading's sentence" >&2; exit 64; }
 fi
 if [ "$MODE" = standing ] && [ "$KIND" = rule ]; then
@@ -508,6 +539,16 @@ if [ "$MODE" = run ] && [ "$KEY" = role ]; then
     esac
     case "$BY" in *[[:cntrl:]]*) echo "$PROG: refused: --by for --run role is one line, with no line break or control character" >&2; exit 65 ;; esac
     [ "$(jq -rn --arg b "$BY" '$b | length')" -le 80 ] || { echo "$PROG: refused: --by for --run role is at most 80 characters" >&2; exit 65; }
+fi
+# The successor row's topic and who set it, checked before anything is read.
+if [ "$MODE" = successor ]; then
+    case "$BY" in *[[:cntrl:]]*) echo "$PROG: refused: --by for --successor is one line, with no line break or control character" >&2; exit 65 ;; esac
+    if [ "$SSTATUS" != clear ]; then
+        { [ "${#STOPIC}" -le 64 ] && [[ $STOPIC =~ ^[a-z0-9][a-z0-9-]*$ ]]; } \
+            || { echo "$PROG: refused: --successor takes a dispatch topic, ^[a-z0-9][a-z0-9-]*\$ (at most 64 characters)" >&2; exit 65; }
+        { [ "${#BY}" -le 200 ] && [[ $BY =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; } \
+            || { echo "$PROG: refused: --by for --successor names the run that dispatched it, a koto session name" >&2; exit 65; }
+    fi
 fi
 [ "$COUNTS" = 0 ] || { [ "$MODE" = rules ] && [ -z "$RIDS" ]; } || usage
 . "$HERE/state-common.sh"
@@ -1148,6 +1189,40 @@ standing)
     else
         ETEXT="$SID ($KIND${ON:+ on $ON}${UNTIL:+, until $UNTIL}): $WHAT. Owner: $OWNER.${RELAYED:+ Relayed by $RELAYED.}"
     fi
+    ;;
+successor)
+    OLDV=$(jq -r '[(.run // [])[] | select(.key == "successor") | .value][0] // ""' "$P") || lib_die2 "jq failed"
+    OLDS=${OLDV%% *} OLDT=${OLDV#* }
+    OLDT=${OLDT%% *}
+    if [ "$SSTATUS" = clear ]; then
+        [ -n "$OLDV" ] || exit 0
+        jq '.run = [(.run // [])[] | select(.key != "successor")]' "$P" > "$WD/next.json" || lib_die2 "jq failed"
+        ETEXT="Run successor $OLDV cleared by $BY."
+    else
+        STANDS="the successor row reads ${OLDV:-nothing}"
+        case "$SSTATUS" in
+            dispatching)
+                if [ -n "$OLDV" ]; then
+                    case "$OLDS" in dispatch-failed|stranded) ;;
+                        *) refuse "$STANDS, a successor still pending; another is dispatched only once it is dispatch-failed or stranded" ;; esac
+                    [ "$OLDT" != "$STOPIC" ] || refuse "$STANDS; a new attempt takes a new topic, not $STOPIC"
+                fi ;;
+            dispatched|dispatch-failed)
+                [ "$OLDS" = dispatching ] && [ "$OLDT" = "$STOPIC" ] || refuse "$STANDS; $SSTATUS follows only a dispatching row of $STOPIC" ;;
+            stranded)
+                [ "$OLDS" = dispatched ] && [ "$OLDT" = "$STOPIC" ] || refuse "$STANDS; stranded follows only a dispatched row of $STOPIC" ;;
+        esac
+        VALUE="$SSTATUS $STOPIC ${NOW%%T*}"
+        jq --arg v "$VALUE" --arg b "$BY" --arg t "$NOW" \
+            '.run = ([(.run // [])[] | select(.key != "successor")] + [{key: "successor", value: $v, set_by: $b, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
+        ETEXT="Run successor $VALUE set by $BY."
+        case "$SSTATUS" in
+            dispatching|dispatched)
+                SROLE=$(jq -r '[(.run // [])[] | select(.key == "role") | .value][0] // "none"' "$P") || lib_die2 "jq failed"
+                ETEXT="Run successor $VALUE set by $BY: the brief .niwa/dispatch-briefs/$STOPIC.md, role $SROLE." ;;
+        esac
+    fi
+    EKIND=run
     ;;
 end)
     ROW=$(jq -c --arg s "$ID" '[(.standing // [])[] | select(.standing == $s)][0] // empty' "$P")

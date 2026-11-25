@@ -25,7 +25,11 @@
 #   - the acceptance criteria or the plan changed since a seat judged (the git
 #     hash of the `context.md` and `plan.md` context keys differs). context.md
 #     is written at setup and plan.md at analysis, so in practice this fires
-#     when a scope_expanded_retry or scope_changed_retry rewrote the plan
+#     when a scope_expanded_retry or scope_changed_retry rewrote the plan. A
+#     seat whose verdict a fix round inherited, judged no later than the
+#     round's base, is held to the criteria alone: the round's stored
+#     acceptance criteria (review_level_criteria.txt) must hash to the
+#     ledger's `inherited.criteria_sha`, since its plan.md is the fix's
 #   - the working tree has uncommitted changes, untracked files included (the
 #     fix may not be committed, and the diff below would miss it)
 #   - there are no commits since impl_base, or no impl_base recorded (nothing
@@ -35,7 +39,10 @@
 #     marker, a finding record not written by the agent) is no longer an
 #     ancestor of HEAD (a rebase or reset rewrote what it judged)
 #   - the panel's newest recorded commit has no commits since impl_base: its
-#     seats judged an empty change, so they have not reviewed this one
+#     seats judged an empty change, so they have not reviewed this one. A
+#     ledger a fix round inherited (`inherited`) is the exception when that
+#     commit is no later than the round's base: there the seats judged the
+#     run the round follows, and the round's fix is the diff from it
 #   - the diff from the panel's newest recorded commit to HEAD changes more
 #     than THRESHOLD_LINES lines (added plus deleted per --numstat, a binary
 #     file 1 per side), or that diff fails. A fix that large is new work, and
@@ -132,6 +139,12 @@
 #                                the number of findings --verdict would print,
 #                                on stdout, with no side effect; for
 #                                panel-retry-budget.sh.
+#   --open-ids <panel> <session>
+#                                the ids of those same findings, one per
+#                                line, in --verdict's order, with no side
+#                                effect; for panel-retry-budget.sh, which
+#                                compares them with the previous blocking
+#                                round's.
 #   --record <panel> <session> <round-file>
 #                                the agent, at aggregation, for every run it
 #                                spawned this round, passed or blocking. Records
@@ -176,6 +189,7 @@
 #        panel-scope.sh --recorded <panel> <koto-session-name>
 #        panel-scope.sh --verdict <panel> <koto-session-name>
 #        panel-scope.sh --open-count <panel> <koto-session-name>
+#        panel-scope.sh --open-ids <panel> <koto-session-name>
 #        panel-scope.sh --record  <panel> <koto-session-name> <round-file>
 #        panel-scope.sh --mark-fixed <panel> <koto-session-name> <id>...
 #        panel-scope.sh --promote <panel> <koto-session-name> <id> <reason>
@@ -308,8 +322,12 @@
 #                          "decider_events": [...],
 #                          "history": [{"panel", "round", "head", "rev",
 #                          "spawned", "decisions": [{seat, decision, reason,
-#                          findings?, run?}]}]}
+#                          findings?, run?}]}],
+#                          "inherited": {from, base, criteria_sha}?}
 #                         Never cleared by a retry: it is what survives one.
+#                         `inherited` is set only in a fix round, by
+#                         fix-round.sh, which copied the ledger from the run
+#                         the round follows.
 #                         The seat entries are summaries of the findings, kept
 #                         in the shape review-packet.sh reads.
 #   <panel>_scope.json    this entry's decisions, for the agent to act on:
@@ -336,8 +354,8 @@
 # trigger is for a fix not yet committed and is not a way to reopen one.
 #
 # Diagnostics go to stderr. --plan prints the scope it wrote on stdout, for a
-# human running it by hand; --verdict prints its findings and --open-count its
-# count on stdout; the other modes print nothing.
+# human running it by hand; --verdict prints its findings, --open-count its
+# count and --open-ids its ids on stdout; the other modes print nothing.
 #
 # --verdict prints one koto finding per unclosed blocking finding:
 #   ::koto-finding::{"rule_id":"panel/open-finding","level":"error",
@@ -358,7 +376,8 @@
 #          --recorded: every planned run was recorded, or there is no scope or
 #          ledger to check. --verdict: every blocking finding is closed, or
 #          panel/open-finding is below the block stage.
-#          --open-count: the count is printed.
+#          --open-count: the count is printed. --open-ids: the ids are
+#          printed, none when nothing is open.
 #   1   -- --carried: something has to run, a blocking finding is unclosed,
 #          the working tree is dirty, or the scope is missing, stale,
 #          unreadable or has no carried results beside it. --recorded: a
@@ -367,11 +386,12 @@
 #          nothing else: a gate exit the template does not route would hold
 #          the state, and the safe answer to every doubt is "run the panel" or
 #          "record the round".
-#   2   -- --verdict and --open-count, for every doubt they have: a run the
-#          scope planned has no record, a seat of the panel has no verdict at
-#          all, the ledger is unreadable or has no `findings` key, the scope
-#          can't be read, panel/open-finding can't be resolved, or a usage
-#          error. 2 wins over 1: a verdict it can't compute holds the panel
+#   2   -- --verdict, --open-count and --open-ids, for every doubt they
+#          have: a run the scope planned has no record, a seat of the panel
+#          has no verdict at all, the ledger is unreadable or has no
+#          `findings` key, the scope can't be read, panel/open-finding can't
+#          be resolved, an open finding whose id isn't 16 hex characters
+#          (--open-ids), or a usage error. 2 wins over 1: a verdict it can't compute holds the panel
 #          state, where a 1 would send the agent to a retry or an escalation
 #          on a guess.
 #   64  -- not a git repository, HEAD names no commit, or mktemp failed
@@ -435,21 +455,21 @@ if [ "$MODE" = "--due-items" ]; then
 fi
 
 # The gate modes answer every doubt, usage errors included, with one exit: 1
-# for --carried and --recorded, 2 for --verdict and --open-count. See Exit
-# codes.
+# for --carried and --recorded, 2 for --verdict, --open-count and --open-ids.
+# See Exit codes.
 refuse() {
     # $1 exit code for the other modes, $2 message
     case "$MODE" in
         --carried|--recorded) echo "panel-scope: $2" >&2; exit 1 ;;
-        --verdict|--open-count|--due-items) echo "panel-scope: $2" >&2; exit 2 ;;
+        --verdict|--open-count|--open-ids|--due-items) echo "panel-scope: $2" >&2; exit 2 ;;
     esac
     die "$1" "$2"
 }
 
 case "$MODE" in
-    --plan|--carried|--recorded|--verdict|--open-count|--record|--mark-fixed|--promote|--due-items) ;;
-    "") die 67 "missing mode: expected --plan, --carried, --recorded, --verdict, --open-count, --record, --mark-fixed, --promote or --due-items" ;;
-    *)  die 67 "unrecognised mode [$MODE]: expected --plan, --carried, --recorded, --verdict, --open-count, --record, --mark-fixed, --promote or --due-items" ;;
+    --plan|--carried|--recorded|--verdict|--open-count|--open-ids|--record|--mark-fixed|--promote|--due-items) ;;
+    "") die 67 "missing mode: expected --plan, --carried, --recorded, --verdict, --open-count, --open-ids, --record, --mark-fixed, --promote or --due-items" ;;
+    *)  die 67 "unrecognised mode [$MODE]: expected --plan, --carried, --recorded, --verdict, --open-count, --open-ids, --record, --mark-fixed, --promote or --due-items" ;;
 esac
 
 # seats_of <panel>: the panel's real seats, or nothing for a panel that isn't
@@ -655,12 +675,13 @@ if [ "$MODE" = "--recorded" ]; then
     exit 0
 fi
 
-# ------------------------------------------------- --verdict and --open-count --
+# ------------------------------------ --verdict, --open-count and --open-ids --
 
-# The panel's pass, from the ledger's records, and the count of what blocks it.
-# Both hold (2) on a round that isn't fully recorded: a count read off a
-# half-recorded round would feed the retry budget a number no round produced.
-if [ "$MODE" = "--verdict" ] || [ "$MODE" = "--open-count" ]; then
+# The panel's pass, from the ledger's records, and the count and ids of what
+# blocks it. All three hold (2) on a round that isn't fully recorded: a count
+# or an id list read off a half-recorded round would feed the retry budget
+# something no round produced.
+if [ "$MODE" = "--verdict" ] || [ "$MODE" = "--open-count" ] || [ "$MODE" = "--open-ids" ]; then
     if [ "$MODE" = "--verdict" ]; then
         # The generic rule resolves before the ledger is read, so a registry
         # problem holds the gate whether or not a finding is open.
@@ -688,6 +709,14 @@ if [ "$MODE" = "--verdict" ] || [ "$MODE" = "--open-count" ]; then
         || refuse 2 "could not read the findings in $LEDGER"
     if [ "$MODE" = "--open-count" ]; then
         printf '%s' "$open" | jq 'length'
+        exit 0
+    fi
+    if [ "$MODE" = "--open-ids" ]; then
+        # Every id is checked before any is printed, so a caller never reads
+        # a partial list as the round's.
+        printf '%s' "$open" | jq -e 'all(.[]; (.id | type) == "string" and (.id | test("^[0-9a-f]{16}$")))' >/dev/null \
+            || refuse 2 "an unclosed finding of $PANEL in $LEDGER has no id of 16 hex characters"
+        printf '%s' "$open" | jq -r '.[].id'
         exit 0
     fi
     [ "$(printf '%s' "$open" | jq 'length')" != 0 ] || exit 0
@@ -1628,6 +1657,33 @@ recorded_commits() {
         | map(select(type == "string" and test("^[0-9a-f]{40}$"))) | unique | .[]'
 }
 
+# A ledger a fix round inherited (fix-round.sh copies it from the run the
+# round follows): its seats judged that run's change, up to the round's base.
+# INHERITED_BASE is that base when it names a commit here; INHERITED_CTX is 1
+# when the round's acceptance criteria are the ones those seats judged
+# against: review_level_criteria.txt, the criteria section review-level.sh
+# stored from context.md, hashes to the ledger's `inherited.criteria_sha`.
+# The rest of context.md is the round's own issue text and may differ, and
+# its plan.md describes the fix, so ac_sha always differs for an inherited
+# seat; the criteria are what the round is held to.
+INHERITED_BASE=$(printf '%s' "$LEDGER_JSON" | jq -r '(.inherited // {}).base // "" | strings')
+is_commit "$INHERITED_BASE" || INHERITED_BASE=""
+INHERITED_CTX=0
+if [ -n "$INHERITED_BASE" ]; then
+    want=$(printf '%s' "$LEDGER_JSON" | jq -r '(.inherited // {}).criteria_sha // "" | strings')
+    have=$(ctx_get review_level_criteria.txt | git hash-object --stdin)
+    [ -n "$want" ] && [ "$want" = "$have" ] && INHERITED_CTX=1
+fi
+
+# inherited_seat <seat>: the seat's verdict was inherited and judged no later
+# than the round's base, under the same criteria.
+inherited_seat() {
+    local at
+    [ "$INHERITED_CTX" = 1 ] || return 1
+    at=$(printf '%s' "$LEDGER_JSON" | jq -r --arg k "$PANEL/$1" '(.seats // {})[$k].judged_at // "" | strings')
+    is_commit "$at" && git merge-base --is-ancestor "$at" "$INHERITED_BASE"
+}
+
 FULL_REASON=""
 for seat in $SEATS; do
     has=$(printf '%s' "$LEDGER_JSON" | jq -r --arg k "$PANEL/$seat" '(.seats // {})[$k].verdict // empty')
@@ -1642,7 +1698,7 @@ fi
 if [ -z "$FULL_REASON" ]; then
     for seat in $SEATS; do
         ac=$(printf '%s' "$LEDGER_JSON" | jq -r --arg k "$PANEL/$seat" '(.seats // {})[$k].ac_sha // ""')
-        if [ "$ac" != "$AC_SHA" ]; then
+        if [ "$ac" != "$AC_SHA" ] && ! inherited_seat "$seat"; then
             FULL_REASON="the acceptance criteria or the plan changed since $seat judged"
             break
         fi
@@ -1667,7 +1723,8 @@ if [ -z "$FULL_REASON" ]; then
     PANEL_BASE=$(pick_commit newest < "$WORK/pcommits")
     if [ -z "$PANEL_BASE" ]; then
         FULL_REASON="the panel has recorded no commit to measure a fix from"
-    elif [ "$(git rev-list --count "$IMPL_BASE..$PANEL_BASE" || echo 0)" = 0 ]; then
+    elif [ "$(git rev-list --count "$IMPL_BASE..$PANEL_BASE" || echo 0)" = 0 ] \
+        && ! { [ -n "$INHERITED_BASE" ] && git merge-base --is-ancestor "$PANEL_BASE" "$INHERITED_BASE"; }; then
         FULL_REASON="the panel last judged no commit since impl_base, so its seats have not reviewed the change"
     elif ! changed=$(changed_lines "$PANEL_BASE"); then
         FULL_REASON="git diff from $(printf '%.12s' "$PANEL_BASE") failed"

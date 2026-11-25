@@ -1,0 +1,14 @@
+ok  	example.com/tool/internal/config	0.021s
+=== RUN   TestSlugify
+=== RUN   TestSlugify/spaces
+=== RUN   TestSlugify/underscore
+    slug_test.go:27: Slugify("my_tool") = "my_tool", want "my-tool"
+=== RUN   TestSlugify/punctuation
+--- FAIL: TestSlugify (0.00s)
+    --- PASS: TestSlugify/spaces (0.00s)
+    --- FAIL: TestSlugify/underscore (0.00s)
+    --- PASS: TestSlugify/punctuation (0.00s)
+FAIL
+FAIL	example.com/tool/internal/slug	0.012s
+ok  	example.com/tool/cmd	0.034s
+FAIL

@@ -47,6 +47,9 @@ skills/execute/scripts/shared-deferral-record_test.sh
 # ci_monitor's ci_fix_tests_judged script, over a koto stand-in and
 # real git: every case runs on 3.2.
 skills/execute/scripts/ci-fix-tests_test.sh
+# The re-run record gate: the same split, its stub cases on 3.2 and
+# its engine cases skipped without koto.
+skills/execute/scripts/shared-rerun-record_test.sh
 # Its script cases write through a koto stand-in and need only git
 # and jq, so they run on the macOS leg; its engine cases skip there.
 skills/execute/scripts/drift-facts_test.sh
@@ -55,6 +58,7 @@ skills/execute/scripts/drift-facts_test.sh
 # case runs on 3.2; the envelope's structure test compiles with
 # koto and its engine test runs it, each skipping without koto.
 skills/execute/scripts/run-record_test.sh
+skills/execute/scripts/build-output-end_test.sh
 skills/execute/scripts/coordinated-next_test.sh
 skills/execute/scripts/coordination-verdict_test.sh
 skills/execute/scripts/record-coordination-verdict_test.sh
@@ -63,6 +67,7 @@ skills/execute/scripts/record-coord-follow-up_test.sh
 skills/execute/scripts/worktree-isolation_test.sh
 skills/execute/scripts/node-cut_test.sh
 skills/execute/scripts/node-push_test.sh
+skills/execute/scripts/node-push-rerun-adopt_test.sh
 skills/execute/scripts/child-read_test.sh
 skills/execute/scripts/repo-visibility_test.sh
 skills/execute/scripts/coordinated-visibility_test.sh

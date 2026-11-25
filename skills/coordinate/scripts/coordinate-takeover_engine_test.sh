@@ -5,7 +5,7 @@
 #
 # Proves, on a run A opened by one Claude session (CLAUDE_CODE_SESSION_ID set
 # by the suite, a synthetic value per session) and holding one dispatched and
-# one parked holding (a verified, ready pull request waiting on a merge),
+# one parked holding (a ready pull request whose checks passed, waiting on a merge),
 # record entries, two open legs (one taken), taken_legs and leg_children:
 #   1. the opener run by another Claude session from another directory prints
 #      outcome=continued, predecessor=A, session=B and, A's last koto event
@@ -737,6 +737,60 @@ if to_reconciled unfinished "$(two_holdings unfinished)"; then
     eq "12:   ... with one takeover entry" 1 "$( (cd "$T/work2" && bash "$PS/state-entry.sh" --session "$SUCC" --list 2>/dev/null) | jq '[.[] | select(.kind == "takeover")] | length')"
 else
     bad "12: the fifth run opens and reconciles" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 13. the successor re-briefs a worker the predecessor dispatched -----------
+# A successor starts at start, so it never passes dispatch for a worker A
+# dispatched. When that worker reports and needs another brief, rebrief reads
+# the brief input A wrote at dispatch, and leg_pick's select reads the
+# wait_target and leg_consumed A's wait_leg left: the fence carries all three.
+export CLAUDE_CODE_SESSION_ID=$A_ID
+WD=$T/work
+if to_reconciled rebrief "$(two_holdings rebrief | jq -c '.holdings[0].entry_point = "deliver"')"; then
+    RA=$S
+    put "$RA" brief_input.json "$(brief feat-1 "Feature 1" deliver feat-1 executing)"
+    put "$RA" wait_target '{"path":"leg","request":"req-r1","leg":"work-on","topic":"feat-1"}'
+    put "$RA" leg_consumed yes
+    RA_KEYS=$(for k in brief_input.json wait_target leg_consumed; do
+        printf '%s %s\n' "$k" "$( (cd "$WD" && koto context get "$RA" "$k") | $SHA256 | cut -d' ' -f1)"; done)
+    export CLAUDE_CODE_SESSION_ID=$B_ID
+    opener rebrief "$T/work2"
+    RB=$(line session)
+    eq "13: B takes the run over" "0 continued $RA" "$ORC $(line outcome) $(line predecessor)"
+    RB_KEYS=$(for k in brief_input.json wait_target leg_consumed; do
+        printf '%s %s\n' "$k" "$( (cd "$T/work2" && koto context get "$RB" "$k" 2>/dev/null) | $SHA256 | cut -d' ' -f1)"; done)
+    eq "13: B holds A's brief_input.json, wait_target and leg_consumed" "$RA_KEYS" "$RB_KEYS"
+    S=$RB WD=$T/work2
+    eq "13: B reaches its first reconcile" reconcile "$(at)"
+    write_as_agent state-stored-set.sh --told feat-1 --by coord-b && write_as_agent state-stored-set.sh --told feat-2 --by coord-b
+    eq "13: B records both workers told" 0 $?
+    eq "13: B is at pick after its reconcile" pick "$(at --with-data '{"reconciled":"reported"}')"
+    eq "13: B holds and waits" wait "$(at --with-data '{"choice":"hold"}')"
+    eq "13: feat-1's report reaches classify_report" classify_report \
+        "$(at --with-data '{"event":"report","unit":"feat-1","report":"CI fails on the new test; needs another brief"}')"
+    eq "13: needs_fix reaches rebrief" rebrief "$(at --with-data '{"classification":"needs_fix"}')"
+    # The directive: update the brief input with what was learned, then run
+    # dispatch-worker.sh --rebrief.
+    if UPD=$( (cd "$WD" && koto context get "$S" brief_input.json 2>"$T/bi.err") | jq -c '.checkpoints += ["The new test passes."]') && [ -n "$UPD" ]; then
+        ok "13: B reads the brief input it needs at rebrief (brief_input.json)"
+        printf '%s' "$UPD" > "$T/brief.json"
+        (cd "$WD" && koto context add "$S" brief_input.json --from-file "$T/brief.json" >/dev/null)
+    else
+        bad "13: B reads the brief input it needs at rebrief (brief_input.json)" "$(cat "$T/bi.err")"
+    fi
+    : > "$WD/.niwa/workspace.toml"
+    (cd "$WD" && bash "$PS/dispatch-worker.sh" --session "$S" --rebrief >"$T/dw.out" 2>"$T/dw.err"); DW_RC=$?
+    rm -f "$WD/.niwa/workspace.toml"
+    eq "13: dispatch-worker.sh --rebrief from B exits 0" "0 brief=$WD/.niwa/dispatch-briefs/feat-1.md" "$DW_RC $(cat "$T/dw.out")"
+    grep -qF 'The new test passes.' "$WD/.niwa/dispatch-briefs/feat-1.md" 2>/dev/null \
+        && ok "13:   ... its brief carrying the updated brief input" || bad "13:   ... its brief carrying the updated brief input" "$(cat "$T/dw.err")"
+    case "$(at --with-data '{"sent":"sent"}')" in
+        rebrief|'') bad "13: sent leaves rebrief" "$(cat "$T/tick.err")" ;;
+        *) ok "13: sent leaves rebrief" ;;
+    esac
+    export CLAUDE_CODE_SESSION_ID=$A_ID
+else
+    bad "13: the sixth run opens and reconciles" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 
 echo; echo "coordinate-takeover engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]

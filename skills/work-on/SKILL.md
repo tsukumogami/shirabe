@@ -97,6 +97,20 @@ Outcomes:
   `pass_counting` (see **Fixes Start Red**), then finalization.
 - **Failed** — a command ran and did not pass. The workflow returns to implementation to
   fix the failure; a failing verification never advances toward a clean finalization.
+  When the failure is a flake rather than the change, the agent submits
+  `implementation_status: verification_rerun` with its reason instead, and the next
+  entry into `verification` archives the failed attempt and runs a fresh suite at the
+  same head. Each attempt's logs sit in their own folder, `<head>/attempts/<n>/`, and
+  each archived attempt adds one line to the `verification_attempts` context key.
+  A failed check beside a timed-out one is a failure too, and is eligible the same
+  way. Two re-runs are allowed per head and merge-base, counted together with the
+  timed-out hold's `rerun`; a third request is refused, and verification's message
+  names the ways out: a real fix (a new head) or `implementation_status: blocked`.
+  The PR body's Verification section then carries one re-run line per archived
+  attempt, ``Re-run attempt <n> at `<head>`: `<id>` failed; reason `<reason>`; attempt <n+1> passed.``,
+  and `pr_creation`'s `verification_rerun_recorded` gate
+  (`check-pr-output.sh --rerun-record`) refuses a body without it (see **Pull
+  Request Text**).
 - **Cannot-verify** — no map entry matched and no usable default exists, or a selected
   command could not run. This **fails closed**: it must never read as "verified" and
   never silently advances. It halts as a blocking condition that surfaces to the human.
@@ -106,8 +120,12 @@ that does not parse, or selects nothing) and 4 a command that needs a person, ti
 out with the hosted-of-record route closed, grew past its process bound, could not
 start, or a dirty tree — both of the last two cannot-verify, ending at `done_blocked`.
 Exit 5 is the timed-out hold: a check timed out, none failed, and the route is open, so
-the run may settle the timed-out checks on the hosted jobs their map rows declare
-(`hosted_of_record`, with a public reason), return to fix them, or stop. The route
+the run may run the suite again at the same head (`rerun`, with a reason), settle the
+timed-out checks on the hosted jobs their map rows declare (`hosted_of_record`, with a
+public reason), return to fix them, or stop. A `rerun` archives the timed-out attempt
+into `verification_attempts` and starts a fresh suite, under the same cap of two
+archived attempts per head and merge-base as the failed route's re-run; over the cap
+the hold comes back and offers only the other three. The route
 records itself in `verification_hosted`, opens the pull request as a draft, and is
 settled by `hosted_record`'s read before the pull request is marked ready
 (`references/verification-map.md`). Each violation names its rule
@@ -166,9 +184,11 @@ the rules; this is the route.
   implementation. Its action, `scripts/fix-kind.sh resolve`, records the unit as a
   fix when its issue carries a label the repository's `## Fix Labels:` lists (`bug`
   by default) or its plan step has a `**Fixes**:` line (`FIX_REPORT`), and as a
-  change otherwise. The run adds a fix itself with `fix-kind.sh declare --reason`
-  when the report describes existing behaviour as wrong. A fix is never withdrawn.
-  A change goes straight to implementation and owes nothing more.
+  change otherwise, and its `kind_route` gate routes on that in the same tick, so
+  the run doesn't stop there. The run adds a fix itself at `analysis`, before it
+  submits its plan, with `fix-kind.sh declare --reason` when the report describes
+  existing behaviour as wrong. A fix is never withdrawn. A change goes straight to
+  implementation and owes nothing more.
 - **`reproduce`**, for a fix. The run commits its reproducing test and records the
   red with `scripts/red-first.sh red`: the check run on the base code with the
   unit's committed tests applied, failing, with a marker found in a verbatim
@@ -220,6 +240,11 @@ decision:
 - **Rejected** — the issue is not done. The workflow routes to `done_blocked`, a
   non-clean terminal, rather than shipping with the criterion silently unmet.
 
+Both ways out to the pull request, `ready_for_pr` at `finalization` and
+`approved` at `deferral_approval`, require the two pre-PR judgment calls with
+them: `cleanup_done` (`removed` or `none_found`) and `design_diagram` (`updated`
+or `not_applicable`). A submission that leaves either out holds the state.
+
 A planned split is the other way a pull request leaves its issue open: the run is
 started with `--delivery=partial --delivery-reason=<why>` (see **Initialize**), and
 the reason names the step this pull request delivers. That doesn't loosen
@@ -242,6 +267,23 @@ or `CLAUDE.md`; `${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh` prints
 uses. Under `omit`, `pr_creation`'s `pr_body_conformant` gate holds on the records it
 can see (`pr-body/workflow-content`). `references/phases/phase-6-pr.md` says what goes
 where under each setting.
+
+A run that re-ran verification at the same head says so under either setting. Its
+Verification section has one re-run line for each attempt in `verification_attempts`:
+
+```text
+Re-run attempt <n> at `<head>`: `<id>` failed[, `<id>` timed out]; reason `<reason>`; attempt <n+1> passed.
+```
+
+The head is 7 or more of its hex characters; each failed or timed-out command id and
+the reason sit in code spans; the line ends with what the next attempt showed
+(`passed`, `failed` or `timed out`), and holds no path and no log excerpt.
+`pr_creation`'s `verification_rerun_recorded` gate runs
+`check-pr-output.sh --rerun-record --session <session>` and refuses a body that
+leaves a line out, puts an id or the reason outside a code span, or holds an absolute
+path; with an empty ledger it asks for nothing. On a plan's shared branch the child
+opens no PR, and the shared PR is checked at the owning session's `pr_finalization`
+by its `rerun_recorded` gate.
 
 A coordinator that dispatched this run reads its review round from this run's session,
 not from the body. When the brief asks for the round, record it once the seats at the
@@ -644,7 +686,7 @@ leg, since one leg answers one session.
   `changed_paths.txt` in context before `issue_type_routing` asks for the type.
   Exit codes: 0 written, 64 no base resolves, 66 a context write failed, 67 a
   missing argument. The script's header has the base rules and the caps.
-- `scripts/panel-scope.sh --plan|--carried|--recorded|--verdict|--open-count|--record|--mark-fixed|--promote <panel> <session>`
+- `scripts/panel-scope.sh --plan|--carried|--recorded|--verdict|--open-count|--open-ids|--record|--mark-fixed|--promote <panel> <session>`
   — the findings ledger and what a panel round runs. koto runs `--plan` on
   entering `scrutiny`, `review`, `qa_validation` and `light_review`, and
   `--carried`, `--recorded` and `--verdict` as each one's gates; the agent runs
@@ -655,7 +697,8 @@ leg, since one leg answers one session.
   re-verifier, which answers the findings the fix made due by id and reviews the
   fix diff once per retry. A panel passes only when every blocking finding is
   closed, and one with nothing to run and nothing open is carried through by
-  koto. `--open-count` gives `panel-retry-budget.sh` its count. The phase files
+  koto. `--open-count` and `--open-ids` give `panel-retry-budget.sh` the count
+  and the ids of those findings. The phase files
   under `references/phases/phase-4*` say how to act on the scope;
   `scripts/panel-scope_test.sh` is its harness.
 - `scripts/review-level.sh init|set|facts|check|slice|report|level` — the run's
@@ -670,8 +713,10 @@ leg, since one leg answers one session.
   are its harnesses.
 - `scripts/fix-kind.sh resolve|declare|withdraw|agree|kind` — whether the unit is a
   fix (`references/red-first.md`). koto runs `resolve` as `fix_determination`'s
-  action and `agree` as its `kind_unchanged` gate; the agent runs `declare
-  <session> --reason <why>` to make the unit a fix. It rebinds `UNIT_KIND` and
+  action, `kind --exit --current "$UNIT_KIND"` as its `kind_route` gate (0 a
+  change, 3 a fix, 4 no kind recorded, 1 a disagreeing variable) and `agree` as
+  its `kind_unchanged` gate; the agent runs `declare <session> --reason <why>`
+  at `analysis` to make the unit a fix. It rebinds `UNIT_KIND` and
   appends to the `fix_kind.jsonl` ledger together, and refuses (exit 1) to make a
   fix a change. Its rebind passes `REVIEW_LEVEL` and `PLUGIN_ROOT` through, since
   an attach resets every rebind variable it leaves out. Exit codes are in its
@@ -682,6 +727,13 @@ leg, since one leg answers one session.
   `check-green` as the `red_recorded` and `fix_green` gates, which report
   `red-first/no-red` and `red-first/no-green`. `scripts/red-first_test.sh` and
   `scripts/red-first-routes_test.sh` are its harnesses.
+- `scripts/issue-type-route.sh <session> <hint>` — `issue_type_routing`'s
+  `code_route` gate, run by koto: 0 when the hint (`ISSUE_TYPE`) is `code` and
+  `changed_paths.txt` names a path `review-level.sh classify` doesn't class as
+  plain documentation, so the state takes the code route on entry with nothing
+  asked; 1 otherwise, and the agent answers `issue_type`. Bad arguments also
+  exit 1, with a `route: ask` line, since the gate's edges name only 0 and 1.
+  `scripts/issue-type-route_test.sh` is its harness.
 - `scripts/test-change.sh init|classify|note|status|covered|record`
   — the held test change (`references/red-first.md`), the only writer of the
   `test_change_ledger.jsonl` context key. A passing `status` also records
@@ -709,18 +761,21 @@ leg, since one leg answers one session.
   the leg only when the leg was still open and unbound), 64 its own usage refusal
   with no koto call, 66 a live session's level or kind read under `--koto-leg`
   that failed, with no `koto init`, 127 no koto or jq, and koto's own code otherwise.
-- `scripts/fix-round.sh start --from <session>` — starts a fix round for a
-  run at `done` as `<session>-fix-<n>`, a new work-on session with the run's
-  variables and parent, and records it in both sessions (see **A Fix Round
-  After Done**). Exit codes: 0 started, 1 refused (`not-done`, `round-open`,
-  `cap`, `wrong-branch`), 2 a koto call or a read of the run's log failed, 64
-  usage.
+- `scripts/fix-round.sh start --from <session> [--fresh] [--fix-report <text>]`
+  — starts a fix round for a run at `done` as `<session>-fix-<n>`, a new
+  work-on session with the run's variables (`FIX_REPORT` replaced by
+  `--fix-report`'s text when given) and parent, records it in both sessions, and copies in
+  the verdict ledger it inherits; `--fresh` inherits nothing and marks the
+  round `fresh`, so its verification carries nothing either (see **A Fix
+  Round After Done**). Exit codes: 0 started, 1 refused (`not-done`,
+  `round-open`, `cap`, `wrong-branch`), 2 a koto call or a read of the run's
+  log failed, 64 usage.
   `scripts/fix-round_test.sh` is its harness.
 - `scripts/panel-retry-budget.sh <session-name> <panel>` — decides
   whether a review panel that found blocking issues may send the work back
-  again, reading the count of unclosed blocking findings from the ledger
-  (`panel-scope.sh --open-count`), and records each retry it grants in
-  `panel_retries`. The panel
+  again, reading the count and ids of unclosed blocking findings from the
+  ledger (`panel-scope.sh --open-count` and `--open-ids`), and records each
+  retry it grants in `panel_retries`. The panel
   directives run it before the retry loop. Exit codes: 0 granted, 1 refused,
   64 the record could not be read or is malformed, 66 the grant could not be
   recorded, 67 bad arguments; every exit but 0 means escalate.
@@ -730,9 +785,10 @@ leg, since one leg answers one session.
 - `scripts/check-closing-keyword.sh` — run by koto, never by the agent, as
   `pr_creation`'s `closing_keyword` gate, in three modes. `--approved-pass <log>`
   is the log probe, run on every issue-backed run that didn't declare
-  `DELIVERY=partial`: 0 when this pass reached `pre_pr_evidence` through the approved
+  `DELIVERY=partial`: 0 when this pass reached `pr_precheck` through the approved
   transition out of `deferral_approval` with no return to `finalization` or
-  `deferral_approval` since, 1 when it didn't or there's no log, anything else (an
+  `deferral_approval` since (in a log from the template that still had
+  `pre_pr_evidence`, the arrival there counts), 1 when it didn't or there's no log, anything else (an
   unreadable log, no jq) holding the state; it makes no `gh` call, and its exits
   only pick the mode. `--issue <N> --non-closing [--repo <owner/repo>]` is
   non-closing mode, for a declared split or a probe exit 0: 0 when the body refers
@@ -751,7 +807,7 @@ leg, since one leg answers one session.
 - `scripts/check-branch-output.sh`, `scripts/check-pr-output.sh`,
   `scripts/run-verification.sh` and `scripts/check-verification.sh` — the
   output gates, run by koto, never by the agent: `commit_convention` at
-  `finalization`, `deferral_approval` and `pre_pr_evidence`,
+  `finalization` and `deferral_approval`,
   `branch_docs_visibility` at `pr_precheck`, `pr_body_conformant` at
   `pr_creation`, and the launcher and `verification_verdict` at `verification`.
   Exit 0 passes, 1 is a violation with a `::koto-finding::` line naming its rule,
@@ -878,23 +934,69 @@ terminal, and `koto rewind` doesn't reopen a round. From `done` it steps back to
 instead, from the branch the run worked on:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/fix-round.sh start --from <WF>
+${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/fix-round.sh start --from <WF> [--fresh] [--fix-report <text>]
 ```
+
+`--fix-report <text>` gives the round its own report, the CI failure or review
+finding that caused it, as the round's `FIX_REPORT` in place of the run's: the
+round is then a fix and the text is the `fix_report.txt` its red cites. The text
+must fit koto's variable allowlist (letters, digits, spaces and `. _ / : @ + -`,
+starting with a letter or digit); anything else is a usage error and starts
+nothing. Without it the round keeps the run's `FIX_REPORT`.
 
 It starts `<WF>-fix-<n>` from this plugin's `work-on.md` with the run's variables
 (not its review level or unit kind, which the round sets again) and the run's
-parent, so a child's round is a child too and never cascades. It records the round
+parent, so a child's round is a child too and never cascades. A plan-backed child's
+round takes `PLAN_DOC` from the parent's current `plan_abs` when the two differ, so
+a round started after the coordination checkout moved reads the PLAN where the run
+reads it now; a run whose checkout never moved keeps its own. It records the round
 in both sessions: `fix_round.json` in the round and a line in the run's
 `fix_rounds.jsonl`. Drive the round from `entry` with the run's entry evidence,
 and commit the fix in the round's `implementation`, not before: its `analysis`
 records HEAD as `impl_base`, so its panels and changed paths cover the fix
 commits only and its verification runs at the fix head, while a fix committed
 earlier falls before the base and out of the round's review. A
-round started from a round counts against the original run. The script refuses
+round started from a round counts against the original run.
+
+The round inherits the verdicts already given: the verdict ledger of the run it
+follows (the last round, else the run) is copied in, marked `inherited`, when
+every commit that ledger recorded is still an ancestor of the round's base. Its
+panels then judge the fix as a fix diff from where their seats last judged, so a
+small fix gets the re-verifier and the fix-diff review instead of every seat,
+and a fix over the panels' line threshold, or a round whose acceptance criteria
+(the criteria section of `context.md`, as `review-level.sh` stores it) differ
+from the ones the seats judged, still gets every seat. A
+rebase or reset since the run, or `--fresh`, inherits nothing and the round
+reviews in full. The script prints `inherited=<session>` or `inherited=none`.
+The round's review floor is never below the run's: `review-level.sh facts`
+takes the run's last floor as a rule of its own, `fix_round_parent`, since on a
+shared branch the round's diff is the fix alone. The script refuses
 (`refused=<reason>`, exit 1, nothing started) a run not at `done` (`not-done`; a
 run at `done_blocked` walks back with `koto rewind`), a second round while one is
 open (`round-open`), a fourth round (`cap`), which is a person's call, and a start
 from a branch other than the run's `SHARED_BRANCH` (`wrong-branch`).
+
+The round's verification carries what the run it follows already passed. That
+run is the previous round, else the original, and the launcher reads its result
+at the round's base head, or, when there is none, its newest passing result at
+an ancestor of the base (a done run often commits after its verification). A
+check it passed that the round's own diff (from that result's head to the fix
+head) doesn't select isn't run again: its record says `outcome: carried`, with
+`carried_from` naming that session and head, and the verdict counts it as
+passed. A check the round's diff selects runs, and a per-skill `check-skill.sh
+--changed` among them picks its suites from the round's diff, not the
+merge-base's. A check the run failed, timed out or never ran runs as before.
+The result still lists every check a full run would.
+
+A round that touches shared code reruns the full selection: when its diff
+changes any path outside one skill's directory (not under `skills/<name>/`) or
+a path no verification-map entry matches, nothing is carried, since another
+skill's suites may run that code. Nothing is carried either when the run has no
+result at or before the base. To verify a round in full anyway, start it with
+`--fresh`, which writes `fresh: true` into `fix_round.json`; a
+`run-verification.sh --start` run by hand with `SHIRABE_VERIFY_FULL=1` does the
+same once the stored result is moved aside. `references/verification-map.md`
+has the rule.
 
 The round is a unit like any other: a fix-labelled issue makes it a fix that owes
 a red at `reproduce`, where a review change or a CI repair with no check failing

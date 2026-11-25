@@ -482,7 +482,23 @@ configuration, and it's the same for either role. Your record holds your role,
 - Brief a successor with the role your record holds; a successor never changes
   it. A brief you write for it by hand files its rules under a
   `## Standing rules` heading, as the brief-intake paragraph under The Record
-  says.
+  says. Hand a roadmap run over from the `wait` hub, or from
+  `roadmap_close_step` when no milestone is left open; hand a discipline
+  rotation over from `wait`, or at `rotation_end` before you submit
+  `reasoning: written`, since a run at `done` takes no record write: add
+  `successor_input.json` to your run's context (a brief input with its
+  `topic`, which `<roadmap or discipline name>-successor-<n>` suits, and no
+  role, scope or repository), then run
+  `dispatch-worker.sh --session <run> --successor`. A
+  successor dispatch needs no unit: it reads no pick fact, so an owed verdict,
+  a pause, a parked decision or an empty scope doesn't stop it. It builds
+  the invocation from your run's own facts,
+  `/shirabe:coordinate <ROADMAP> --role <role>` for a roadmap and
+  `/shirabe:coordinate --discipline <name> --host <owner/repo> --role <role>`
+  for a discipline, with `<role>` read from your
+  record's Run `role` row (none exits 1, naming the command that sets it), and
+  keeps the pending successor on your Run `successor` row until the
+  successor's opener takes your run over and clears it.
 
 **Manager**
 
@@ -591,10 +607,10 @@ holds the handover gate. The reconcile report and the
 closing lines of an imported run name its source, so the next import knows what
 to pass.
 
-A `reports-to` or a cap you worked out yourself, rather than read from your
-brief, your dispatch link or a person's message, is written with
-`--inferred "<the reading, in one sentence>"` beside `--run reports-to` or
-`--run cap`. The same write adds a Standing `rule` row whose Source is
+A `reports-to`, a cap or a parked bound you worked out yourself, rather than
+read from your brief, your dispatch link or a person's message, is written
+with `--inferred "<the reading, in one sentence>"` beside `--run reports-to`,
+`--run cap` or `--run parked-bound`. The same write adds a Standing `rule` row whose Source is
 `inferred`, which the start report lists as awaiting confirmation; a refusal
 of either writes neither (the 60-inferred cap full, say), so don't act on that
 value then. A `reports-to` naming a session (`<name> at <address>`) whose
@@ -764,6 +780,14 @@ states never ask you to do these steps by hand.
   When no pull request of it merged either, the verdict says `pr none`
   beside `handoff none`, and `--retire` also releases a leg-bound row's
   leg by abandoning its request.
+  A unit that ends with no pull request (a report-only spike, a worker
+  stopped before it pushed, an open that failed) goes through the same
+  states, stopped or removed, with its handoff comment on the unit's
+  issue: the seal reads its holding's branch, if it names one, and refuses
+  when GitHub shows a commit on it beyond the default branch. The verdict
+  says `pr none` with a `branch` line beside the link, and `--retire`
+  removes the row merged or not and releases a leg-bound row's leg with the
+  handoff link in the abandon's rationale.
   Before the destroy the pass writes the unit's `cost` entry into the record,
   posting it on the unit's pull request or issue only where that repository
   opts in (`references/unit-cost.md`), which can add up to two minutes, so a
@@ -874,6 +898,21 @@ lines, and the rows and refusals behind them, are in
   session, the text `Evidence clause <n> failed: <what was
   seen>` cut to 600 bytes). The milestone is then offered again, and its
   brief quotes the failure under the same heading.
+- **On a roadmap/v4 roadmap.** The merge records Completed, and the status
+  table says what a verdict or a reopen moves. `--unit` prints two lines,
+  `verdict-owed <tag>` and then the pull request that records the milestone
+  Completed (its own edit, or the run's pending edit it folded into), or
+  `<tag> already reads Completed on ...`. `--verdict` needs no verdict-owed
+  row and consumes the row when there is one; either verified verdict sets
+  the milestone's block and Progress row to Verified, and changes needed
+  sets both to In progress and prints the same `held-dependent <tag>
+  <worker>` lines a reopen prints. `--reopen` takes a Completed milestone
+  as well as a Verified one and sets block and row In progress. On v4 the
+  held-dependent lines also name each dependent that reads Completed or
+  Verified with no holding, as `held-dependent <tag> none`. A move the table
+  doesn't list (another verdict on a Verified milestone, anything on a
+  Dropped one) is refused before anything is opened, naming the milestone,
+  its status and the trigger. On v1 to v3 nothing here changes.
 - **Close-out.** A roadmap record doesn't close while a verdict is owed:
   close-out names the milestone (`verdict-owed <tag>`, code 49) even after
   it reads Done, until `--confirm` clears the row. A pending reopen edit
@@ -910,14 +949,16 @@ refused on that run, where the design always passes the worker's topic.
 free slot, scopes ahead a unit whose execution waits on another feature, and
 asks whoever dispatched you for out-of-scope work when the scope has nothing
 left. An active worker is a dispatched session whose work is not yet merged or
-abandoned and that isn't parked. A parked worker has a verified, ready pull
-request waiting only on a merge; parked workers, merged ones waiting for their
+abandoned and that isn't parked. A parked worker has a ready pull request whose
+checks passed, waiting only on a merge; parked workers, merged ones waiting for their
 teardown and local agents don't count against the cap. Neither does a stopped
 worker: one whose Claude jobs on this host have all finished, kept until its
 pull request merges with nothing running for it, so the worker that continues
 its unit takes the same slot. A worker with no job seen on this host counts. When `--parked-bound` (default three) or more are parked,
 dispatch nothing new until the human has worked through the merge-order table.
-The human's decisions may set any of these.
+The human's decisions may set any of these. A changed cap or parked bound goes
+in the record's Run section, `state-stored-set.sh --run cap <n>` or `--run
+parked-bound <n>`, and that row wins over the flag for the rest of the run.
 
 **What you allocate is read, never assumed.** Each coordinator you dispatch
 counts against your cap for as long as it runs, so your cap is your worker

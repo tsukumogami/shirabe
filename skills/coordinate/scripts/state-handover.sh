@@ -109,10 +109,16 @@
 #                                            brought) acknowledges it; printed
 #                                            as carry: {carried, start,
 #                                            acknowledged}
-# A live holding is one dispatched and not merged: a row whose Dispatch status
-# is `dispatched` and that doesn't carry a Verified head with a blank Pull
-# request (merged, waiting for its teardown, so its worker has nothing left to
-# report). A `dispatching` row is left out: its worker may not have started,
+# A live holding is one dispatched and not merged and waiting for its
+# teardown: a row whose Dispatch status is `dispatched`, unless it carries a
+# Verified head with a blank Pull request (state-common.sh lib_row_merged)
+# and its worker has finished (lib_worker_finished: its leg resolved or
+# abandoned, or, on the message path, every Claude job of it on this host
+# finished), so it has nothing left to report. The pair alone doesn't leave
+# the live set: a worker that goes on to its unit's next pull request carries
+# it while it is live (shirabe#2080), and a worker not seen to have finished
+# is treated as live; handover-classify.sh records one that isn't as pending
+# or missing. A `dispatching` row is left out: its worker may not have started,
 # and the reconcile pass settles it to `dispatched` when the listing finds
 # its worker, before this gate runs, so a launched worker is checked from the
 # next start on. Each fix is the state-stored-set.sh call that closes the gap.
@@ -124,11 +130,14 @@
 # canonical record of this scope; 64 usage.
 #
 # koto reads: the record through state-read.sh, koto request get <request>
-# for each live holding on a leg, and, when the reports-to row names a
+# for each live holding on a leg and for each merged one on a leg (whether
+# its leg is still open), and, when the reports-to row names a
 # session, koto context list <session> --prefix koto/links/dispatched-by/ on
 # the run's own session (RS_SESSION under the test flags). Off koto, it reads
 # each brief file record/host names (briefs:<label>) for its digest and its
-# text, and never edits one. It reads nothing on GitHub.
+# text, and never edits one, and the Claude job directory (DC_CLAUDE_HOME,
+# default $HOME/.claude) for a merged holding on the message path. It reads
+# nothing on GitHub.
 set -uo pipefail
 
 PROG=state-handover
@@ -191,6 +200,21 @@ if [ -n "$RT_ADDR" ]; then
         || lib_die2 "cannot list the run's dispatched-by links: $(lib_scrub < "$WD/dispatched-by.json.err")"
 fi
 
+# The holdings merged and waiting only for their teardown: the pair
+# lib_row_merged reads, and a worker that has finished (lib_worker_finished).
+# Every other dispatched holding is live, the pair with a live worker included
+# (shirabe#2080).
+: > "$WD/finished.lines"
+while IFS= read -r HROW; do
+    [ -n "$HROW" ] || continue
+    if lib_row_merged "$HROW" && lib_worker_finished "$HROW"; then
+        printf '%s' "$HROW" | jq -c '.worker' >> "$WD/finished.lines" || lib_die2 "jq failed"
+    fi
+done <<EOF
+$(jq -c '.holdings[] | select(.dispatch_status == "dispatched")' "$WD/parsed.json")
+EOF
+jq -s -c . "$WD/finished.lines" > "$WD/finished.json" || lib_die2 "jq failed"
+
 # A live holding on a leg whose request this host's store doesn't hold (the run
 # was imported here) has no end yet: the gap holds until reconcile-legs.sh
 # re-legs it or moves it to the message path (PRD R15). koto exits 2 for a
@@ -205,8 +229,8 @@ while IFS='	' read -r w rp; do
         *) lib_die2 "cannot read request ${rp%%:*} of $w's leg" ;;
     esac
 done <<EOF
-$(jq -r '.holdings[] | select(.dispatch_status == "dispatched")
-    | select(((.verified_head // "") != "" and (.pull_request // "") == "") | not)
+$(jq -r --slurpfile fin "$WD/finished.json" '.holdings[] | select(.dispatch_status == "dispatched")
+    | select(.worker as $w | $fin[0] | index($w) | not)
     | select((.return_path // "") | startswith("leg ")) | [.worker, (.return_path | ltrimstr("leg "))] | @tsv' "$WD/parsed.json")
 EOF
 jq -R -s 'split("\n") | map(select(. != "") | split("\t") | {worker: .[0], leg: .[1]})' "$WD/unclassified" > "$WD/unclassified.json" \
@@ -243,7 +267,7 @@ if [ -n "$SESSION" ] && [ "$SCOPE" = discipline ]; then
     fi
 fi
 
-jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
+jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
     --slurpfile carry "$WD/carry.json" --slurpfile dby "$WD/dispatched-by.json" --slurpfile briefs "$WD/briefs.json" '
     include "state-schema";
     def runval($k): [(.run // [])[] | select(.key == $k) | .value][0];
@@ -286,7 +310,7 @@ jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed
     | ([$run[] | select(.key == "missing") | .value]) as $missing
     | ((.work // []) | map(select(.kind == "holding") | {(.item): .}) | add // {}) as $work
     | [.holdings[] | select(.dispatch_status == "dispatched")
-        | select(((.verified_head // "") != "" and (.pull_request // "") == "") | not)] as $live
+        | select(.worker as $w | $fin[0] | index($w) | not)] as $live
     | {arguments: runval("arguments"), cap: runval("cap"), coordinator: runval("coordinator"), told: $told,
        workers: [$live[] | {unit, worker, phase, told: (.worker as $w | $told | index($w) != null),
                             next: ($work[.unit].next // null)}

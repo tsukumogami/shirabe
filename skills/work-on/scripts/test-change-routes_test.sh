@@ -265,9 +265,11 @@ walk() {
     tick "$s" '{"plan_outcome":"plan_ready"}'
     [ "$STATE" = review_level_choice ] || { fail "$s: walked to [$STATE], not review_level_choice"; return 1; }
     "$RL" set "$s" "$level" >/dev/null 2>"$WORKDIR/set.err" || { fail "$s: review-level.sh set failed: $(cat "$WORKDIR/set.err")"; return 1; }
+    # The tick that enters fix_determination leaves it: its kind_route gate
+    # routes on the kind the action has just recorded.
     tick "$s"
-    [ "$STATE" = fix_determination ] || { fail "$s: at [$STATE], not fix_determination"; return 1; }
-    tick "$s"
+    [ "$(visits "$s" fix_determination)" = 1 ] || { fail "$s: fix_determination entered [$(visits "$s" fix_determination)] times"; return 1; }
+    case "$STATE" in implementation|reproduce) ;; *) fail "$s: at [$STATE], not past fix_determination"; return 1 ;; esac
     return 0
 }
 
@@ -298,7 +300,7 @@ JUDGED='"test_edits":[{"path":"tests/greet_test.sh","judgment":"corrects"}]'
 echo "--- an edited test no panel judged: held as due, then counted from the panels"
 
 S=tc_edit
-if walk "$S" 2 full; then
+if walk "$S" 2 full --var ISSUE_TYPE=task; then
     expect_state "a change" implementation
     [ "$(ledger "$S" | head -n 1 | jq -r '"\(.event)|\(.author)"')" = "header|agent:$S" ] \
         && pass "fix_determination wrote the ledger's header with the run as author" \
@@ -342,7 +344,7 @@ fi
 echo "--- added tests only: counted with no acceptance"
 
 S=tc_added
-if walk "$S" 3 light --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI"; then
+if walk "$S" 3 light --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI" --var ISSUE_TYPE=task; then
     expect_state "a change" implementation
     printf '#!/bin/sh\nout=$(./greet.sh Ada)\n[ "$out" = "Hello, Ada!" ] || exit 1\n' > tests/ada_test.sh
     git add tests/ada_test.sh
@@ -359,7 +361,7 @@ fi
 echo "--- a held test with the panel retry budget spent: done_blocked"
 
 S=tc_spent
-if walk "$S" 2 light --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI"; then
+if walk "$S" 2 light --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI" --var ISSUE_TYPE=task; then
     drop_mark
     git commit -q -am "feat: drop the exclamation mark"
     tick "$S" '{"implementation_status":"complete"}'
@@ -382,7 +384,7 @@ fi
 echo "--- a test edit routed as a task twice: no panel ever reached, done_blocked"
 
 S=tc_task_loop
-if walk "$S" 2 light --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI"; then
+if walk "$S" 2 light --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI" --var ISSUE_TYPE=task; then
     drop_mark
     git commit -q -am "feat: drop the exclamation mark"
     tick "$S" '{"implementation_status":"complete"}'
@@ -428,7 +430,9 @@ EOF
     git add -A
     git commit -q -m "fix: refuse an empty name"
     tick "$S" '{"implementation_status":"complete"}'
-    tick "$S" '{"issue_type":"code"}'
+    # A code hint over a diff with scripts in it takes the code route on entry
+    # (code_route); the question is asked only when it didn't.
+    [ "$STATE" = issue_type_routing ] && tick "$S" '{"issue_type":"code"}'
     expect_state "a light fix below its facts floor" review_level_check
     [ "$(unit_kind "$S")" = fix ] && pass "before the raise UNIT_KIND is fix" || fail "before the raise UNIT_KIND is [$(unit_kind "$S")]"
     "$RL" set "$S" standard >/dev/null 2>"$WORKDIR/set.err" && pass "the level is raised to standard at review_level_check" \
@@ -452,7 +456,7 @@ if walk "$S" 2 full; then
     git commit -q -am "feat: drop the exclamation mark"
     "$TC" note "$S" --file tests/greet_test.sh --reason "the issue asks for the expected value to change" >/dev/null 2>&1
     tick "$S" '{"implementation_status":"complete"}'
-    tick "$S" '{"issue_type":"code"}'
+    [ "$STATE" = issue_type_routing ] && tick "$S" '{"issue_type":"code"}'
     expect_state "a full code change" scrutiny
     record_round "$S" scrutiny "[{\"seat\":\"completeness\",\"findings\":[],$JUDGED},{\"seat\":\"justification\",\"findings\":[],$JUDGED},{\"seat\":\"intent\",\"findings\":[],$JUDGED}]"
     tick "$S"
@@ -485,7 +489,7 @@ if walk "$S" 2 full; then
     [ "$(ledger "$S" | jq -r 'select(.event == "decline" or .event == "seat") | .event' | wc -l | tr -d ' ')" = 0 ] \
         && pass "a test gap writes no seat or decline line to the ledger" || fail "the ledger is [$(ledger "$S")]"
     tick "$S" '{"implementation_status":"complete"}'
-    tick "$S" '{"issue_type":"code"}'
+    [ "$STATE" = issue_type_routing ] && tick "$S" '{"issue_type":"code"}'
     expect_state "the lap after the test gap" scrutiny
     GOT=$(koto context get "$S" scrutiny_scope.json 2>/dev/null | jq -r '[.decisions[] | "\(.seat):\(.decision):\(.reason | split(":")[0] | select(. == "items-due") // "-"):\([.due_items[]?.item] | join("+"))"] | join(",")')
     [ "$GOT" = "completeness:keep:-:,justification:keep:-:,intent:keep:-:,reverifier:recheck:items-due:tests/greet_test.sh" ] \
@@ -519,7 +523,7 @@ git checkout -q -b person-main
 printf '# greet\n\n## Repo Visibility: Private\n\n## %s: person\n' "$DECL" > CLAUDE.md
 git commit -q -am "docs: an old person-required declaration"
 S=tc_person
-if WALK_FROM=person-main walk "$S" 2 light --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI"; then
+if WALK_FROM=person-main walk "$S" 2 light --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI" --var ISSUE_TYPE=task; then
     case "$(ledger "$S" | head -n 1)" in
         *person_required*) fail "the header records a person requirement: [$(ledger "$S" | head -n 1)]" ;;
         *) pass "the header records no person requirement" ;;

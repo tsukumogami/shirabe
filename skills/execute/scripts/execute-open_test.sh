@@ -52,6 +52,13 @@
 #     isn't one JSON object, print one warning naming the session and
 #     review-round.sh and write nothing; in every case stdout and the exit
 #     match the same open without a round, and no temporary file is left
+#     the build-output pin: a single-pr replacement (resuming
+#     paused_for_review, or re-invoking after ready_awaiting_merge) holds the
+#     first session's run/cleanup/single, written once by the carry, with the
+#     snapshot removed and stdout unchanged; a re-open over a session that
+#     already holds the key carries nothing and removes the snapshot; a
+#     failing carry keeps the snapshot with one stderr line; a coordinated
+#     replacement holds the same run/cleanup/* keys with the same values
 #
 #   engine-backed (the real koto; skipped, loudly, when koto is absent):
 #     a fresh run: MERGE=false, PAUSE_BEFORE_FINALIZE=true (interactive)
@@ -245,6 +252,12 @@ pairs_of '["docs/plans/PLAN-t.md","--review-ceiling=light","--review-ceiling=ful
 pairs_eq "a repeat is two pairs and a bare flag its literal token, both left to koto" \
     '[["REVIEW_FLOOR","--review-floor"],["REVIEW_CEILING","light"],["REVIEW_CEILING","full"]]' \
     'map(select(.[0] | startswith("REVIEW_")))'
+
+# --step-drafts=off turns the step agent's drafts off; with no flag there is no
+# pair (the no-flag case above pins the list), and the template reads empty as on.
+pairs_of '["docs/plans/PLAN-t.md","--step-drafts=off"]'
+pairs_eq "--step-drafts=off: one STEP_DRAFTS pair" \
+    '[["STEP_DRAFTS","off"]]' 'map(select(.[0] == "STEP_DRAFTS"))'
 
 # The verification deferral (#1017): one pair per flag given, none without
 # them (the no-flag case above already pins the list), and /work-on's own two
@@ -815,6 +828,155 @@ for rs_arm in "rs single-pr execute.md" "rc coordinated execute-coordinated.md";
     done
 done
 rm -f "$FIXREPO/docs/plans/PLAN-rc.md"
+
+# --- engine-free: the build-output pin across a replacement --------------------
+# run/cleanup/<id> is the base a run's end cleans a worktree's declared build
+# output against, pinned once. A replacement session must hold the first
+# session's value, written by the carry and by nothing else. A stub koto keeps
+# context as files under KOTO_STUB_STORE (`context list` answers the run/
+# keys a session holds) and logs every call beside it. KOTO_STUB_OUTCOME is
+# koto init's outcome (replaced empties the session, attached leaves it),
+# KOTO_STUB_STATE the finished session's state, and KOTO_STUB_FAIL=add makes
+# the add of a run/cleanup/ key fail.
+PIN_BIN="$WORK/pin-bin"
+mkdir -p "$PIN_BIN"
+cat > "$PIN_BIN/koto" <<'STUB'
+#!/usr/bin/env bash
+d="${KOTO_STUB_STORE:?}"
+printf '%s\n' "$*" >> "$d.argv"
+outcome="${KOTO_STUB_OUTCOME:-replaced}"
+case "${1-} ${2-}" in
+    "status "*)
+        terminal=true
+        [ "$outcome" = attached ] && terminal=false
+        printf '{"name":"%s","current_state":"%s","is_terminal":%s}\n' "$2" "${KOTO_STUB_STATE:-ready_awaiting_merge}" "$terminal"
+        exit 0
+        ;;
+    "init "*)
+        case "$outcome" in
+            replaced) rm -rf "${d:?}/$2"; mkdir -p "$d/$2"
+                printf '{"outcome":"replaced","replaced_state":"%s","replaced_result":null}\n' "${KOTO_STUB_STATE:-ready_awaiting_merge}" ;;
+            attached) printf '{"outcome":"attached","rebound":{}}\n' ;;
+        esac
+        exit 0
+        ;;
+    "context list")
+        if [ -d "$d/$3/run" ]; then
+            (cd "$d/$3" && find run -type f | LC_ALL=C sort) | jq -R . | jq -cs .
+        else
+            printf '[]\n'
+        fi
+        exit 0
+        ;;
+    "context exists") [ -f "$d/$3/$4" ]; exit ;;
+    "context get") [ -f "$d/$3/$4" ] || exit 1; cat "$d/$3/$4"; exit 0 ;;
+    "context add")
+        case "$4" in run/cleanup/*) [ "${KOTO_STUB_FAIL-}" = add ] && exit 1 ;; esac
+        mkdir -p "$(dirname "$d/$3/$4")"
+        cat > "$d/$3/$4"
+        exit 0
+        ;;
+    "context remove") rm -f "$d/$3/$4"; exit 0 ;;
+esac
+exit 1
+STUB
+chmod +x "$PIN_BIN/koto"
+PIN_STORE="$WORK/pin-store"
+PIN_CR="$SHIRABE_STATE_DIR/execute-carry"
+PIN_V='{"path":"/work/tree","pin":"1111111111111111111111111111111111111111"}'
+PIN_OTHER='{"path":"/work/tree","pin":"2222222222222222222222222222222222222222"}'
+printf -- '---\nschema: plan/v1\nexecution_mode: single-pr\n---\n\n# PLAN: pins\n' > "$FIXREPO/docs/plans/PLAN-pins.md"
+printf -- '---\nschema: plan/v1\nexecution_mode: coordinated\n---\n\n# PLAN: pinc\n' > "$FIXREPO/docs/plans/PLAN-pinc.md"
+# pin_open <slug> <pin value, or ""> [env...]: execute-open.sh on PLAN-<slug>.md
+# over an execute-<slug> holding run/cleanup/single at that value (none for "").
+# The carry directory is left as the caller set it up.
+pin_open() {
+    local slug="$1" v="$2"
+    shift 2
+    rm -rf "$PIN_STORE" "$PIN_STORE.argv"
+    mkdir -p "$PIN_STORE/execute-$slug"
+    if [ -n "$v" ]; then
+        mkdir -p "$PIN_STORE/execute-$slug/run/cleanup"
+        printf '%s' "$v" > "$PIN_STORE/execute-$slug/run/cleanup/single"
+    fi
+    tokens "[\"docs/plans/PLAN-$slug.md\"]"
+    OUT=$(cd "$FIXREPO" && env KOTO_STUB_STORE="$PIN_STORE" PATH="$PIN_BIN:$PATH" "$@" \
+        bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
+    RC=$?
+    ERR=$(cat "$WORK/stderr")
+}
+pin_held() { jq -cS . "$PIN_STORE/execute-$1/run/cleanup/single" 2>/dev/null; }
+pin_adds() { grep -c "^context add execute-$1 run/cleanup/" "$PIN_STORE.argv"; }
+
+for state in paused_for_review ready_awaiting_merge; do
+    rm -rf "$PIN_CR/execute-pins"
+    pin_open pins "" KOTO_STUB_STATE=$state
+    BASE_OUT=$OUT BASE_RC=$RC
+    pin_open pins "$PIN_V" KOTO_STUB_STATE=$state
+    if [ "$RC" -eq 0 ] && [ "$(pin_held pins)" = "$(jq -cS . <<<"$PIN_V")" ] && [ "$(pin_adds pins)" = 1 ] \
+        && [ ! -e "$PIN_CR/execute-pins" ] && [ -z "$ERR" ]; then
+        pass "single-pr, replacing a run at $state: the new session holds the first run/cleanup/single, written once by the carry, snapshot removed"
+    else
+        fail "single-pr $state: held [$(pin_held pins)], adds [$(pin_adds pins)], snapshot [$(ls "$PIN_CR" 2>&1)], exit $RC; $ERR"
+    fi
+    if [ "$OUT" = "$BASE_OUT" ] && [ "$RC" -eq "$BASE_RC" ]; then
+        pass "single-pr $state: stdout and exit match the same open with no pin"
+    else
+        fail "single-pr $state: out [$OUT] (want [$BASE_OUT]), exit $RC"
+    fi
+done
+
+# A re-open over a session that already holds the key: nothing carried, and
+# the snapshot an earlier open left is removed.
+mkdir -p "$PIN_CR/execute-pins"
+jq -cn --argjson v "$PIN_OTHER" '{"run/cleanup/single": $v}' > "$PIN_CR/execute-pins/record.json"
+pin_open pins "$PIN_V" KOTO_STUB_OUTCOME=attached
+if [ "$RC" -eq 0 ] && [ "$(pin_held pins)" = "$(jq -cS . <<<"$PIN_V")" ] && [ "$(pin_adds pins)" = 0 ] \
+    && [ ! -e "$PIN_CR/execute-pins" ]; then
+    pass "single-pr, a session already holding run/cleanup/single: nothing carried, its value kept, the snapshot removed"
+else
+    fail "single-pr held: held [$(pin_held pins)], adds [$(pin_adds pins)], snapshot [$(ls "$PIN_CR" 2>&1)]; $ERR"
+fi
+
+# A carry that fails: the open goes on unchanged, one stderr line, and the
+# snapshot stays for the next open.
+rm -rf "$PIN_CR/execute-pins"
+pin_open pins "" KOTO_STUB_STATE=ready_awaiting_merge
+BASE_OUT=$OUT BASE_RC=$RC
+pin_open pins "$PIN_V" KOTO_STUB_STATE=ready_awaiting_merge KOTO_STUB_FAIL=add
+if [ "$OUT" = "$BASE_OUT" ] && [ "$RC" -eq "$BASE_RC" ] && [ -f "$PIN_CR/execute-pins/record.json" ] \
+    && [ "$(printf '%s\n' "$ERR" | grep -c 'run/cleanup/single')" = 1 ]; then
+    pass "single-pr, a carry that fails: same stdout and exit, one stderr line, the snapshot kept"
+else
+    fail "single-pr failed carry: out [$OUT], exit $RC, snapshot [$(ls "$PIN_CR/execute-pins" 2>&1)]; $ERR"
+fi
+rm -rf "$PIN_CR/execute-pins"
+
+# A coordinated replacement carries every run/cleanup/* key with the rest of
+# the record.
+rm -rf "$PIN_CR/execute-pinc"
+rm -rf "$PIN_STORE" "$PIN_STORE.argv"
+mkdir -p "$PIN_STORE/execute-pinc/run/cleanup" "$PIN_STORE/execute-pinc/run/node"
+printf '%s' '{"coordination_pr":10,"mode":"coordinated","nodes":[{"kind":"pr","name":"a","repo":"acme/r","waits_on":[]},{"kind":"pr","name":"b","repo":"acme/r","waits_on":[]}],"repos":["acme/r"],"store":"github"}' \
+    > "$PIN_STORE/execute-pinc/run/setup"
+printf '%s' '{"head":"1111111111111111111111111111111111111111","pr":11,"repo":"acme/r"}' > "$PIN_STORE/execute-pinc/run/node/a"
+printf '%s' '{"path":"/work/a","pin":"1111111111111111111111111111111111111111"}' > "$PIN_STORE/execute-pinc/run/cleanup/a"
+printf '%s' '{"path":"/work/b","pin":"2222222222222222222222222222222222222222"}' > "$PIN_STORE/execute-pinc/run/cleanup/b"
+cp -R "$PIN_STORE/execute-pinc" "$WORK/pinc-before"
+tokens '["docs/plans/PLAN-pinc.md"]'
+OUT=$(cd "$FIXREPO" && env KOTO_STUB_STORE="$PIN_STORE" PATH="$PIN_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
+RC=$?
+same=1
+for key in run/cleanup/a run/cleanup/b; do
+    [ "$(jq -cS . "$PIN_STORE/execute-pinc/$key" 2>/dev/null)" = "$(jq -cS . "$WORK/pinc-before/$key")" ] || same=0
+done
+if [ "$RC" -eq 0 ] && grep -qx 'carried=4' <<<"$OUT" && [ "$same" -eq 1 ] && [ ! -e "$PIN_CR/execute-pinc" ]; then
+    pass "a coordinated replacement holds the same run/cleanup/* keys with the same values"
+else
+    fail "coordinated pin carry: exit $RC, out [$OUT], same [$same]; $(cat "$WORK/stderr")"
+fi
+rm -rf "$WORK/pinc-before" "$PIN_CR/execute-pinc"
+rm -f "$FIXREPO/docs/plans/PLAN-pins.md" "$FIXREPO/docs/plans/PLAN-pinc.md"
 
 # --- engine-backed ------------------------------------------------------------
 

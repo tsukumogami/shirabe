@@ -8,9 +8,11 @@
 # /coordinate, /explore, /decision and /release that command is the entry
 # point's own opener with --dispatched-by (coordinate-open.sh, skill-session.sh
 # open). The openers of /scope, /deliver, /execute and /work-on take a
-# dispatcher only through a leg, so a worker of theirs on the message path (a
-# /work-on given a PLAN, or any worker a re-brief moved off its leg) runs this
-# once its entry point has opened its session.
+# dispatcher only through a leg; their briefs once told a message-path worker
+# to run this once its entry point had opened its session. They no longer do:
+# koto records the dispatcher when the session opens, from the name the
+# koto-skills start hook exports. The script stays, unchanged, so a brief
+# already in flight that still names it keeps working.
 #
 # It runs `koto session link <session> --dispatched-by <name>` through
 # scripts/lib/dispatch-link.sh, the openers' shared code: a failed link is

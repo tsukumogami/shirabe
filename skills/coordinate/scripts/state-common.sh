@@ -469,19 +469,138 @@ lib_roadmap_where() {
     if [ -n "${ROADMAP_DONE:-}" ]; then printf '%s (or %s)' "$ROADMAP" "$ROADMAP_DONE"; else printf '%s' "$ROADMAP"; fi
 }
 
-# lib_roadmap_words <roadmap.md>: RM_SECTION and RM_WORD, the roadmap's items
-# section and the word of its classic headings, chosen by its `schema:` as
-# milestone.sh schema reads it: `Milestones` and `Milestone` on roadmap/v3,
-# `Features` and `Feature` on any other (v1, v2, none). A reader takes only
-# its version's pair, so a v3 roadmap's `## Features` section or
-# `### Feature 3:` heading is no item, and the same holds for `## Milestones`
-# and `### Milestone 3:` on v2, as shirabe-validate reads them.
+# lib_roadmap_words <roadmap.md>: RM_SCHEMA, the roadmap's `schema:` as
+# milestone.sh schema reads it, and RM_SECTION and RM_WORD, its items section
+# and the word of its classic headings: `Milestones` and `Milestone` on
+# roadmap/v3 and roadmap/v4, `Features` and `Feature` on any other (v1, v2,
+# none). A reader takes only its version's pair, so a v3 roadmap's
+# `## Features` section or `### Feature 3:` heading is no item, and the same
+# holds for `## Milestones` and `### Milestone 3:` on v2, as shirabe-validate
+# reads them.
 lib_roadmap_words() {
-    if [ "$(bash "$HERE/milestone.sh" schema "$1" 2> /dev/null)" = roadmap/v3 ]; then
-        RM_SECTION=Milestones RM_WORD=Milestone
-    else
-        RM_SECTION=Features RM_WORD=Feature
+    RM_SCHEMA=$(bash "$HERE/milestone.sh" schema "$1" 2> /dev/null)
+    case "$RM_SCHEMA" in
+        roadmap/v3|roadmap/v4) RM_SECTION=Milestones RM_WORD=Milestone ;;
+        *) RM_SECTION=Features RM_WORD=Feature ;;
+    esac
+}
+
+# The milestone status table, skills/roadmap/references/milestone-statuses.json,
+# the one definition of what each Status word means; shirabe-validate embeds
+# the same file (crates/shirabe-validate/src/statuses.rs). Per schema family
+# (`v1-v3`, `v4`) it maps each status to its spellings and four properties:
+# satisfies (meets a dependency), closes (counts toward the roadmap closing),
+# takes_work (can be offered as work) and renders ({struck, class}). Any
+# status no entry spells is the table's `open` entry. No script here compares
+# status words itself; each asks these properties.
+#
+# STATUS_TABLE is the table as compact JSON once loaded; STATUS_TABLE_FILE the
+# path it is loaded from, beside the scripts in the same plugin.
+STATUS_TABLE=
+STATUS_TABLE_FILE="$HERE/../../roadmap/references/milestone-statuses.json"
+if [ -d "${STATUS_TABLE_FILE%/*}" ]; then
+    STATUS_TABLE_FILE="$(cd "${STATUS_TABLE_FILE%/*}" && pwd)/${STATUS_TABLE_FILE##*/}"
+fi
+
+# JQ_STATUS: the jq defs status_entry($t; $fam), the table entry a Status
+# value reads as, and status_props($t; $fam), its four properties. A value
+# reads as the entry with a spelling it opens: the spelling, then its end or
+# a character other than a letter, digit or hyphen, case-sensitive, so
+# `Done -- shipped in #12` is Done and `Doneness`, `Done-ish` and `done` fall
+# to open. Prefix it to a jq program that calls them, with the table as $t.
+JQ_STATUS='def status_entry($t; $fam): . as $s
+        | ([($t.schemas[$fam] // {}) | to_entries[] | .value
+            | select(any(.spellings[]; . as $w | ($s | startswith($w))
+                and ((($s | length) == ($w | length)) or ($s[($w | length):(($w | length) + 1)] | test("^[^A-Za-z0-9-]")))))][0])
+          // $t.open;
+    def status_props($t; $fam): status_entry($t; $fam) | {satisfies, closes, takes_work, renders};'
+
+# lib_status_load: load the status table into STATUS_TABLE, once. A missing
+# file, one jq can't parse, a `version` other than 1, or a table without the
+# shape the readers ask (both families, `open`, each entry's spellings and
+# properties) is refused: the message names the file, on stderr prefixed by
+# PROG, and the return is 2. A coordinator that can't read the statuses
+# doesn't guess them.
+lib_status_load() {
+    [ -z "$STATUS_TABLE" ] || return 0
+    local f=$STATUS_TABLE_FILE v
+    if [ ! -f "$f" ]; then
+        echo "${PROG:-state-common}: the milestone status table $f is missing" >&2
+        return 2
     fi
+    if ! v=$(jq -r '.version | tostring' "$f" 2> /dev/null); then
+        echo "${PROG:-state-common}: the milestone status table $f is not JSON jq can read" >&2
+        return 2
+    fi
+    if [ "$v" != 1 ]; then
+        echo "${PROG:-state-common}: the milestone status table $f has version $v; this script reads version 1" >&2
+        return 2
+    fi
+    if ! STATUS_TABLE=$(jq -c -e '
+            def props: type == "object" and (.satisfies | type) == "boolean" and (.closes | type) == "boolean"
+                and (.takes_work | type) == "boolean" and (.renders | type) == "object"
+                and (.renders.struck | type) == "boolean" and ((.renders.class | type) | IN("string", "null"));
+            def entry: props and (.spellings | type) == "array" and (.spellings | length) > 0
+                and all(.spellings[]; type == "string" and length > 0);
+            if (.schemas | type) == "object"
+                and all(.schemas["v1-v3"], .schemas.v4; type == "object" and length > 0 and all(.[]; entry))
+                and (.open | props)
+            then . else false end' "$f" 2> /dev/null); then
+        STATUS_TABLE=
+        echo "${PROG:-state-common}: the milestone status table $f does not have the shape this script reads" >&2
+        return 2
+    fi
+}
+
+# lib_status: lib_status_load, or stop the script (exit 2) with its message.
+# A script that reads statuses calls it before any read or write, so a table
+# it can't read stops it having written nothing.
+lib_status() { lib_status_load || exit 2; }
+
+# lib_status_family <schema>: the table's family for a roadmap's `schema:`
+# value, `v4` for roadmap/v4 and `v1-v3` for any other (v1, v2, v3, none).
+lib_status_family() {
+    case "$1" in roadmap/v4) printf 'v4\n' ;; *) printf 'v1-v3\n' ;; esac
+}
+
+# lib_status_prop <schema> <status> <property>: one property of a Status
+# value on a roadmap of that schema: `true` or `false` for satisfies, closes
+# and takes_work, the {struck, class} object as compact JSON for renders.
+# Returns 2 when the table can't be loaded, 64 for another property.
+lib_status_prop() {
+    case "$3" in satisfies|closes|takes_work|renders) ;; *) echo "${PROG:-state-common}: no status property $3" >&2; return 64 ;; esac
+    lib_status_load || return
+    jq -n -r --argjson t "$STATUS_TABLE" --arg fam "$(lib_status_family "$1")" --arg s "$2" --arg p "$3" \
+        "$JQ_STATUS"'$s | status_entry($t; $fam) | .[$p] | if type == "object" then tojson else tostring end'
+}
+
+# lib_status_move <status> <trigger>: the Status word a roadmap/v4 milestone
+# reading <status> moves to on <trigger> (finished, verified, changes-needed,
+# reopen, drop), as the table's v4 transition list gives it, printed as the
+# table spells it. <status> is first read as the status it names (the v4
+# entry whose spelling it opens, or the open spelling it opens, so
+# `In progress -- the loader` is In progress); a move the list doesn't hold,
+# from that status on that trigger, returns 1 and prints nothing, and so does
+# a <status> that names no status at all. Returns 2 when the table can't be
+# loaded or its transitions aren't a list of {from, to, trigger}. Only v4 has
+# transitions; v1 to v3 roadmaps never ask.
+lib_status_move() {
+    lib_status_load || return
+    local to
+    to=$(jq -n -r --argjson t "$STATUS_TABLE" --arg s "$1" --arg g "$2" '
+        def opens($w): . as $s | ($s | startswith($w))
+            and ((($s | length) == ($w | length)) or ($s[($w | length):(($w | length) + 1)] | test("^[^A-Za-z0-9-]")));
+        ($t.transitions.v4 // null) as $moves
+        | if ($moves | type) != "array"
+             or any($moves[]; (.from | type) != "array" or (.to | type) != "string" or (.trigger | type) != "string")
+          then error("transitions") else . end
+        | ([($t.schemas.v4 | to_entries[] | select(any(.value.spellings[]; . as $w | $s | opens($w))) | .key),
+            ($t.open.spellings[] | select(. as $w | $s | opens($w)))][0] // "") as $from
+        | if $from == "" then "" else
+            ([$moves[] | select(.trigger == $g and any(.from[]; . == $from)) | .to][0] // "") end' 2> /dev/null) \
+        || { echo "${PROG:-state-common}: the milestone status table $STATUS_TABLE_FILE has no v4 transition list this script reads" >&2; return 2; }
+    [ -n "$to" ] || return 1
+    printf '%s\n' "$to"
 }
 
 # JQ_TAG_KEY: the jq def `tag_key`, a tag's key, through which every match of
@@ -512,20 +631,24 @@ lib_heading_tag() {
 }
 
 # lib_roadmap_features <roadmap.md>: the items under the roadmap's items
-# section (lib_roadmap_words: `## Milestones` on roadmap/v3, `## Features`
-# otherwise), as a JSON array in source order: {number, id, title, status,
-# finished, done, dependencies}. The picker's reading of a roadmap of any
+# section (lib_roadmap_words: `## Milestones` on roadmap/v3 and v4,
+# `## Features` otherwise), as a JSON array in source order: {number, id,
+# title, status, finished, done, satisfies, closes, takes_work, renders,
+# dependencies}. The picker's reading of a roadmap of any
 # version, its rules applied in this order:
 #   1. An item is a `### <tag>: <title>` heading whose tag is `<RM_WORD> <N>`
 #      (`Feature <N>`, or `Milestone <N>` on v3) or `<PREFIX><N>` with an
 #      optional lower-case letter (`AB10a`); any other `### ` heading ends the
 #      item before it. Items are numbered by position, as shirabe-validate
 #      numbers them; `id` is the tag.
-#   2. `finished` when the `**Status:**` value starts with Done or Shipped
-#      followed by its end or a character other than a letter, digit or
-#      hyphen; closed the same way with Dropped. Case-sensitive, so a
-#      missing Status, `Doneness` or `done` is neither. `done` is finished
-#      or closed.
+#   2. The `**Status:**` value's four properties, `satisfies`, `closes`,
+#      `takes_work` and `renders`, from the status table (JQ_STATUS: the
+#      entry of the roadmap's family, lib_status_family of RM_SCHEMA, whose
+#      spelling the value opens, else `open`). `finished` is satisfies and
+#      `done` is not takes_work, kept for the readers that ask them: on v1
+#      to v3 finished is Done, Shipped or Closed and done adds Dropped; on
+#      v4 finished is Completed or Verified and done adds Dropped. A
+#      missing Status, `Doneness` or `done` is open.
 #   3. The Dependencies paragraph is the `**Dependencies:**` line and the
 #      lines below it, joined with single spaces, up to a blank line, the
 #      next field line or a heading. One whose first word is None names none.
@@ -544,16 +667,17 @@ lib_heading_tag() {
 #      (the item tagged `Feature N` when there is one, else the Nth item),
 #      and every whole word equal to another item's tag. Soft mentions, the
 #      item itself and tags no item carries are not dependencies. On a
-#      roadmap/v3 roadmap only, `Milestone N` and `Milestones N, M and K`
+#      roadmap/v3 or roadmap/v4 roadmap only, `Milestone N` and `Milestones N, M and K`
 #      name items too, and either word's N is the item tagged `Milestone N`
 #      when there is one, else the Nth item; rules 4 and 7 read `milestone`
 #      beside `feature` there. On v1 and v2 a `milestone 3` in prose (a
 #      free-prose roadmap mentions one in passing) names nothing.
 # `dependencies` is those positions, ascending, each once. A paragraph over
 # 4096 bytes fails the read: non-zero, the item's tag on stderr, prefixed by
-# the caller's PROG.
+# the caller's PROG. So does a status table lib_status_load refuses.
 lib_roadmap_features() {
     local tsv
+    lib_status_load || return
     lib_roadmap_words "$1"
     # LC_ALL=C: length() counts bytes, and the classes are ASCII. The section
     # and word are from lib_roadmap_words' closed set, never the roadmap's text.
@@ -589,12 +713,13 @@ lib_roadmap_features() {
         have && /^\*\*Dependencies:\*\*/ { s = $0; sub(/^\*\*Dependencies:\*\*[ \t]*/, "", s); sub(/[ \t]+$/, "", s); deps = s; indeps = 1; next }
         END { if (infeat && !failed) flush() }') || return
     # The words dependency prose reads: `feature` everywhere, and `milestone`
-    # beside it on v3 only. RM_WORD is lib_roadmap_words' closed set.
+    # beside it on v3 and v4 only. RM_WORD is lib_roadmap_words' closed set.
     local word='feature' words='features?'
     if [ "$RM_WORD" = Milestone ]; then word='feature|milestone' words='features?|milestones?'; fi
-    printf '%s\n' "$tsv" | jq -R -s -c --arg w "$word" --arg ws "$words" --arg cw "$RM_WORD" 'split("\n") | map(select(. != "") | split("\t"))
+    printf '%s\n' "$tsv" | jq -R -s -c --arg w "$word" --arg ws "$words" --arg cw "$RM_WORD" \
+        --argjson st "$STATUS_TABLE" --arg fam "$(lib_status_family "$RM_SCHEMA")" "$JQ_STATUS"'split("\n") | map(select(. != "") | split("\t"))
         | map(.[1]) as $ids | length as $count
-        # num: `Feature N` or `F<N>` (and `Milestone N` on v3), the item
+        # num: `Feature N` or `F<N>` (and `Milestone N` on v3 and v4), the item
         # tagged `<the version'"'"'s word> N`, else the Nth.
         | def num($n): ($ids | index("\($cw) \($n)")) as $i
             | if $i != null then $i + 1 elif $n >= 1 and $n <= $count then $n else empty end;
@@ -613,10 +738,11 @@ lib_roadmap_features() {
           def deps($p; $self): if ($p | test("^None([^A-Za-z0-9]|$)")) then [] else
               ([$p | desoft | unparen | splits("[.;]\\s+") | select(test("^\\s*(?i:soft)\\b") | not) | named] | unique)
               - [$self] end;
-          def opens($w): test("^(" + $w + ")([^A-Za-z0-9-]|$)");
-        map({number: (.[0] | tonumber), id: .[1], title: (.[2] | .[0:120]), status: (.[3] | .[0:60]),
-             finished: (.[3] | opens("Done|Shipped")), done: (.[3] | opens("Done|Shipped|Dropped")),
-             dependencies: deps(.[4] // ""; .[0] | tonumber)})'
+        map((.[3] | status_props($st; $fam)) as $p
+            | {number: (.[0] | tonumber), id: .[1], title: (.[2] | .[0:120]), status: (.[3] | .[0:60]),
+               finished: $p.satisfies, done: ($p.takes_work | not),
+               satisfies: $p.satisfies, closes: $p.closes, takes_work: $p.takes_work, renders: $p.renders,
+               dependencies: deps(.[4] // ""; .[0] | tonumber)})'
 }
 
 # lib_pr_link <cell>: split a Pull request cell `[#n](https://github.com/o/r/pull/n)`
@@ -700,7 +826,9 @@ lib_pr_held() {
 # its worker's teardown: a Verified head kept and the Pull request cell
 # blank, which only the cleared cell after a confirmed merge writes
 # (state-confirm.sh; state-holding.sh's header keeps the rule). The record's
-# rule, which the quiet check and the handover read. pick and dispatch_check
+# rule, which the quiet check reads; the handover reads it only beside
+# lib_worker_finished, since a worker that goes on to its unit's next pull
+# request carries the same pair while it is live. pick and dispatch_check
 # read lib_parked instead, which also counts a holding as merged for the cap
 # when GitHub reads its linked pull request merged (lib_link_merge_frees).
 # Reconcile's report reads the same row more narrowly, as merged only when
@@ -708,6 +836,36 @@ lib_pr_held() {
 # measured.
 lib_row_merged() {
     printf '%s' "$1" | jq -e '((.verified_head // "") != "") and ((.pull_request // "") == "")' > /dev/null
+}
+
+# lib_worker_finished <row-json>: has the row's worker finished, so it has
+# nothing left to report? The pair lib_row_merged reads doesn't say so alone:
+# a worker that goes on past its unit's first merged pull request keeps that
+# Verified head and a blank Pull request cell until it links the next one
+# (shirabe#2080). A leg-bound row's worker has finished when its leg is no
+# longer open (resolved or abandoned), read from this host's request store
+# (koto request get; KOTO_BIN names koto); a message row's when every Claude
+# job of its worker on this host has finished (dispatch-common.sh
+# dc_topic_stopped, under DC_CLAUDE_HOME, default $HOME/.claude). A leg this
+# store doesn't hold, a failed read, or no job seen here is not finished: the
+# worker is treated as live. The handover's live set and the reconcile
+# report's teardown read it beside lib_row_merged; a merged row (the pair)
+# whose worker has finished is merged and waiting only for its teardown.
+lib_worker_finished() {
+    local rp req leg out
+    rp=$(printf '%s' "$1" | jq -r '.return_path // ""') || return 1
+    case "$rp" in
+        "leg "*)
+            rp=${rp#leg }
+            req=${rp%%:*} leg=${rp#*:}
+            out=$("${KOTO:-${KOTO_BIN:-koto}}" request get "$req" < /dev/null 2> /dev/null) || return 1
+            printf '%s' "$out" | jq -e --arg l "$leg" '(.legs[$l].disposition // "") | IN("resolved", "abandoned")' > /dev/null
+            ;;
+        *)
+            declare -F dc_topic_stopped > /dev/null || . "$HERE/dispatch-common.sh" || return 1
+            dc_topic_stopped "${DC_CLAUDE_HOME:-$HOME/.claude}" "$(printf '%s' "$1" | jq -r '.worker // ""')"
+            ;;
+    esac
 }
 
 # LIB_MERGE_ROW_JQ: a jq def, merge_row($re; $pr; $sha), true for the Side
@@ -793,9 +951,9 @@ lib_parked() {
 # lib_bounds [record-json]: CAP and PARKED_BOUND from the session's variables
 # (defaults 5 and 3 without a session, or when a variable is unset). Given the
 # record as JSON (parsed, or state-stored-set.sh --list), a `cap` row in its Run
-# section wins over the variable: a cap a person changed is in the record, and
-# survives a restart that didn't pass it. Every reader of the cap comes here,
-# so they agree on it.
+# section wins over CAP and a `parked-bound` row over PARKED_BOUND: a bound a
+# person changed is in the record, and survives a restart that didn't pass it.
+# Every reader of the bounds comes here, so they agree on them.
 lib_bounds() {
     CAP=5 PARKED_BOUND=3
     if [ -n "$SESSION" ]; then
@@ -805,9 +963,11 @@ lib_bounds() {
         PARKED_BOUND=$(printf '%s' "$vars" | jq -r '.PARKED_BOUND // "3"')
     fi
     if [ -n "${1-}" ]; then
-        local rc
+        local rc rp
         rc=$(jq -r '[(.run // [])[] | select(.key == "cap") | .value][0] // empty' "$1") || lib_die2 "cannot read the record's Run section"
+        rp=$(jq -r '[(.run // [])[] | select(.key == "parked-bound") | .value][0] // empty' "$1") || lib_die2 "cannot read the record's Run section"
         [ -z "$rc" ] || CAP=$rc
+        [ -z "$rp" ] || PARKED_BOUND=$rp
     fi
     [[ $CAP =~ $RE_NUM ]] && [[ $PARKED_BOUND =~ $RE_NUM ]] || lib_die2 "CAP or PARKED_BOUND is not a number"
 }

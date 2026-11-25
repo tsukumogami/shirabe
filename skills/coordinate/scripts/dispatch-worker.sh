@@ -170,7 +170,9 @@
 # the brief over the old one, and launches nothing. A leg carries one result,
 # which the report just used, so the holding moves to the message path (its
 # spent request is abandoned) and its `dispatched` date, which records when
-# the worker was last briefed, is updated. The coordinator then sends the
+# the worker was last briefed, is updated. The leg's key keeps the session
+# bound to it, stamped `rebriefed`, so the land step still reads the round
+# the worker records there (stamp_rebriefed). The coordinator then sends the
 # worker a message pointing at the brief. A held coordinate lane's re-brief
 # carries no --role, since it isn't a new dispatch: the lane continues the
 # role its record holds, so a plain re-brief never undoes a change. Its
@@ -241,11 +243,60 @@
 # bindings. A refusal after the new request opened abandons it and sets the
 # old key back to `open`.
 #
+# --successor dispatches this run's own successor, the coordinator that takes
+# the run over (docs/designs/DESIGN-coordinate-successor-role.md). The
+# coordinator runs it from the hub, or at discipline scope from rotation_end,
+# at any unit state: it reads no pick fact, no coord/pick.json, no
+# dispatch_topic and no brief_input.json, so an owed verdict, a pause, a
+# parked decision or an empty scope doesn't stop it. Its
+# input is successor_input.json, from the session's context: a brief input
+# (render-brief.sh) with its topic, authority, goal, checkpoints, acceptance
+# and any of the optional fields, and no role, scope or repository to type.
+# The run, in order:
+#
+#   1. Read the input and the run's facts: the scope, name and host from
+#      coord-log.sh run-facts and, at roadmap scope, the ROADMAP variable from
+#      coord-log.sh vars. Facts that can't be read, a ROADMAP, discipline name
+#      or host that fails its variable's pattern or starts with `-`, an input
+#      entry point other than coordinate, an input `entry_args` or `repo` that
+#      differs from the derived one token for token, an input `role_change`,
+#      a record with no `coordinator` address, and a record with no Run
+#      `role` row (the message names `state-stored-set.sh --session <run>
+#      --run role`) each exit 1 with nothing written. The input then gets the
+#      derived `entry_args` (`[<ROADMAP>]`, or `["--discipline",
+#      <DISCIPLINE>, "--host", <HOST_REPO>]` at discipline scope) and `repo`
+#      (HOST_REPO), `role` the record's row, `successor: true`, `grant: own`
+#      (resolved as above), `unit` naming the scope, `phase: executing`, an
+#      empty run mode, `reports_to` and `dispatcher_session`, over anything
+#      it gave.
+#   2. Under the run's lock ($BRIEFS/.successor.<run>.lock), read the Run
+#      `successor` row: a `dispatch-failed` or `stranded` row of this topic
+#      exits 3 (a new attempt takes a new topic). A live session using the
+#      topic exits 5. The brief input is checked (render-brief.sh --stdout,
+#      no --units): a refusal exits 1 with nothing written.
+#   3. Write ahead: the Run `successor` row reads `dispatching <topic>
+#      <date>`, set by this run (state-stored-set.sh --successor), whose entry
+#      names the topic, the brief's path and the role. A refusal of the write
+#      exits 8 (no open record, or a directed transition) or 2 (the row as it
+#      stands doesn't allow it, named on stderr).
+#   4. Render the brief and launch `niwa dispatch` as a worker's step 6 does,
+#      with `--skill shirabe:coordinate`; the prompt reads `<authority> Run
+#      `<invocation>` in <owner/repo>. Stop at: <last checkpoint> Read <brief>
+#      for your complete task brief, then do it.`
+#   5. Confirm as a worker's step 7 does, rewriting the row `dispatched` or
+#      `dispatch-failed` (exit 4, or 11 for niwa's never-wider refusal); a
+#      listing that can't be read leaves it `dispatching` (exit 6).
+#
+# No Holdings row, leg or leg key is written for a successor, and no
+# dispatched event is sent.
+#
 # Usage:
 #   dispatch-worker.sh --session <koto-session> [--rebrief | --releg]
 #   dispatch-worker.sh --session <koto-session> --releg-imported <topic>
+#   dispatch-worker.sh --session <koto-session> --successor
 #
-# Output: `already-dispatched`, or `session=<name>` for a launched worker, or
+# Output: `already-dispatched`, or `session=<name>` for a launched worker or
+# successor, or
 # `brief=<path>` for --rebrief, or `brief=<path>` and `leg=<request>:<leg>`
 # (and `session=<name>` when the listing finds it) for --releg and a sent
 # execution, or `leg=<request>:<leg>` and `child=<session>` for
@@ -255,7 +306,8 @@
 #   0  dispatched, confirmed, already dispatched, re-briefed, a leg
 #      replaced (--releg), or an execution sent
 #   1  brief refused, a role_change refused, a successor brief whose run
-#      records no role, a send_execution brief input that isn't the
+#      records no role, a --successor input refused or whose run's facts
+#      can't be read, a send_execution brief input that isn't the
 #      execution's, or a /shirabe:deliver or /shirabe:scope brief for a unit
 #      whose scoping landed (pick's follow_up); nothing written
 #   2  usage, mismatched topic, no workspace root, a failed read or write
@@ -304,15 +356,17 @@ RE_REQ="$DC_RE_REQ"
 EMIT="$HERE/../../../scripts/emit-event.sh"
 
 die() { printf '%s: %s\n' "$PROG" "$2" >&2; exit "$1"; }
-usage() { die 2 "usage: $PROG --session <koto-session> [--rebrief | --releg | --releg-imported <topic>]"; }
+usage() { die 2 "usage: $PROG --session <koto-session> [--rebrief | --releg | --releg-imported <topic> | --successor]"; }
 
 SESSION=""
 REBRIEF=0
 RELEG=0
 IMPORTED=""
+SUCCESSOR=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || usage; SESSION="$2"; shift 2 ;;
+        --successor) SUCCESSOR=1; shift ;;
         --rebrief) REBRIEF=1; shift ;;
         --releg) RELEG=1; shift ;;
         --releg-imported) [ $# -ge 2 ] || usage; IMPORTED="$2"; shift 2 ;;
@@ -322,6 +376,7 @@ done
 [ -n "$SESSION" ] || usage
 [ "$REBRIEF$RELEG" != 11 ] || usage
 [ -z "$IMPORTED" ] || [ "$REBRIEF$RELEG" = 00 ] || usage
+[ "$SUCCESSOR" = 0 ] || { [ "$REBRIEF$RELEG" = 00 ] && [ -z "$IMPORTED" ]; } || usage
 command -v jq >/dev/null || die 2 "jq is not on PATH"
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-worker.XXXXXX") || die 2 "cannot make a scratch directory"
@@ -384,8 +439,9 @@ read_inputs() {
 # input_role: the role of the coordinator a brief starts, written into the
 # input as `role` over anything it gave, before resolve_grant
 # (docs/designs/DESIGN-coordinator-named-roles.md, Decision 2). The render
-# fields `held_rerender` and `role_change_by` are this script's alone, so
-# they are deleted from every input first. Then:
+# fields `held_rerender`, `role_change_by` and `successor` are this script's
+# alone (`successor` only --successor's), so they are deleted from every
+# input first. Then:
 #   - an entry point other than coordinate: `role` is deleted, so a worker
 #     brief has no role line;
 #   - coordinate, the positional naming this run's own roadmap (its scope
@@ -427,7 +483,7 @@ input_role() {
         fi
     fi
     if [ "$REBRIEF" = 1 ] || [ "$RELEG" = 1 ]; then
-        jq 'del(.role, .held_rerender, .role_change_by)' "$INPUT" >"$WORK/in.json" && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
+        jq 'del(.role, .held_rerender, .role_change_by, .successor)' "$INPUT" >"$WORK/in.json" && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
         return 0
     fi
     if [ "$ep" != coordinate ]; then
@@ -442,8 +498,77 @@ input_role() {
     else
         role=manager
     fi
-    jq --arg r "$role" 'del(.role, .held_rerender, .role_change_by, .role_change) | if $r == "" then . else .role = $r end' "$INPUT" >"$WORK/in.json" \
+    jq --arg r "$role" 'del(.role, .held_rerender, .role_change_by, .role_change, .successor) | if $r == "" then . else .role = $r end' "$INPUT" >"$WORK/in.json" \
         && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
+}
+
+# successor_inputs: --successor's input, its scope built from the run's facts
+# (the header's step 1). Every refusal exits 1 before anything is written.
+# RE_ROADMAP is the template's ROADMAP variable pattern (koto-templates/
+# coordinate.md) without its empty alternative; keep the patterns in step.
+RE_ROADMAP='^docs/roadmaps/(([^/.][^/]*|\.[^/.][^/]*|\.\.[^/]+)/)*ROADMAP-[A-Za-z0-9._-]+\.md$'
+RE_HOST='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+# RE_DISCIPLINE and RE_HOST are the template's DISCIPLINE and HOST_REPO
+# patterns, DISCIPLINE's without its empty alternative.
+RE_DISCIPLINE='^[a-z0-9][a-z0-9-]*$'
+successor_refuse() { printf '%s: refused: %s\n' "$PROG" "$1" >&2; exit 1; }
+successor_inputs() {
+    local ep facts vars scope name host roadmap args role rc
+    INPUT="$WORK/successor_input.json"
+    ctx successor_input.json >"$INPUT" || die 2 "cannot read successor_input.json from the session's context"
+    jq -e 'type == "object"' "$INPUT" >/dev/null || die 2 "successor_input.json is not a JSON object"
+    TOPIC=$(jq -r '.topic // "" | strings' "$INPUT")
+    dc_valid_topic "$TOPIC" || die 2 "successor_input.json names no valid topic: [${TOPIC:0:80}]; a topic is $DC_TOPIC_GRAMMAR"
+    ep=$(jq -r '.entry_point // "coordinate" | tostring' "$INPUT")
+    [ "$ep" = coordinate ] || successor_refuse "entry_point: a successor runs /shirabe:coordinate, not ${ep:0:60}"
+    if jq -e 'has("role_change")' "$INPUT" >/dev/null; then
+        successor_refuse "role_change: a successor takes the role this run's record holds, and a predecessor isn't above its successor"
+    fi
+    facts=$(bash "$DC_COORD_LOG" run-facts --session "$SESSION" 2>"$WORK/facts.err")
+    rc=$?
+    [ "$rc" = 0 ] || successor_refuse "this run's facts can't be read (coord-log.sh run-facts exit $rc: $(head -1 "$WORK/facts.err")), so its successor's scope can't be built"
+    scope=$(jq -r '.scope // "" | strings' <<<"$facts") || successor_refuse "coord-log.sh run-facts printed no JSON"
+    name=$(jq -r '.name // "" | strings' <<<"$facts")
+    host=$(jq -r '.repo // "" | strings' <<<"$facts")
+    case "$scope" in
+        roadmap)
+            vars=$(bash "$DC_COORD_LOG" vars --session "$SESSION" 2>"$WORK/facts.err")
+            rc=$?
+            [ "$rc" = 0 ] || successor_refuse "this run's variables can't be read (coord-log.sh vars exit $rc: $(head -1 "$WORK/facts.err")), so its successor's scope can't be built"
+            roadmap=$(jq -r '.ROADMAP // "" | strings' <<<"$vars") || successor_refuse "coord-log.sh vars printed no JSON"
+            case "$roadmap" in -*) successor_refuse "ROADMAP: this run's roadmap starts with -: [${roadmap:0:80}]" ;; esac
+            [[ $roadmap =~ $RE_ROADMAP ]] || successor_refuse "ROADMAP: this run's roadmap isn't a docs/roadmaps/.../ROADMAP-<name>.md path: [${roadmap:0:80}]"
+            ;;
+        discipline)
+            case "$name" in -*) successor_refuse "DISCIPLINE: this run's discipline starts with -: [${name:0:80}]" ;; esac
+            [[ $name =~ $RE_DISCIPLINE ]] || successor_refuse "DISCIPLINE: this run's discipline isn't a name matching $RE_DISCIPLINE: [${name:0:80}]"
+            ;;
+        *) successor_refuse "coord-log.sh run-facts names no scope this mode knows: [${scope:0:40}]" ;;
+    esac
+    case "$host" in -*) successor_refuse "repo: this run's host starts with -: [${host:0:80}]" ;; esac
+    [[ $host =~ $RE_HOST ]] || successor_refuse "repo: this run's host isn't owner/repo: [${host:0:80}]"
+    if [ "$scope" = roadmap ]; then
+        args=$(jq -nc --arg r "$roadmap" '[$r]')
+    else
+        args=$(jq -nc --arg d "$name" --arg h "$host" '["--discipline", $d, "--host", $h]')
+    fi
+    if jq -e 'has("entry_args")' "$INPUT" >/dev/null && [ "$(jq -c '.entry_args' "$INPUT")" != "$args" ]; then
+        successor_refuse "entry_args: the input gives $(jq -r '.entry_args | tojson | .[0:120]' "$INPUT"), and this run's own scope is $args"
+    fi
+    if jq -e 'has("repo")' "$INPUT" >/dev/null && [ "$(jq -r '.repo | tostring' "$INPUT")" != "$host" ]; then
+        successor_refuse "repo: the input gives $(jq -r '.repo | tojson | .[0:80]' "$INPUT"), and this run's host is $host"
+    fi
+    bash "$DC_RECORD_STATE" --list --session "$SESSION" >"$WORK/state.json" 2>"$WORK/state.err" ||
+        die 2 "cannot read the record's Run section: $(head -1 "$WORK/state.err")"
+    ADDRESS=$(jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0] // empty' "$WORK/state.json") ||
+        die 2 "the record's Run section is not state-stored-set.sh's JSON"
+    [ -n "$ADDRESS" ] || successor_refuse "the record names no coordinator address for the brief to give the successor; set it with state-stored-set.sh --session $SESSION --run coordinator <address> --by <who>"
+    role=$(jq -r '[(.run // [])[] | select(.key == "role") | .value][0] // empty | strings' "$WORK/state.json")
+    [ -n "$role" ] || successor_refuse "role: a successor takes this run's role, the record's Run role row, and the record has none; set it with state-stored-set.sh --session $SESSION --run role <manager|director> --by <who named it>"
+    jq --argjson a "$args" --arg h "$host" --arg r "$role" --arg u "$scope $name" --arg addr "$ADDRESS" --arg s "$SESSION" \
+        'del(.held_rerender, .role_change_by, .role_change) + {entry_point: "coordinate", entry_args: $a, repo: $h,
+          run_mode: "", role: $r, successor: true, grant: "own", unit: $u, phase: "executing",
+          reports_to: $addr, dispatcher_session: $s}' "$INPUT" >"$WORK/in.json" && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
 }
 
 # resolve_grant: what the worker is dispatched holding, settled before any
@@ -571,6 +696,9 @@ EOF
 if [ -n "$IMPORTED" ]; then
     TOPIC=$IMPORTED
     dc_valid_topic "$TOPIC" || die 2 "--releg-imported names no valid topic: $TOPIC"
+elif [ "$SUCCESSOR" = 1 ]; then
+    successor_inputs
+    resolve_grant
 else
     read_inputs
     resolve_grant
@@ -596,8 +724,12 @@ mkdir -p "$BRIEFS" || die 2 "cannot create $BRIEFS"
 # coordinators dispatching one topic at once, which the record's
 # one-holding-per-topic already rules out, so it is left as is.
 LOCK_OWNER=""
+# A successor's lock is named for the run, so one run dispatches one
+# successor at a time whatever topic it names.
+LOCK_FILE="$BRIEFS/.$TOPIC.lock"
+[ "$SUCCESSOR" = 0 ] || LOCK_FILE="$BRIEFS/.successor.$SESSION.lock"
 take_lock() {
-    local l="$BRIEFS/.$TOPIC.lock"
+    local l="$LOCK_FILE"
     if (set -C && printf '%s\n' "$$" >"$l") 2>/dev/null; then
         LOCK="$l"
         return 0
@@ -618,7 +750,7 @@ take_lock() {
     (set -C && printf '%s\n' "$$" >"$l") 2>/dev/null || return 1
     LOCK="$l"
 }
-take_lock || die 7 "another run holds the lock for $TOPIC (pid ${LOCK_OWNER:-not yet written}; the lock is $BRIEFS/.$TOPIC.lock)"
+take_lock || die 7 "another run holds the lock for $TOPIC (pid ${LOCK_OWNER:-not yet written}; the lock is $LOCK_FILE)"
 
 # --- helpers ---------------------------------------------------------------------------
 
@@ -649,6 +781,93 @@ write_row() {
 with_status() { printf '%s' "$1" | jq -c --arg s "$2" '.dispatch_status = $s'; }
 
 TODAY=$(date -u +%Y-%m-%d)
+
+# --- --successor -------------------------------------------------------------------------------
+
+# successor_write <status>: the Run `successor` row for this topic, set by
+# this run; maps the writer's refusals to this script's exit codes.
+successor_write() {
+    bash "$DC_RECORD_STATE" --session "$SESSION" --successor "$1" "$TOPIC" --by "$SESSION" >/dev/null 2>"$WORK/succ.err"
+    case "$?" in
+        0) return 0 ;;
+        10) die 8 "the record refused the successor row for $TOPIC (no open record, or a directed transition in the run log)" ;;
+        # The row landed and only its entry didn't: the dispatch goes on, since
+        # the row is what a restart reads, and the warning says what's missing.
+        14) printf '%s: the successor row reads %s %s, but its entry wasn'"'"'t posted: %s\n' "$PROG" "$1" "$TOPIC" "$(head -1 "$WORK/succ.err")" >&2 ;;
+        65) die 2 "the record refused the successor row $1 $TOPIC: $(sed -n 's/^state-stored-set: refused: //p' "$WORK/succ.err" | head -1)" ;;
+        *) die 2 "writing the successor row $1 $TOPIC failed: $(head -1 "$WORK/succ.err")" ;;
+    esac
+}
+
+# successor_confirm <name>: the launch confirmed.
+successor_confirm() {
+    successor_write dispatched
+    printf 'session=%s\n' "$1"
+    exit 0
+}
+
+if [ "$SUCCESSOR" = 1 ]; then
+    # The row as it stands, read again under the lock.
+    bash "$DC_RECORD_STATE" --list --session "$SESSION" >"$WORK/state.json" 2>"$WORK/state.err" ||
+        die 2 "cannot read the record's Run section: $(head -1 "$WORK/state.err")"
+    SROW=$(jq -r '[(.run // [])[] | select(.key == "successor") | .value][0] // "" | strings' "$WORK/state.json") ||
+        die 2 "the record's Run section is not state-stored-set.sh's JSON"
+    STOPIC=${SROW#* }
+    STOPIC=${STOPIC%% *}
+    case "${SROW%% *}" in
+        dispatch-failed | stranded)
+            [ "$STOPIC" != "$TOPIC" ] || die 3 "the successor $TOPIC is ${SROW%% *}; dispatch the successor under a new topic" ;;
+    esac
+    NAME=$(find_session)
+    case "$?" in
+        0) die 5 "a live session already uses $TOPIC: $NAME" ;;
+        1) ;;
+        *) die 2 "niwa list can't be read to check $TOPIC is free" ;;
+    esac
+    bash "$HERE/render-brief.sh" --input "$INPUT" --stdout >/dev/null
+    case "$?" in
+        0) ;;
+        1) exit 1 ;;
+        *) die 2 "rendering the brief failed" ;;
+    esac
+    successor_write dispatching
+    BRIEF=$(bash "$HERE/render-brief.sh" --input "$INPUT" --workspace-root "$ROOT" --return-path message --targets-checked)
+    if [ "$?" != 0 ]; then
+        successor_write dispatch-failed
+        die 2 "rendering the successor's brief failed; the row says dispatch-failed"
+    fi
+    INVOCATION=$(dc_invocation "$INPUT" message) || die 2 "building the invocation failed"
+    PROMPT=$(jq -r --arg inv "$INVOCATION" --arg brief "$BRIEF" '
+        .authority + " Run `" + $inv + "` in " + .repo + ". Stop at: " + (.checkpoints | last)
+        + " Read " + $brief + " for your complete task brief, then do it."' "$INPUT")
+    launch_flags
+    LINEAGE=()
+    case "$HELP" in
+        *--brief*) case "$HELP" in *--skill*) LINEAGE=(--brief "$BRIEF" --skill shirabe:coordinate) ;; esac ;;
+    esac
+    LOG="$WORK/niwa.out"
+    (cd "$ROOT" && dc_with_deadline "$DEADLINE" "$NIWA" dispatch "$PROMPT" --name "$TOPIC" --detach \
+        ${LINEAGE[@]+"${LINEAGE[@]}"} ${GRANT_ARGS[@]+"${GRANT_ARGS[@]}"} ${PARENT_ARGS[@]+"${PARENT_ARGS[@]}"} \
+        ${LAUNCH_ARGS[@]+"${LAUNCH_ARGS[@]}"}) >"$LOG" 2>"$WORK/niwa.err"
+    RC=$?
+    cat "$WORK/niwa.err" >&2
+    if [ "$RC" -eq 0 ]; then
+        NAME=$(sed -n 's/^[[:space:]]*session name: //p' "$LOG" | head -1)
+        dc_session_matches "$TOPIC" "$NAME" && successor_confirm "$NAME"
+    fi
+    NAME=$(find_session)
+    case "$?" in
+        0) successor_confirm "$NAME" ;;
+        1)
+            successor_write dispatch-failed
+            if [ "$RC" -ne 0 ] && grep -q "is wider than the dispatcher's grant:" "$WORK/niwa.err"; then
+                die 11 "niwa refused the successor $TOPIC's grant as wider than this coordinator's own; report the refusal and don't dispatch it again asking for more"
+            fi
+            die 4 "niwa dispatch failed for the successor $TOPIC (exit $RC)"
+            ;;
+        *) die 6 "niwa dispatch exited $RC and niwa list can't be read; the successor $TOPIC stays dispatching" ;;
+    esac
+fi
 
 # --- read the holding ---------------------------------------------------------------------
 
@@ -924,6 +1143,39 @@ request_view() {
     return 2
 }
 
+# stamp_rebriefed <request>:<leg>: before a --rebrief moves the holding off
+# the leg, write into the leg's key the session koto bound to it (`child`,
+# from the key or else from the request) and `rebriefed`, the UTC time of the
+# move. board-lib.sh's bl_rebriefed_round reads the round the worker recorded
+# in that session from there once the holding names only the message path,
+# so a round recorded before or after the re-brief, in the same session, is
+# still found without a result block in the report. Only a key of this topic
+# is stamped. Nothing here is fatal: a key that can't be stamped leaves the
+# report's result block as the land step's one source, and stderr says so.
+stamp_rebriefed() {
+    local rp=$1 req=${1%%:*} leg=${1#*:} key child rc now
+    key=$(dc_leg_get "$SESSION" "$req" "$leg")
+    rc=$?
+    case "$rc" in
+        0) ;;
+        1) printf '%s: the leg %s has no leg key: the land step reads %s'"'"'s round from its report only\n' "$PROG" "$rp" "$TOPIC" >&2; return 0 ;;
+        *) printf '%s: could not read the leg key for %s: the land step reads %s'"'"'s round from its report only\n' "$PROG" "$rp" "$TOPIC" >&2; return 0 ;;
+    esac
+    [ "$(jq -r '.topic // "" | strings' <<<"$key")" = "$TOPIC" ] || {
+        printf '%s: the leg key for %s names another worker: not stamped\n' "$PROG" "$rp" >&2; return 0; }
+    child=$(jq -r '.child // "" | strings' <<<"$key")
+    if [ -z "$child" ] && request_view "$req"; then
+        child=$(jq -r --arg l "$leg" '(.request // .) | .legs[$l].bound_child // "" | strings' <<<"$VIEW") || child=
+    fi
+    if [ -z "$child" ]; then
+        printf '%s: no session is bound to %s: the land step reads %s'"'"'s round from its report only\n' "$PROG" "$rp" "$TOPIC" >&2
+        return 0
+    fi
+    now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    dc_leg_put "$SESSION" "$req" "$leg" "$(jq -c --arg c "$child" --arg t "$now" '.child = $c | .rebriefed = $t' <<<"$key")" ||
+        printf '%s: could not stamp the leg key for %s: the land step reads %s'"'"'s round from its report only\n' "$PROG" "$rp" "$TOPIC" >&2
+}
+
 # child_facts <session>: the child session's template file and variables, from
 # the header and the first initialization of its own log, as one JSON object
 # {template, variables}. Returns 2 when the log can't be read.
@@ -1192,6 +1444,10 @@ if [ "$REBRIEF" = 1 ]; then
         1) exit 1 ;;
         *) die 2 "rendering the brief failed" ;;
     esac
+    # The holding no longer names the leg, so the land step finds the round
+    # the worker recorded in its bound session through the leg's key
+    # (board-lib.sh bl_rebriefed_round), stamped before the request goes.
+    [ "$ROW_RP" = message ] || stamp_rebriefed "$ROW_RP"
     write_row "$(printf '%s' "$ROW" | jq -c --arg d "$TODAY" '.dispatched = $d | .return_path = "message"')"
     if [ "$ROW_RP" != message ]; then
         "$KOTO" request abandon-request "${ROW_RP%%:*}" \

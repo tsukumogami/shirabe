@@ -21,6 +21,10 @@
 #   test-change.sh covered  <session> <item>...
 #   test-change.sh record   <session>
 #
+#   note's --reason is at most 300 bytes (TEXT_MAX). A longer one is a
+#   usage error (exit 64) naming the limit and its length, and nothing is
+#   recorded: the reason is kept whole or not at all, never clipped.
+#
 #   init      writes the ledger's header: the author (agent:<session>),
 #             impl_base, the work tree, the repository (owner/name from
 #             origin, or empty) and a run nonce. Refused (exit 1) when a
@@ -179,6 +183,7 @@ usage: test-change.sh init     <session> [--entry] [--shared-branch <name>]
        test-change.sh covered  <session> <item>...
        test-change.sh record   <session>
 EOF
+    echo "note's --reason is at most $TEXT_MAX bytes; a longer one is refused and nothing is recorded." >&2
     exit 64
 }
 
@@ -240,7 +245,23 @@ safe_path() {
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+# reason_fits <reason>: a usage refusal when the reason is longer than
+# TEXT_MAX bytes. A reason is the record of why a test changed, so it is
+# refused whole rather than clipped by clean(), and the caller learns the
+# limit before anything is written. It counts bytes
+# under LC_ALL=C, so the limit doesn't move with the caller's locale, and a
+# reason that fits has at most TEXT_MAX characters too, so clean()'s cut never
+# shortens it and no multi-byte character is split. Non-ASCII text gets fewer
+# characters under the same cap.
+reason_fits() {
+    local n
+    n=$(printf '%s' "$1" | LC_ALL=C wc -c | tr -d ' ')
+    [ "$n" -le "$TEXT_MAX" ] || usage "--reason is $n bytes, over the $TEXT_MAX-byte limit; shorten it and run again (nothing was recorded)"
+}
+
 # clean <text>: control characters (newlines included) become spaces, capped.
+# A reason reaches it only after reason_fits, so its cut never shortens one;
+# it still caps paths and the other text that passes through.
 clean() {
     printf '%s' "$1" | LC_ALL=C tr '\000-\037\177' ' ' | cut -c "1-$TEXT_MAX"
 }
@@ -679,6 +700,7 @@ cmd_note() {
     done
     safe_path "$file" || usage "--file [$file] is not a repository-relative path"
     [ "$has_reason" -eq 1 ] || usage "note needs --reason"
+    reason_fits "$reason"
     reason=$(clean "$reason")
     [ -n "$(printf '%s' "$reason" | tr -d ' ')" ] || usage "--reason is empty"
     koto_floor

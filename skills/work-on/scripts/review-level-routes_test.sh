@@ -240,11 +240,10 @@ tick() {
     NEXT_STATE=$(koto status "$1" 2>/dev/null | jq -r '.current_state // empty')
 }
 # tick_past_choice <session>: the tick after the level is set enters
-# fix_determination, whose action binds UNIT_KIND; koto routes on it from the
-# next tick, to implementation.
+# fix_determination, whose action records the kind and whose kind_route gate
+# routes on it in the same tick, to implementation.
 tick_past_choice() {
     tick "$1"
-    [ "$NEXT_STATE" = fix_determination ] && tick "$1"
     return 0
 }
 
@@ -289,17 +288,20 @@ expect_visits() {
     [ "$n" = "$3" ] && pass "$1: $3 transition(s) into $2" || fail "$1: $n transition(s) into $2, expected $3"
 }
 
-# new_case <session> <change>: a branch off main carrying one commit made by
-# <change>, and a session walked to review_level_choice with impl_base at main.
+# new_case <session> <change> [<type hint>]: a branch off main carrying one
+# commit made by <change>, and a session walked to review_level_choice with
+# impl_base at main. The hint is ISSUE_TYPE (code when omitted): a run that
+# answers docs or task starts with that hint, since a code hint over a diff
+# with anything but documentation in it takes the code route on entry.
 new_case() {
-    local s=$1
+    local s=$1 hint=${3:-code}
     git checkout -q main
     git checkout -q -b "case-$s"
     eval "$2"
     git add -A
     git commit -q -m "work for $s"
     koto init "$s" --template "$TEMPLATE" --var ARTIFACT_PREFIX=issue_42 --var ISSUE_NUMBER=42 \
-        --var PLUGIN_ROOT="$PLUGIN_ROOT" >/dev/null 2>&1 || { fail "$s: koto init failed"; return 1; }
+        --var PLUGIN_ROOT="$PLUGIN_ROOT" --var ISSUE_TYPE="$hint" >/dev/null 2>&1 || { fail "$s: koto init failed"; return 1; }
     tick "$s" '{"mode":"issue_backed","issue_number":"42"}'
     tick "$s" '{"status":"override"}'
     # staleness_check routes on its own gate: no GitHub remote, so exit 3.
@@ -312,14 +314,19 @@ new_case() {
 }
 
 # choose_and_implement <session> <level> <type>: chooses the level, finishes
-# implementation and answers the type question.
+# implementation and answers the type question. A code run whose diff the
+# code_route gate decides is not asked, and goes on as a code answer would.
 choose_and_implement() {
     setlevel "$1" "$2"
     tick_past_choice "$1"
     [ "$NEXT_STATE" = implementation ] || { fail "$1: after set, at [$NEXT_STATE], not implementation"; return 1; }
     tick "$1" '{"implementation_status":"complete"}'
-    [ "$NEXT_STATE" = issue_type_routing ] || { fail "$1: after implementation, at [$NEXT_STATE]"; return 1; }
-    tick "$1" "{\"issue_type\":\"$3\"}"
+    if [ "$NEXT_STATE" = issue_type_routing ]; then
+        tick "$1" "{\"issue_type\":\"$3\"}"
+    elif [ "$3" != code ] || [ "$(visits "$1" review_level_check)" = 0 ]; then
+        fail "$1: after implementation, at [$NEXT_STATE]"
+        return 1
+    fi
     return 0
 }
 
@@ -438,14 +445,14 @@ fi
 echo "--- engine: docs and task"
 
 S=docs
-if new_case "$S" "$SMALL" && choose_and_implement "$S" light docs; then
+if new_case "$S" "$SMALL" docs && choose_and_implement "$S" light docs; then
     expect_state "a docs run" verification
     expect_visits "$S" review_level_check 0
     [ "$(ledger "$S" | jq -r 'select(.event == "choose") | .to')" = light ] && pass "the docs run recorded its level" \
         || fail "docs ledger is [$(ledger "$S")]"
 fi
 S=task
-if new_case "$S" "$SMALL" && choose_and_implement "$S" standard task; then
+if new_case "$S" "$SMALL" task && choose_and_implement "$S" standard task; then
     expect_state "a task run" verification
     expect_visits "$S" review_level_check 0
     [ "$(ledger "$S" | jq -r 'select(.event == "choose") | .to')" = standard ] && pass "the task run recorded its level" \
