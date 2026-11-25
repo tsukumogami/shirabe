@@ -41,7 +41,8 @@ script's header lists every field and its rule; this is the shape:
   "out_of_scope": ["Feature 3, which a sibling worker holds."],
   "surfaces": [{"surface": "ci-health", "coordinator": "<its session name>"}],
   "standing_rules": ["<the workspace's own rules for workers, copied verbatim>"],
-  "review_level": {"ceiling": "standard"}
+  "review_level": {"ceiling": "standard"},
+  "continues": "<the stranded topic this dispatch continues, only when it continues one>"
 }
 ```
 
@@ -72,6 +73,16 @@ The brief gets one line in Acceptance criteria and the invocation gets
 `entry_args` or `run_mode`: `render-brief.sh` refuses them there, so the
 level names always go through its check. Leave the field out and the brief
 is the same as before it existed.
+
+`continues` is the topic of the stranded holding this dispatch continues
+(`state-holding.sh --strand`), given only when the unit goes out again after
+its worker was stranded. `dispatch-worker.sh` reads it: the brief's
+Decisions name that holding's branch and last pushed head, and its row alone
+is retired once the new worker is dispatched. A unit can hold more than one
+topic, so a dispatch without `continues` names and retires no stranded row,
+even one on the same unit. A `continues` that isn't a valid topic, is the
+dispatch's own topic, or names no stranded holding of the unit is refused
+with nothing written.
 
 `grant` is what the worker is dispatched holding: the named authorities for
 the landing steps the brief hands it to take itself (`merge-pr`,
