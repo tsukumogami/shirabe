@@ -15,8 +15,10 @@
 //! file unchanged: the path must resolve inside the repository the command
 //! runs in; a file already on `roadmap/v4` exits 0 saying so; a `roadmap/v1`
 //! or schema-less file is refused naming its schema; a roadmap whose own
-//! status is Done is refused; and a milestone block it can't parse is refused
-//! naming it.
+//! status is Done is refused; a milestone block it can't parse is refused
+//! naming it; and a migrated text that fails `roadmap/v4` validation is
+//! refused with the validator's findings. `--dry-run` runs every one of these
+//! checks and refuses exactly as the real run does; it only skips the write.
 //!
 //! Security invariants:
 //!
@@ -51,7 +53,9 @@ pub struct MigrateArgs {
     /// the command runs in.
     pub roadmap_path: String,
 
-    /// Print what each milestone would become and write nothing.
+    /// Print what each milestone would become and write nothing. The
+    /// migrated result is still validated, and refused as the real run
+    /// would refuse it.
     #[arg(long = "dry-run")]
     pub dry_run: bool,
 }
@@ -128,11 +132,13 @@ fn run_inner(args: &MigrateArgs) -> Result<Vec<String>, String> {
     let plan = plan_migration(&text, version)?;
     let output = plan.report();
 
+    // Validate before the dry-run return, so a preview refuses with the same
+    // findings and exit status as the real run would.
+    check_result(&target, &plan.text)?;
     if args.dry_run {
         return Ok(output);
     }
 
-    check_result(&target, &plan.text)?;
     write_atomically(&target, plan.text.as_bytes())?;
     Ok(output)
 }
