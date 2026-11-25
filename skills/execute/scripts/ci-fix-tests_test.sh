@@ -16,6 +16,7 @@
 #
 # Usage: bash skills/execute/scripts/ci-fix-tests_test.sh
 set -u
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 SCRIPT="$HERE/ci-fix-tests.sh"
@@ -30,7 +31,7 @@ eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; fi
 has() { case "$3" in *"$2"*) ok "$1" ;; *) bad "$1" "[$3] lacks [$2]" ;; esac; }
 
 W=$(mktemp -d "${TMPDIR:-/tmp}/ci-fix-tests-test.XXXXXX") || { echo "FAIL: no temporary directory"; exit 1; }
-trap 'rm -rf "$W"' EXIT
+ktg_on_exit 'rm -rf "$W"'
 export HOME="$W/home"
 mkdir -p "$HOME"
 export GIT_CONFIG_NOSYSTEM=1
