@@ -65,6 +65,18 @@ db_init
 db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-writeback.md"] = $t' --arg t "$(roadmap_text "In progress")"
 # Feature 1's worker: its pull request merged and the merge confirmed (a
 # Verified head, the Pull request cell cleared), waiting for its teardown.
+# Its worker has finished: its one Claude job on this host has stopped
+# (DC_CLAUDE_HOME, dispatch-common.sh dc_topic_stopped; shirabe#2080).
+export DC_CLAUDE_HOME="$T/claude"
+# A seeded job's listing row (dispatch-common.sh dc_job_row) comes from a
+# stub `claude agents --json --all` that lists nothing, never the host's real
+# CLI.
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$T/claude-cli"
+chmod +x "$T/claude-cli"
+export DC_CLAUDE_CLI="$T/claude-cli"
+JD="$DC_CLAUDE_HOME/jobs" HF=0000fea1
+mkdir -p "$JD/fea1fea1"
+jq -nc --arg n "feat_1-$HF" '{name: $n, state: "done"}' > "$JD/fea1fea1/state.json"
 F1=$(holding feat-1 "$(jq -nc --arg h "$SHA_HEAD" '{unit: "Feature 1", dispatch_status: "dispatched", branch: "feat/first", verified_head: $h, pull_request: ""}')")
 RECORD=$(record_json roadmap writeback | jq -c --argjson a "$F1" '
     .holdings = [$a]

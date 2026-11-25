@@ -806,13 +806,20 @@ host)
     SLUG=$(rd_slug "$TOPIC")
     [ -n "$SLUG" ] || refuse host "the dispatch topic has no usable slug"
     read_or_fail host "$DEADLINE" niwa list --json
-    printf '%s' "$OUT" | jq -ce --arg s "$SLUG" --arg t "$(rd_now)" '
+    # stopped: every Claude job of the topic's worker on this host has
+    # finished (dispatch-common.sh dc_topic_stopped, under DC_CLAUDE_HOME); no
+    # job seen here is not stopped. The report reads a merged holding as
+    # waiting for its teardown only when its worker has finished (shirabe#2080).
+    STOPPED=false
+    declare -F dc_topic_stopped > /dev/null || . "$HERE/dispatch-common.sh" || refuse host "dispatch-common.sh could not be loaded"
+    dc_topic_stopped "${DC_CLAUDE_HOME:-$HOME/.claude}" "$TOPIC" && STOPPED=true
+    printf '%s' "$OUT" | jq -ce --arg s "$SLUG" --arg t "$(rd_now)" --argjson st "$STOPPED" '
         select(type == "array")
         | [.[] | select(((.name // "") | test("\\+" + $s + "-[0-9a-f]{8}$"))
                         or ((.session_name // "") | test("^" + $s + "-[0-9a-f]{8}$")))] as $m
-        | if ($m | length) == 1 then {kind: "host", status: "ok", state: "found", reads: 1, path: $m[0].path, read_at: $t}
-          elif ($m | length) > 1 then {kind: "host", status: "ok", state: "ambiguous", reads: 1, read_at: $t}
-          else {kind: "host", status: "ok", state: "missed", reads: 1, read_at: $t} end' 2>/dev/null \
+        | if ($m | length) == 1 then {kind: "host", status: "ok", state: "found", reads: 1, path: $m[0].path, stopped: $st, read_at: $t}
+          elif ($m | length) > 1 then {kind: "host", status: "ok", state: "ambiguous", reads: 1, stopped: $st, read_at: $t}
+          else {kind: "host", status: "ok", state: "missed", reads: 1, stopped: $st, read_at: $t} end' 2>/dev/null \
         || refuse host "unreadable workspace listing"
     ;;
 

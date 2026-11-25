@@ -25,6 +25,10 @@
 #   test-change.sh covered  <session> <item>...
 #   test-change.sh record   <session>
 #
+#   A --reason is at most 300 bytes (TEXT_MAX). A longer one is a usage
+#   error (exit 64) naming the limit and its length, and nothing is recorded:
+#   the reason is kept whole or not at all, never clipped.
+#
 #   init      writes the ledger's header, the line every later attempt is
 #             judged against: the author (agent:<session>), impl_base, the
 #             work tree, the repository (owner/name from origin, or empty), a
@@ -234,6 +238,7 @@ usage: test-change.sh init     <session> [--entry] [--shared-branch <name>]
        test-change.sh covered  <session> <item>...
        test-change.sh record   <session>
 EOF
+    echo "A --reason is at most $TEXT_MAX bytes; a longer one is refused and nothing is recorded." >&2
     exit 64
 }
 
@@ -311,7 +316,23 @@ safe_path() {
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+# reason_fits <reason>: a usage refusal when the reason is longer than
+# TEXT_MAX bytes. A reason is the record of why a test changed or why its
+# change was accepted, so it is refused whole rather than clipped by clean(),
+# and the caller learns the limit before anything is written. It counts bytes
+# under LC_ALL=C, so the limit doesn't move with the caller's locale, and a
+# reason that fits has at most TEXT_MAX characters too, so clean()'s cut never
+# shortens it and no multi-byte character is split. Non-ASCII text gets fewer
+# characters under the same cap.
+reason_fits() {
+    local n
+    n=$(printf '%s' "$1" | LC_ALL=C wc -c | tr -d ' ')
+    [ "$n" -le "$TEXT_MAX" ] || usage "--reason is $n bytes, over the $TEXT_MAX-byte limit; shorten it and run again (nothing was recorded)"
+}
+
 # clean <text>: control characters (newlines included) become spaces, capped.
+# A reason reaches it only after reason_fits, so its cut never shortens one;
+# it still caps paths and the other text that passes through.
 clean() {
     printf '%s' "$1" | LC_ALL=C tr '\000-\037\177' ' ' | cut -c "1-$TEXT_MAX"
 }
@@ -680,9 +701,9 @@ person_command() {
     local files
     files=$(cut -f 1 "$TMP/items" | paste -sd ' ' -)
     if [ -n "$files" ]; then
-        printf '"%s/test-change.sh" accept %s --as person:<your-name> --authority owner --files %s --reason "<why the edit is right>"\n' "$HERE" "$1" "$files"
+        printf '"%s/test-change.sh" accept %s --as person:<your-name> --authority owner --files %s --reason "<why the edit is right, at most %s bytes>"\n' "$HERE" "$1" "$files" "$TEXT_MAX"
     else
-        printf '"%s/test-change.sh" accept %s --as person:<your-name> --authority owner --all --reason "<why the edit is right>"\n' "$HERE" "$1"
+        printf '"%s/test-change.sh" accept %s --as person:<your-name> --authority owner --all --reason "<why the edit is right, at most %s bytes>"\n' "$HERE" "$1" "$TEXT_MAX"
     fi
 }
 
@@ -923,6 +944,7 @@ cmd_note() {
     done
     safe_path "$file" || usage "--file [$file] is not a repository-relative path"
     [ "$has_reason" -eq 1 ] || usage "note needs --reason"
+    reason_fits "$reason"
     reason=$(clean "$reason")
     [ -n "$(printf '%s' "$reason" | tr -d ' ')" ] || usage "--reason is empty"
     koto_floor
@@ -1136,8 +1158,10 @@ Run exactly one of these, once; this seat identity counts for one judgment:
   "$HERE/test-change.sh" accept $s --as $id --authority reviewer --all$whole_arg --reason '<why the edits are corrections>'
   "$HERE/test-change.sh" decline $s --as $id --authority reviewer --all --reason '<which edit weakens what, and why>'
 
-Write the reason in single quotes, with no single quote inside it. Then
-report which you ran, its exit code and your reason.
+Write the reason in single quotes, with no single quote inside it, and keep
+it to $TEXT_MAX bytes or fewer: a longer one is refused with exit 64 and
+nothing is recorded, so shorten it and run the command again. Then report
+which you ran, its exit code and your reason.
 
 The run's work tree is $wt, at commit $head.
 The hunks below end at that commit. If you read a file or its history, read
@@ -1291,6 +1315,7 @@ cmd_judge() {
     valid_identity "$as" || usage "--as [$as] is not an identity (agent:<name> or person:<name>)"
     case "$authority" in ""|*[!a-z]*) usage "--authority [$authority] is not a level" ;; esac
     [ "$has_reason" -eq 1 ] || usage "$action needs --reason"
+    reason_fits "$reason"
     reason=$(clean "$reason")
     [ -n "$(printf '%s' "$reason" | tr -d ' ')" ] || usage "--reason is empty"
     if [ "$all" -eq 1 ] && [ "${#named[@]}" -gt 0 ]; then usage "give --files or --all, not both"; fi
@@ -1391,6 +1416,7 @@ cmd_overrule() {
     case "$target" in accept-[0-9]*) case "${target#accept-}" in *[!0-9]*) usage "--acceptance [$target] is not an acceptance id (accept-<n>)" ;; esac ;;
         *) usage "--acceptance [$target] is not an acceptance id (accept-<n>)" ;; esac
     [ "$has_reason" -eq 1 ] || usage "overrule needs --reason"
+    reason_fits "$reason"
     reason=$(clean "$reason")
     [ -n "$(printf '%s' "$reason" | tr -d ' ')" ] || usage "--reason is empty"
 

@@ -48,6 +48,12 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 EMPTY_CLAUDE_HOME="$T/claude-empty"
 mkdir -p "$EMPTY_CLAUDE_HOME/jobs"
 export DC_CLAUDE_HOME="$EMPTY_CLAUDE_HOME"
+# A seeded job's listing row (dispatch-common.sh dc_job_row) comes from a
+# stub `claude agents --json --all` that lists nothing, never the host's real
+# CLI.
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$T/claude-cli"
+chmod +x "$T/claude-cli"
+export DC_CLAUDE_CLI="$T/claude-cli"
 DC="$HERE/deferral-check.sh"
 CL="$HERE/coord-log.sh"
 tok_shape() {
