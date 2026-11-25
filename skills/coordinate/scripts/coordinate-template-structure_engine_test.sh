@@ -767,6 +767,12 @@ for d in pick.choice classify_report.classification decision_verdict.verdict; do
     jq -e --arg s "$st" --arg f "$fld" '.states[$s].accepts[$f].decider != null' "$J" >/dev/null && pass "$d carries a decider" || fail "$d carries a decider"
     [ -f "$HERE/../koto-templates/coordinate.$d.decider.jsonl" ] && pass "$d has fixtures" || fail "$d has fixtures"
 done
+# The pick decider reads the cap and the parked bound from its slice, which
+# carries the bound in force: a CAP or PARKED_BOUND variable input beside it
+# would show the decider the bound a Run row replaced (shirabe#2106).
+PI=$(jq -c '[.states.pick.accepts.choice.decider.inputs[] | .source | keys[0] + ":" + (.context // .var // "")]' "$J")
+[ "$PI" = '["context:coord/pick_slice.json"]' ] && pass "the pick decider's one input is the slice, with no bound variable beside it" \
+    || fail "the pick decider's one input is the slice, with no bound variable beside it" "$PI"
 TERMS=$(jq -r '.states | to_entries[] | select(.value.terminal == true) | .key' "$J" | sort | tr '\n' ' ')
 [ "$TERMS" = "done done_handed_over done_not_active done_stopped " ] && pass "the terminals are the four the report names" || fail "the terminals are the four the report names" "$TERMS"
 RK=$(jq -r '[.states[] | select(.terminal == true) | (.result // {} | keys | sort | join(","))] | unique | join(";")' "$J")

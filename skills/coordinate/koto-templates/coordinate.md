@@ -470,9 +470,11 @@ states:
     # choice carries a decider in shadow mode: its answer is recorded beside the
     # coordinator's and never acts. No value targets a terminal or a
     # confirmation, and no arm tests a gate, so every value stays promotable.
-    # Inputs: coord/pick_slice.json, pick-slice.jq's slice of coord/pick.json,
-    # and the PARKED_BOUND variable. The slice carries the cap in force (the
-    # record's Run section's, when it has one, over the CAP variable).
+    # Input: coord/pick_slice.json, pick-slice.jq's slice of coord/pick.json.
+    # The slice carries the cap and the parked bound in force (the record's
+    # Run section's `cap` and `parked-bound` rows, when it has them, over the
+    # CAP and PARKED_BOUND variables), so neither variable is a separate input:
+    # one would show the decider a bound the row has replaced.
     # pick_facts stores the slice and the facts before it seals its verdict, so
     # a sealed verdict means both are this visit's; its pick_slice_input and
     # pick_input gates only say each exists. The directive reads the full
@@ -498,7 +500,6 @@ states:
           escape: {value: unclear, description: "The facts are missing, truncated, or contradictory."}
           inputs:
             - {context: coord/pick_slice.json, label: pick_facts, max_bytes: 12000}
-            - {var: PARKED_BOUND, label: parked_bound}
       unit:
         type: string
         description: 'The dispatch topic of the unit picked, when the choice dispatches (lowercase letters, digits and hyphens, such as plugin-api); never the unit''s tag or title from coord/pick.json, such as "Feature 2" or "#12". dispatch_check refuses any other value as unknown-topic, with the reason in coord/dispatch_check.json, and sends you back here. With await_decision, required: the unit as pick lists it ("Feature 2", "#12"), the one you park.'
@@ -2694,9 +2695,10 @@ and drive every worker to landed work.
   worker's Claude jobs on this host have all finished, so nothing runs for it
   while it waits on its pull request, and a worker continuing its unit takes
   the same slot without a cap raise.
-- **The parked bound.** When {{PARKED_BOUND}} or more workers are parked, dispatch
-  nothing new until the human has worked through the merge-order table
-  (`hold`).
+- **The parked bound.** When {{PARKED_BOUND}} or more workers are parked, or the
+  number a Run `parked-bound` row sets in its place (`parked_bound` in
+  coord/pick.json is the bound in force), dispatch nothing new until the human
+  has worked through the merge-order table (`hold`).
 - **Order.** Roadmap features in the roadmap's order; a discipline's units in
   issue-number order; unblocked first. A roadmap feature is unblocked when every
   feature it depends on reads Done and no holding covers it.

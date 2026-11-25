@@ -69,8 +69,8 @@
 # only, so a stopped row that is also parked still counts as parked toward
 # PARKED_BOUND. Local agents have no holding and
 # are never counted. The counts sit beside CAP and
-# PARKED_BOUND from the session's variables, the cap from the record's Run
-# section when it has one.
+# PARKED_BOUND from the session's variables, each from the record's Run
+# section when it has a `cap` or `parked-bound` row.
 #
 # The record's pauses (Standing rows of kind pause, evaluated by
 # pause-read.sh): each unit and holding carries `paused`, the id of the pause
@@ -209,7 +209,8 @@ printf '%s\n' "$l2" > "$T/state.json"
 printf '%s\n' "$l3" > "$T/decisions.json"
 printf '%s\n' "$l4" > "$T/landed.json"
 lib_parked "$T/holdings.json" "$T/counted.json" || lib_die2 "a holding's pull request read failed"
-# The cap a person set in the record's Run section wins over the session's.
+# The cap and parked bound a person set in the record's Run section win over
+# the session's.
 lib_bounds "$T/state.json"
 
 VERDICT=pick
