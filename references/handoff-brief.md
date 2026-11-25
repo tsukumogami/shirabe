@@ -797,8 +797,8 @@ launch.
 ### Workers
 
 A workspace switches workers on in its niwa configuration. A named dispatch
-profile, `worker`, sets `auto_compact_window` to 280000, the value the worker
-profile sets, and the workspace installs both hooks: `PreCompact` runs
+profile, `worker`, carries the window in its `auto_compact_window`, and the
+workspace installs both hooks: `PreCompact` runs
 `shirabe compaction pre-compact` and `SessionStart` on `compact` runs
 `shirabe compaction re-anchor`, each through a two-line script that exits 0
 when the shirabe binary is missing, so a host without shirabe compacts as
@@ -806,7 +806,8 @@ before. A worker gets the window only when its dispatch names the profile
 (`niwa dispatch --profile worker`); niwa renders it into the `env` block of
 the launch `--settings` document. The profile isn't the workspace default,
 because a default would reach every dispatch that names no profile,
-coordinators' successor dispatches among them (tsukumogami/niwa#579).
+coordinators' successor dispatches among them, and niwa 0.45.0 gives a
+dispatch no way to opt out of a default (tsukumogami/niwa#579).
 
 The identity read for a worker launch, on Claude Code 2.1.332:
 
@@ -827,7 +828,8 @@ The identity read for a worker launch, on Claude Code 2.1.332:
 Result:
 
 - **Window carriage**: the launch `--settings` `env` block held
-  `CLAUDE_CODE_AUTO_COMPACT_WINDOW=280000`. The compaction fired
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW=280000`, the value the worker profile
+  sets. The compaction fired
   automatically at 252,957 tokens (after it, 51,208), and `printenv
   CLAUDE_CODE_AUTO_COMPACT_WINDOW` after it printed `280000`. A session the
   same workspace dispatched with no profile had no window in its launch
