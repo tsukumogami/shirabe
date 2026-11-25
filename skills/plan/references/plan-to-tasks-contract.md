@@ -268,10 +268,15 @@ Supported table formats:
 | Issue | Title | Complexity | Dependencies |
 ```
 
-For each data row where the first cell contains `#N` (plain or as part of a link):
+For each entity row, a data row whose first cell starts with the issue key `#N`
+(plain, or as a link such as `[#N: title](url)`):
 - `name` = `issue-<N>`
 - `vars.ISSUE_NUMBER` = `"N"` (as string)
 - `waits_on` = list of `issue-<M>` for each `#M` in the Dependencies cell; `[]` if cell is `None`
+
+Any other row is text. A description row that mentions an issue
+(`_Lands after #7 merges._`, `_Fixes acme#461._`) produces no task; the
+coordinated table parser applies the same rule.
 
 ### single-pr Mode
 

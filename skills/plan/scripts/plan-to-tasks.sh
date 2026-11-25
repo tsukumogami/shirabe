@@ -260,6 +260,24 @@ extract_frontmatter() {
     ' "$file"
 }
 
+# Print the issue number of an Implementation Issues entity row and return 0,
+# or return 1 for any other row. An entity row's first data cell starts with
+# its issue key, plain (`#12`) or as a link (`[#12: title](url)`). A
+# description row may mention issues anywhere in its text ("Lands after #7",
+# "Fixes acme#461"), so a #N elsewhere on the row does not make it an entity.
+entity_row_issue_num() {
+    local line="$1"
+    local cell="${line#|}"
+    cell="${cell%%|*}"
+    cell="${cell#"${cell%%[![:space:]]*}"}"
+    local re_key='^\[?#([0-9]+)([^0-9]|$)'
+    if [[ "$cell" =~ $re_key ]]; then
+        printf '%s' "${BASH_REMATCH[1]}"
+        return 0
+    fi
+    return 1
+}
+
 # Process multi-pr mode: parse the ## Implementation Issues table
 process_multi_pr() {
     local file="$1"
@@ -270,7 +288,6 @@ process_multi_pr() {
     local in_section=0
     local dep_col=0
     local entries=()
-    local re_issue_num="#([0-9]+)"
 
     while IFS= read -r line; do
         # Detect section header
@@ -310,16 +327,11 @@ process_multi_pr() {
             continue
         fi
 
-        # Data rows: must start with | and have #N in first data cell
+        # Entity rows: start with | and carry the #N key in the first data
+        # cell. Any other row (a description row, say) is text.
         if [[ "$line" =~ ^\| ]]; then
-            # Extract issue number from the line using regex
             local issue_num=""
-            local rest="$line"
-            if [[ "$rest" =~ $re_issue_num ]]; then
-                issue_num="${BASH_REMATCH[1]}"
-            else
-                continue
-            fi
+            issue_num=$(entity_row_issue_num "$line") || continue
 
             # Extract the dependencies cell by column index or fallback
             local IFS_SAVE2="$IFS"
@@ -928,7 +940,6 @@ process_coordinated() {
     # the `^_Gate: ... | After: ... | Before: ..._` gate rows.
     local in_section=0
     local dep_col=0
-    local re_issue_num="#([0-9]+)"
 
     # Parallel arrays keyed by appearance order.
     local -a issue_nums=()
@@ -1013,9 +1024,10 @@ process_coordinated() {
             continue
         fi
 
-        # Entity rows: start with | and carry #N in the first data cell.
-        if [[ "$line" =~ ^\| && "$line" =~ $re_issue_num ]]; then
-            local issue_num="${BASH_REMATCH[1]}"
+        # Entity rows: start with | and carry the #N key in the first data
+        # cell. A description row's #N is text.
+        local issue_num=""
+        if [[ "$line" =~ ^\| ]] && issue_num=$(entity_row_issue_num "$line"); then
 
             local IFS_SAVE2="$IFS"
             IFS='|'
