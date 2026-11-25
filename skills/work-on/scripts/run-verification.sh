@@ -1664,7 +1664,7 @@ fi
 # twin has gone since. Dies (exit 2) when koto can't answer.
 plan_hosted() {
     local rc res
-    command -v koto >/dev/null 2>&1 || die "koto is not on PATH"
+    command -v koto >/dev/null || die "koto is not on PATH"
     ctx_read "$PLAN_KEY" || die "could not read $PLAN_KEY for session $SESSION"
     [ "$CTX_PRESENT" -eq 1 ] || return 1
     res=$(printf '%s' "$CTX_VALUE" | jq -r 'if type == "object" and (.resolution | type) == "string" then .resolution else "" end') \
