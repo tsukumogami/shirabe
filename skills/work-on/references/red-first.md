@@ -203,6 +203,11 @@ same set of paths ends the run at `done_blocked`. While implementing, record
 why a test changed with `test-change.sh note <session> --file <path> --reason
 '<why>'`; the brief carries each note to the seat.
 
+Every `--reason` (`note`, `accept`, `decline` and `overrule`) is at most 300
+bytes. A longer one is a usage error (exit 64) that names the limit and the
+reason's length, and nothing is recorded, so shorten it and run the command
+again. A reason is stored whole or not at all.
+
 The brief carries the edited hunks whole when they fit in its limit (32768
 bytes). When they don't, it never passes part of a diff off as all of it: each
 file's diff goes in whole while it fits, a `[cut: ...]` line marks where the
