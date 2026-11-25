@@ -385,7 +385,7 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
 )
 '
 OPENER_TAKES=false
-dc_opener_takes_dispatcher "$(jq -r '.entry_point // "" | strings' "$INPUT" 2>/dev/null)" && OPENER_TAKES=true
+dc_opener_takes_dispatcher "$(jq -r '.entry_point // "" | strings' "$INPUT")" && OPENER_TAKES=true
 CHECK_OUT=$(jq -r --argjson opener_takes "$OPENER_TAKES" "$JQ_CHECKS" "$INPUT") || { printf '%s: jq failed reading the input\n' "$PROG" >&2; exit 2; }
 [ -n "$CHECK_OUT" ] && refuse "$CHECK_OUT"
 
