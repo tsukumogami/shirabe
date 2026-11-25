@@ -83,6 +83,7 @@
 #     verb resolved through the file's VAR=<literal> assignments, and one that
 #     can't be resolved is a finding (mutations: an observe call in
 #     node-push.sh, a "$1" verb in coord-merge.sh)
+#     and pin build-output-pin.sh's, the one writer of run/cleanup/<id>
 #   the merge-attempt grammar's three copies agree: coord-common.sh's and
 #     record-coordination-verdict.sh's id and value regexes byte-equal, and
 #     coordinated-next.sh's --attempts usage text listing the value regex's
@@ -91,6 +92,9 @@
 #   SKILL.md names the run record as the run's store, and its closed
 #     write-target set lists the six run/ keys, run-record.sh, and
 #     coord-render.sh
+#   only the merged and ready_awaiting_merge directives run
+#     build-output-end.sh (compiled; no other state's directive, details,
+#     default action or gate names it)
 #
 # and that each structural check bites on a mutated copy: a second edge into
 # merged, a command gate on coord_merge_confirm, an overridable coord_verdict
@@ -198,6 +202,7 @@ check_verbs() {
                 if (v == "observe") return base == "coord-render.sh"
                 if (v == "cascade") return base == "node-push.sh" || base == "record-coordination-verdict.sh"
                 if (v == "carry") return base == "execute-open.sh"
+                if (v == "pin") return base == "build-output-pin.sh"
                 return 0
             }
             /^[[:space:]]*#/ { next }
@@ -403,6 +408,7 @@ CHECKS=(
 "coord_setup accepts blocked and the seventeen typed stops|.states.coord_setup.accepts.setup_status.values == [\"blocked\",\"store-mismatch\",\"coordination-pr-missing\",\"coordination-pr-ambiguous\",\"coordination-pr-mismatch\",\"coordination-pr-closed\",\"session-absent\",\"recovery-unproven\",\"recovery-plan-gone\",\"coordination-index-missing\",\"coordination-body-full\",\"adopt-run-refused\",\"follow-up-node\",\"follow-up-repo\",\"follow-up-base\",\"follow-up-author\",\"follow-up-closed\",\"worktree-isolated\"]"
 "coord_setup's directive passes all five variables to record-coord-setup.sh|(.states.coord_setup.directive // \"\") | (contains(\"record-coord-setup.sh --session {{SESSION_NAME}} --plan {{PLAN_DOC}}\") and contains(\"--store \\\"{{STORE}}\\\" --coordination-pr \\\"{{COORDINATION_PR}}\\\" --follow-up \\\"{{FOLLOW_UP}}\\\"\") and contains(\"--follow-up-remove \\\"{{FOLLOW_UP_REMOVE}}\\\" --adopt-run \\\"{{ADOPT_RUN}}\\\"\"))"
 "every coordinated-next.sh and node-push.sh call in coord_loop passes --session|(.states.coord_loop.directive // \"\") | ([scan(\"scripts/(coordinated-next|node-push)\\\\.sh [a-z]* *--session \\\\{\\\\{SESSION_NAME\\\\}\\\\}\")] | length) == ([scan(\"scripts/(coordinated-next|node-push)\\\\.sh \")] | length)"
+"only the merged and ready_awaiting_merge directives run build-output-end.sh|[.states | to_entries[] | select([.value.directive, .value.details, .value.default_action.command, ((.value.gates // {})[] | .command)] | map(. // \"\") | join(\"\\n\") | contains(\"build-output-end.sh\")) | .key] | sort == [\"merged\", \"ready_awaiting_merge\"]"
 )
 
 run_checks() { # run_checks <compiled json> -> prints the labels that fail

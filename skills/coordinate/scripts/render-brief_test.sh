@@ -34,6 +34,11 @@
 # the fresh-args clause; every role, held_rerender and role_change_by refusal,
 # --role in entry_args and an address over 80 characters among them, exits 1
 # and writes nothing.
+# A discipline run's successor brief (the script-only `successor` field)
+# takes entry_args --discipline <name> --host <owner/repo>, with --role after
+# all four tokens; every other first flag, a name or host outside its
+# pattern, the field on another entry point or beside held_rerender or
+# role_change_by, and the shape on a lane's brief are refused.
 #
 # Usage: bash skills/coordinate/scripts/render-brief_test.sh
 # Exit codes: 0 all pass; 1 a failure. Needs jq. bash 3.2.
@@ -803,6 +808,43 @@ refused "successor: beside held_rerender" "$(variant succ-held "$COORD"' | .role
 refused "successor: beside role_change_by" "$(variant succ-rcb "$COORD"' | .role = "director" | .role_change_by = "coord-alpha" | .successor = true')" \
     'successor: a successor brief is a new dispatch, never beside held_rerender or role_change_by'
 refused "successor: with no role"     "$(variant succ-norole "$COORD"' | .successor = true')"                          'role: required on a successor brief, manager or director, and missing'
+
+# A discipline run's successor: entry_args is its four scope tokens, and
+# --role follows all four. Only `successor` admits the shape; every other
+# first flag is refused with it, and a lane never takes the shape.
+DISC='.entry_args = ["--discipline", "ci-health", "--host", "acme/widgets"]'
+DGOAL='Run `/shirabe:coordinate --discipline ci-health --host acme/widgets --role director` in acme/widgets.'
+DSUCC=$(variant succ-disc "$COORD"' | .role = "director" | .grant = [] | .successor = true | '"$DISC"' | .goal = "Continue the ci-health rotation from where its record stands."')
+DB=$(bash "$S" --input "$DSUCC" --stdout); eq "successor: a discipline successor brief renders" 0 "$?"
+eq "successor: its Goal line is the discipline invocation with --role after the scope" "$DGOAL" "$(role_lines "$DB")"
+eq "successor: ... the brief's only line naming manager or director" "$DGOAL" "$(printf '%s\n' "$DB" | grep -iwE 'managers?|directors?')"
+eq "successor: dc_invocation prints the discipline invocation" '/shirabe:coordinate --discipline ci-health --host acme/widgets --role director' \
+    "$( (. "$HERE/dispatch-common.sh" && dc_invocation "$DSUCC") )"
+RSUCC=$(variant succ-road "$COORD"' | .role = "director" | .successor = true | .entry_args = ["docs/roadmaps/ROADMAP-plugin-system.md"]')
+eq "successor: ... and over a roadmap successor the positional and --role" '/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role director' \
+    "$( (. "$HERE/dispatch-common.sh" && dc_invocation "$RSUCC") )"
+for c in 'a name outside the DISCIPLINE pattern|["--discipline","CI_Health","--host","acme/widgets"]|entry_args: the discipline name must match' \
+         'a host that is not owner/repo|["--discipline","ci-health","--host","acme"]|entry_args: the discipline host must be owner/repo' \
+         'the pair reordered|["--host","acme/widgets","--discipline","ci-health"]|entry_args: a successor brief whose scope is a discipline gives exactly' \
+         'no --host|["--discipline","ci-health"]|entry_args: a successor brief whose scope is a discipline gives exactly' \
+         'a fifth token|["--discipline","ci-health","--host","acme/widgets","--auto"]|entry_args: a successor brief whose scope is a discipline gives exactly'; do
+    label=${c%%|*} rest=${c#*|}; args=${rest%%|*} want=${rest#*|}
+    refused "successor: discipline shape, $label" "$(variant succ-dshape "$COORD"' | .role = "director" | .successor = true | .entry_args = '"$args")" "$want"
+    OUT=$(bash "$S" --input "$T/succ-dshape.json" --stdout 2>/dev/null); eq "successor: discipline shape, $label: prints no brief" "" "$OUT"
+done
+refused "successor: discipline shape on a work-on input" "$(variant succ-dworkon '.entry_point = "work-on" | .entry_args = ["acme/widgets#12"] | .successor = true')" \
+    'successor: only on a coordinate brief, not on work-on: true'
+refused "successor: discipline shape beside held_rerender" "$(variant succ-dheld "$COORD"' | .role = "director" | .held_rerender = true | .successor = true | '"$DISC")" \
+    'successor: a successor brief is a new dispatch, never beside held_rerender or role_change_by'
+refused "successor: discipline shape beside role_change_by" "$(variant succ-drcb "$COORD"' | .role = "director" | .role_change_by = "coord-alpha" | .successor = true | '"$DISC")" \
+    'successor: a successor brief is a new dispatch, never beside held_rerender or role_change_by'
+refused "successor: discipline shape with no role" "$(variant succ-dnorole "$COORD"' | .successor = true | '"$DISC")" \
+    'role: required on a successor brief, manager or director, and missing'
+refused "successor: a lane can't take the discipline shape" "$(variant succ-dlane "$COORD"' | .role = "manager" | '"$DISC")" \
+    'entry_args: the first token must be the positional argument, one line, not a flag'
+refused "successor: a lane can't add --discipline after a roadmap" \
+    "$(variant succ-dlane2 "$COORD"' | .role = "manager" | .entry_args = ["docs/roadmaps/ROADMAP-sub.md", "--discipline", "ci-health"]')" \
+    "entry_args: coordinate doesn't allow --discipline"
 
 (cd "$T/nowhere" && bash "$S" --input "$BASE" >/dev/null 2>&1); eq "no workspace root is exit 2" 2 "$?"
 bash "$S" --input "$BASE" --workspace-root "$T/nowhere" >/dev/null 2>&1; eq "a root without workspace.toml is exit 2" 2 "$?"

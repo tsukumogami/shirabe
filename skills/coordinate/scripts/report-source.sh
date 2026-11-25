@@ -9,7 +9,10 @@
 # the record: a message report is admitted for a holding whose return path is
 # `message`, or whose leg is spent for reporting (its key reads taken or
 # unwatchable, koto's own record of the leg holds the result the worker's
-# session promoted, or this host's store doesn't hold its request: PRD R16);
+# session promoted, or this host's store doesn't hold its request: PRD R16),
+# or when koto's record of an earlier leg of the same unit, one of this
+# session's leg keys, holds a promoted result (a run that moved to a
+# continuation promotes to the leg it was first bound to: shirabe#2094);
 # nothing is admitted for a stranded holding; a leg
 # report only when the holding's return path is the
 # leg the wait state read (wait_target), which wait_leg's gate admitted on a
@@ -119,6 +122,54 @@ if [ "$SOURCE" = message ]; then
         2) exit 0 ;;
         *) printf '%s: cannot read request %s\n' "$PROG" "$REQ" >&2; exit 2 ;;
     esac
+    # A unit's run that moved to a continuation stays bound to the leg it was
+    # first bound to, and its terminal tick promotes there, while the
+    # continuation's holding names a leg of its own that nothing will resolve
+    # (shirabe#2094). So koto's record of an earlier leg of the same unit
+    # settles it as well: a leg key of this session (dispatch-worker.sh writes
+    # them, never a worker) whose unit is exactly the holding's, in any state
+    # but spent (a leg no holding named) or releg-pending (a re-leg under way),
+    # whose leg holds a result its session promoted. The unit is compared and
+    # the topic isn't, since a continuation goes out under a topic of its own;
+    # the result's status isn't either, as for the holding's own leg above. A
+    # holding with no unit, or a key without one, admits nothing this way.
+    UNIT=$(jq -r '.unit // "" | strings' <<<"$ROW")
+    if [ -n "$UNIT" ]; then
+        KEYS=$("$KOTO" context list "$SESSION" --prefix legs/ </dev/null) &&
+            KEYS=$(jq -r '.[]? | strings | select(test("^legs/[^/]+/[^/]+$"))' <<<"$KEYS") ||
+            { printf '%s: cannot list the leg keys for %s\n' "$PROG" "$TOPIC" >&2; exit 2; }
+        UNREAD=""
+        while IFS= read -r K; do
+            [ -n "$K" ] || continue
+            R=${K#legs/}
+            L=${R#*/}
+            R=${R%%/*}
+            [ "$R:$L" = "$RP" ] && continue
+            grep -Eq "$DC_RE_REQ" <<<"$R" && grep -Eq "$DC_RE_LEG" <<<"$L" || continue
+            # A key that can't be read names no unit we know, so it admits
+            # nothing; only a matching key whose request can't be read is 2.
+            EK=$(dc_leg_get "$SESSION" "$R" "$L") || continue
+            jq -e --arg u "$UNIT" '.unit == $u and ((.state // "") as $s | $s != "spent" and $s != "releg-pending")' \
+                <<<"$EK" >/dev/null || continue
+            EV=$("$KOTO" request get "$R" </dev/null)
+            case "$?" in
+                0) ;;
+                2) continue ;;
+                *) UNREAD="$R:$L"; continue ;;
+            esac
+            if jq -e --arg l "$L" '(.request // .) | .legs[$l] // {} | .disposition == "resolved" and .result_source == "promoted"' \
+                <<<"$EV" >/dev/null; then
+                printf '%s: %s stands on the result its unit'"'"'s run promoted to the earlier leg %s:%s\n' "$PROG" "$TOPIC" "$R" "$L" >&2
+                exit 0
+            fi
+        done <<EOF
+$KEYS
+EOF
+        if [ -n "$UNREAD" ]; then
+            printf '%s: cannot read the earlier leg %s of %s'"'"'s unit\n' "$PROG" "$UNREAD" "$TOPIC" >&2
+            exit 2
+        fi
+    fi
     printf '%s: %s is bound to leg %s; its result comes through the leg, not a message\n' "$PROG" "$TOPIC" "$RP" >&2
     exit 1
 fi

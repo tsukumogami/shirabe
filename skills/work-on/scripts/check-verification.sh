@@ -43,7 +43,9 @@
 #   2   the result could not be read, or recorded in koto context, or
 #       verification_attempts could not be read from koto context (a missing
 #       key is not a failed read), or the supervisor stopped before every
-#       command ran; the gate holds. No finding; the reason goes to stderr.
+#       command ran, or a build-output removal outlasted the run's budget and
+#       no command started; the gate holds. No finding; the reason goes to
+#       stderr.
 #
 # A supervisor that stopped early (a memory guard or a person killed it, or it
 # could not run at all) writes a `supervisor-error` result. That result says
@@ -53,6 +55,11 @@
 # how to go on: move the result aside and tick to run the suite again, or
 # submit `verification_status: blocked` to stop. The launcher keeps the result
 # on disk until then, so a held tick never starts a new suite by itself.
+#
+# A `removal-running` result is held the same way, and for the same reason:
+# the supervisor waited on a build-output removal still running in the work
+# tree until the run's budget ran out, and started no command. The message
+# names the record from the result's detail.
 #
 # The ranking reads each record's `outcome` (run-verification.sh's header).
 # A not-started command, a runaway, a command that needs a person and a dirty
@@ -311,6 +318,13 @@ if [ "$(jq -r .status "$RESULT")" = supervisor-error ]; then
     undecided "the verification run for $HEAD_SHA stopped before every command ran" \
         "($(jq -r '.commands | length' "$RESULT") finished), so there is no verdict to route on." \
         "The result is $RESULT. To run the suite again, move that file aside and tick;" \
+        "to stop the run, submit verification_status: blocked with the reason in detail."
+fi
+# Nor is a run that started no command because a build-output removal outlasted
+# its budget (see the header): the same hold, naming the record.
+if [ "$(jq -r .status "$RESULT")" = removal-running ]; then
+    undecided "the verification run for $HEAD_SHA started no command: $(jq -r '.detail' "$RESULT")." \
+        "The result is $RESULT. Once that removal has ended, move the result aside and tick to run the suite;" \
         "to stop the run, submit verification_status: blocked with the reason in detail."
 fi
 

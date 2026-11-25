@@ -101,16 +101,21 @@ refusal is reported, never retried wider.
 `coordinate`), `manager` or `director`. It is written by
 `dispatch-worker.sh`, never by hand, and is absent from every worker brief:
 the script overwrites whatever the input gave, so leave it out. A successor's
-brief, whose positional names your own run's roadmap, gets the role your
+brief, whose scope is your own run's, gets the role your
 record's Run `role` row holds (with no row the dispatch is refused, naming
 the command that sets it); a lane's brief gets `manager`, on every new
 dispatch. The brief carries it as `--role <role>` on the Goal's invocation
-line,
-`` Run `/shirabe:coordinate <roadmap-path> --role <role>` in <owner/repo>. ``,
+line, after the whole scope,
+`` Run `/shirabe:coordinate <roadmap-path> --role <role>` in <owner/repo>. ``
+for a roadmap and
+`` Run `/shirabe:coordinate --discipline <name> --host <owner/repo> --role <role>` in <owner/repo>. ``
+for a discipline's successor, the one brief whose scope starts with a flag
+(the script-only `successor` field admits it),
 and the dispatch prompt carries the same invocation, so a dispatched
 coordinator's role comes from the `--role` on its brief's invocation line:
-it passes that role at its start and infers none. `held_rerender` and
-`role_change_by` are the script's too, and an input's are dropped.
+it passes that role at its start and infers none. `held_rerender`,
+`role_change_by` and `successor` are the script's too, and an input's are
+dropped.
 
 A successor's brief is also the one its intake reads rules from. Written by
 hand, it carries a `## Standing rules` heading and files its rules as
