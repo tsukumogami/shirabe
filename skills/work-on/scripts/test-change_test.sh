@@ -1228,6 +1228,51 @@ eq "Over the cap, refuse with a usage error: note exits 64" 64 "$RC"
 has "the note refusal names the limit" "300-byte limit" "$(cat "$W/err")"
 has "the note refusal names the reason's length" "909 bytes" "$(cat "$W/err")"
 eq "an over-cap note records nothing" 0 "$(ledger "$S" | jq -s '[.[] | select(.event == "note")] | length')"
+# The cap counts bytes, as the stored copy did: 150 two-byte characters fit,
+# 151 don't, and neither is cut through a character.
+AT_CAP=$(head -c 300 /dev/zero | tr '\0' r)
+run note "$S" --file tests/greet_test.sh --reason "$AT_CAP"
+eq "a reason at the cap is recorded" 0 "$RC"
+eq "a reason at the cap is stored whole" "$AT_CAP" "$(ledger "$S" | jq -r 'select(.event == "note") | .reason' | tail -n 1)"
+WIDE=$(printf 'é%.0s' $(seq 1 150))
+run note "$S" --file tests/greet_test.sh --reason "$WIDE"
+eq "150 two-byte characters (300 bytes) are recorded" 0 "$RC"
+eq "the multi-byte reason is stored whole" "$WIDE" "$(ledger "$S" | jq -r 'select(.event == "note") | .reason' | tail -n 1)"
+run note "$S" --file tests/greet_test.sh --reason "${WIDE}é"
+eq "151 two-byte characters (302 bytes) are refused" 64 "$RC"
+has "the multi-byte refusal counts bytes" "302 bytes" "$(cat "$W/err")"
+eq "only the two reasons that fit were recorded" 2 "$(ledger "$S" | jq -s '[.[] | select(.event == "note")] | length')"
+run note "$S" --file tests/greet_test.sh
+has "the usage text names the limit" "A --reason is at most 300 bytes" "$(cat "$W/err")"
+
+# accept, decline and overrule take the same check, before any ledger write.
+S=rlen2
+start "$S"
+printf '{"ts":"t","event":"determine","kind":"change","source":"none"}\n' > "$STORE/$S/fix_kind.jsonl"
+sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+git commit -q -am "test: loosen"
+run seat "$S"
+eq "reason length: seat exits 0" 0 "$RC"
+has "the seat brief names the limit" "keep
+it to 300 bytes or fewer" "$OUT"
+LINES_BEFORE=$(ledger "$S" | wc -l)
+run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "$LONG"
+eq "an over-cap accept exits 64" 64 "$RC"
+has "the accept refusal names the limit and the length" "909 bytes, over the 300-byte limit" "$(cat "$W/err")"
+run decline "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "$LONG"
+eq "an over-cap decline exits 64" 64 "$RC"
+eq "an over-cap accept or decline writes no ledger line" "$LINES_BEFORE" "$(ledger "$S" | wc -l)"
+run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "corrects the expected value"
+eq "the seat accepts after its refused attempts" 0 "$RC"
+ACC_ID=$(ledger "$S" | jq -r 'select(.event == "accept") | .id')
+mkdir -p "$STORE/coord_r"
+LINES_BEFORE=$(ledger "$S" | wc -l)
+run overrule "$S" --as agent:coord_r --authority coordinator --acceptance "$ACC_ID" --reason "$LONG"
+eq "an over-cap overrule exits 64" 64 "$RC"
+has "the overrule refusal names the limit and the length" "909 bytes, over the 300-byte limit" "$(cat "$W/err")"
+eq "an over-cap overrule writes no ledger line" "$LINES_BEFORE" "$(ledger "$S" | wc -l)"
+run status "$S"
+eq "after the refused overrule the unit is still counted" 0 "$RC"
 
 echo
 echo "test-change: $PASS passed, $FAIL failed"
