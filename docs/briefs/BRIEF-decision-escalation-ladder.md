@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   When a session can't settle a question, what happens next depends on
   instructions it has to remember, and long-running sessions forget them.
@@ -22,7 +22,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
@@ -175,25 +175,6 @@ again.
   fix.
 - Recording which session dispatched which. Chain and subtree reads depend on
   those links, and another effort is adding them.
-
-## Open Questions
-
-- How far may an agent settle a question from its sense of what the work is
-  for, as opposed to what the person explicitly told it? Coordinators today
-  may not extend a decision the person supplied; the instruction that
-  motivated this brief lets them answer from intent.
-- Should an unattended worker pass a contested call up, or record an
-  assumption and continue as it does today?
-- Should the person be shown pending questions one at a time or together?
-- Should "open" be something the workflow engine can answer directly, or a
-  rule each reader applies to the record?
-- Should questions that aren't decisions, such as a credential or a step only
-  the person can take, share the record or bypass the decide-first step?
-- Is catching a question asked in conversation, with no workflow step behind
-  it, part of this feature?
-
-None of these blocks the brief. Each is a requirements choice for the
-downstream PRD.
 
 ## References
 
