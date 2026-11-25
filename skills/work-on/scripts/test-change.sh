@@ -320,9 +320,10 @@ now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # TEXT_MAX bytes. A reason is the record of why a test changed or why its
 # change was accepted, so it is refused whole rather than clipped by clean(),
 # and the caller learns the limit before anything is written. It counts bytes
-# because clean()'s cap does (cut -c under LC_ALL=C): the two agree on where
-# the limit falls, and no multi-byte character can be split. Non-ASCII text
-# gets fewer characters under the same cap.
+# under LC_ALL=C, so the limit doesn't move with the caller's locale, and a
+# reason that fits has at most TEXT_MAX characters too, so clean()'s cut never
+# shortens it and no multi-byte character is split. Non-ASCII text gets fewer
+# characters under the same cap.
 reason_fits() {
     local n
     n=$(printf '%s' "$1" | LC_ALL=C wc -c | tr -d ' ')

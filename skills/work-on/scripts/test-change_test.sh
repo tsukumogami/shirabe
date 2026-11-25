@@ -1253,8 +1253,7 @@ sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/gr
 git commit -q -am "test: loosen"
 run seat "$S"
 eq "reason length: seat exits 0" 0 "$RC"
-has "the seat brief names the limit" "keep
-it to 300 bytes or fewer" "$OUT"
+has "the seat brief names the limit" "300 bytes or fewer" "$(printf '%s' "$OUT" | tr '\n' ' ')"
 LINES_BEFORE=$(ledger "$S" | wc -l)
 run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "$LONG"
 eq "an over-cap accept exits 64" 64 "$RC"
