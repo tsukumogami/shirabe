@@ -218,9 +218,11 @@ the rules; this is the route.
   implementation. Its action, `scripts/fix-kind.sh resolve`, records the unit as a
   fix when its issue carries a label the repository's `## Fix Labels:` lists (`bug`
   by default) or its plan step has a `**Fixes**:` line (`FIX_REPORT`), and as a
-  change otherwise. The run adds a fix itself with `fix-kind.sh declare --reason`
-  when the report describes existing behaviour as wrong. A fix is never withdrawn.
-  A change goes straight to implementation and owes nothing more.
+  change otherwise, and its `kind_route` gate routes on that in the same tick, so
+  the run doesn't stop there. The run adds a fix itself at `analysis`, before it
+  submits its plan, with `fix-kind.sh declare --reason` when the report describes
+  existing behaviour as wrong. A fix is never withdrawn. A change goes straight to
+  implementation and owes nothing more.
 - **`reproduce`**, for a fix. The run commits its reproducing test and records the
   red with `scripts/red-first.sh red`: the check run on the base code with the
   unit's committed tests applied, failing, with a marker found in a verbatim
@@ -273,6 +275,11 @@ decision:
   closes the issue again.
 - **Rejected** — the issue is not done. The workflow routes to `done_blocked`, a
   non-clean terminal, rather than shipping with the criterion silently unmet.
+
+Both ways out to the pull request, `ready_for_pr` at `finalization` and
+`approved` at `deferral_approval`, require the two pre-PR judgment calls with
+them: `cleanup_done` (`removed` or `none_found`) and `design_diagram` (`updated`
+or `not_applicable`). A submission that leaves either out holds the state.
 
 A planned split is the other way a pull request leaves its issue open: the run is
 started with `--delivery=partial --delivery-reason=<why>` (see **Initialize**), and
@@ -743,8 +750,10 @@ leg, since one leg answers one session.
   are its harnesses.
 - `scripts/fix-kind.sh resolve|declare|withdraw|agree|kind` — whether the unit is a
   fix (`references/red-first.md`). koto runs `resolve` as `fix_determination`'s
-  action and `agree` as its `kind_unchanged` gate; the agent runs `declare
-  <session> --reason <why>` to make the unit a fix. It rebinds `UNIT_KIND` and
+  action, `kind --exit --current "$UNIT_KIND"` as its `kind_route` gate (0 a
+  change, 3 a fix, 4 no kind recorded, 1 a disagreeing variable) and `agree` as
+  its `kind_unchanged` gate; the agent runs `declare <session> --reason <why>`
+  at `analysis` to make the unit a fix. It rebinds `UNIT_KIND` and
   appends to the `fix_kind.jsonl` ledger together, and refuses (exit 1) to make a
   fix a change. Its rebind passes `REVIEW_LEVEL` and `PLUGIN_ROOT` through, since
   an attach resets every rebind variable it leaves out. Exit codes are in its
@@ -755,6 +764,13 @@ leg, since one leg answers one session.
   `check-green` as the `red_recorded` and `fix_green` gates, which report
   `red-first/no-red` and `red-first/no-green`. `scripts/red-first_test.sh` and
   `scripts/red-first-routes_test.sh` are its harnesses.
+- `scripts/issue-type-route.sh <session> <hint>` — `issue_type_routing`'s
+  `code_route` gate, run by koto: 0 when the hint (`ISSUE_TYPE`) is `code` and
+  `changed_paths.txt` names a path `review-level.sh classify` doesn't class as
+  plain documentation, so the state takes the code route on entry with nothing
+  asked; 1 otherwise, and the agent answers `issue_type`. Bad arguments also
+  exit 1, with a `route: ask` line, since the gate's edges name only 0 and 1.
+  `scripts/issue-type-route_test.sh` is its harness.
 - `scripts/test-change.sh init|classify|note|seat|accept|decline|overrule|status|covered|record`
   — the held test change (`references/red-first.md`), the only writer of the
   `test_change_ledger.jsonl` context key. koto runs `init --entry` in
@@ -782,9 +798,10 @@ leg, since one leg answers one session.
   the leg only when the leg was still open and unbound), 64 its own usage refusal
   with no koto call, 66 a live session's level or kind read under `--koto-leg`
   that failed, with no `koto init`, 127 no koto or jq, and koto's own code otherwise.
-- `scripts/fix-round.sh start --from <session> [--fresh]` — starts a fix
-  round for a run at `done` as `<session>-fix-<n>`, a new work-on session with
-  the run's variables and parent, records it in both sessions, and copies in
+- `scripts/fix-round.sh start --from <session> [--fresh] [--fix-report <text>]`
+  — starts a fix round for a run at `done` as `<session>-fix-<n>`, a new
+  work-on session with the run's variables (`FIX_REPORT` replaced by
+  `--fix-report`'s text when given) and parent, records it in both sessions, and copies in
   the verdict ledger it inherits; `--fresh` inherits nothing and marks the
   round `fresh`, so its verification carries nothing either (see **A Fix
   Round After Done**). Exit codes: 0 started, 1 refused (`not-done`,
@@ -802,9 +819,10 @@ leg, since one leg answers one session.
 - `scripts/check-closing-keyword.sh` — run by koto, never by the agent, as
   `pr_creation`'s `closing_keyword` gate, in three modes. `--approved-pass <log>`
   is the log probe, run on every issue-backed run that didn't declare
-  `DELIVERY=partial`: 0 when this pass reached `pre_pr_evidence` through the approved
+  `DELIVERY=partial`: 0 when this pass reached `pr_precheck` through the approved
   transition out of `deferral_approval` with no return to `finalization` or
-  `deferral_approval` since, 1 when it didn't or there's no log, anything else (an
+  `deferral_approval` since (in a log from the template that still had
+  `pre_pr_evidence`, the arrival there counts), 1 when it didn't or there's no log, anything else (an
   unreadable log, no jq) holding the state; it makes no `gh` call, and its exits
   only pick the mode. `--issue <N> --non-closing [--repo <owner/repo>]` is
   non-closing mode, for a declared split or a probe exit 0: 0 when the body refers
@@ -823,7 +841,7 @@ leg, since one leg answers one session.
 - `scripts/check-branch-output.sh`, `scripts/check-pr-output.sh`,
   `scripts/run-verification.sh` and `scripts/check-verification.sh` — the
   output gates, run by koto, never by the agent: `commit_convention` at
-  `finalization`, `deferral_approval` and `pre_pr_evidence`,
+  `finalization` and `deferral_approval`,
   `branch_docs_visibility` at `pr_precheck`, `pr_body_conformant` at
   `pr_creation`, and the launcher and `verification_verdict` at `verification`.
   Exit 0 passes, 1 is a violation with a `::koto-finding::` line naming its rule,
@@ -950,12 +968,22 @@ terminal, and `koto rewind` doesn't reopen a round. From `done` it steps back to
 instead, from the branch the run worked on:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/fix-round.sh start --from <WF> [--fresh]
+${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/fix-round.sh start --from <WF> [--fresh] [--fix-report <text>]
 ```
+
+`--fix-report <text>` gives the round its own report, the CI failure or review
+finding that caused it, as the round's `FIX_REPORT` in place of the run's: the
+round is then a fix and the text is the `fix_report.txt` its red cites. The text
+must fit koto's variable allowlist (letters, digits, spaces and `. _ / : @ + -`,
+starting with a letter or digit); anything else is a usage error and starts
+nothing. Without it the round keeps the run's `FIX_REPORT`.
 
 It starts `<WF>-fix-<n>` from this plugin's `work-on.md` with the run's variables
 (not its review level or unit kind, which the round sets again) and the run's
-parent, so a child's round is a child too and never cascades. It records the round
+parent, so a child's round is a child too and never cascades. A plan-backed child's
+round takes `PLAN_DOC` from the parent's current `plan_abs` when the two differ, so
+a round started after the coordination checkout moved reads the PLAN where the run
+reads it now; a run whose checkout never moved keeps its own. It records the round
 in both sessions: `fix_round.json` in the round and a line in the run's
 `fix_rounds.jsonl`. Drive the round from `entry` with the run's entry evidence,
 and commit the fix in the round's `implementation`, not before: its `analysis`

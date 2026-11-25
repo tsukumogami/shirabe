@@ -15,22 +15,39 @@ action and records the unit as a fix when any of these holds:
 |--------|-------------|---------------------|
 | A fix label on the issue | `label:<name>` | The labels listed in the repository's `## Fix Labels:` declaration in `CLAUDE.md`, read at the run's base. `bug` when the repository declares none. Comma-separated; a label may contain spaces. |
 | A plan step's Fixes line | `step` | A `**Fixes**:` line in the step, which `/execute` passes to the run as `FIX_REPORT`. |
-| The run's own declaration | `declared` | `fix-kind.sh declare <session> --reason <why>`, at `fix_determination` or at `analysis` on a return there, when the report describes existing behaviour as wrong. |
+| The run's own declaration | `declared` | `fix-kind.sh declare <session> --reason <why>`, at `analysis`, before the run submits its plan, when the report describes existing behaviour as wrong. `resolve` keeps a fix declared there. |
 
 A unit none of these marks is a change. It goes from `fix_determination`
 straight to `implementation` and owes nothing below.
+
+The run doesn't stop at `fix_determination`. koto resolves a tick's routes with
+the variables as the tick started, so a `UNIT_KIND` the action has just bound
+can't route that tick. The routes test the `kind_route` gate instead,
+`fix-kind.sh kind <session> --exit --current "$UNIT_KIND"`, which reads the
+kind the action has just written to the ledger: exit 0 for a change goes to
+`implementation`, exit 3 for a fix to `reproduce`, in the tick that entered
+the state. Any other exit holds the run there: 4 (no kind recorded, because
+the action failed), 1 (a non-empty `UNIT_KIND` that disagrees with the
+ledger), 66 (a koto read failed) or 2 (`PLUGIN_ROOT` doesn't reach the plugin).
 
 The determination only grows. A later `resolve` can turn a change into a fix
 (a label added since), never the reverse: a fix stays a fix when its label is
 removed, and `fix-kind.sh withdraw` is always refused, naming the recorded
 source. The kind lives in the rebindable variable `UNIT_KIND`, which koto
 routes on, and in the ledger `fix_kind.jsonl`; `fix-kind.sh` changes both
-together. The `kind_unchanged` gate holds the run at `fix_determination` when
-the two disagree, so a hand rebind of `UNIT_KIND` can't skip the red.
+together. A hand rebind of `UNIT_KIND` away from the ledger, made before the
+run enters `fix_determination`, holds the run there: `kind_route` exits 1 and
+the `kind_unchanged` gate prints a `hold:` line naming both, so the rebind
+can't skip the red. `fix-kind.sh declare` puts a fix back.
 
 The report is stored once, as `fix_report.txt`: the plan step's Fixes line
 when there is one, else the issue body, else the free-form task text, else the
-step's context. It is what a red's passage is checked against.
+step's context. It is what a red's passage is checked against. A plan-backed
+child taken from a PLAN outline (`ISSUE_SOURCE=plan_outline`) has no issue
+body: its issue number is the outline's, so no GitHub issue is read for its
+report or its labels. A fix round started with `fix-round.sh start --fix-report
+<text>` has that text as its Fixes line, so the round's red can cite the CI
+failure or review finding that caused it.
 
 ## The red
 
@@ -186,6 +203,11 @@ same set of paths ends the run at `done_blocked`. While implementing, record
 why a test changed with `test-change.sh note <session> --file <path> --reason
 '<why>'`; the brief carries each note to the seat.
 
+Every `--reason` (`note`, `accept`, `decline` and `overrule`) is at most 300
+bytes. A longer one is a usage error (exit 64) that names the limit and the
+reason's length, and nothing is recorded, so shorten it and run the command
+again. A reason is stored whole or not at all.
+
 The brief carries the edited hunks whole when they fit in its limit (32768
 bytes). When they don't, it never passes part of a diff off as all of it: each
 file's diff goes in whole while it fits, a `[cut: ...]` line marks where the
@@ -307,6 +329,7 @@ green recorded before the CI fix no longer matches HEAD: record it again.
 
 | Gate | State | Script | Rule |
 |------|-------|--------|------|
+| `kind_route` | `fix_determination` | `fix-kind.sh kind --exit` | none; a routing gate (0 a change, 3 a fix, 4 no kind, 1 a disagreeing `UNIT_KIND`) |
 | `kind_unchanged` | `fix_determination` | `fix-kind.sh agree` | none; it prints a `hold:` line |
 | `red_recorded` | `reproduce` | `red-first.sh check-red` | `red-first/no-red` |
 | `fix_green` | `pass_counting`, `ci_pass_counting` | `red-first.sh check-green` | `red-first/no-green` |

@@ -559,6 +559,288 @@ else
     fail "no supervisor-error result to hold on: $(head -c 300 "$SRES" 2>&1)"
 fi
 
+# --- a build-output removal still running ------------------------------------------------
+#
+# clean-build-output.sh records each removal as removal-<stamp>.json in the
+# work tree's git directory, and deletes in the background. The supervisor
+# waits on a record that reads live before its first command, inside the
+# run's budget. A stand-in deleter, named and called as the real one is
+# (`clean-build-output.sh --delete <stamp>`), so bo_record_live reads its
+# record live, waits for <records dir>/go-<stamp>, rewrites the record as done
+# with ended_at, and exits. It lives under the suite's marker directory, so
+# the leak check and the cleanup see it.
+FAKE_DELETER="$WORKDIR/fake/clean-build-output.sh"
+mkdir -p "$WORKDIR/fake"
+cat > "$FAKE_DELETER" <<'EOF'
+#!/bin/sh
+stamp=$2 dir=$3
+rec="$dir/removal-$stamp.json"
+while [ ! -e "$dir/go-$stamp" ]; do sleep 0.1; done
+jq -c --arg e "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.status = "done" | .ended_at = $e' "$rec" > "$rec.tmp" \
+    && mv -f "$rec.tmp" "$rec"
+EOF
+chmod +x "$FAKE_DELETER"
+RM_N=0
+
+# bo_records: the current repository's records directory, created.
+bo_records() { mkdir -p "$(pwd -P)/.git/shirabe-build-output" && printf '%s\n' "$(pwd -P)/.git/shirabe-build-output"; }
+# record_json <status> [<pid>]: a removal record's text.
+record_json() {
+    jq -cn --arg s "$1" --argjson pid "${2:-1}" '{schema: "shirabe-build-output-removal/v1",
+        started_at: "2026-11-16T08:04:12Z", pid: $pid, paths: {"1": "target"}, reaped: [], status: $s}
+        | if $s == "running" then . else . + {ended_at: "2026-11-16T08:05:00Z"} end'
+}
+# live_record: a running record in the current repository, its stand-in
+# deleter started and waiting. Sets RM_STAMP, RM_REC and RM_DIR.
+live_record() {
+    RM_N=$((RM_N + 1))
+    RM_DIR=$(bo_records)
+    RM_STAMP="20261116T0804$(printf '%02d' "$RM_N")Z-$$"
+    RM_REC="$RM_DIR/removal-$RM_STAMP.json"
+    "$FAKE_DELETER" --delete "$RM_STAMP" "$RM_DIR" </dev/null >/dev/null 2>&1 &
+    record_json running "$!" > "$RM_REC"
+}
+# release_record: let the stand-in go, and wait until the record reads done.
+release_record() {
+    local n=0
+    : > "$RM_DIR/go-$RM_STAMP"
+    while ! jq -e '.status == "done"' "$RM_REC" >/dev/null 2>&1 && [ "$n" -lt 100 ]; do
+        sleep 0.1; n=$((n + 1))
+    done
+}
+# snapshot <dir>: every entry under <dir> with its checksum, for a before
+# and after comparison.
+snapshot() {
+    (cd "$1" && find . -print | LC_ALL=C sort | while IFS= read -r p; do
+        if [ -L "$p" ]; then printf '%s -> %s\n' "$p" "$(readlink "$p")"
+        elif [ -f "$p" ]; then printf '%s %s\n' "$p" "$(cksum < "$p")"
+        else printf '%s/\n' "$p"; fi
+    done)
+}
+# A command that writes the UTC second it started.
+STAMP_CMD() { jq -cn --arg f "$1" '{run: ["bin/stamp.sh", $f], timeout_secs: 60}'; }
+stamp_script() {
+    printf '#!/bin/sh\ndate -u +%%Y-%%m-%%dT%%H:%%M:%%SZ > "$1"\n' > bin/stamp.sh
+    chmod +x bin/stamp.sh
+}
+
+echo "--- a removal still running: the supervisor waits for it"
+mkrepo rmwait "$(map "{\"st\": $(STAMP_CMD "$WORKDIR/rmwait.start")}" '[]' '["st"]')"
+stamp_script
+git add -A && git commit -q -m stamp
+change top.txt
+live_record
+printf 'not json\n' > "$RM_DIR/removal-20261116T080400Z-1.json"
+start s-rmwait
+sleep 3
+RMRES=$(result_of s-rmwait)
+if [ ! -e "$WORKDIR/rmwait.start" ] && [ ! -e "$RMRES" ]; then
+    pass "while the record reads live, no command starts and no result is written"
+else
+    fail "a command started or a result was written while the record read live: $(cat "$WORKDIR/rmwait.start" 2>&1)"
+fi
+release_record
+settle s-rmwait
+expect_rc "a run that waited on a removal" 0
+ENDED=$(jq -r '.ended_at' "$RM_REC")
+STARTED=$(cat "$WORKDIR/rmwait.start" 2>/dev/null)
+if [ -n "$STARTED" ] && [ -n "$ENDED" ] && [ "$ENDED" != null ] && ! [ "$STARTED" \< "$ENDED" ]; then
+    pass "the first command started at $STARTED, at or after the record's ended_at $ENDED"
+else
+    fail "the first command started at [$STARTED], the record ended at [$ENDED]"
+fi
+SUPLOG="$(dirname "$RMRES")/supervisor.log"
+c=$(grep -c 'removal-20261116T080400Z-1.json does not parse' "$SUPLOG" 2>/dev/null)
+[ "$c" = 1 ] && pass "an unparsable record beside the live one is named once on stderr, across the wait's polls" \
+    || fail "the unparsable record was named $c times: $(head -c 600 "$SUPLOG" 2>&1)"
+
+echo "--- a running record that reads ended: the supervisor starts at once"
+mkrepo rmended "$(map "{\"st\": $(STAMP_CMD "$WORKDIR/rmended.start")}" '[]' '["st"]')"
+stamp_script
+git add -A && git commit -q -m stamp
+change top.txt
+RMD=$(bo_records)
+sh -c 'exit 0' &
+DEAD=$!
+wait "$DEAD"
+record_json running "$DEAD" > "$RMD/removal-20261116T080401Z-$DEAD.json"
+mkdir -p "$RMD/trash-20261116T080401Z-$DEAD/1"
+echo x > "$RMD/trash-20261116T080401Z-$DEAD/1/f"
+"$WORKDIR/r-rmended/bin/slow.sh" </dev/null >/dev/null 2>&1 &
+OTHER=$!
+record_json running "$OTHER" > "$RMD/removal-20261116T080402Z-$OTHER.json"
+mkdir -p "$RMD/trash-20261116T080402Z-$OTHER"
+BEFORE=$(snapshot "$RMD")
+start s-rmended
+settle s-rmended
+expect_rc "only ended records (a dead pid, a pid running another program)" 0
+[ -s "$WORKDIR/rmended.start" ] && pass "the command ran" || fail "the command did not run"
+[ "$(snapshot "$RMD")" = "$BEFORE" ] \
+    && pass "the records and their trash are left as they were, for the script's next call" \
+    || fail "the runner changed the records directory"
+kill -KILL "$OTHER" 2>/dev/null
+
+echo "--- a removal that outlasts the run's budget"
+mkrepo rmbudget "$(map "{\"st\": $(STAMP_CMD "$WORKDIR/rmbudget.start")}" '[]' '["st"]')"
+stamp_script
+git add -A && git commit -q -m stamp
+change top.txt
+live_record
+BEFORE=$(snapshot "$RM_DIR")
+RB_BUDGET=3
+T0=$(now_ms)
+SHIRABE_VERIFICATION_BUDGET_SECS=$RB_BUDGET start s-rmbudget
+settle s-rmbudget
+T1=$(now_ms)
+RBRES=$(result_of s-rmbudget)
+if jq -e --arg rec "$RM_REC" '.status == "removal-running" and .commands == [] and (.detail | contains($rec))' \
+        "$RBRES" >/dev/null 2>&1 && [ ! -e "$WORKDIR/rmbudget.start" ]; then
+    pass "out of budget with the record live: no command, a removal-running result naming the record"
+else
+    fail "the out-of-budget result: $(head -c 400 "$RBRES" 2>&1); started [$(cat "$WORKDIR/rmbudget.start" 2>&1)]"
+fi
+# The wait runs inside the budget: the result lands within the budget plus a
+# poll and the harness's own settling, never a full wait past it.
+[ $((T1 - T0)) -lt $(( (RB_BUDGET + 4) * 1000 )) ] \
+    && pass "the wait ended inside the run's budget ($((T1 - T0))ms for a ${RB_BUDGET}s budget)" \
+    || fail "the wait took $((T1 - T0))ms under a ${RB_BUDGET}s budget"
+expect_rc "a removal-running result" 2
+expect_no_finding "a removal-running result"
+[ ! -e "$KOTO_STUB_STORE/s-rmbudget/verification_results.json" ] \
+    && pass "a removal-running result is not recorded in koto context" \
+    || fail "a removal-running result was recorded in koto context"
+if grep -q -F -- "$RM_REC" "$WORKDIR/verdict.err" && grep -q -F -- "$RBRES" "$WORKDIR/verdict.err" \
+    && grep -q 'move the result aside' "$WORKDIR/verdict.err" \
+    && grep -q 'verification_status: blocked' "$WORKDIR/verdict.err"; then
+    pass "the hold names the record and the result, and the two ways on"
+else
+    fail "the removal-running hold's message: $(cat "$WORKDIR/verdict.err")"
+fi
+RBBEFORE=$(cat "$RBRES")
+SHIRABE_VERIFICATION_BUDGET_SECS=$RB_BUDGET start s-rmbudget
+sleep 1
+if [ "$(cat "$RBRES" 2>/dev/null)" = "$RBBEFORE" ] && [ ! -e "$(dirname "$RBRES")/lock" ] \
+    && jq -e '.status == "removal-running"' "$RBRES" >/dev/null 2>&1; then
+    pass "a later --start keeps the removal-running result and starts no supervisor"
+else
+    fail "a later --start replaced the removal-running result or started a run"
+fi
+GOT=$(. "$SCRIPT_DIR/verification-eligibility.sh" && : > "$WORKDIR/rb.ledger" \
+    && verification_eligibility "$RBRES" "$WORKDIR/rb.ledger")
+[ "$GOT" = "ineligible removal-running" ] && pass "verification_eligibility: a removal-running result is ineligible" \
+    || fail "verification_eligibility on a removal-running result: [$GOT]"
+"$START" --archive --session s-rmbudget --reason "removal ended" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -ne 0 ] && grep -q -F 'ineligible removal-running' "$WORKDIR/archive.err" \
+    && [ "$(cat "$RBRES")" = "$RBBEFORE" ] && [ ! -e "$KOTO_STUB_STORE/s-rmbudget/verification_attempts" ]; then
+    pass "--archive refuses a removal-running result and moves and records nothing"
+else
+    fail "--archive on a removal-running result: exit $RC, stderr $(cat "$WORKDIR/archive.err")"
+fi
+[ "$(snapshot "$RM_DIR")" = "$BEFORE" ] && pass "the runner changed nothing in the records directory" \
+    || fail "the runner changed the records directory"
+release_record
+
+echo "--- the wait spends the run's budget"
+# A removal that ends after about three seconds, then a command that would run
+# 30: under a 7-second budget the command gets what the wait left, not 7.
+mkrepo rmspend "$(map '{"slow": {"run": ["bin/slow.sh"], "timeout_secs": 60}}' '[]' '["slow"]')"
+change top.txt
+live_record
+SHIRABE_VERIFICATION_BUDGET_SECS=7 start s-rmspend
+sleep 3
+release_record
+settle s-rmspend
+SPRES=$(result_of s-rmspend)
+SPDUR=$(jq -r '.commands[0].duration_secs' "$SPRES" 2>/dev/null)
+if jq -e '.status == "timed-out"' "$SPRES" >/dev/null 2>&1 && [ -n "$SPDUR" ] && [ "$SPDUR" -le 5 ]; then
+    pass "the command ran ${SPDUR}s of a 7-second budget the wait had spent part of"
+else
+    fail "the command after the wait: $(head -c 400 "$SPRES" 2>&1)"
+fi
+
+echo "--- no records, or only ended ones: the run is unchanged"
+NOREC_CMDS=$(jq -cn --arg f "$WORKDIR/norec.rec" '{ok: {run: ["bin/rec.sh", $f, "ok"]}}')
+mkrepo norec "$(map "$NOREC_CMDS" '[]' '["ok"]')"
+change top.txt
+start s-norec
+settle s-norec
+expect_rc "no records directory" 0
+NOREC=$(jq -c '[.status, .detail, [.commands[] | {id, check, argv, exit_status, outcome}]]' "$(result_of s-norec)")
+NORUN=$(jq -c '.invocations' "$(dirname "$(result_of s-norec)")/run.json")
+mkrepo oldrec "$(map "$NOREC_CMDS" '[]' '["ok"]')"
+change top.txt
+RMD=$(bo_records)
+record_json done > "$RMD/removal-20261116T080403Z-1.json"
+record_json failed > "$RMD/removal-20261116T080404Z-2.json"
+start s-oldrec
+settle s-oldrec
+expect_rc "only done and failed records" 0
+OLDREC=$(jq -c '[.status, .detail, [.commands[] | {id, check, argv, exit_status, outcome}]]' "$(result_of s-oldrec)")
+OLDRUN=$(jq -c '.invocations' "$(dirname "$(result_of s-oldrec)")/run.json")
+[ "$OLDREC" = "$NOREC" ] && [ "$OLDRUN" = "$NORUN" ] \
+    && pass "done and failed records change neither the invocations nor the result" \
+    || fail "with ended records: $OLDREC / $OLDRUN; without: $NOREC / $NORUN"
+
+echo "--- --await-removals"
+# await <dir> [args...]: run --await-removals from <dir> with a state
+# directory of its own; sets RC.
+await() {
+    local d=$1; shift
+    rm -rf "$WORKDIR/await-state"
+    (cd "$d" && XDG_STATE_HOME="$WORKDIR/await-state" "$START" --await-removals "$@") \
+        >"$WORKDIR/await.out" 2>"$WORKDIR/await.err"
+    RC=$?
+}
+mkdir -p "$WORKDIR/notgit"
+await "$WORKDIR/notgit"
+[ "$RC" -eq 0 ] && pass "--await-removals outside a repository: exit 0" || fail "outside a repository: exit $RC"
+mkrepo awnone NONE
+await "$(pwd -P)"
+[ "$RC" -eq 0 ] && pass "--await-removals with no records directory: exit 0" || fail "no records directory: exit $RC"
+await "$(pwd -P)/src/x"
+[ "$RC" -eq 0 ] && pass "--await-removals from a subdirectory: exit 0" || fail "from a subdirectory: exit $RC"
+RMD=$(bo_records)
+await "$(pwd -P)"
+[ "$RC" -eq 0 ] && pass "--await-removals with an empty records directory: exit 0" || fail "an empty directory: exit $RC"
+record_json done > "$RMD/removal-20261116T080405Z-1.json"
+record_json failed > "$RMD/removal-20261116T080406Z-2.json"
+sh -c 'exit 0' &
+DEAD=$!
+wait "$DEAD"
+record_json running "$DEAD" > "$RMD/removal-20261116T080407Z-$DEAD.json"
+printf 'not json\n' > "$RMD/removal-20261116T080408Z-3.json"
+await "$(pwd -P)"
+if [ "$RC" -eq 0 ] && grep -q 'removal-20261116T080408Z-3.json does not parse' "$WORKDIR/await.err"; then
+    pass "--await-removals with only ended and unparsable records: exit 0, the unparsable one named"
+else
+    fail "ended and unparsable records: exit $RC, stderr $(cat "$WORKDIR/await.err")"
+fi
+live_record
+await "$(pwd -P)/src"
+if [ "$RC" -eq 1 ] && grep -q -F -- "$RM_REC" "$WORKDIR/await.err"; then
+    pass "--await-removals while a record reads live: exit 1, naming it"
+else
+    fail "a live record: exit $RC, stderr $(cat "$WORKDIR/await.err")"
+fi
+[ ! -e "$WORKDIR/await-state" ] && [ -z "$(cat "$WORKDIR/await.out")" ] \
+    && pass "--await-removals starts nothing and writes no state" \
+    || fail "--await-removals wrote [$(cat "$WORKDIR/await.out")] or a state directory"
+release_record
+await "$(pwd -P)"
+[ "$RC" -eq 0 ] && pass "--await-removals once the record reads done: exit 0" || fail "after done: exit $RC"
+await "$(pwd -P)" --session s-x
+[ "$RC" -eq 2 ] && pass "--await-removals --session is a usage error: exit 2" || fail "--session: exit $RC"
+await "$(pwd -P)" extra
+[ "$RC" -eq 2 ] && pass "--await-removals with an argument is a usage error: exit 2" || fail "an argument: exit $RC"
+# A repository whose default branch resolves to nothing: no main, no origin.
+mkdir -p "$WORKDIR/r-trunk"
+git -C "$WORKDIR/r-trunk" init -q -b trunk
+git -C "$WORKDIR/r-trunk" commit -q --allow-empty -m init
+await "$WORKDIR/r-trunk"
+[ "$RC" -eq 0 ] && pass "--await-removals where the default branch doesn't resolve: exit 0" \
+    || fail "an unresolvable default branch: exit $RC, stderr $(cat "$WORKDIR/await.err")"
+
 echo "--- a command that cannot start"
 mkrepo nostart "$(map '{"gone": {"run": ["bin/missing.sh"]}}' '[]' '["gone"]')"
 change top.txt

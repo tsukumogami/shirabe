@@ -150,10 +150,39 @@
 #       branch. Exit 1, naming each check on stderr, when one has none (or the
 #       map is gone or isn't a map), which sends the run back to local
 #       verification. Exit 2 when koto, the fetch or git can't answer.
+#   --await-removals
+#       Check once whether a build-output removal is still running in this
+#       work tree, and exit: 0 when none is (no records directory, no records,
+#       or only ended or unparsable ones), 1 when one is, each live record
+#       named on stderr, 2 only for a usage error. Takes no --session,
+#       resolves no merge-base, starts no command and changes nothing. A
+#       directory git can't answer for reads as no records directory, so this
+#       exits 0 there too. work-on.md's `await_removals` gate runs it before
+#       setup, whose baseline builds.
 #   --supervise <dir>
 #       Internal: the supervisor. Never calls koto (only --start's steps 0
 #       and 1 do). Reads one line from its fd 3 before anything else and runs
 #       only when --start wrote `go` there.
+#
+# A build-output removal (clean-build-output.sh) renames a work tree's
+# declared build output into trash inside its git directory and deletes it
+# in the background, recording each removal as removal-<stamp>.json in the
+# directory build-output-lib.sh's bo_dir names. A build started while a delete
+# is still running competes with it for the same disk, so the supervisor,
+# after it takes the run's start time and before its first command, waits
+# while any record there reads live (bo_record_live, the one judgement the
+# cleanup's reaper uses too). The wait spends the run's own budget, so
+# --start still returns at once and the run never outlives its budget
+# because of it. A record that doesn't parse counts as ended and is named
+# once on stderr. When the budget runs out with a record still live, the
+# supervisor starts no command and writes a `removal-running` result with
+# `commands: []` and a `detail` naming the record, which check-verification.sh
+# holds on as it does on `supervisor-error`; --start keeps it (step 2), so a
+# held tick never starts another wait. The runner only reads the records
+# directory: it never deletes, renames or rewrites anything in it. Only the
+# supervisor and --await-removals load build-output-lib.sh; one that can't
+# load it says so and reads no record, as work-on's gate passes a plugin root
+# with no runner.
 #
 # --base-ref names the default branch. Without it: the ref origin/HEAD points
 # at, else origin/main, else main.
@@ -210,7 +239,7 @@
 #
 #   {"schema": "shirabe-verification-result/v1", "head": "...",
 #    "merge_base": "...", "status": "done|no-map|bad-map|attended|dirty-tree|
-#    timed-out|supervisor-error", "detail": "...", "finished_at": "<UTC
+#    timed-out|supervisor-error|removal-running", "detail": "...", "finished_at": "<UTC
 #    ISO-8601>", "commands": [{"id", "check", "argv", "exit_status",
 #    "duration_secs", "timed_out", "runaway", "not_started", "pgid", "log",
 #    "outcome", "suites", "carried_from"}]}
@@ -282,7 +311,7 @@
 # Exit status: 0 the launcher did its job (a result exists, or a supervisor is
 # running, or --archive archived); 1 --archive refused; 2 it could not decide
 # (usage, a missing tool, no HEAD, no merge-base, no state directory). The
-# verdict is never this script's exit.
+# verdict is never this script's exit. --await-removals has its own (above).
 #
 # Written for the bash 3.2 floor, without `set -e`, and without the GNU-only
 # time-limit and new-session commands, which the macOS floor lacks.
@@ -321,6 +350,7 @@ Usage: run-verification.sh --start --session <s> [--base-ref <ref>]
        run-verification.sh --plan --session <s> [--shared-branch <branch>] [--base-ref <ref>]
        run-verification.sh --resolved --session <s> [--base-ref <ref>]
        run-verification.sh --twins --session <s> [--base-ref <ref>]
+       run-verification.sh --await-removals
 EOF
 }
 
@@ -341,6 +371,69 @@ test_pause() {
 
 # shellcheck source=SCRIPTDIR/verification-eligibility.sh
 . "$HERE/verification-eligibility.sh" || die "cannot load verification-eligibility.sh"
+
+# --- build-output removals (see the header) ---------------------------------------
+
+# bo_lib: load build-output-lib.sh, once, and return 0; return 1, saying so on
+# stderr, when it can't be loaded. Loaded only by the two modes that read
+# records, so --start, --locate and --archive run as before without it. A
+# runner without the library can't read a record, and goes on as if there were
+# none, as work-on's gate does for a plugin root with no runner.
+BO_LIB=""
+bo_lib() {
+    [ "$BO_LIB" = loaded ] && return 0
+    # shellcheck source=SCRIPTDIR/build-output-lib.sh
+    if [ -r "$HERE/build-output-lib.sh" ] && . "$HERE/build-output-lib.sh"; then
+        BO_LIB=loaded
+        return 0
+    fi
+    echo "run-verification: cannot load $HERE/build-output-lib.sh, so no build-output removal record is read" >&2
+    return 1
+}
+
+# The unparsable records already named on stderr, each between bars, so a
+# wait that polls names each one once.
+RV_NAMED="|"
+
+# live_removals <dir>: set RV_LIVE to the removal records in <dir> that
+# bo_record_live reads live, comma-separated, empty when none is. A record
+# that doesn't parse (a symlink included) counts as ended and is named once on
+# stderr. Sets a variable rather than printing, so RV_NAMED survives the call.
+# Reads only.
+RV_LIVE=""
+live_removals() {
+    local d=$1 rec
+    RV_LIVE=""
+    [ -d "$d" ] || return 0
+    for rec in "$d"/removal-*.json; do
+        [ -e "$rec" ] || [ -L "$rec" ] || continue
+        if bo_record_live "$rec"; then
+            RV_LIVE="${RV_LIVE:+$RV_LIVE, }$rec"
+        elif ! bo_record_parses "$rec"; then
+            case "$RV_NAMED" in
+                *"|$rec|"*) ;;
+                *)
+                    echo "run-verification: the build-output removal record $rec does not parse; it counts as ended" >&2
+                    RV_NAMED="$RV_NAMED$rec|"
+                    ;;
+            esac
+        fi
+    done
+    return 0
+}
+
+# await_removals_once: --await-removals (see the header). Never returns.
+await_removals_once() {
+    local root dir
+    bo_lib || exit 0
+    root=$(git rev-parse --show-toplevel) || exit 0
+    dir=$(bo_dir "$root") || exit 0
+    live_removals "$dir"
+    [ -n "$RV_LIVE" ] || exit 0
+    echo "run-verification: a build-output removal is still running in this work tree ($RV_LIVE);" \
+        "nothing may build here until it ends, so tick again in a minute" >&2
+    exit 1
+}
 
 # --- the map: validation, defaults and selection, in one jq program -------------
 #
@@ -1045,6 +1138,30 @@ supervise() {
     budget=$(jq -r ".budget_secs // $BUDGET_SECS" "$RUN")
     case "$budget" in ''|*[!0-9]*|0) budget=$BUDGET_SECS ;; esac
     sup_start=$(date +%s)
+    # A build-output removal still running in this work tree: wait for it
+    # inside the run's budget, polling once a second, so nothing builds while
+    # it deletes (see the header).
+    local bodir rm_detail
+    if bo_lib && bodir=$(bo_dir "$ROOT"); then
+        live_removals "$bodir"
+        while [ -n "$RV_LIVE" ]; do
+            if [ $((sup_start + budget - $(date +%s))) -le 0 ]; then
+                # Built outside the substitution below: bash 3.2 misparses a
+                # quote inside a double-quoted string nested in "$( )".
+                rm_detail="a build-output removal was still running when the run budget of $budget seconds ran out"
+                rm_detail="$rm_detail, so no command started: $RV_LIVE"
+                write_result "$RESULT" "$(jq -cn --arg schema "$RESULT_SCHEMA" --arg head "$HEAD_SHA" --arg mb "$MB" \
+                    --arg detail "$rm_detail" --arg fin "$(now_iso)" \
+                    '{schema: $schema, head: $head, merge_base: $mb, status: "removal-running", detail: $detail,
+                      finished_at: $fin, commands: []}')" \
+                    && SUP_WRITTEN=1
+                rm -f "$SUP_LOCK" "$SUP_ENTRIES"
+                exit 0
+            fi
+            sleep 1
+            live_removals "$bodir"
+        done
+    fi
     n=$(jq '.invocations | length' "$RUN")
     i=0
     while [ "$i" -lt "$n" ]; do
@@ -1180,6 +1297,9 @@ case "$MODE" in
     --supervise)
         [ $# -eq 1 ] || { usage; exit 2; }
         supervise "$1" ;;
+    --await-removals)
+        [ $# -eq 0 ] || { usage; exit 2; }
+        await_removals_once ;;
     --start|--locate|--archive|--plan|--resolved|--twins) ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;

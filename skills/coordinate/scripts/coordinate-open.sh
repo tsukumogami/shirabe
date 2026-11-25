@@ -52,7 +52,8 @@
 # address than this session's name (CLAUDE_CODE_SESSION_ID, and the name its
 # Claude job state file gives it). A new run continues it through koto's fence,
 # `koto init <new> --continues <run> --supersede --expect-state <its state>`
-# carrying record/, legs/, taken_legs and leg_children; from then on koto
+# carrying record/, legs/, taken_legs, leg_children, brief_input.json,
+# wait_target and leg_consumed; from then on koto
 # refuses every write to the old run with session_superseded, naming the new
 # one, and coord-log.sh live-session no longer lists it. The new run's
 # record/meta takes this session as its driver and the new run's own template
@@ -980,9 +981,14 @@ takeover() {
             || { rm -rf "$d"; read_failed "$pred's variables couldn't be read" "$T_ERR"; }
         # The fence. koto 0.28.0 through 0.31.0 refuse init --supersede on
         # their cloud backend (cloud_unsupported), so a takeover there ends
-        # here, refused with koto's code and nothing written.
+        # here, refused with koto's code and nothing written. The carry is
+        # every key a state reads before the new run, re-entering at start,
+        # writes it: rebrief and leg_spent read the brief input dispatch
+        # wrote, and leg_pick's select reads the last wait_target and
+        # leg_consumed to mark a leg wait_leg's gate consumed.
         set -- init "$succ" --template "$TEMPLATE" --vars-file "$d/vars.json" --continues "$pred" --supersede \
-            --expect-state "$state" --carry record/ --carry legs/ --carry taken_legs --carry leg_children
+            --expect-state "$state" --carry record/ --carry legs/ --carry taken_legs --carry leg_children \
+            --carry brief_input.json --carry wait_target --carry leg_consumed
         case "${SHIRABE_KOTO_LEGACY_ENVIRONMENT:-}" in ''|0|false) ;; *) set -- "$@" --legacy-environment ;; esac
         out=$("$KOTO" "$@" < /dev/null 2> "$T_ERR")
         rc=$?

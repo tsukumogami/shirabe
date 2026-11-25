@@ -90,7 +90,8 @@
 # dc_topic_stopped) is stopped and leaves the active count, whatever its
 # pull request's state, though a stopped row that is also parked still
 # counts as parked (shirabe#1419); every other Holdings row is active. CAP and PARKED_BOUND are the
-# session's variables. The detail goes to context key coord/dispatch_check.json.
+# session's variables, each overridden by the record's Run `cap` or
+# `parked-bound` row when there is one. The detail goes to context key coord/dispatch_check.json.
 #
 # Row mode judges one Deferrals row (a JSON object with deferral, reason,
 # raised, disposition) against a run start, and prints one of:
@@ -433,9 +434,10 @@ if [ -n "$RS" ]; then
         CHAIN_JOB=1
     fi
 fi
-# The cap a person set in the record's Run section wins over the session's.
-# The first lib_bounds, above, read only the session, for the verdicts that
-# finish before the record is read; the cap check below uses this one.
+# The cap and parked bound a person set in the record's Run section win over
+# the session's. The first lib_bounds, above, read only the session, for the
+# verdicts that finish before the record is read; the cap check below uses
+# this one.
 lib_bounds "$T/parsed.json"
 
 # A redispatch's unit, resolved from the record's rows before the pause read

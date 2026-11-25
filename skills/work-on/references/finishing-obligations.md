@@ -15,11 +15,11 @@ this table exists.
 
 | Obligation | State | Gate | Fails when |
 |---|---|---|---|
-| The pull request closes its issue, or, when it delivers only part of it, references the issue without closing it | `pr_creation` | `closing_keyword` | Closing mode, every run that neither declared a partial delivery (`DELIVERY=partial`) nor came straight from an approved deferral: the body GitHub actually has carries no closing keyword for this issue number. For an issue in another repository (`ISSUE_REPO` set), the body lacks `Fixes <owner/repo>#<N>` for that repository, or also closes this repository's issue `<N>` (a bare `#<N>`, `GH-<N>`, this repository's `owner/repo#<N>` or its issue URL, the markdown link `[#<N>](<its issue URL>)`, or any of them under a name this repository had before a rename). Non-closing mode, a declared partial delivery or a pass whose latest arrival at `pre_pr_evidence` is the approved transition out of `deferral_approval`: the body, the title or a commit message closes the issue in any of those forms, or the body has no `Part of`, `Ref` or `Refs` reference to it (`Part of #<N>`, or `Part of <owner/repo>#<N>` for an issue elsewhere). A failed or slow lookup of another repository holds the state instead (the gate's script exits 3), as does a run log the gate can't read. Free-form work has no issue and the gate passes without consulting the body. |
+| The pull request closes its issue, or, when it delivers only part of it, references the issue without closing it | `pr_creation` | `closing_keyword` | Closing mode, every run that neither declared a partial delivery (`DELIVERY=partial`) nor came straight from an approved deferral: the body GitHub actually has carries no closing keyword for this issue number. For an issue in another repository (`ISSUE_REPO` set), the body lacks `Fixes <owner/repo>#<N>` for that repository, or also closes this repository's issue `<N>` (a bare `#<N>`, `GH-<N>`, this repository's `owner/repo#<N>` or its issue URL, the markdown link `[#<N>](<its issue URL>)`, or any of them under a name this repository had before a rename). Non-closing mode, a declared partial delivery or a pass whose latest arrival at `pr_precheck` is the approved transition out of `deferral_approval` (in a run log from the template that still had `pre_pr_evidence`, the arrival there counts instead): the body, the title or a commit message closes the issue in any of those forms, or the body has no `Part of`, `Ref` or `Refs` reference to it (`Part of #<N>`, or `Part of <owner/repo>#<N>` for an issue elsewhere). A failed or slow lookup of another repository holds the state instead (the gate's script exits 3), as does a run log the gate can't read. Free-form work has no issue and the gate passes without consulting the body. |
 | The pull request is mergeable | `ci_monitor` | `merge_state_clean` | GitHub reports `DIRTY`, whatever the CI gate reads. Necessary because a conflicted pull request gets no new check-runs, so the CI gate says nothing about one. |
 | CI is green | `ci_monitor` | `ci_passing` | The pull request has no checks at all, unless its repository declares no hosted CI on the default branch and the body records it (`ci-none-declared.sh`); or any check is outside the pass and skipping buckets, unless GitHub reports the PR MERGED and each such check is a cancelled run of one of the repo's macOS floor workflows (`ci-cancel-after-merge.sh`). |
-| The summary has the required shape | `finalization` / `deferral_approval`, then `pre_pr_evidence` | `summary_shape` | `summary.md` has no `## Changes Made` section. |
-| Every commit follows the commit convention | `finalization` / `deferral_approval`, then `pre_pr_evidence` | `commit_convention` | `check-branch-output.sh --commits` finds a commit in `impl_base..HEAD` (merges skipped) whose subject is not a Conventional Commits subject (`commit/conventional-subject`) or that carries an AI-attribution trailer (`commit/no-ai-trailer`), or can't decide (exit 2). |
+| The summary has the required shape | `finalization` / `deferral_approval` | `summary_shape` | `summary.md` has no `## Changes Made` section. |
+| Every commit follows the commit convention | `finalization` / `deferral_approval` | `commit_convention` | `check-branch-output.sh --commits` finds a commit in `impl_base..HEAD` (merges skipped) whose subject is not a Conventional Commits subject (`commit/conventional-subject`) or that carries an AI-attribution trailer (`commit/no-ai-trailer`), or can't decide (exit 2). |
 | The change passes the project's verification map | `verification` | `verification_verdict` (`poll:`) | `check-verification.sh --verdict` reads the result of the commands `run-verification.sh --start` ran from the map at the merge-base: exit 1, a check failed, returns to `implementation`; exit 3 (no map, a bad map, nothing selected) and exit 4 (needs a person, runaway, not started, dirty tree, or a timeout with the hosted-of-record route closed) end at `done_blocked`; exit 5, a check timed out with none failed and the route open (`verification_route`), holds until the run submits `hosted_of_record` with a reason, `fix` or `blocked`; 75 waits; 2 holds. |
 | A timed-out check settled on its hosted jobs has a valid record | `verification_hosted` | `hosted_record_valid` | `verification-route.sh --check-record` finds the `hosted_of_record` key wrong for HEAD: an empty reason, another head, a check missing from or added to the result's timed-out set, jobs other than the merge-base map's declaration, or a `taken_at` in the future or before the result finished (1, back to `verification`); or can't read it (2, holds). |
 | A pull request opened on the hosted-of-record route is a draft carrying its record | `pr_creation` | `hosted_record_line` | With the `hosted_of_record` key present, `check-pr-output.sh --hosted-record` finds the pull request not a draft, or a recorded check without its one `Hosted of record:` line naming the check id, the record's head and the declared jobs (1), or can't decide (2). A run with no key passes without the script. |
@@ -28,8 +28,8 @@ this table exists.
 | Each hosted job's latest attempt at the head passed, and the pull request was marked ready after it | `hosted_record` | `hosted_read` (`poll:`), `hosted_ready` | `--read` finds a job concluded anything but success, an unreadable response, zero or two jobs of the declared name, or a pull request head other than the record's (1, back to `verification`); a job still pending 120 minutes after `taken_at` (3, `done_blocked`); a pending job waits (75). `--ready` holds the state until the pull request is no longer a draft and every body line carries its run links. |
 | Changed documents respect the repository's visibility | `pr_precheck` | `branch_docs_visibility` | `check-branch-output.sh --docs-visibility` finds a changed `docs/` document failing `shirabe validate`'s visibility rules (R7, R8, R9), or can't decide. Passes on a shared branch. |
 | The pull request title and body conform | `pr_creation` | `pr_body_conformant` | `check-pr-output.sh --pr-body` runs `shirabe validate --pr-body` on the title and body GitHub has, and it reports a PB1 to PB4 violation, or the check can't decide. |
-| The cleanup referent is a commit in the branch's history | `finalization` / `deferral_approval`, then `pre_pr_evidence` | `cleanup_referent` | `pre_pr.md` records something other than a sha (`done`), a sha that names no commit, or a commit that is not `HEAD` or an ancestor of it. |
-| The diagram referent is a file or a stated reason | `finalization` / `deferral_approval`, then `pre_pr_evidence` | `diagram_referent` | `pre_pr.md` records neither a `docs/` path that is a file in `HEAD`'s tree nor `not-applicable: <reason>`. |
+| The cleanup referent is a commit in the branch's history | `finalization` / `deferral_approval` | `cleanup_referent` | `pre_pr.md` records something other than a sha (`done`), a sha that names no commit, or a commit that is not `HEAD` or an ancestor of it. |
+| The diagram referent is a file or a stated reason | `finalization` / `deferral_approval` | `diagram_referent` | `pre_pr.md` records neither a `docs/` path that is a file in `HEAD`'s tree nor `not-applicable: <reason>`. |
 | The issue has a PLAN behind it, or provably does not | `cascade_entry` | `anchor_present` | Undecidable rather than absent: an ambiguous or unreadable corpus stops the run instead of skipping the cascade in silence. |
 | The run is a root, not a child | `ci_pass_counting` | `is_root` (routing) | Not a failure: an answer. `session-role.sh` prints anything but `root`, so a run whose pass is counted after green CI goes to `done` instead of `cascade_entry`. |
 | The issue is still current | `staleness_check` | `staleness_fresh` (routing) | Not a failure: an answer. `check-staleness.sh` exits 1 (stale), and the run goes to `introspection`; 0, 3 and -1 go to `analysis`. Only exit 2 holds. |
@@ -45,20 +45,20 @@ The evidence values that used to restate them (`staleness_signal: fresh`,
 `ci_monitor` asked for) are gone: koto routes on the exit status, so there is
 no copy for a run to get wrong.
 
-### Checked where it is written, and again at the end
+### Checked where it is written
 
 `summary.md` and `pre_pr.md` are both written at `finalization`, and their
-three gates run twice, as does `commit_convention`. `summary_shape` checks a shape; the two referent gates
-run `scripts/check-pre-pr-referents.sh`, which checks that the commit and the
-path exist, since a shape check passed a sha that named nothing. At
-`finalization` (and on `deferral_approval`'s
-approved edge) a failure matches no edge: the run holds in that state with the
-gate named, and the agent fixes the artifact in place. At `pre_pr_evidence` the
-same failure routes to `done_blocked`. The second check is the backstop and is
-not weakened by the first; the first exists because that terminal is expensive:
-the run has to be re-entered to fix what was one edit away. The gate definitions
-must be identical in all three states, which `scripts/finalization-shape_test.sh`
-checks.
+three gates, with `commit_convention`, run on the edge out of it.
+`summary_shape` checks a shape; the two referent gates run
+`scripts/check-pre-pr-referents.sh`, which checks that the commit and the path
+exist, since a shape check passed a sha that named nothing. At `finalization`
+(and on `deferral_approval`'s approved edge) a failure matches no edge: the run
+holds in that state with the gate named, and the agent fixes the artifact in
+place. Both edges go straight to `pr_precheck`. A later state,
+`pre_pr_evidence`, used to run the same gates again and send a failure to
+`done_blocked`; it was removed, since these hold first and it never decided
+anything they hadn't. The gate definitions must be identical in the two
+states, which `scripts/finalization-shape_test.sh` checks.
 
 ## Evidence-carried
 
@@ -70,8 +70,15 @@ enforced in the record.
 
 | Obligation | State | Field | Why a placeholder cannot satisfy it |
 |---|---|---|---|
-| The code was cleaned up | `pre_pr_evidence` | `cleanup_done` | A closed enum (`removed`, `none_found`), with the commit reviewed recorded in `pre_pr.md` and gated as `HEAD` or an ancestor of it. |
-| The design diagram was updated, or does not apply | `pre_pr_evidence` | `design_diagram` | A closed enum, with the path or the stated reason in `pre_pr.md`, and a path gated as a file in `HEAD`'s tree. |
+| The code was cleaned up | `finalization` / `deferral_approval` | `cleanup_done` | A closed enum (`removed`, `none_found`), required with `ready_for_pr` and with `approved`, with the commit reviewed recorded in `pre_pr.md` and gated as `HEAD` or an ancestor of it. |
+| The design diagram was updated, or does not apply | `finalization` / `deferral_approval` | `design_diagram` | A closed enum (`updated`, `not_applicable`), required with `ready_for_pr` and with `approved`, with the path or the stated reason in `pre_pr.md`, and a path gated as a file in `HEAD`'s tree. |
+
+koto's evidence schema can mark a field required for every submission, not
+for one value of another field, and it tests a field on an edge only for a
+value. So both routes to `pr_precheck` list each pair of the two enums' values
+as its own edge, four at `finalization` and four at `deferral_approval`, each
+with all five gates. A `ready_for_pr` or an `approved` that leaves either enum
+out matches none of them and holds.
 | What the cascade did | `cascade_run` | `cascade_status` | A closed enum. |
 | What the repository shows after the cascade | `cascade_run` | `post_state` | A closed enum of one success and five distinct causes, read from the verifier's exit code. |
 | The anchor and the finalization commit | `cascade_run` | `anchor_plan`, `finalization_commit` | A path and a sha, both re-derivable: the verifier reads the same commit independently, so a wrong value fails the state rather than decorating it. |
@@ -85,11 +92,11 @@ enforced in the record.
 
 ## What this table does not claim
 
-The routing is real: at `pre_pr_evidence` a failing gate sends the run to a
-distinct terminal edge (the early copies at `finalization` and
-`deferral_approval` hold in place instead).
-Each edge's `context_assignments` writes a human-readable `failure_reason` into
-the session's context, which says which rung fired. It does not say why the
+The routing is real: where a failing gate ends the run, it does so on a
+distinct terminal edge (the gates at `finalization` and `deferral_approval`
+hold in place instead). Each such edge's `context_assignments` writes a
+human-readable `failure_reason` into the session's context, which says which
+rung fired. It does not say why the
 gate failed. The gate scripts this workflow's output gates call
 (`check-branch-output.sh`, `check-pr-output.sh`, `check-verification.sh`) print
 one `::koto-finding::` line per violation, which koto keeps in the response and

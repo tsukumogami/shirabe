@@ -2071,12 +2071,24 @@ If `koto context exists {{SESSION_NAME}} ci_cancelled_after_merge.txt` succeeds,
 
 A PR someone else merged while `ci_monitor` watched it reaches here whatever its checks said, so `outcome=merged` doesn't mean its CI was green. Read the checks once with `{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh <pr> --repo <repo>` (`gh pr checks` where the token can read checks, the Actions jobs and statuses where it can't), taking the PR and repository from the result, and name any check outside the `pass` and `skipping` buckets (failed, cancelled, or still running when the PR merged) in your final report.
 
+Last, clean the run's worktree of the build output its repository declares. The run is already at its terminal, so nothing this finds changes the result above. The script reads the PR's CI itself and cleans only when it is green (or the repository declares no hosted CI), only when the workspace turned the cleanup on, and exits 0 whatever it finds. Run it exactly as written, and relay any line that says something was removed or failed:
+
+```bash
+test -x {{PLUGIN_ROOT}}/skills/execute/scripts/build-output-end.sh && {{PLUGIN_ROOT}}/skills/execute/scripts/build-output-end.sh --session {{SESSION_NAME}}; true
+```
+
 ## ready_awaiting_merge
 
 The PR is ready, and the run did not merge it. The result's `reason` names why: the merge wasn't requested, a review or protection rule stands in the way, the head moved, the merge call failed, or a merge wasn't observed yet (the PR may still be queued and may merge later). Render the exit lines from the terminal result; don't compose them yourself:
 
 ```bash
 koto status {{SESSION_NAME}} | {{PLUGIN_ROOT}}/skills/execute/scripts/print-exit.sh
+```
+
+Then clean the run's worktree of the build output its repository declares. The run is already at its terminal, so nothing this finds changes the result above. The script reads the PR's CI itself and cleans only when it is green (or the repository declares no hosted CI), only when the workspace turned the cleanup on, and exits 0 whatever it finds. Run it exactly as written, and relay any line that says something was removed or failed:
+
+```bash
+test -x {{PLUGIN_ROOT}}/skills/execute/scripts/build-output-end.sh && {{PLUGIN_ROOT}}/skills/execute/scripts/build-output-end.sh --session {{SESSION_NAME}}; true
 ```
 
 ## paused_for_review
