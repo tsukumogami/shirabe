@@ -366,6 +366,33 @@ eq  "source: a message for a worker whose request this host doesn't hold is admi
 rm -f "$ST/req/req_g.gone" "$ST/req/req_g.json"
 eq  "source: a message for a leg-bound worker whose request can't be read is 2" 2 "$(src gamma message)"
 rm -rf "$ST/ctx/legs"
+# shirabe#2094: a unit's run moved to a continuation, dispatched under another
+# topic with a leg of its own, stays bound to the predecessor's leg and
+# promotes there. The continuation's own leg never resolves, so a promoted
+# result on an earlier leg of the same unit lets its message stand. The unit
+# is compared, never the topic; a different unit's leg, or a spent key, never.
+UNIT='acme/widgets#41: fix the widget'
+jq -c --arg u "$UNIT" '. + [{"worker":"kappa-cont","dispatch_status":"dispatched","return_path":"leg req_c:work-on","unit":$u}]' \
+    "$ST/rows.json" >"$ST/rows.x" && mv "$ST/rows.x" "$ST/rows.json"
+ukey() { mkdir -p "$ST/ctx/legs/$1"; jq -nc --arg r "$1" --arg l "$2" --arg t "$3" --arg s "$4" --arg u "$5" \
+    '{request: $r, leg: $l, topic: $t, state: $s} + (if $u == "" then {} else {unit: $u} end)' >"$ST/ctx/legs/$1/$2"; }
+promoted() { printf '{"request_id":"%s","legs":{"%s":{"name":"%s","disposition":"resolved","result_source":"promoted","result_final_state":"%s","result":{"status":"%s"}}}}\n' \
+    "$1" "$2" "$2" "$3" "$4" >"$ST/req/$1.json"; }
+ukey req_c work-on kappa-cont open "$UNIT"
+req req_c work-on open
+eq  "source: a continuation's message with no earlier leg of its unit is refused" 1 "$(src kappa-cont message)"
+ukey req_k work-on kappa replaced "$UNIT"
+promoted req_k work-on done success
+eq  "source: a message whose unit's run promoted to the predecessor's leg, under another topic, is admitted" 0 "$(src kappa-cont message)"
+promoted req_k work-on done_blocked failure
+eq  "source: so is one whose run promoted a failure to the predecessor's leg" 0 "$(src kappa-cont message)"
+ukey req_k work-on kappa spent "$UNIT"
+eq  "source: a promoted result on a spent key of the same unit is refused" 1 "$(src kappa-cont message)"
+rm -rf "$ST/ctx/legs/req_k"
+ukey req_o work-on omega replaced 'acme/widgets#99: another widget'
+promoted req_o work-on done success
+eq  "source: a promoted result on a leg of a different unit is refused" 1 "$(src kappa-cont message)"
+rm -rf "$ST/ctx/legs" "$ST/req/req_c.json" "$ST/req/req_k.json" "$ST/req/req_o.json"
 eq  "source: a message for an unknown topic is refused" 1 "$(src nobody message)"
 eq  "source: an unknown source is 2" 2 "$(src beta email)"
 eq  "source: a malformed topic is 2" 2 "$(src ../x message)"
