@@ -462,8 +462,9 @@ directory is removed when the script exits.
 Each of these exits 1, names the cause, and writes no key:
 
 - reasoning that is empty once whitespace is trimmed;
-- a line beginning `## ` in the reasoning or the standing rules, or a watch
-  value holding a newline, since either could open a forged section;
+- a line beginning `## ` in the reasoning or the standing rules, a watch
+  whose command begins with `## `, or a watch value holding a newline, since
+  any of them could open a forged section;
 - a watch that isn't `<label>=<command>`, whose label is outside
   `[A-Za-z0-9._-]{1,64}`, whose command is empty, or that holds a shell
   operator (`;`, `&`, `|`, `<`, `>`, `$`, a backtick, a backslash or a

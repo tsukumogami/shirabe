@@ -224,10 +224,11 @@ def check_holds($h; $private):
 #
 # Run, one row per key from a closed set; `told`, `pending` and `missing`
 # repeat, and `rules`, `briefs` and `briefs-read` once per label:
-#   Key      arguments | cap | coordinator | told | pending | missing | store |
+#   Key      arguments | cap | parked-bound | coordinator | told | pending | missing | store |
 #            rules | briefs | briefs-read | friction | reports-to | role |
 #            successor
 #   Value    arguments: the run's arguments as given; cap: a number;
+#            parked-bound: a number, the parked bound over PARKED_BOUND;
 #            coordinator: the address messages to the coordinator reach;
 #            told: a party that has been sent that address; pending: a worker
 #            that can't be sent it yet (its session is gone while its instance
@@ -342,7 +343,7 @@ def state_secs: [
 # dispatch-failed or stranded, the topic in the dispatch topic's grammar, the
 # date the day it was written. Only state-stored-set.sh --successor writes or
 # removes it, and its Set by is the run that dispatched the successor.
-def run_keys: ["arguments", "cap", "coordinator", "told", "pending", "missing", "store", "rules", "briefs", "briefs-read", "friction", "reports-to", "role", "successor"];
+def run_keys: ["arguments", "cap", "parked-bound", "coordinator", "told", "pending", "missing", "store", "rules", "briefs", "briefs-read", "friction", "reports-to", "role", "successor"];
 def re_successor: "^(dispatching|dispatched|dispatch-failed|stranded) [a-z0-9][a-z0-9-]{0,63} [0-9]{4}-[0-9]{2}-[0-9]{2}$";
 def run_roles: ["manager", "director"];
 def re_label: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$";
@@ -562,6 +563,7 @@ def check_srow($sec; $private):
         else $v | check_scell($sec.key; $c[0]; $private) end))
   | if $sec.key == "run" then
       (if .key == "cap" then (if .value | test("^[1-9][0-9]?$") then . else refuse("run.value: a cap is a number from 1 to 99") end)
+       elif .key == "parked-bound" then (if .value | test("^[1-9][0-9]?$") then . else refuse("run.value: a parked bound is a number from 1 to 99") end)
        elif .key == "coordinator" or .key == "told" or .key == "pending" or .key == "missing" then (.value | check_worker) as $_ | .
        elif .key == "store" then (if .value == "session" then . else refuse("run.value: the store is the session; a store row reads session, never \(.value)") end)
        elif .key == "rules" or .key == "briefs" then

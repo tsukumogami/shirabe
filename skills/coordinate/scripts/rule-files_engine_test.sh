@@ -49,7 +49,7 @@
 #      skill- row is written; the next start, the file readable again, writes
 #      all eight;
 #  11. scripts/check-template-compat.sh passes against the base branch's
-#      coordinate.compat.json, compat unchanged.
+#      coordinate.compat.json, compat the base's over the base's own structure.
 # Criterion 10, the skill list read from SKILL.md's Reference Files table, is
 # rule-files_test.sh's, offline.
 #
@@ -354,20 +354,46 @@ fi
 # neither (a shallow clone) still checks that the table records this
 # template's structure and gate scripts digest, and says it had no base.
 BASE=$(git -C "$REPO_ROOT" rev-parse --verify -q origin/main 2>/dev/null) || BASE=$(git -C "$REPO_ROOT" rev-parse --verify -q main 2>/dev/null) || BASE=
-CARGS=(--template skills/coordinate/koto-templates/coordinate.md)
+# While the template keeps the structure the base lists at its compat, compat
+# stays the base's. A structure the base doesn't list there is the change's
+# own, and check-template-compat.sh decides whether its raise holds.
+# compat_vs_base <table> <base-table> [<compiled>]: 0 when the table holds
+# against the base, else 1 with the reason on stdout.
+compat_vs_base() {
+    local tab=$1 base=$2 fp args=(--template skills/coordinate/koto-templates/coordinate.md)
+    [ -n "${3-}" ] && args+=(--compiled "$3")
+    fp=$(cd "$REPO_ROOT" && bash scripts/check-template-compat.sh "${args[@]}" --print 2>/dev/null | jq -r '.fingerprint // empty')
+    [ -n "$fp" ] || { echo "check-template-compat.sh printed no fingerprint"; return 1; }
+    if jq -e --arg f "$fp" '.fingerprints[$f] == .compat' "$base" >/dev/null; then
+        [ "$(jq -c .compat "$tab")" = "$(jq -c .compat "$base")" ] \
+            || { echo "compat $(jq -c .compat "$tab") is not the base's $(jq -c .compat "$base") over the base's own structure"; return 1; }
+    fi
+    (cd "$REPO_ROOT" && bash scripts/check-template-compat.sh "${args[@]}" --base-table "$base") > "$T/compat.out" 2>&1 \
+        || { echo "scripts/check-template-compat.sh: $(cat "$T/compat.out")"; return 1; }
+}
+TAB=$REPO_ROOT/skills/coordinate/koto-templates/coordinate.compat.json
 if [ -n "$BASE" ]; then
     git -C "$REPO_ROOT" show "$BASE:skills/coordinate/koto-templates/coordinate.compat.json" > "$T/base.compat.json" 2> "$T/base.err" \
         || needf "the base's coordinate.compat.json can't be read: $(cat "$T/base.err")"
-    CARGS+=(--base-table "$T/base.compat.json")
-    need "  ... compat unchanged from the base's" "$(jq -c .compat "$T/base.compat.json" 2>/dev/null)" \
-        "$(jq -c .compat "$REPO_ROOT/skills/coordinate/koto-templates/coordinate.compat.json")"
+    WHYC=$(compat_vs_base "$TAB" "$T/base.compat.json") || needf "$WHYC"
 else
     echo "     (no origin/main or main in this checkout: the compat check runs without a base table)"
+    (cd "$REPO_ROOT" && bash scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md) > "$T/compat.out" 2>&1 \
+        || needf "scripts/check-template-compat.sh: $(cat "$T/compat.out")"
 fi
-(cd "$REPO_ROOT" && bash scripts/check-template-compat.sh "${CARGS[@]}") > "$T/compat.out" 2>&1
-rc=$?
-[ "$rc" = 0 ] || needf "scripts/check-template-compat.sh exits $rc: $(cat "$T/compat.out")"
-crit "11. scripts/check-template-compat.sh passes against the base branch's coordinate.compat.json, compat unchanged, the gate scripts digest recorded"
+# Each branch refuses its own wrong case: a compat raised over the base's
+# own structure, and a structure changed with no raise.
+jq '.compat += 1' "$TAB" > "$T/raised.compat.json"
+WHYR=$(compat_vs_base "$T/raised.compat.json" "$TAB") && needf "  ... a compat raised over the base's own structure passes"
+case $WHYR in *"is not the base's"*) ;; *) needf "  ... a compat raised over the base's own structure is refused for another reason: $WHYR" ;; esac
+# koto template compile prints the compiled file's path; take JSON printed in
+# its place as the compiled template itself.
+JC=$(cd "$REPO_ROOT" && koto template compile skills/coordinate/koto-templates/coordinate.md 2>/dev/null) || needf "the template doesn't compile"
+case $JC in "{"*) printf '%s\n' "$JC" > "$T/compiled.json"; JC=$T/compiled.json ;; esac
+jq '.initial_state = "changed-" + .initial_state' "$JC" > "$T/changed.json" || needf "the compiled template can't be read: $JC"
+WHYS=$(compat_vs_base "$TAB" "$TAB" "$T/changed.json") && needf "  ... a structure changed with no raise passes"
+case $WHYS in "scripts/check-template-compat.sh:"*"structure:"*) ;; *) needf "  ... a structure changed with no raise is refused for another reason: $WHYS" ;; esac
+crit "11. scripts/check-template-compat.sh passes against the base branch's coordinate.compat.json, compat the base's over the base's own structure, the gate scripts digest recorded"
 
 report
 done_tests rule-files-engine

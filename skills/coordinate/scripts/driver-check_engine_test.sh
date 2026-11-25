@@ -382,9 +382,9 @@ crit "D8. state-holding.sh as X_ID exits 10 with D1's message, and handover-clas
 grep -q 'pass_env' "$REPO_ROOT/skills/coordinate/koto-templates/coordinate.md" && needf "D9: coordinate.md holds a pass_env"
 PRINTED=$(bash "$REPO_ROOT/scripts/check-template-compat.sh" --template "$REPO_ROOT/skills/coordinate/koto-templates/coordinate.md" --print 2>/dev/null)
 FP=$(printf '%s' "$PRINTED" | jq -r '.fingerprint // empty')
-need "D9: the template's structure is one the compat table lists at 2" 2 \
+need "D9: the template's structure is one the compat table lists at 3" 3 \
     "$(jq -r --arg f "$FP" '.fingerprints[$f] // "unlisted"' "$REPO_ROOT/skills/coordinate/koto-templates/coordinate.compat.json")"
-crit "D9. coordinate.md holds no pass_env, and its structure (its gates among it) is unchanged"
+crit "D9. coordinate.md holds no pass_env, and its structure (its gates among it) is the one the compat table lists at 3"
 
 # ---- D10 -----------------------------------------------------------------------
 job "$X_ID" coord-x
