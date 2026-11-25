@@ -602,10 +602,10 @@ holds the handover gate. The reconcile report and the
 closing lines of an imported run name its source, so the next import knows what
 to pass.
 
-A `reports-to` or a cap you worked out yourself, rather than read from your
-brief, your dispatch link or a person's message, is written with
-`--inferred "<the reading, in one sentence>"` beside `--run reports-to` or
-`--run cap`. The same write adds a Standing `rule` row whose Source is
+A `reports-to`, a cap or a parked bound you worked out yourself, rather than
+read from your brief, your dispatch link or a person's message, is written
+with `--inferred "<the reading, in one sentence>"` beside `--run reports-to`,
+`--run cap` or `--run parked-bound`. The same write adds a Standing `rule` row whose Source is
 `inferred`, which the start report lists as awaiting confirmation; a refusal
 of either writes neither (the 60-inferred cap full, say), so don't act on that
 value then. A `reports-to` naming a session (`<name> at <address>`) whose
@@ -951,7 +951,9 @@ worker: one whose Claude jobs on this host have all finished, kept until its
 pull request merges with nothing running for it, so the worker that continues
 its unit takes the same slot. A worker with no job seen on this host counts. When `--parked-bound` (default three) or more are parked,
 dispatch nothing new until the human has worked through the merge-order table.
-The human's decisions may set any of these.
+The human's decisions may set any of these. A changed cap or parked bound goes
+in the record's Run section, `state-stored-set.sh --run cap <n>` or `--run
+parked-bound <n>`, and that row wins over the flag for the rest of the run.
 
 **What you allocate is read, never assumed.** Each coordinator you dispatch
 counts against your cap for as long as it runs, so your cap is your worker

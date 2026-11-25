@@ -7,7 +7,7 @@
 #
 # Usage:
 #   state-stored-set.sh --session S --run KEY VALUE --by WHO
-#   state-stored-set.sh --session S --run reports-to|cap VALUE --inferred SENTENCE --by WHO
+#   state-stored-set.sh --session S --run reports-to|cap|parked-bound VALUE --inferred SENTENCE --by WHO
 #   state-stored-set.sh --session S --run role manager|director --by WHO [--intervention dispatcher|person]
 #   state-stored-set.sh --session S --successor dispatching|dispatched|dispatch-failed|stranded TOPIC --by RUN
 #   state-stored-set.sh --session S --successor clear --by WHO
@@ -36,7 +36,8 @@
 # tests only, with RS_SESSION naming the session that holds the record.
 #
 # --run sets one Run key: arguments (the run's arguments as given), cap (a
-# number), coordinator (the address messages to this coordinator reach: a
+# number), parked-bound (a number: how many parked workers may wait before pick
+# dispatches nothing new, over the PARKED_BOUND variable), coordinator (the address messages to this coordinator reach: a
 # session name a worker can message, `_` allowed, or a dispatch topic; never
 # an id or a path). `store` is no Run key here (65): the record's store is
 # always the coordinator's session, and the legacy `store session` row a session
@@ -67,7 +68,7 @@
 # coordinator that dispatched it) and, for a coordinator, its messaging
 # address. --run doesn't take `briefs-read`: only --intake writes or removes
 # that row (64).
-# --inferred SENTENCE marks a `reports-to` or `cap` value the coordinator
+# --inferred SENTENCE marks a `reports-to`, `cap` or `parked-bound` value the coordinator
 # worked out rather than read from its brief, its dispatch link or a
 # person's message (docs/designs/DESIGN-coordinator-standing-rule-provenance.md,
 # Decision 5): the same write also adds a Standing `rule` row whose What is
@@ -78,7 +79,8 @@
 # bytes, the 120-rule and 60-inferred caps, the forge reads), so a refusal
 # of either writes neither (65, or 2 for a read that fails). Two entries
 # follow it: the `run` entry, then the `rule` entry `s<n> (rule): SENTENCE.
-# Source: inferred.` --inferred goes only with --run reports-to or --run cap,
+# Source: inferred.` --inferred goes only with --run reports-to, --run cap or
+# --run parked-bound,
 # once, and not empty (64, before anything is read).
 # Where those files live
 # goes in record/host, through
@@ -477,8 +479,8 @@ done
 case "$MODE" in
     run) [ "$KEY" != store ] || { echo "$PROG: refused: run.key: store is not a Run key this script sets; the record's store is always the coordinator's session" >&2; exit 65; }
          [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage
-         case "$KEY" in arguments|cap|coordinator|rules|briefs|friction|reports-to|role) ;;
-             *) echo "$PROG: --run takes arguments, cap, coordinator, rules, briefs, friction, reports-to or role" >&2; exit 64 ;; esac ;;
+         case "$KEY" in arguments|cap|parked-bound|coordinator|rules|briefs|friction|reports-to|role) ;;
+             *) echo "$PROG: --run takes arguments, cap, parked-bound, coordinator, rules, briefs, friction, reports-to or role" >&2; exit 64 ;; esac ;;
     host) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     successor) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage
                case "$SSTATUS" in dispatching|dispatched|dispatch-failed|stranded|clear) ;;
@@ -516,11 +518,11 @@ fi
 if [ "$HAS_SOURCE" = 1 ] && { [ "$MODE" != standing ] || [ "$KIND" != rule ]; }; then
     echo "$PROG: --source goes only with --standing rule" >&2; exit 64
 fi
-# --inferred goes only with --run reports-to or --run cap, a value the
-# coordinator worked out, and carries the reading's sentence.
+# --inferred goes only with --run reports-to, --run cap or --run parked-bound,
+# a value the coordinator worked out, and carries the reading's sentence.
 if [ "$HAS_INFERRED" = 1 ]; then
-    { [ "$MODE" = run ] && { [ "$KEY" = reports-to ] || [ "$KEY" = cap ]; }; } \
-        || { echo "$PROG: --inferred goes only with --run reports-to or --run cap" >&2; exit 64; }
+    { [ "$MODE" = run ] && { [ "$KEY" = reports-to ] || [ "$KEY" = cap ] || [ "$KEY" = parked-bound ]; }; } \
+        || { echo "$PROG: --inferred goes only with --run reports-to or --run cap, or with --run parked-bound" >&2; exit 64; }
     [ -n "$INFERRED" ] || { echo "$PROG: --inferred takes the reading's sentence" >&2; exit 64; }
 fi
 if [ "$MODE" = standing ] && [ "$KIND" = rule ]; then

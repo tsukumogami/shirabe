@@ -203,6 +203,13 @@ entries | jq -e '.[0].text | test("^Run arguments set to --roadmap .* by the hum
 eq "  ... the holding's row left Work with its count" "Feature 2 (worker-f2) left Work after 0 wakes." "$(entries | jq -r '.[-1].text')"
 eq "  ... and a holding's row carries a Wakes count, a local agent's 0" "0" "$(live | jq -r '[(.work // [])[] | .wakes] | unique | join(",") | if . == "" then "0" else . end')"
 
+# The parked bound has a Run row like the cap's (shirabe#2106).
+bash "$RS" "${W[@]}" --run parked-bound 5 --by "the human" >/dev/null 2>"$T/err"; eq "a parked bound is set" 0 $?
+bash "$RS" "${W[@]}" --run parked-bound 4 --by "the human" >/dev/null 2>"$T/err"; eq "a parked bound is changed" 0 $?
+eq "  ... one parked-bound row, the new one" "4 1" "$(live | jq -r '[.run[] | select(.key == "parked-bound")] | "\(.[0].value) \(length)"')"
+bash "$RS" "${W[@]}" --run parked-bound 0 --by x >/dev/null 2>"$T/err"; eq "a parked bound that isn't a number from 1 to 99 is refused" 65 $?
+bash "$RS" "${W[@]}" --run parked-bound 4 --inferred "" --by x >/dev/null 2>"$T/err"; eq "--inferred with --run parked-bound still takes a sentence" 64 $?
+
 echo "== a unit parked on a decision, and a follow-up =="
 # Entry 4 is open, entry 5 settled; Feature 3 is held by worker-f3.
 OPEN4=$(jq -nc '{decision: "4", round: "1", question: "Feature 4: keep the registry?",
