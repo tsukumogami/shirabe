@@ -483,7 +483,7 @@ if drun ci-health director open; then
     D=$S
     eq "7: run-facts reads the discipline and host" "discipline ci-health acme/widgets" \
         "$(cd "$WD" && bash "$PS/coord-log.sh" run-facts --session "$D" | jq -r '"\(.scope) \(.name) \(.repo)"')"
-    eq "7: the run's compat reads 2" 2 "$(cd "$WD" && bash "$PS/coord-log.sh" compat --session "$D" 2>/dev/null | cut -d' ' -f1)"
+    eq "7: the run's compat reads 3" 3 "$(cd "$WD" && bash "$PS/coord-log.sh" compat --session "$D" 2>/dev/null | cut -d' ' -f1)"
     successor ci-health-successor-1
     eq "7: --successor exits 0" 0 "$SRC"
     eq "7: ... and prints session=<name>" "session=ci_health_successor_1-""1a2b3c4d" "$SO"
