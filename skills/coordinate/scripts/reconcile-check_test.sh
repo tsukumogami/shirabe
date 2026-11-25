@@ -985,6 +985,29 @@ for sub in "appeared --repo $R --branch x:pr-list" "branch --repo $R --branch x:
     out=$(DL=1 BDL=1 run $args)
     expect "a late $key read is not verified" '.status == "not_verified" and (.reason | test("timed out"))' "$out"
 done
+# A caller's EXIT trap runs in the caller alone. bash 5 ran it in
+# rd_deadline's watcher when the TERM that stops the watcher landed before
+# the watcher had run its first command, which a quick command makes likely:
+# the inventory's trap then removed its working files mid-read, and the
+# inventory reported them removed. The trap appends a line, so over 1000 quick
+# calls the file must end up with the caller's one EXIT line and nothing else.
+# bash 3.2 never showed it, so on the macOS floor the case passes either way.
+TRAPS="$T/caller-traps"
+: > "$TRAPS"
+mkdir -p "$T/rd-traps"
+(
+    # shellcheck source=/dev/null
+    . "$T/tree/skills/coordinate/scripts/reconcile-deps.sh"
+    trap 'echo exit >> "$TRAPS"' EXIT
+    rd_idle "$T/rd-traps" || exit 1
+    i=0
+    while [ "$i" -lt 1000 ]; do
+        rd_deadline 30 true > /dev/null
+        i=$((i + 1))
+    done
+)
+[ "$(cat "$TRAPS")" = exit ] && ok "a caller's EXIT trap never runs in a read's watcher" \
+    || bad "a caller's EXIT trap never runs in a read's watcher" "$(sort "$TRAPS" | uniq -c)"
 
 echo "== read-only =="
 ALL="$T/all.log"

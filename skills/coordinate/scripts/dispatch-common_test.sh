@@ -460,5 +460,49 @@ DIRECT=$(cd "$HERE" && for f in *.sh *.jq; do
 done)
 eq  "leg field: no other script reads or writes child, rebriefed or opened directly" "" "$DIRECT"
 
+# --- a live, idle worker whose turn ended (shirabe#1594) ------------------------
+# A worker that ends its turn to wait for its coordinator gets a state file
+# reading done while its process lives on and `claude agents` lists it idle
+# with a pid. The probe reads the job's own listing row, so that live pid makes
+# it live; with no live pid listed the state file decides, as before.
+LH="$T/live-home"
+LJ=5c4608e3
+LN=$(printf 'feat_9-%s' 0c9c9c9c)
+mkdir -p "$LH/jobs/$LJ"
+jq -n --arg n "$LN" '{name: $n, state: "done", pid: null}' >"$LH/jobs/$LJ/state.json"
+LCLI="$T/claude-stub"
+LROWS="$T/claude-agents.json"
+printf '#!/usr/bin/env bash\n[ "$*" = "agents --json --all" ] || exit 1\n[ -f "%s.fail" ] && exit 1\ncat "%s"\n' \
+    "$LROWS" "$LROWS" >"$LCLI"
+chmod +x "$LCLI"
+live() { DC_CLAUDE_HOME="$LH" DC_CLAUDE_CLI="$LCLI" dc_session_live "" "" "$LN"; }
+jq -n --arg j "$LJ" --argjson p "$LIVE" '[{id: $j, status: "idle", state: "done", pid: $p}]' >"$LROWS"
+eq  "live: a done job listed idle with a live pid is live" \
+    "0 $LN is a running Claude job: job $LJ is still running (pid $LIVE)" "$(out=$(live); echo "$? $out")"
+jq -n --arg j "$LJ" --argjson p "$LIVE" '[{id: "0000ffff", status: "idle", pid: 1}, {id: $j, status: "busy", state: "working", pid: $p}]' >"$LROWS"
+eq  "live: ... found among other rows, busy" \
+    "0 $LN is a running Claude job: job $LJ is still running (pid $LIVE)" "$(out=$(live); echo "$? $out")"
+jq -n --arg j "$LJ" --argjson p "$DEAD" '[{id: $j, status: "idle", state: "done", pid: $p}]' >"$LROWS"
+eq  "live: a done job listed with a dead pid has finished" \
+    "1 $LN's Claude job $LJ has finished" "$(out=$(live); echo "$? $out")"
+jq -n --arg j "$LJ" '[{id: $j, state: "done"}]' >"$LROWS"
+eq  "live: a done job listed with no pid has finished" \
+    "1 $LN's Claude job $LJ has finished" "$(out=$(live); echo "$? $out")"
+jq -n '[{id: "0000ffff", status: "idle", pid: 1}]' >"$LROWS"
+eq  "live: a done job the listing doesn't show has finished" \
+    "1 $LN's Claude job $LJ has finished" "$(out=$(live); echo "$? $out")"
+printf 'not json' >"$LROWS"
+eq  "live: a listing that isn't JSON leaves the state file to decide" \
+    "1 $LN's Claude job $LJ has finished" "$(out=$(live); echo "$? $out")"
+jq -n --arg j "$LJ" --argjson p "$LIVE" '[{id: $j, status: "idle", pid: $p}]' >"$LROWS"
+touch "$LROWS.fail"
+eq  "live: a listing that can't be read leaves the state file to decide" \
+    "1 $LN's Claude job $LJ has finished" "$(out=$(live); echo "$? $out")"
+rm -f "$LROWS.fail"
+jq -n --arg n "$LN" '{name: $n, state: "working"}' >"$LH/jobs/$LJ/state.json"
+printf 'not json' >"$LROWS"
+eq  "live: a working job is live whatever the listing says" \
+    "0 $LN is a running Claude job: the state file of job $LJ reads working" "$(out=$(live); echo "$? $out")"
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
