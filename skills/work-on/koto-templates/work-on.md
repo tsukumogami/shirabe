@@ -5205,8 +5205,13 @@ it reaches `pr_creation` only, and the next submission comes straight back here.
 Take a fix round instead, from the branch this run worked on:
 
 ```bash
-"{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-round.sh" start --from {{SESSION_NAME}}
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-round.sh" start --from {{SESSION_NAME}} --fix-report "<the failure or finding>"
 ```
+
+`--fix-report` is the round's own report, the CI failure or review finding that
+caused it, and takes this run's Fixes line's place, so the round's red can cite
+it. It holds only letters, digits, spaces and `. _ / : @ + -`, starting with a
+letter or digit; leave it off and the round keeps this run's.
 
 It starts `{{SESSION_NAME}}-fix-<n>`, a new work-on session with this run's
 variables and parent (a child stays a child, so it never cascades), and records

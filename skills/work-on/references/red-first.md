@@ -42,7 +42,12 @@ can't skip the red. `fix-kind.sh declare` puts a fix back.
 
 The report is stored once, as `fix_report.txt`: the plan step's Fixes line
 when there is one, else the issue body, else the free-form task text, else the
-step's context. It is what a red's passage is checked against.
+step's context. It is what a red's passage is checked against. A plan-backed
+child taken from a PLAN outline (`ISSUE_SOURCE=plan_outline`) has no issue
+body: its issue number is the outline's, so no GitHub issue is read for its
+report or its labels. A fix round started with `fix-round.sh start --fix-report
+<text>` has that text as its Fixes line, so the round's red can cite the CI
+failure or review finding that caused it.
 
 ## The red
 
