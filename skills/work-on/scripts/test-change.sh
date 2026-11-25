@@ -316,17 +316,22 @@ safe_path() {
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-# clean <text>: control characters (newlines included) become spaces, capped.
 # reason_fits <reason>: a usage refusal when the reason is longer than
 # TEXT_MAX bytes. A reason is the record of why a test changed or why its
 # change was accepted, so it is refused whole rather than clipped by clean(),
-# and the caller learns the limit before anything is written.
+# and the caller learns the limit before anything is written. It counts bytes
+# because clean()'s cap does (cut -c under LC_ALL=C): the two agree on where
+# the limit falls, and no multi-byte character can be split. Non-ASCII text
+# gets fewer characters under the same cap.
 reason_fits() {
     local n
     n=$(printf '%s' "$1" | LC_ALL=C wc -c | tr -d ' ')
     [ "$n" -le "$TEXT_MAX" ] || usage "--reason is $n bytes, over the $TEXT_MAX-byte limit; shorten it and run again (nothing was recorded)"
 }
 
+# clean <text>: control characters (newlines included) become spaces, capped.
+# A reason reaches it only after reason_fits, so its cut never shortens one;
+# it still caps paths and the other text that passes through.
 clean() {
     printf '%s' "$1" | LC_ALL=C tr '\000-\037\177' ' ' | cut -c "1-$TEXT_MAX"
 }
