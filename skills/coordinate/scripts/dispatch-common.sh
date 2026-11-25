@@ -297,13 +297,22 @@
 #       not stopped. state-common.sh lib_parked counts a stopped holding as
 #       neither active nor parked (shirabe#1419).
 #
+#   dc_job_row <job-id>
+#       Prints the job's row from `claude agents --json --all` as compact
+#       JSON, for dc_job_finished, or `{}` when the listing can't be read
+#       within 10 seconds, isn't a JSON array, or has no row for the job.
+#       Returns 0. DC_CLAUDE_CLI (else CLAUDE_CLI, else `claude`) names the
+#       CLI.
+#
 #   dc_session_live <koto-session> <claude-session-id> <session-name>
 #       The liveness probe: 0 when the koto session is live by the
 #       coordinator's definition, 1 when it isn't, printing why either way; 2
 #       when its log can't be read. Live is: not finished or cancelled in
 #       koto, and either a running Claude job on this host for the Claude
 #       session that drives it (its job found by dc_claude_job, by id or by
-#       name, and dc_job_finished saying it isn't finished), or, when no job
+#       name, and dc_job_finished, given the job's dc_job_row, saying it isn't
+#       finished: a worker that ended its turn has a state file reading done
+#       while its listing row shows its live pid, shirabe#1594), or, when no job
 #       for it can be seen from here, a koto event in its log within the last
 #       10 minutes (600 seconds), koto's own session_imported aside (an
 #       import's copy gets one that no driver wrote). Either argument after the koto session may
@@ -969,12 +978,23 @@ dc_topic_stopped() {
     [ "$seen" = 1 ]
 }
 
+dc_job_row() {
+    local job="$1" ag row
+    ag=$(dc_with_deadline 10 "${DC_CLAUDE_CLI:-${CLAUDE_CLI:-claude}}" agents --json --all </dev/null 2>/dev/null) \
+        || { printf '{}\n'; return 0; }
+    row=$(printf '%s' "$ag" | jq -c --arg j "$job" \
+        'if type == "array" then (first(.[] | select(type == "object" and .id == $j)) // {}) else {} end' 2>/dev/null) \
+        || row='{}'
+    [ -n "$row" ] || row='{}'
+    printf '%s\n' "$row"
+}
+
 dc_session_live() {
     local s="$1" sid="$2" name="$3" home="${DC_CLAUDE_HOME:-$HOME/.claude}" now="${DC_NOW:-$(date +%s)}" st log job why last at
     if [ -z "$s" ]; then
         job=$(dc_claude_job "$home" "$sid" "$name") \
             || { printf 'no koto session and no Claude job for %s is seen here\n' "${name:-$sid}"; return 1; }
-        if why=$(dc_job_finished "$home" "$job" '{}'); then
+        if why=$(dc_job_finished "$home" "$job" "$(dc_job_row "$job")"); then
             printf "%s's Claude job %s has finished\n" "${name:-$sid}" "$job"; return 1
         fi
         printf '%s is a running Claude job: %s\n' "${name:-$sid}" "$why"; return 0
@@ -989,9 +1009,9 @@ dc_session_live() {
         printf '%s is cancelled\n' "$s"; return 1
     fi
     if job=$(dc_claude_job "$home" "$sid" "$name"); then
-        # A job seen from here decides: only its own state file and pid say
-        # whether it is still running.
-        if why=$(dc_job_finished "$home" "$job" '{}'); then
+        # A job seen from here decides: only its own state file and the pid
+        # its listing row shows say whether it is still running.
+        if why=$(dc_job_finished "$home" "$job" "$(dc_job_row "$job")"); then
             printf "%s's Claude job %s has finished\n" "$s" "$job"; return 1
         fi
         printf '%s is driven by a running Claude job: %s\n' "$s" "$why"; return 0
