@@ -3899,6 +3899,38 @@ test_multi_pr_description_row_issue_refs() {
     teardown
 }
 
+test_coordinated_struck_through_entity_row() {
+    assert_description_ref_coordinated \
+        "coordinated struck-through entity and description rows" \
+        '| ~~[#1: feat core](https://example.com/1)~~ | ~~None~~ | ~~testable~~ |
+| ^_Repo: acme/repo-a \| Group: core_ | | |
+| ~~_Lands after #7 merges._~~ | | |
+| [#2: feat cli](https://example.com/2) | [#1](https://example.com/1) | testable |
+| ^_Repo: acme/repo-a \| Group: cli_ | | |
+| _Fixes acme#461._ | | |'
+}
+
+test_multi_pr_struck_through_entity_row() {
+    local name="multi-pr struck-through entity and description rows"
+    setup
+    write_description_ref_plan "$TEST_DIR/plan-struck.md" multi-pr \
+        '| ~~[#1: feat core](https://example.com/1)~~ | ~~None~~ | ~~testable~~ |
+| ~~_Lands after #7 merges._~~ | | |
+| [#2: feat cli](https://example.com/2) | [#1](https://example.com/1) | testable |
+| _Fixes acme#461._ | | |'
+
+    local output="" rc=0
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-struck.md" 2>/dev/null) || rc=$?
+    local got
+    got=$(echo "$output" | jq -c '[.[] | [.name, .waits_on]]' 2>/dev/null) || true
+    if [[ $rc -eq 0 && "$got" == '[["issue-1",[]],["issue-2",["issue-1"]]]' ]]; then
+        pass "$name (struck-through issue-1 kept, no phantom from its description)"
+    else
+        fail "$name" "expected exit 0 and [issue-1, issue-2 <- issue-1]; got rc=$rc tasks=$got"
+    fi
+    teardown
+}
+
 build_shirabe_binary
 
 echo "Running plan-to-tasks.sh tests..." >&2
@@ -3919,6 +3951,8 @@ test_coordinated_outlines_envelope_skew
 test_coordinated_without_tracking_level_uses_table
 test_coordinated_description_row_issue_refs
 test_multi_pr_description_row_issue_refs
+test_coordinated_struck_through_entity_row
+test_multi_pr_struck_through_entity_row
 test_multi_pr_basic
 test_single_pr_basic
 test_single_pr_diamond

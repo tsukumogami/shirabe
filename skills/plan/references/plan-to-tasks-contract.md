@@ -269,7 +269,8 @@ Supported table formats:
 ```
 
 For each entity row, a data row whose first cell starts with the issue key `#N`
-(plain, or as a link such as `[#N: title](url)`):
+(plain, or as a link such as `[#N: title](url)`; a completed issue's key may be
+struck through, as in `~~[#N: title](url)~~`):
 - `name` = `issue-<N>`
 - `vars.ISSUE_NUMBER` = `"N"` (as string)
 - `waits_on` = list of `issue-<M>` for each `#M` in the Dependencies cell; `[]` if cell is `None`

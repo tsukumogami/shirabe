@@ -262,7 +262,8 @@ extract_frontmatter() {
 
 # Print the issue number of an Implementation Issues entity row and return 0,
 # or return 1 for any other row. An entity row's first data cell starts with
-# its issue key, plain (`#12`) or as a link (`[#12: title](url)`). A
+# its issue key, plain (`#12`) or as a link (`[#12: title](url)`), and a
+# completed issue's key may be struck through (`~~[#12: title](url)~~`). A
 # description row may mention issues anywhere in its text ("Lands after #7",
 # "Fixes acme#461"), so a #N elsewhere on the row does not make it an entity.
 entity_row_issue_num() {
@@ -270,9 +271,9 @@ entity_row_issue_num() {
     local cell="${line#|}"
     cell="${cell%%|*}"
     cell="${cell#"${cell%%[![:space:]]*}"}"
-    local re_key='^\[?#([0-9]+)([^0-9]|$)'
+    local re_key='^(~~)?\[?#([0-9]+)([^0-9]|$)'
     if [[ "$cell" =~ $re_key ]]; then
-        printf '%s' "${BASH_REMATCH[1]}"
+        printf '%s' "${BASH_REMATCH[2]}"
         return 0
     fi
     return 1
