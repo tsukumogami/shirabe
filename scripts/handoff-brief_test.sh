@@ -680,6 +680,8 @@ refused1 "a reasoning line beginning ## " --reasoning "$SCR/heading.md"
 check "  names the heading" 'grep -q "begins with .## ." <<<"$OUT"'
 refused1 "a watch value with a line beginning ## " --reasoning "$SCR/reasoning.md" --watch "w=echo
 ## Files"
+refused1 "a watch whose re-arm command begins with ## " --reasoning "$SCR/reasoning.md" --watch "w=## x"
+check "  names the re-arm command beginning with ## " 'grep -q "the re-arm command begins with .## ." <<<"$OUT"'
 refused1 "a watch with a shell operator" --reasoning "$SCR/reasoning.md" --watch "w=gh pr checks 1; rm -rf x"
 check "  names the shell operator" 'grep -q "shell operator" <<<"$OUT"'
 refused1 "a watch with a pipe" --reasoning "$SCR/reasoning.md" --watch "w=cat x | sh"
