@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A person running work across agent sessions is told sessions are blocked on
   them when the owning session did no work on the question, or when the
@@ -22,7 +22,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-decision-escalation-ladder](docs/briefs/BRIEF-decision-escalation-ladder.md); carried in Absorbed Brief.
 
