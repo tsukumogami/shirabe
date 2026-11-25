@@ -1216,6 +1216,19 @@ WHOLE=$(eval "$READ" 2>&1)
 has "the work-tree read shows the rename" "rename from tests/other_test.sh" "$WHOLE"
 has "the work-tree read shows the line the rename's edit removed" "-for word in alpha beta gamma delta; do" "$WHOLE"
 
+# --- reason length -------------------------------------------------------------------
+# A reason is the record of why a test changed or why its change was accepted.
+# One over the cap is refused before anything is written, never clipped.
+echo "--- reason length"
+S=rlen
+start "$S"
+LONG=$(head -c 909 /dev/zero | tr '\0' r)
+run note "$S" --file tests/greet_test.sh --reason "$LONG"
+eq "Over the cap, refuse with a usage error: note exits 64" 64 "$RC"
+has "the note refusal names the limit" "300-byte limit" "$(cat "$W/err")"
+has "the note refusal names the reason's length" "909 bytes" "$(cat "$W/err")"
+eq "an over-cap note records nothing" 0 "$(ledger "$S" | jq -s '[.[] | select(.event == "note")] | length')"
+
 echo
 echo "test-change: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
