@@ -48,6 +48,12 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 EMPTY_CLAUDE_HOME="$T/claude-empty"
 mkdir -p "$EMPTY_CLAUDE_HOME/jobs"
 export DC_CLAUDE_HOME="$EMPTY_CLAUDE_HOME"
+# A seeded job's listing row (dispatch-common.sh dc_job_row) comes from a
+# stub `claude agents --json --all` that lists nothing, never the host's real
+# CLI.
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$T/claude-cli"
+chmod +x "$T/claude-cli"
+export DC_CLAUDE_CLI="$T/claude-cli"
 DC="$HERE/deferral-check.sh"
 CL="$HERE/coord-log.sh"
 tok_shape() {
@@ -443,6 +449,24 @@ seed "$(with_holdings "$(parked p1 31)" "$(parked p2 32)" "$(parked p3 33)")"
 for n in 31 32 33; do pr $n OPEN false; done
 session "$(roadmap_vars plugin-system)"
 eq "three parked workers is at the parked bound" "at-cap 0/5 3/3" "$(check)"
+# A Run parked-bound row a person set wins over PARKED_BOUND (shirabe#2106):
+# raised to 5 the same dispatch passes, and set back to 3 it is refused again.
+# The rows go in through state-stored-set.sh, on this run's record by name,
+# since the earlier cases left other live sessions of the same roadmap.
+set_pb() {
+    RS_SESSION="$S" bash "$HERE/state-stored-set.sh" --session "$S" --scope roadmap --name plugin-system \
+        --repo acme/widgets --skip-session-checks --run parked-bound "$@" >/dev/null 2>"$T/err"
+}
+set_pb 5 --by "the human"
+eq "a parked-bound row raising the bound to 5 is written" 0 $?
+eq "  ... and the dispatch refused at the variable's bound passes" "ok beta" "$(check)"
+eq "  ... with the row's bound in the detail" "3 5" "$(jq -r '"\(.parked) \(.parked_bound)"' "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
+set_pb 3 --by "the human"
+eq "the row set back to 3 is written" 0 $?
+eq "  ... and the dispatch is refused again" "at-cap 0/5 3/3" "$(check)"
+set_pb 4 --inferred "The reviewer's answer raises the parked bound to 4." --by "the coordinator"
+eq "a parked-bound worked out by the coordinator is written with --inferred" 0 $?
+eq "  ... and it binds as well" "ok beta" "$(check)"
 seed "$(with_holdings "$(parked p1 31)" "$(parked p2 32)" "$(parked p3 33)" "$(scoping s1 34)")"
 for n in 31 32 33; do pr $n OPEN false; done; pr 34 OPEN true
 session "$(roadmap_vars plugin-system)" send_execution s1

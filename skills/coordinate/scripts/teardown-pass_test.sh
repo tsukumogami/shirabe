@@ -476,6 +476,26 @@ run_pass
 mv "$T/emit-event.aside" "$T/plugin2/scripts/emit-event.sh"
 eq_ "a missing helper: the same exit, output, stderr and RESULT" "$WANT" "$RC|$OUT|$ERR|$RES"
 
+echo "== a job that runs from a directory inside the instance (shirabe#1243) =="
+setup_run
+jq -c --arg c "$IP/wt" '[.[] | .cwd = $c]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
+run_pass
+[ "$RC" = 0 ] && [ "$RES" = done ] && ok "a sealed job whose cwd is a worktree under the instance: the pass is done" \
+    || bad "a sealed job whose cwd is a worktree under the instance: the pass is done" "exit $RC: $OUT $ERR"
+setup_run
+jq -c --arg c "$IP-2" '[.[] | .cwd = $c]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
+run_pass
+[ "$RC" = 1 ] && [ "$LAST" = "teardown-pass: refused: job 4b3597d2 is no longer the job of $IP with session $SID" ] \
+    && ok "a job whose cwd moved to a sibling sharing the path as a prefix: refused" \
+    || bad "a job whose cwd moved to a sibling sharing the path as a prefix: refused" "exit $RC: $LAST"
+setup_run
+removed_verdict
+jq -nc --arg c "$IP/wt" '[{id: "77aa77aa", cwd: $c}]' >"$ST/agents.json"
+run_pass
+[ "$RC" = 1 ] && [ "$LAST" = "teardown-pass: refused: claude agents lists a job for $IP" ] \
+    && ok "removed mode, a job still listed under the instance path: refused" \
+    || bad "removed mode, a job still listed under the instance path: refused" "exit $RC: $LAST"
+
 echo "== a job niwa destroy already removed =="
 setup_run
 : >"$ST/destroy-takes-job"
@@ -805,6 +825,14 @@ unconfirmed "niwa lists an instance at the path" "niwa still lists"
 setup_check
 echo '[{"id":"77aa77aa","cwd":"/i/w5"}]' >"$C3/agents.json"
 unconfirmed "claude lists a job at the path" "claude agents lists a job in /i/w5"
+setup_check
+echo '[{"id":"77aa77aa","cwd":"/i/w5/public/repo"}]' >"$C3/agents.json"
+unconfirmed "claude lists a job under the path (shirabe#1243)" "claude agents lists a job in /i/w5"
+setup_check
+echo '[{"id":"77aa77aa","cwd":"/i/w5-other"}]' >"$C3/agents.json"
+run_check --session s --topic w5
+case "$KOUT" in *"lists a job in /i/w5"*) bad "a job in a sibling sharing the path as a prefix is not the unit's" "$KOUT" ;;
+    *) ok "a job in a sibling sharing the path as a prefix is not the unit's" ;; esac
 setup_check
 echo '[{"id":"4b3597d2","cwd":"/elsewhere"}]' >"$C3/agents.json"
 unconfirmed "claude still lists the job" "claude agents still lists job 4b3597d2"

@@ -64,6 +64,12 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 EMPTY_CLAUDE_HOME="$T/claude-empty"
 mkdir -p "$EMPTY_CLAUDE_HOME/jobs"
 export DC_CLAUDE_HOME="$EMPTY_CLAUDE_HOME"
+# A seeded job's listing row (dispatch-common.sh dc_job_row) comes from a
+# stub `claude agents --json --all` that lists nothing, never the host's real
+# CLI.
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$T/claude-cli"
+chmod +x "$T/claude-cli"
+export DC_CLAUDE_CLI="$T/claude-cli"
 PF="$HERE/pick-facts.sh"
 CL="$HERE/coord-log.sh"
 tok_shape() {
@@ -121,6 +127,13 @@ tok_shape "pick is in koto's capture alphabet" "$OUT"
 bash "$CL" check --session "$S" --state pick_facts --sealed "$OUT" && ok "the token is sealed to pick_facts" || bad "the token is sealed to pick_facts"
 eq "two executing holdings, one parked worker and a local agent read active 2 and parked 1" "2 1" "$(facts | jq -r '"\(.active) \(.parked)"')"
 eq "the cap and parked bound are the session's" "5 3" "$(facts | jq -r '"\(.cap) \(.parked_bound)"')"
+# A Run parked-bound row, written as a person's change, wins over PARKED_BOUND
+# (shirabe#2106), in the facts and in the slice the decider reads.
+bash "$HERE/state-stored-set.sh" --session "$S" --run parked-bound 5 --by "the human" >/dev/null 2>"$T/err"
+eq "a parked-bound row is written" 0 $?
+bash "$PF" --session "$S" >/dev/null 2>"$T/err"
+eq "  ... and pick.json reports the row's bound, the cap still the session's" "5 5" "$(facts | jq -r '"\(.cap) \(.parked_bound)"')"
+eq "  ... and so does the pick slice" "5" "$(jq -r '.parked_bound' "$KOTO_STORE/context/$S/coord/pick_slice.json")"
 eq "units come in the roadmap's order" "Feature 1,Feature 2,Feature 3,Feature 4,Feature 5" "$(facts | jq -r '[.units[].unit] | join(",")')"
 eq "Feature 2 depends on a Done feature: unblocked, blocker landed" "false [] true" "$(facts | jq -c -r '.units[1] | "\(.blocked) \(.blocked_by | tojson) \(.blocker_landed)"')"
 eq "Feature 3 waits on Feature 2: blocked by 2, blocker not landed" "true [2] false" "$(facts | jq -c -r '.units[2] | "\(.blocked) \(.blocked_by | tojson) \(.blocker_landed)"')"
@@ -665,6 +678,8 @@ eq "  ... with the facts beside it" "Feature 5 false" "$(facts | jq -r '.units[4
 FX="$HERE/../koto-templates/coordinate.pick.choice.decider.jsonl"
 eq "every pick fixture's input is a slice" 0 \
     "$(jq -L "$HERE" 'include "pick-slice"; .inputs.pick_facts | fromjson | select(pick_slice != .) | 1' "$FX" | wc -l | tr -d ' ')"
+eq "every pick fixture's slice carries the parked bound, the decider's only source for it" 0 \
+    "$(jq -r '.inputs.pick_facts | fromjson | select((.parked_bound | type) != "number") | 1' "$FX" | wc -l | tr -d ' ')"
 eq "no pick fixture keeps a Done row pick-facts.sh would have collapsed" 0 \
     "$(jq -r '.inputs.pick_facts | fromjson | .units[] | select(.status == "Done" and .done != true and .holding == null) | .unit' "$FX" | wc -l | tr -d ' ')"
 eq "every blocker a pick fixture names is a unit it lists or a done one" 0 \

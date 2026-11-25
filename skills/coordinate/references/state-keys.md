@@ -308,7 +308,7 @@ nothing else, sits in three more keys, `record/run`, `record/standing` and
 `record/work`, each once it has a row:
 
 ```json
-{"run": [{"key": "<arguments, cap, coordinator, told, pending, missing, rules, briefs, friction, reports-to, role or successor>",
+{"run": [{"key": "<arguments, cap, parked-bound, coordinator, told, pending, missing, rules, briefs, friction, reports-to, role or successor>",
           "value": "<the value>", "set_by": "<who set it>", "set": "<YYYY-MM-DDTHH:MMZ>"}],
  "standing": [{"standing": "<s<n>>", "kind": "<pause, go-ahead, approval, answer, assignment or rule>",
                "on": "<a pause's or go-ahead's scope, an assignment's unit, or empty>",
@@ -325,7 +325,9 @@ nothing else, sits in three more keys, `record/run`, `record/standing` and
 ```
 
 **Run** holds the run's arguments, the cap in force (the readers of the cap
-take it over the `--cap` the session was opened with), this coordinator's
+take it over the `--cap` the session was opened with), the parked bound in
+force when one was set (a `parked-bound` row, taken over `--parked-bound` the
+same way), this coordinator's
 address (its messaging address: the session name a worker can message, which
 may hold `_`, or a dispatch topic; never a session id, a path or an instance
 name), one `told` row per party
@@ -518,7 +520,7 @@ the What, the host excepted, must be public too: a 404 under the host's owner
 is refused, one under another owner passes. A read that fails, runs past 10
 seconds or can't be parsed exits 2. The entry reads `s<n> (rule): <What>.
 Source: <Source>.`, and a stored row is never checked again. `--run
-reports-to` or `--run cap` with `--inferred "<sentence>"` writes its value and
+reports-to`, `--run cap` or `--run parked-bound` with `--inferred "<sentence>"` writes its value and
 a bare `inferred` row quoting the sentence in one write, under the same
 checks.
 
@@ -586,7 +588,9 @@ by <who>.` or `Run briefs-read <label> sha256:<digest> c/n set by <who>.`
 
 `scripts/state-handover.sh` reads the stored set back, with the holds, and
 names its gaps: no arguments, cap or address; a live holding (dispatched, and
-not merged and waiting for its teardown) with no Work row, or whose worker
+not merged and waiting for its teardown, which takes a Verified head with a
+blank Pull request cell and a worker seen to have finished: its leg resolved
+or abandoned, or every Claude job of it on this host stopped) with no Work row, or whose worker
 has been neither told the current address nor recorded pending or missing; a brief
 `record/host` names as `briefs:<label>` whose digest no Run `briefs` row
 carries (`brief-unread <label>`, its fix the intake; when the caps would

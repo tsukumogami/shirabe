@@ -93,7 +93,6 @@
       "timing": [
         "work-on:finalization",
         "work-on:deferral_approval",
-        "work-on:pre_pr_evidence",
         "execute:pr_finalization"
       ],
       "guards": [
@@ -105,7 +104,6 @@
       "gates": [
         "work-on:finalization:commit_convention",
         "work-on:deferral_approval:commit_convention",
-        "work-on:pre_pr_evidence:commit_convention",
         "execute:pr_finalization:settled_commits"
       ],
       "withhold": "never",
@@ -136,7 +134,6 @@
       "timing": [
         "work-on:finalization",
         "work-on:deferral_approval",
-        "work-on:pre_pr_evidence",
         "execute:pr_finalization"
       ],
       "guards": [
@@ -149,7 +146,6 @@
       "gates": [
         "work-on:finalization:commit_convention",
         "work-on:deferral_approval:commit_convention",
-        "work-on:pre_pr_evidence:commit_convention",
         "execute:pr_finalization:settled_commits"
       ],
       "withhold": "never",

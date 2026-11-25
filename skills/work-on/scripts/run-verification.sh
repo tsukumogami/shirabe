@@ -40,6 +40,7 @@
 #       5. Select commands for `git diff --name-only <merge-base>..HEAD`.
 #          Nothing selected: `no-map`. A selected `unattended: false`
 #          command: `attended`, and nothing is started.
+#       5b. In a fix round, carry what the run it follows passed (below).
 #       6. A lock naming a live supervisor for this head: exit 0. A lock
 #          whose process is gone is removed.
 #       7. Start the supervisor held, in its own process group (job control,
@@ -102,13 +103,81 @@
 #   --locate --session <s> [--base-ref <ref>]
 #       Print three lines: the head, the merge-base, and the result file's
 #       path. check-verification.sh calls this so the path rules live here.
+#   --await-removals
+#       Check once whether a build-output removal is still running in this
+#       work tree, and exit: 0 when none is (no records directory, no records,
+#       or only ended or unparsable ones), 1 when one is, each live record
+#       named on stderr, 2 only for a usage error. Takes no --session,
+#       resolves no merge-base, starts no command and changes nothing. A
+#       directory git can't answer for reads as no records directory, so this
+#       exits 0 there too. work-on.md's `await_removals` gate runs it before
+#       setup, whose baseline builds.
 #   --supervise <dir>
 #       Internal: the supervisor. Never calls koto (only --start's steps 0
 #       and 1 do). Reads one line from its fd 3 before anything else and runs
 #       only when --start wrote `go` there.
 #
+# A build-output removal (clean-build-output.sh) renames a work tree's
+# declared build output into trash inside its git directory and deletes it
+# in the background, recording each removal as removal-<stamp>.json in the
+# directory build-output-lib.sh's bo_dir names. A build started while a delete
+# is still running competes with it for the same disk, so the supervisor,
+# after it takes the run's start time and before its first command, waits
+# while any record there reads live (bo_record_live, the one judgement the
+# cleanup's reaper uses too). The wait spends the run's own budget, so
+# --start still returns at once and the run never outlives its budget
+# because of it. A record that doesn't parse counts as ended and is named
+# once on stderr. When the budget runs out with a record still live, the
+# supervisor starts no command and writes a `removal-running` result with
+# `commands: []` and a `detail` naming the record, which check-verification.sh
+# holds on as it does on `supervisor-error`; --start keeps it (step 2), so a
+# held tick never starts another wait. The runner only reads the records
+# directory: it never deletes, renames or rewrites anything in it. Only the
+# supervisor and --await-removals load build-output-lib.sh; one that can't
+# load it says so and reads no record, as work-on's gate passes a plugin root
+# with no runner.
+#
 # --base-ref names the default branch. Without it: the ref origin/HEAD points
 # at, else origin/main, else main.
+#
+# A fix round's carry (step 4b). A session whose koto context holds
+# `fix_round.json` ({from, round, base}, written by fix-round.sh) is a fix
+# round, and `base` is the head the run it follows left. That run is the
+# previous round (the line before this session's in the original's
+# `fix_rounds.jsonl`), else `from`. Its result is found by the same path
+# rules as --locate, with that session and head = base; when there is none,
+# the newest result with status `done` that session wrote at an ancestor of
+# base (`git merge-base --is-ancestor`) is used instead, since a run that
+# reached done often committed after its verification. The head of the
+# result used is the carry base, and the round's own diff is
+# `git diff --name-only <carry base>..HEAD`, so commits between the parent's
+# verified head and the round's base count as the round's changes. Selection
+# for the result is still the merge-base diff, so the round's set of checks
+# is a full run's; only what runs changes. For each selected check:
+#   - the parent's record for the same check passed (`outcome` passed or
+#     carried) with the same argv, and the round's diff, selected through the
+#     same map, doesn't select it: it doesn't run. Its record is written with
+#     `outcome: carried` and `carried_from: {session, head}` naming the
+#     parent session and the carry base, exit_status 0, duration_secs 0,
+#     not_started false, log and suites null;
+#   - the parent passed it and the round's diff selects it: it runs, and an
+#     `each` row's command (check `<row id>:<leaf>`) gets
+#     SHIRABE_VERIFY_BASE=<carry base> in its environment, so check-skill.sh
+#     --changed diffs against it, not the merge-base;
+#   - otherwise (the parent failed it, timed out, never ran it) it runs as in
+#     a full run, with no SHIRABE_VERIFY_BASE.
+# A round that touches shared code reruns the full selection: when the
+# round's diff holds a path outside one skill's directory (not under
+# skills/<name>/) or a path no map entry matches, nothing is carried, since
+# such a path selects no check for the skills whose suites may run it.
+# The carry is also off, and every selected check runs, with no
+# fix_round.json, with `fresh: true` in it (fix-round.sh start --fresh), with
+# SHIRABE_VERIFY_FULL=1 in --start's environment, without koto on PATH, or
+# when the base or no parent result at or before it can be read; each but
+# the first says so on stderr. koto runs this launcher in a cleared
+# environment, so SHIRABE_VERIFY_FULL=1 takes effect on a --start run by
+# hand. A koto failure reading the keys is exit 2, as in step 0. A result
+# already at this head stands either way: move it aside to run again.
 #
 # Where things go: ${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/verification/
 # <session>/<head>/, every directory created with mode 0700, outside every
@@ -123,10 +192,12 @@
 #
 #   {"schema": "shirabe-verification-result/v1", "head": "...",
 #    "merge_base": "...", "status": "done|no-map|bad-map|attended|dirty-tree|
-#    timed-out|supervisor-error", "detail": "...", "finished_at": "<UTC
+#    timed-out|supervisor-error|removal-running", "detail": "...", "finished_at": "<UTC
 #    ISO-8601>", "commands": [{"id", "check", "argv", "exit_status",
 #    "duration_secs", "timed_out", "runaway", "not_started", "pgid", "log",
-#    "outcome", "suites"}]}
+#    "outcome", "suites", "carried_from"}]}
+#
+# `carried_from` ({session, head}) is on a carried record only.
 #
 # `id` is the map row's id; `check` names the check the record is: the row id
 # for a plain row, `<row id>:<last argv>` for an `each` row (check-skill's
@@ -134,8 +205,11 @@
 # `finished_at` is when the result was written; the hosted-of-record record's
 # taken_at may not be earlier.
 #
-# Each command's `outcome` says how it ended, as one of four values:
+# Each command's `outcome` says how it ended, as one of five values:
 #   passed            exit 0 inside its limit;
+#   carried           not run: a fix round's parent passed it at the carry
+#                     base and the round's diff doesn't select it (above);
+#                     the verdict counts it as passed;
 #   timed-out-limit   stopped at its timeout_secs (or the run's budget), unless
 #                     its suite summary lists a finished-failed suite;
 #   timed-out-inside  a nonzero exit from a row that declares `timeout_form`,
@@ -190,7 +264,7 @@
 # Exit status: 0 the launcher did its job (a result exists, or a supervisor is
 # running, or --archive archived); 1 --archive refused; 2 it could not decide
 # (usage, a missing tool, no HEAD, no merge-base, no state directory). The
-# verdict is never this script's exit.
+# verdict is never this script's exit. --await-removals has its own (above).
 #
 # Written for the bash 3.2 floor, without `set -e`, and without the GNU-only
 # time-limit and new-session commands, which the macOS floor lacks.
@@ -213,6 +287,7 @@ usage() {
 Usage: run-verification.sh --start --session <s> [--base-ref <ref>]
        run-verification.sh --archive --session <s> --reason <text> [--base-ref <ref>]
        run-verification.sh --locate --session <s> [--base-ref <ref>]
+       run-verification.sh --await-removals
 EOF
 }
 
@@ -233,6 +308,69 @@ test_pause() {
 
 # shellcheck source=SCRIPTDIR/verification-eligibility.sh
 . "$HERE/verification-eligibility.sh" || die "cannot load verification-eligibility.sh"
+
+# --- build-output removals (see the header) ---------------------------------------
+
+# bo_lib: load build-output-lib.sh, once, and return 0; return 1, saying so on
+# stderr, when it can't be loaded. Loaded only by the two modes that read
+# records, so --start, --locate and --archive run as before without it. A
+# runner without the library can't read a record, and goes on as if there were
+# none, as work-on's gate does for a plugin root with no runner.
+BO_LIB=""
+bo_lib() {
+    [ "$BO_LIB" = loaded ] && return 0
+    # shellcheck source=SCRIPTDIR/build-output-lib.sh
+    if [ -r "$HERE/build-output-lib.sh" ] && . "$HERE/build-output-lib.sh"; then
+        BO_LIB=loaded
+        return 0
+    fi
+    echo "run-verification: cannot load $HERE/build-output-lib.sh, so no build-output removal record is read" >&2
+    return 1
+}
+
+# The unparsable records already named on stderr, each between bars, so a
+# wait that polls names each one once.
+RV_NAMED="|"
+
+# live_removals <dir>: set RV_LIVE to the removal records in <dir> that
+# bo_record_live reads live, comma-separated, empty when none is. A record
+# that doesn't parse (a symlink included) counts as ended and is named once on
+# stderr. Sets a variable rather than printing, so RV_NAMED survives the call.
+# Reads only.
+RV_LIVE=""
+live_removals() {
+    local d=$1 rec
+    RV_LIVE=""
+    [ -d "$d" ] || return 0
+    for rec in "$d"/removal-*.json; do
+        [ -e "$rec" ] || [ -L "$rec" ] || continue
+        if bo_record_live "$rec"; then
+            RV_LIVE="${RV_LIVE:+$RV_LIVE, }$rec"
+        elif ! bo_record_parses "$rec"; then
+            case "$RV_NAMED" in
+                *"|$rec|"*) ;;
+                *)
+                    echo "run-verification: the build-output removal record $rec does not parse; it counts as ended" >&2
+                    RV_NAMED="$RV_NAMED$rec|"
+                    ;;
+            esac
+        fi
+    done
+    return 0
+}
+
+# await_removals_once: --await-removals (see the header). Never returns.
+await_removals_once() {
+    local root dir
+    bo_lib || exit 0
+    root=$(git rev-parse --show-toplevel) || exit 0
+    dir=$(bo_dir "$root") || exit 0
+    live_removals "$dir"
+    [ -n "$RV_LIVE" ] || exit 0
+    echo "run-verification: a build-output removal is still running in this work tree ($RV_LIVE);" \
+        "nothing may build here until it ends, so tick again in a minute" >&2
+    exit 1
+}
 
 # --- the map: validation, defaults and selection, in one jq program -------------
 #
@@ -303,7 +441,8 @@ try (
   | (if has("default") then (.default | ids_ok("default"; $defined)) else [] end) as $default
   | ($entries | map(. as $e | select(any($changed[]; . as $p | any($e.res[]; . as $r | $p | test($r)))))
      | map(.commands[])) as $from_entries
-  | ([$changed[] | . as $p | select(all($entries[]; all(.res[]; . as $r | $p | test($r) | not)))] | length) as $unmatched
+  | [$changed[] | . as $p | select(all($entries[]; all(.res[]; . as $r | $p | test($r) | not)))] as $unmatched_paths
+  | ($unmatched_paths | length) as $unmatched
   | ($from_entries + (if $unmatched > 0 then $default else [] end) | dedupe) as $ids
   | ($cmds | map({key: .id, value: .}) | from_entries) as $byid
   | [$changed[] | split("/") as $parts | range(1; $parts | length) | $parts[0:.] | join("/")] | unique as $dirs
@@ -316,7 +455,8 @@ try (
          | {id: $c.id, check: "\($c.id):\($leaf)", argv: ($c.run + [$leaf]), timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended,
             timeout_form: $c.timeout_form, hosted: $c.hosted}
        end] as $inv
-  | {invocations: $inv, attended: ($inv | map(select(.unattended == false) | .id) | dedupe)}
+  | {invocations: $inv, attended: ($inv | map(select(.unattended == false) | .id) | dedupe),
+     unmatched: $unmatched_paths}
 ) catch {error: (if type == "string" then . else tostring end)}
 '
 
@@ -916,7 +1056,7 @@ supervise() {
         scope=1
     fi
 
-    local n i id safe limit maxp prog log start now pid status timed_out runaway count
+    local n i id safe limit maxp prog log start now pid status timed_out runaway count carried vbase
     local budget sup_start left capped=0 over=0 stopped="" sumf form suites outcome attempt logdir
     # The attempt's folder holds its logs; a run.json without one (written
     # before attempt folders) keeps them in the head directory.
@@ -934,10 +1074,42 @@ supervise() {
     budget=$(jq -r ".budget_secs // $BUDGET_SECS" "$RUN")
     case "$budget" in ''|*[!0-9]*|0) budget=$BUDGET_SECS ;; esac
     sup_start=$(date +%s)
+    # A build-output removal still running in this work tree: wait for it
+    # inside the run's budget, polling once a second, so nothing builds while
+    # it deletes (see the header).
+    local bodir rm_detail
+    if bo_lib && bodir=$(bo_dir "$ROOT"); then
+        live_removals "$bodir"
+        while [ -n "$RV_LIVE" ]; do
+            if [ $((sup_start + budget - $(date +%s))) -le 0 ]; then
+                # Built outside the substitution below: bash 3.2 misparses a
+                # quote inside a double-quoted string nested in "$( )".
+                rm_detail="a build-output removal was still running when the run budget of $budget seconds ran out"
+                rm_detail="$rm_detail, so no command started: $RV_LIVE"
+                write_result "$RESULT" "$(jq -cn --arg schema "$RESULT_SCHEMA" --arg head "$HEAD_SHA" --arg mb "$MB" \
+                    --arg detail "$rm_detail" --arg fin "$(now_iso)" \
+                    '{schema: $schema, head: $head, merge_base: $mb, status: "removal-running", detail: $detail,
+                      finished_at: $fin, commands: []}')" \
+                    && SUP_WRITTEN=1
+                rm -f "$SUP_LOCK" "$SUP_ENTRIES"
+                exit 0
+            fi
+            sleep 1
+            live_removals "$bodir"
+        done
+    fi
     n=$(jq '.invocations | length' "$RUN")
     i=0
     while [ "$i" -lt "$n" ]; do
         id=$(jq -r --argjson i "$i" '.invocations[$i].id' "$RUN")
+        # A fix round's carried check: its record was written by --start, and
+        # nothing runs.
+        carried=$(jq -c --argjson i "$i" '.invocations[$i].carried // empty' "$RUN")
+        if [ -n "$carried" ]; then
+            printf '%s\n' "$carried" >> "$SUP_ENTRIES"
+            i=$((i + 1)); continue
+        fi
+        vbase=$(jq -r --argjson i "$i" '.invocations[$i].verify_base // empty' "$RUN")
         limit=$(jq -r --argjson i "$i" '.invocations[$i].timeout_secs' "$RUN")
         # The run's budget caps each command's own deadline.
         left=$((sup_start + budget - $(date +%s)))
@@ -980,6 +1152,13 @@ supervise() {
 
         start=$(date +%s)
         timed_out=false; runaway=false
+        # The round's base, for the command the round's diff selects; no other
+        # command sees one.
+        if [ -n "$vbase" ]; then
+            export SHIRABE_VERIFY_BASE="$vbase"
+        else
+            unset SHIRABE_VERIFY_BASE
+        fi
         set -m
         if [ "$scope" -eq 1 ]; then
             SHIRABE_SUITE_SUMMARY=$sumf systemd-run --user --scope --quiet -p "TasksMax=$((maxp * 2 + 64))" -- "${argv[@]}" </dev/null >"$log" 2>&1 &
@@ -1025,12 +1204,16 @@ supervise() {
         fi
     done
 
-    local final=done detail=""
+    local final=done detail="" left_ids
     if [ "$over" -eq 1 ]; then
         final=timed-out
         detail="the run passed its total budget of $budget seconds"
         [ -n "$stopped" ] && detail="$detail; command $stopped was stopped"
-        [ "$i" -lt "$n" ] && detail="$detail; $((n - i)) later command(s) were not started: $(jq -r --argjson i "$i" '[.invocations[$i:][].id] | join(", ")' "$RUN")"
+        # A carried check after the stop needs no time: its record is kept,
+        # and only the checks that would have run are counted as not started.
+        jq -c --argjson i "$i" '.invocations[$i:][] | .carried // empty' "$RUN" >> "$SUP_ENTRIES"
+        left_ids=$(jq -r --argjson i "$i" '[.invocations[$i:][] | select(.carried == null) | .id] | join(", ")' "$RUN")
+        [ -n "$left_ids" ] && detail="$detail; $(jq -r --argjson i "$i" '[.invocations[$i:][] | select(.carried == null)] | length' "$RUN") later command(s) were not started: $left_ids"
     fi
     write_result "$RESULT" "$(jq -cs --arg schema "$RESULT_SCHEMA" --arg head "$HEAD_SHA" --arg mb "$MB" \
         --arg status "$final" --arg detail "$detail" --arg fin "$(now_iso)" \
@@ -1050,6 +1233,9 @@ case "$MODE" in
     --supervise)
         [ $# -eq 1 ] || { usage; exit 2; }
         supervise "$1" ;;
+    --await-removals)
+        [ $# -eq 0 ] || { usage; exit 2; }
+        await_removals_once ;;
     --start|--locate|--archive) ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
@@ -1182,6 +1368,167 @@ if [ -n "$ATTENDED" ]; then
                not_started: true, pgid: null, log: null, outcome: "failed", suites: null}]')"
 fi
 
+# 5b. A fix round's carry (see the header). Sets INVOCATIONS: the selection's
+#     invocations, each with `carried` (the record to write in place of a run)
+#     or `verify_base` (SHIRABE_VERIFY_BASE for its command) where the carry
+#     applies.
+INVOCATIONS=$(printf '%s' "$SELECTION" | jq -c '.invocations') || die "could not read the selection"
+
+# The parent result's records against this selection: a passed (or carried)
+# record for the same check and argv that the round's diff doesn't select is
+# carried; one the round's diff selects runs, an each row's with the base.
+CARRY_JQ='
+($parent.commands // [] | map(select(type == "object"))) as $pc
+| map(. as $inv
+    | ([$pc[] | select(.check == $inv.check)][0]) as $p
+    | ($p != null and ($p.outcome == "passed" or $p.outcome == "carried") and $p.argv == $inv.argv
+       and $p.not_started != true and $p.runaway != true and $p.timed_out != true) as $ok
+    | ($round | index([$inv.check]) != null) as $touched
+    | if $ok and ($touched | not) then
+        . + {carried: {id: $p.id, check: $p.check, argv: $p.argv, exit_status: 0, duration_secs: 0,
+                       timed_out: false, runaway: false, not_started: false, pgid: null, log: null,
+                       outcome: "carried", suites: null, carried_from: {session: $from, head: $base}}}
+      elif $ok and $inv.check != $inv.id then . + {verify_base: $base}
+      else . end)
+'
+
+# note <message>: why the carry is off or what it did, on stderr.
+note() {
+    echo "run-verification: fix round: $*" >&2
+}
+
+carry() {
+    local rc fr from round fresh base prev rounds sdir cbase d h parent_result round_changed round_sel round_checks shared out
+    if ! command -v koto >/dev/null 2>&1; then
+        note "koto is not on PATH, so no fix_round.json can be read and nothing is carried; every selected check runs"
+        return 0
+    fi
+    koto context exists "$SESSION" fix_round.json
+    rc=$?
+    case "$rc" in
+        0) ;;
+        1) return 0 ;;
+        *) die "koto context exists $SESSION fix_round.json exited $rc" ;;
+    esac
+    if [ "${SHIRABE_VERIFY_FULL:-}" = 1 ]; then
+        note "SHIRABE_VERIFY_FULL=1, so nothing is carried; every selected check runs"
+        return 0
+    fi
+    fr=$(koto context get "$SESSION" fix_round.json) || die "could not read the fix_round.json key of $SESSION"
+    # One line per field, each empty when the key doesn't hold it as expected.
+    out=$(printf '%s' "$fr" | jq -r 'if type == "object" then . else {} end
+        | (.from | if type == "string" then . else "" end),
+          (.round | if type != "number" then "" elif . == floor and . >= 1 then tostring else "" end),
+          (.base | if type == "string" then . else "" end),
+          (if .fresh == true then "true" else "false" end)') || out=""
+    from=$(sed -n 1p <<<"$out"); round=$(sed -n 2p <<<"$out")
+    base=$(sed -n 3p <<<"$out"); fresh=$(sed -n 4p <<<"$out")
+    if [ "$fresh" = true ]; then
+        note "fix_round.json has fresh: true, so nothing is carried; every selected check runs"
+        return 0
+    fi
+    if ! grep -Eq '^[A-Za-z0-9._][A-Za-z0-9._-]*$' <<<"$from" || [ -z "$round" ] \
+        || ! grep -Eq '^[0-9a-f]{40}([0-9a-f]{24})?$' <<<"$base"; then
+        note "fix_round.json of $SESSION names no run, round or base head, so nothing is carried; every selected check runs"
+        return 0
+    fi
+
+    # The run this round follows: the previous round, else the original.
+    prev=$from
+    if [ "$round" -gt 1 ]; then
+        koto context exists "$from" fix_rounds.jsonl
+        rc=$?
+        case "$rc" in
+            0)
+                rounds=$(koto context get "$from" fix_rounds.jsonl) \
+                    || die "could not read the fix_rounds.jsonl key of $from"
+                prev=$(printf '%s' "$rounds" | jq -rs --arg s "$SESSION" --argjson r "$round" --arg from "$from" '
+                    map(select(type == "object")) as $l
+                    | ($l | map(.session) | index($s)) as $i
+                    | if $i == null then ([$l[] | select(.round == $r - 1) | .session][0] // $from)
+                      elif $i > 0 then ($l[$i - 1].session // $from)
+                      else $from end
+                    | if type == "string" then . else $from end') || prev=$from
+                ;;
+            1) ;;
+            *) die "koto context exists $from fix_rounds.jsonl exited $rc" ;;
+        esac
+        grep -Eq '^[A-Za-z0-9._][A-Za-z0-9._-]*$' <<<"$prev" || prev=$from
+    fi
+
+    if ! git -C "$ROOT" rev-parse --verify -q "${base}^{commit}" >/dev/null; then
+        note "the round's base $base is not a commit here, so nothing is carried; every selected check runs"
+        return 0
+    fi
+
+    # The carry base: the parent's result at the round's base, else the newest
+    # `done` result it wrote at an ancestor of the base. A run that reached
+    # done often committed after its verification (finalization, CI fixes),
+    # so the exact head is often missing; the commits between the carry base
+    # and the round's base then count as the round's own changes below.
+    sdir="${SESSION_DIR%/*}/$prev"
+    cbase=""
+    if [ -f "$sdir/$base/result.json" ] && jq -e --arg schema "$RESULT_SCHEMA" --arg h "$base" \
+            '.schema == $schema and .head == $h and (.commands | type) == "array"' "$sdir/$base/result.json" >/dev/null; then
+        cbase=$base
+    else
+        for d in "$sdir"/*; do
+            h=${d##*/}
+            grep -Eq '^[0-9a-f]{40}([0-9a-f]{24})?$' <<<"$h" || continue
+            [ "$h" != "$base" ] && [ -f "$d/result.json" ] || continue
+            jq -e --arg schema "$RESULT_SCHEMA" --arg h "$h" \
+                '.schema == $schema and .head == $h and .status == "done" and (.commands | type) == "array"' \
+                "$d/result.json" >/dev/null || continue
+            git -C "$ROOT" rev-parse --verify -q "${h}^{commit}" >/dev/null || continue
+            git -C "$ROOT" merge-base --is-ancestor "$h" "$base" || continue
+            # The newest by ancestry: a candidate replaces the one held when
+            # the held one is its ancestor.
+            if [ -z "$cbase" ] || git -C "$ROOT" merge-base --is-ancestor "$cbase" "$h"; then
+                cbase=$h
+            fi
+        done
+        if [ -z "$cbase" ]; then
+            note "$prev has no verification result at the round's base $base or at a done head before it, so nothing is carried; every selected check runs"
+            return 0
+        fi
+        note "$prev has no result at the round's base $base; carrying from its result at $cbase, an ancestor of it"
+    fi
+    parent_result="$sdir/$cbase/result.json"
+
+    # The round's own diff, from the carry base, selected through the same map.
+    if ! round_changed=$(set -o pipefail; git -C "$ROOT" diff --name-only -z "$cbase..HEAD" \
+            | jq -Rs 'split("\u0000") | map(select(length > 0))'); then
+        note "could not list the paths changed since $cbase, so nothing is carried; every selected check runs"
+        return 0
+    fi
+    round_sel=$(printf '%s' "$MAP_JSON" | jq -c --argjson changed "$round_changed" "$SELECT_JQ") \
+        || die "the selection program failed on the round's diff"
+    round_checks=$(printf '%s' "$round_sel" | jq -c 'if has("error") then null else [.invocations[].check] end')
+    if [ "$round_checks" = null ] || [ -z "$round_checks" ]; then
+        note "the map does not select on the round's diff, so nothing is carried; every selected check runs"
+        return 0
+    fi
+
+    # Shared code: a path outside one skill's directory, or one no map entry
+    # matches, selects no check for the skills whose suites may run it, so a
+    # pass carried for them would be a pass made with the old code.
+    shared=$(printf '%s' "$round_sel" | jq -r --argjson changed "$round_changed" '
+        ([$changed[] | select(test("^skills/[^/]+/.") | not)] + (.unmatched // [])) | unique
+        | if length == 0 then "" else "\(.[0:5] | join(", "))\(if length > 5 then " and \(length - 5) more" else "" end)" end')
+    if [ -n "$shared" ]; then
+        note "the round's diff since $cbase touches shared code ($shared): a path outside one skill's directory or matched by no map entry. A round that touches shared code reruns the full selection, so nothing is carried"
+        return 0
+    fi
+
+    INVOCATIONS=$(printf '%s' "$INVOCATIONS" | jq -c --slurpfile parent "$parent_result" \
+        --argjson round "$round_checks" --arg from "$prev" --arg base "$cbase" \
+        '$parent[0] as $parent | '"$CARRY_JQ") \
+        || die "could not apply the carry from $parent_result"
+    note "$(printf '%s' "$INVOCATIONS" | jq -r --arg p "$prev" --arg b "$cbase" '
+        "carried \([.[] | select(.carried)] | length) check(s) \($p) passed at \($b); running \([.[] | select(.carried | not)] | length): \([.[] | select(.carried | not) | .check] | join(", "))"')"
+}
+carry
+
 # 5. One supervisor per head. The lock is a symlink whose target is a pid:
 #    creating one is atomic. It names the supervisor from the moment it is
 #    taken, never this process, so a --start stopped anywhere below (koto
@@ -1251,9 +1598,11 @@ ATTEMPT=$(next_attempt)
 (umask 077 && mkdir -p "$HEAD_DIR/attempts" && mkdir "$HEAD_DIR/attempts/$ATTEMPT") \
     || { held_abort; die "could not create $HEAD_DIR/attempts/$ATTEMPT"; }
 
-jq -cn --arg root "$ROOT" --arg head "$HEAD_SHA" --arg mb "$MB" --argjson sel "$SELECTION" --argjson budget "$BUDGET" \
+# The invocations are the selection's after step 5b, a fix round's carried
+# records included.
+jq -cn --arg root "$ROOT" --arg head "$HEAD_SHA" --arg mb "$MB" --argjson inv "$INVOCATIONS" --argjson budget "$BUDGET" \
     --argjson attempt "$ATTEMPT" \
-    '{root: $root, head: $head, merge_base: $mb, budget_secs: $budget, attempt: $attempt, invocations: $sel.invocations}' \
+    '{root: $root, head: $head, merge_base: $mb, budget_secs: $budget, attempt: $attempt, invocations: $inv}' \
     > "$HEAD_DIR/run.json" \
     || { held_abort; die "could not write run.json"; }
 

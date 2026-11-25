@@ -135,10 +135,16 @@ scripts/lib/test-classify_test.sh
 # No engine, so every case runs on the floor.
 skills/work-on/scripts/clean-build-output_test.sh
 scripts/lib/default-remote-ref_test.sh
+# The await_removals gate on the shipped work-on.md, through a real koto;
+# skips cleanly without the engine.
+skills/work-on/scripts/await-removals-routes_test.sh
 # fix-kind.sh and red-first.sh through a koto stand-in and a gh stand-in, on
 # git fixtures, so every case runs on the floor.
 skills/work-on/scripts/fix-kind_test.sh
 skills/work-on/scripts/red-first_test.sh
+# issue-type-route.sh through a koto stand-in, classifying with the real
+# review-level.sh, so every case runs on the floor.
+skills/work-on/scripts/issue-type-route_test.sh
 # The red-first states driven through a real koto; skips cleanly without it.
 skills/work-on/scripts/red-first-routes_test.sh
 # The interim acceptance rule, called directly, and test-change.sh (the

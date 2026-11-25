@@ -175,7 +175,10 @@ file set and passes the paths in.
 
 `shirabe install-hooks` writes a pre-commit hook into the repository's
 hooks directory. The hook runs `validate` over the staged Markdown
-documents at commit time and blocks the commit on any non-zero exit. An
+documents at commit time and blocks the commit on any non-zero exit. It
+skips files under a `tests/fixtures/` or `evals/fixtures/` directory, the
+same test inputs the reusable `validate-docs.yml` workflow leaves out, since
+some of them are invalid on purpose. An
 existing pre-commit hook is left untouched and reported unless `--force` is
 given.
 

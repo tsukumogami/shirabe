@@ -27,6 +27,11 @@ bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n%s\n' "$1" "${2-}"; }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-check-test.XXXXXX") || exit 1
 ktg_on_exit 'rm -rf "$T"'
+# A job's listing row (dispatch-common.sh dc_job_row) comes from a stub
+# `claude agents --json --all` that lists nothing, never the host's real CLI.
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$T/claude-cli"
+chmod +x "$T/claude-cli"
+export DC_CLAUDE_CLI="$T/claude-cli"
 
 # The copied tree: reconcile's scripts, /execute's validators, and the two
 # stand-in record-feature checks beside reconcile's scripts.
@@ -304,6 +309,27 @@ LIST="[{\"name\":\"ws+codex_test\",\"path\":\"/w/ws+codex_test\"},{\"name\":\"ws
 new_case host-found
 serve niwa-list 1 "$LIST"
 expect "a worker is found by its topic's slug" ".state == \"found\" and .path == \"/w/ws+coordinate_reconcile-$A8\"" "$(run host --topic coordinate-reconcile)"
+# stopped: every Claude job of the worker on this host has finished
+# (shirabe#2080); a job still working, or none seen, is not stopped.
+CH="$T/claude-host"
+CJ="$CH/jobs"
+mkdir -p "$CJ/f1f1f1f1"
+jq -nc --arg n "coordinate_reconcile-$A8" '{name: $n, state: "done"}' > "$CJ/f1f1f1f1/state.json"
+new_case host-stopped
+serve niwa-list 1 "$LIST"
+expect "a worker whose Claude jobs here have all finished reads stopped" '.state == "found" and .stopped == true' \
+    "$(DC_CLAUDE_HOME="$CH" run host --topic coordinate-reconcile)"
+mkdir -p "$CJ/f2f2f2f2"
+jq -nc --arg n "coordinate_reconcile-$A8" '{name: $n, state: "working"}' > "$CJ/f2f2f2f2/state.json"
+new_case host-working
+serve niwa-list 1 "$LIST"
+expect "  ... one with a job still working does not" '.state == "found" and .stopped == false' \
+    "$(DC_CLAUDE_HOME="$CH" run host --topic coordinate-reconcile)"
+mkdir -p "$T/claude-nojobs/jobs"
+new_case host-nojob
+serve niwa-list 1 "$LIST"
+expect "  ... nor one with no job seen here" '.stopped == false' \
+    "$(DC_CLAUDE_HOME="$T/claude-nojobs" run host --topic coordinate-reconcile)"
 new_case host-missed
 serve niwa-list 1 "$LIST"
 expect "a topic with no instance reads missed after one read" '.state == "missed" and .reads == 1' "$(run host --topic coordinate-dispatch)"
@@ -985,6 +1011,29 @@ for sub in "appeared --repo $R --branch x:pr-list" "branch --repo $R --branch x:
     out=$(DL=1 BDL=1 run $args)
     expect "a late $key read is not verified" '.status == "not_verified" and (.reason | test("timed out"))' "$out"
 done
+# A caller's EXIT trap runs in the caller alone. bash 5 ran it in
+# rd_deadline's watcher when the TERM that stops the watcher landed before
+# the watcher had run its first command, which a quick command makes likely:
+# the inventory's trap then removed its working files mid-read, and the
+# inventory reported them removed. The trap appends a line, so over 1000 quick
+# calls the file must end up with the caller's one EXIT line and nothing else.
+# bash 3.2 never showed it, so on the macOS floor the case passes either way.
+TRAPS="$T/caller-traps"
+: > "$TRAPS"
+mkdir -p "$T/rd-traps"
+(
+    # shellcheck source=/dev/null
+    . "$T/tree/skills/coordinate/scripts/reconcile-deps.sh"
+    trap 'echo exit >> "$TRAPS"' EXIT
+    rd_idle "$T/rd-traps" || exit 1
+    i=0
+    while [ "$i" -lt 1000 ]; do
+        rd_deadline 30 true > /dev/null
+        i=$((i + 1))
+    done
+)
+[ "$(cat "$TRAPS")" = exit ] && ok "a caller's EXIT trap never runs in a read's watcher" \
+    || bad "a caller's EXIT trap never runs in a read's watcher" "$(sort "$TRAPS" | uniq -c)"
 
 echo "== read-only =="
 ALL="$T/all.log"

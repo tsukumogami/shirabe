@@ -53,9 +53,11 @@ variables:
   ISSUE_TYPE:
     description: >
       Issue type hint supplied by the plan orchestrator (code, docs, or task).
-      A starting point only. The type is asked once, at issue_type_routing,
-      after implementation, where the agent confirms or overrides this hint
-      with changed_paths.txt in context. It is not submitted at analysis or
+      At issue_type_routing, after implementation, a `code` hint with a
+      recorded diff that touches anything but plain documentation takes the
+      code route with nothing asked (the code_route gate). Otherwise the type
+      is asked there, once, and the agent confirms or overrides this hint with
+      changed_paths.txt in context. It is not submitted at analysis or
       implementation.
     required: false
     default: code
@@ -302,11 +304,30 @@ states:
         when:
           mode: skipped
 
+  # await_removals holds a run before setup, whose baseline builds, while a
+  # build-output removal is still deleting in this work tree
+  # (clean-build-output.sh, whose record run-verification.sh --await-removals
+  # reads: exit 0 nothing live, 1 a removal running). It sits on the state each
+  # path passes just before setup, here, post_research_validation and
+  # plan_context_injection, since a gate is read on the way out and setup's
+  # would be read after the baseline built. Every edge into a setup state or
+  # plan_validation requires it; the blocked edge doesn't. A run with no
+  # runner at PLUGIN_ROOT passes, and so does a work tree with no records. The
+  # trailing unconditional edge is gone, since koto's compiler can't keep a
+  # gate-only edge beside the evidence edges, so a submission the gate holds
+  # matches no edge and koto asks again. A person may override it, for a
+  # record whose pid was reused by another clean-build-output.sh.
   context_injection:
     gates:
       context_artifact:
         type: context-exists
         key: context.md
+      await_removals:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" || exit 0; "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" --await-removals'
+        override_default:
+          exit_code: 0
+          error: ""
     accepts:
       status:
         type: enum
@@ -320,15 +341,16 @@ states:
         when:
           status: completed
           gates.context_artifact.exists: true
+          gates.await_removals.exit_code: 0
       - target: setup_issue_backed
         when:
           status: override
+          gates.await_removals.exit_code: 0
       - target: done_blocked
         when:
           status: blocked
         context_assignments:
           failure_reason: "context_injection blocked: ${evidence.detail}"
-      - target: setup_issue_backed
 
   task_validation:
     accepts:
@@ -358,7 +380,17 @@ states:
     transitions:
       - target: post_research_validation
 
+  # await_removals: as on context_injection, on the free-form path's last
+  # state before setup. Every edge here keys on verdict, so there is no
+  # unconditional edge to remove.
   post_research_validation:
+    gates:
+      await_removals:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" || exit 0; "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" --await-removals'
+        override_default:
+          exit_code: 0
+          error: ""
     accepts:
       verdict:
         type: enum
@@ -374,6 +406,7 @@ states:
       - target: setup_free_form
         when:
           verdict: ready
+          gates.await_removals.exit_code: 0
       - target: validation_exit
         when:
           verdict: needs_design
@@ -447,6 +480,10 @@ states:
           failure_reason: "setup_free_form blocked: ${evidence.detail}"
       - target: analysis
 
+  # await_removals: as on context_injection, on the plan-backed path's last
+  # state before setup_plan_backed or plan_validation, /execute's children
+  # included: setup_plan_backed's skip_if takes a child on a shared branch
+  # past setup without any gate routing, so the hold has to be here.
   plan_context_injection:
     gates:
       context_artifact:
@@ -454,6 +491,12 @@ states:
         key: context.md
         override_default:
           exists: true
+          error: ""
+      await_removals:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" || exit 0; "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" --await-removals'
+        override_default:
+          exit_code: 0
           error: ""
     accepts:
       status:
@@ -476,21 +519,23 @@ states:
           status: completed
           issue_source: github
           gates.context_artifact.exists: true
+          gates.await_removals.exit_code: 0
       # plan_outline path: outline extracted from PLAN doc, validate before setup
       - target: plan_validation
         when:
           status: completed
           issue_source: plan_outline
           gates.context_artifact.exists: true
+          gates.await_removals.exit_code: 0
       - target: setup_plan_backed
         when:
           status: override
+          gates.await_removals.exit_code: 0
       - target: done_blocked
         when:
           status: blocked
         context_assignments:
           failure_reason: "plan_context_injection blocked: ${evidence.detail}"
-      - target: setup_plan_backed
 
   plan_validation:
     # verdict is decider-eligible. The decider block lives inside the field,
@@ -930,15 +975,20 @@ states:
     # FIX_REPORT, a plan step's Fixes line. It adds a fix over a recorded
     # change and never the reverse. It also stores the unit's report
     # (fix_report.txt) once; the free-form task text comes from the session's
-    # event log. The variable it rebinds is seen from the next tick on (koto
-    # 0.21.0 resolves this tick's routes with the value the tick started
-    # with), so a fresh determination advances on the second tick, as
-    # review_level_choice does after `set`.
+    # event log. The variable it rebinds is seen only from the next tick on
+    # (koto resolves this tick's routes with the value the tick started with),
+    # so the routes don't test the variable: they test kind_route, which reads
+    # the kind the action just wrote to the ledger (fix-kind.sh kind --exit),
+    # and the tick that entered the state leaves it. The run never stops here
+    # on the passing path.
     #
     # The action never overwrites a non-empty UNIT_KIND, only restores an
-    # empty one. A hand rebind away from the ledger therefore fails
-    # kind_unchanged (fix-kind.sh agree) and holds the run here; no route
-    # leaves without it.
+    # empty one. kind_route gets UNIT_KIND as the tick started: empty on the
+    # first entry, when the ledger decides, and the variable's value on any
+    # later entry, which must match the ledger. A hand rebind away from the
+    # ledger therefore exits 1 from kind_route and fails kind_unchanged
+    # (fix-kind.sh agree), and holds the run here; no route leaves without
+    # kind_route passing.
     #
     # Before that, the action writes the test-change ledger's header
     # (test-change.sh init --entry): the author, impl_base and the work tree
@@ -961,6 +1011,11 @@ states:
         again; the action re-runs on entry. If it can't be fixed, submit
         `kind_status: blocked` with `detail`.
     gates:
+      # 0 a change, 3 a fix, 4 no kind recorded, 1 UNIT_KIND disagrees with
+      # the ledger, 2 PLUGIN_ROOT doesn't reach the plugin, 66 a koto read.
+      kind_route:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" kind "{{SESSION_NAME}}" --exit --current "{{UNIT_KIND}}"'
       kind_unchanged:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" agree "{{SESSION_NAME}}" "{{UNIT_KIND}}"'
@@ -970,28 +1025,45 @@ states:
         values: [blocked]
         description: >-
           Submitted only to stop the run when no determination can be
-          recorded. The passing path submits nothing: once UNIT_KIND agrees
-          with the ledger, the next tick advances.
+          recorded. The passing path submits nothing: the tick that records
+          the kind routes on it.
       detail:
         type: string
         description: Why no determination could be recorded.
     transitions:
       - target: implementation
         when:
-          gates.kind_unchanged.exit_code: 0
-          vars.UNIT_KIND: change
+          gates.kind_route.exit_code: 0
       - target: reproduce
         when:
-          gates.kind_unchanged.exit_code: 0
-          vars.UNIT_KIND: fix
+          gates.kind_route.exit_code: 3
+      # Stopping needs kind_route to have held (1 a disagreeing variable, 4
+      # no kind, 66 a koto read, 2 no plugin), so a passing route and a
+      # stop never both match.
       - target: done_blocked
         when:
+          gates.kind_route.exit_code: 1
           gates.kind_unchanged.exit_code: 1
           kind_status: blocked
         context_assignments:
           failure_reason: "fix determination blocked: ${evidence.detail}"
       - target: done_blocked
         when:
+          gates.kind_route.exit_code: 4
+          gates.kind_unchanged.exit_code: 1
+          kind_status: blocked
+        context_assignments:
+          failure_reason: "fix determination blocked: ${evidence.detail}"
+      - target: done_blocked
+        when:
+          gates.kind_route.exit_code: 66
+          gates.kind_unchanged.exit_code: 1
+          kind_status: blocked
+        context_assignments:
+          failure_reason: "fix determination blocked: ${evidence.detail}"
+      - target: done_blocked
+        when:
+          gates.kind_route.exit_code: 2
           gates.kind_unchanged.exit_code: 2
           kind_status: blocked
         context_assignments:
@@ -1202,11 +1274,28 @@ states:
     # make; an unrecorded impl_base fails it (scripts/has-commits.sh).
     #
     # issue_type is decider-eligible: `code` is shadow, and `docs` and `task`
-    # are never. The code route tests no gate, so promoting `code` later clears
-    # koto's floor; the docs route's gate is one reason docs stays never. The
-    # inputs are the two keys the directive already points the agent at, both
-    # gated upstream. Fixtures: work-on.issue_type_routing.issue_type.decider.jsonl.
+    # are never. `code` can't be promoted to auto while its edge tests
+    # code_route (koto's floor refuses an auto answer along a gated edge), and
+    # it doesn't need to be: code_route below decides the common code case
+    # from facts for every user, where a decider in auto would act only for a
+    # user who switched the decider on (koto applies the lowest of the
+    # template's mode and the user's, which is off by default). The decider
+    # still records its answer for the cases the facts leave open. The inputs
+    # are the two keys the directive already points the agent at, both gated
+    # upstream. Fixtures: work-on.issue_type_routing.issue_type.decider.jsonl.
+    #
+    # code_route decides the common case from facts, whatever the decider's
+    # mode: a `code` hint (ISSUE_TYPE) and a recorded diff that names a path
+    # review-level.sh doesn't class as plain documentation take the code route
+    # on entry, with nothing asked (issue-type-route.sh). Code is the route
+    # that reviews the most, so the facts only ever add review. Every other
+    # case, a docs or task hint, a documentation-only or empty diff, asks as
+    # before, and every evidence edge requires code_route to have exited 1 so
+    # the two kinds of edge never both match.
     gates:
+      code_route:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/issue-type-route.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/issue-type-route.sh" "{{SESSION_NAME}}" "{{ISSUE_TYPE}}"'
       has_commits:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/has-commits.sh" "{{SESSION_NAME}}"'
@@ -1236,25 +1325,33 @@ states:
       # A code change passes the review-level check before its first panel.
       - target: review_level_check
         when:
+          gates.code_route.exit_code: 0
+      - target: review_level_check
+        when:
+          gates.code_route.exit_code: 1
           issue_type: code
       # Every edge into verification from another state has a twin into
       # verification_deferred, split on VERIFICATION; see that state's comment.
       - target: verification
         when:
+          gates.code_route.exit_code: 1
           issue_type: docs
           gates.has_commits.exit_code: 0
           vars.VERIFICATION: local
       - target: verification_deferred
         when:
+          gates.code_route.exit_code: 1
           issue_type: docs
           gates.has_commits.exit_code: 0
           vars.VERIFICATION: hosted-ci
       - target: verification
         when:
+          gates.code_route.exit_code: 1
           issue_type: task
           vars.VERIFICATION: local
       - target: verification_deferred
         when:
+          gates.code_route.exit_code: 1
           issue_type: task
           vars.VERIFICATION: hosted-ci
 
@@ -2374,27 +2471,24 @@ states:
       summary_exists:
         type: context-exists
         key: summary.md
-      # The checks pre_pr_evidence makes, made again here where summary.md and
-      # pre_pr.md are written. They gate the advancing edge only and no edge
-      # routes their failure anywhere, so a malformed artifact, or a referent
-      # that names nothing, holds the run in this state with the failing gate
-      # named, and the agent fixes it in place. At pre_pr_evidence the same
-      # failure ends the run at done_blocked, which has to be re-entered to fix
-      # one artifact -- the gates there stay as the backstop, and these keep a
-      # run from reaching them with a record it could still have fixed in place.
-      # The gate definitions must stay identical to
-      # pre_pr_evidence's; finalization-shape_test.sh checks that they do.
+      # The checks on the records written here, summary.md and pre_pr.md. They
+      # gate the advancing edge only and no edge routes their failure anywhere,
+      # so a malformed artifact, or a referent that names nothing, holds the run
+      # in this state with the failing gate named, and the agent fixes it in
+      # place. A later state, pre_pr_evidence, used to run the same four gates
+      # again and end the run on a failure; it was removed because these hold
+      # first and it never decided anything they hadn't. deferral_approval's
+      # approved edge runs the same definitions, and finalization-shape_test.sh
+      # checks that the two copies stay identical.
       #
       # The two referent gates run check-pre-pr-referents.sh, which requires
       # cleanup_commit to name a commit that is HEAD or an ancestor of it, and a
       # design_diagram path to name a file in HEAD's tree. A pattern alone passed
       # any hex string (shirabe#422). The script answers 0 or 1 only, and the
       # test -x guard turns an empty or wrong PLUGIN_ROOT into 1 rather than
-      # 127. Here any failure holds; the contract matters at pre_pr_evidence,
-      # whose ladder names exactly 0 and 1, so a gate that cannot run stops the
-      # run at done_blocked instead of matching no edge. koto
-      # discards a failed gate's output, so the directive tells the agent to
-      # run the script itself for the reason.
+      # 127. Any failure holds, so a gate that cannot run holds the run here
+      # rather than letting it through. koto discards a failed gate's output, so
+      # the directive tells the agent to run the script itself for the reason.
       summary_shape:
         type: context-matches
         key: summary.md
@@ -2411,7 +2505,7 @@ states:
       # ::koto-finding:: line each, rule commit/conventional-subject or
       # commit/no-ai-trailer), 2 could not decide; the test -x guard makes an
       # unusable PLUGIN_ROOT a 2. Here 1 and 2 both hold, like the checks
-      # above; pre_pr_evidence runs the same gate as its backstop.
+      # above.
       commit_convention:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=commit_convention SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --commits --session "{{SESSION_NAME}}"'
@@ -2437,6 +2531,23 @@ states:
         #   fails on a rule, and it stops the run at done_blocked, never past the gate.
         values: [ready_for_pr, deferral_requested, issues_found, check_unsatisfiable]
         required: true
+      cleanup_done:
+        type: enum
+        values: [removed, none_found]
+        description: >-
+          Required with ready_for_pr (the route lists each value), ignored
+          otherwise: whether the cleanup pass removed anything. An enum
+          rather than prose, because a free-text field here is satisfied by
+          "cleaned up". The commit it was judged against goes in pre_pr.md,
+          where cleanup_referent checks it is HEAD or an ancestor of it.
+      design_diagram:
+        type: enum
+        values: [updated, not_applicable]
+        description: >-
+          Required with ready_for_pr (the route lists each value), ignored
+          otherwise: whether a design diagram was updated. The path
+          updated, or the reason it does not apply, goes in pre_pr.md, where
+          diagram_referent checks it.
       check_exit_reason:
         type: string
         description: >-
@@ -2456,10 +2567,47 @@ states:
       # passed, since finalization is only reachable through pass_counting, after
       # verification_verdict exit 0 or a deferral to hosted CI with a reason
       # (verification_deferred).
-      # It also requires both artifacts to pass the checks pre_pr_evidence makes.
-      - target: pre_pr_evidence
+      # It also requires both artifacts to pass the checks on them above.
+      # One edge per combination of cleanup_done and design_diagram: koto can
+      # test an evidence field only for a value, so listing every value pair
+      # is what makes both required on this route, as they were at
+      # pre_pr_evidence, while issues_found and the other outcomes need
+      # neither. A ready_for_pr without them matches no edge and holds.
+      - target: pr_precheck
         when:
           finalization_status: ready_for_pr
+          cleanup_done: removed
+          design_diagram: updated
+          gates.summary_exists.exists: true
+          gates.summary_shape.matches: true
+          gates.cleanup_referent.exit_code: 0
+          gates.diagram_referent.exit_code: 0
+          gates.commit_convention.exit_code: 0
+      - target: pr_precheck
+        when:
+          finalization_status: ready_for_pr
+          cleanup_done: removed
+          design_diagram: not_applicable
+          gates.summary_exists.exists: true
+          gates.summary_shape.matches: true
+          gates.cleanup_referent.exit_code: 0
+          gates.diagram_referent.exit_code: 0
+          gates.commit_convention.exit_code: 0
+      - target: pr_precheck
+        when:
+          finalization_status: ready_for_pr
+          cleanup_done: none_found
+          design_diagram: updated
+          gates.summary_exists.exists: true
+          gates.summary_shape.matches: true
+          gates.cleanup_referent.exit_code: 0
+          gates.diagram_referent.exit_code: 0
+          gates.commit_convention.exit_code: 0
+      - target: pr_precheck
+        when:
+          finalization_status: ready_for_pr
+          cleanup_done: none_found
+          design_diagram: not_applicable
           gates.summary_exists.exists: true
           gates.summary_shape.matches: true
           gates.cleanup_referent.exit_code: 0
@@ -2481,9 +2629,9 @@ states:
       summary_exists:
         type: context-exists
         key: summary.md
-      # The same early checks as finalization, for the same reason: this edge
-      # also leads to pre_pr_evidence, and a failure there is a terminal. The
-      # rejected edge stays ungated.
+      # The same checks as finalization, for the same reason: this edge also
+      # leads to pr_precheck, and no state after it checks these records again.
+      # The rejected edge stays ungated.
       summary_shape:
         type: context-matches
         key: summary.md
@@ -2504,6 +2652,17 @@ states:
         type: enum
         values: [approved, rejected]
         required: true
+      cleanup_done:
+        type: enum
+        values: [removed, none_found]
+        description: >-
+          Required with approved, as finalization's ready_for_pr requires it:
+          whether the cleanup pass removed anything.
+      design_diagram:
+        type: enum
+        values: [updated, not_applicable]
+        description: >-
+          Required with approved: whether a design diagram was updated.
       deferral_detail:
         type: string
         description: >
@@ -2513,9 +2672,43 @@ states:
           rather than closing it, so the issue stays open with the criterion on
           it, and pr_creation's closing_keyword gate holds the body to that.
     transitions:
-      - target: pre_pr_evidence
+      # Approved, like finalization's ready_for_pr, lists each pair of the two
+      # judgment enums, so an approval without them holds.
+      - target: pr_precheck
         when:
           approval_decision: approved
+          cleanup_done: removed
+          design_diagram: updated
+          gates.summary_exists.exists: true
+          gates.summary_shape.matches: true
+          gates.cleanup_referent.exit_code: 0
+          gates.diagram_referent.exit_code: 0
+          gates.commit_convention.exit_code: 0
+      - target: pr_precheck
+        when:
+          approval_decision: approved
+          cleanup_done: removed
+          design_diagram: not_applicable
+          gates.summary_exists.exists: true
+          gates.summary_shape.matches: true
+          gates.cleanup_referent.exit_code: 0
+          gates.diagram_referent.exit_code: 0
+          gates.commit_convention.exit_code: 0
+      - target: pr_precheck
+        when:
+          approval_decision: approved
+          cleanup_done: none_found
+          design_diagram: updated
+          gates.summary_exists.exists: true
+          gates.summary_shape.matches: true
+          gates.cleanup_referent.exit_code: 0
+          gates.diagram_referent.exit_code: 0
+          gates.commit_convention.exit_code: 0
+      - target: pr_precheck
+        when:
+          approval_decision: approved
+          cleanup_done: none_found
+          design_diagram: not_applicable
           gates.summary_exists.exists: true
           gates.summary_shape.matches: true
           gates.cleanup_referent.exit_code: 0
@@ -2526,128 +2719,6 @@ states:
           approval_decision: rejected
         context_assignments:
           failure_reason: "deferral rejected by human: ${evidence.deferral_detail}"
-
-  pre_pr_evidence:
-    # The finishing obligations that are decidable BEFORE a pull request exists.
-    # The ones that need a pull request to query -- the closing keyword, merge
-    # cleanliness -- live on pr_creation and ci_monitor instead, which is why
-    # this state is narrow rather than a single batching state for everything.
-    #
-    # Why gates rather than four required string fields: koto's evidence schema
-    # has type, required, values and description, and nothing that constrains a
-    # string's shape. A `type: string` field is satisfied by "done", which makes
-    # an obligation unenforced in substance while looking enforced in the record
-    # (PRD R7a). So the judgment calls are enums, which are closed sets a
-    # placeholder cannot satisfy, and the concrete referents live in a context
-    # artifact whose referents a gate checks exist.
-    gates:
-      # The summary exists by the time this state is reached -- both edges into
-      # it require it -- so this checks its SHAPE, not its presence. Both edges
-      # also check this shape and the two referents below, holding in place on a
-      # failure, so here the three are the backstop.
-      summary_shape:
-        type: context-matches
-        key: summary.md
-        pattern: "## Changes Made"
-      # Conventional Commits on every commit this run made, and no
-      # AI-attribution trailer on any of them. Observable from git, so it is
-      # gated rather than asked for (PRD R6). The same gate finalization and
-      # deferral_approval hold on; here, as the backstop, its 1 (a violation)
-      # and its 2 (could not decide) both end the run.
-      commit_convention:
-        type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=commit_convention SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --commits --session "{{SESSION_NAME}}"'
-      # The concrete referents, in an artifact the run writes, checked for
-      # existence and not only for shape (check-pre-pr-referents.sh):
-      # "cleanup_commit: done" is not a sha, a sha that names no commit or a
-      # commit outside HEAD's history is not the reviewed commit, "design_diagram: yes"
-      # is neither a path nor the explicit not-applicable form with a reason
-      # after it, and a docs/ path that is not a file in HEAD's tree names no
-      # diagram. Exit 0 or 1 only, which the ladder below routes on.
-      cleanup_referent:
-        type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"'
-      diagram_referent:
-        type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --diagram "{{SESSION_NAME}}"'
-    accepts:
-      pre_pr_status:
-        type: enum
-        values: [recorded, blocked]
-        required: true
-      cleanup_done:
-        type: enum
-        values: [removed, none_found]
-        required: true
-        description: >-
-          Whether the cleanup pass removed anything. An enum rather than prose,
-          because a free-text field here is satisfied by "cleaned up" and the
-          obligation is then unenforced in substance. The commit it was judged
-          against goes in pre_pr.md, where a gate checks it is HEAD or an
-          ancestor of it.
-      design_diagram:
-        type: enum
-        values: [updated, not_applicable]
-        required: true
-        description: >-
-          PRD R9's first limb: the diagram obligation is brought within one hop
-          of the template and given a field, rather than left two reference-hops
-          away with a contract permitting a silent skip. The path updated, or the
-          reason it does not apply, goes in pre_pr.md.
-    transitions:
-      # The ladder is ordered, and every edge names the field the edge above it
-      # named, because koto refuses transitions to one target it cannot prove
-      # exclusive. Each rung is a distinct cause, which is what keeps them
-      # distinguishable in the record.
-      - target: pr_precheck
-        when:
-          pre_pr_status: recorded
-          gates.summary_shape.matches: true
-          gates.commit_convention.exit_code: 0
-          gates.cleanup_referent.exit_code: 0
-          gates.diagram_referent.exit_code: 0
-      - target: done_blocked
-        when:
-          pre_pr_status: recorded
-          gates.summary_shape.matches: false
-        context_assignments:
-          failure_reason: "pre_pr_evidence: the summary does not have the shape the finalization step requires (no '## Changes Made' section)."
-      - target: done_blocked
-        when:
-          pre_pr_status: recorded
-          gates.summary_shape.matches: true
-          gates.commit_convention.exit_code: 1
-        context_assignments:
-          failure_reason: "pre_pr_evidence: a commit this run made has a subject that is not a Conventional Commits subject, or carries an AI-attribution trailer. The gate's findings name the commit and the rule."
-      - target: done_blocked
-        when:
-          pre_pr_status: recorded
-          gates.summary_shape.matches: true
-          gates.commit_convention.exit_code: 2
-        context_assignments:
-          failure_reason: "pre_pr_evidence: the commit check could not decide (impl_base unreadable, a range that does not resolve, or check-branch-output.sh unreachable through PLUGIN_ROOT). Run check-branch-output.sh --commits --session <session> for the reason."
-      - target: done_blocked
-        when:
-          pre_pr_status: recorded
-          gates.summary_shape.matches: true
-          gates.commit_convention.exit_code: 0
-          gates.cleanup_referent.exit_code: 1
-        context_assignments:
-          failure_reason: "pre_pr_evidence: pre_pr.md does not record a cleanup_commit that names HEAD or an ancestor of it, or the check could not run. A word like 'done', or a sha that names no commit, is not a referent: name the commit whose diff was reviewed. Run check-pre-pr-referents.sh --cleanup for the reason."
-      - target: done_blocked
-        when:
-          pre_pr_status: recorded
-          gates.summary_shape.matches: true
-          gates.commit_convention.exit_code: 0
-          gates.cleanup_referent.exit_code: 0
-          gates.diagram_referent.exit_code: 1
-        context_assignments:
-          failure_reason: "pre_pr_evidence: pre_pr.md does not record a design_diagram as a docs/ path that is a file in HEAD's tree, or as 'not-applicable: <reason>', or the check could not run. Run check-pre-pr-referents.sh --diagram for the reason."
-      - target: done_blocked
-        when:
-          pre_pr_status: blocked
-        context_assignments:
-          failure_reason: "pre_pr_evidence: the run could not satisfy a pre-PR obligation and stopped rather than opening a pull request."
 
   pr_precheck:
     # The single edge into pr_creation, so the branch is read once here instead
@@ -2808,7 +2879,7 @@ states:
       # DELIVERY=partial, declared at init, goes straight to non-closing mode
       # without reading the log. Otherwise check-closing-keyword.sh
       # --approved-pass reads the run's state log, and makes no GitHub call:
-      # 0 this pass reached pre_pr_evidence through the engine's approved
+      # 0 this pass reached pr_precheck through the engine's approved
       # transition out of deferral_approval, with no return to finalization or
       # deferral_approval since (non-closing mode); 1 it didn't, or there is no
       # log (closing mode); anything else, an unreadable log included, holds
@@ -3703,6 +3774,11 @@ If the gate fails (artifact missing), submit `status: completed` after creating
 the artifact, `status: override` if providing context differently, or
 `status: blocked` if the issue cannot be reached.
 
+If the `await_removals` gate fails, a build-output removal is still running in
+this work tree, and setup's baseline must not build until it ends. Wait a
+minute and tick again (`koto next {{SESSION_NAME}} --no-cleanup`); the run
+moves on by itself on the first tick after the removal ends.
+
 ## task_validation
 
 Assess whether this free-form task description is clear enough and appropriately
@@ -3769,6 +3845,11 @@ Evidence schema:
 - `rationale`: reasoning informed by research findings
 - `revised_scope`: (optional) narrowed scope description
 
+If the `await_removals` gate fails, a build-output removal is still running in
+this work tree, and setup's baseline must not build until it ends. Wait a
+minute and tick again (`koto next {{SESSION_NAME}} --no-cleanup`); the run
+moves on by itself on the first tick after the removal ends.
+
 ## setup_issue_backed
 
 Read `references/phases/phase-1-setup.md` for branch naming and baseline format.
@@ -3814,6 +3895,11 @@ Submit `status: completed` with `issue_source` set to match the source used,
 Evidence schema:
 - `status`: `completed`, `override`, or `blocked`
 - `issue_source`: `github` or `plan_outline` (required when status is completed; determines next state)
+
+If the `await_removals` gate fails, a build-output removal is still running in
+this work tree, and setup's baseline must not build until it ends. Wait a
+minute and tick again (`koto next {{SESSION_NAME}} --no-cleanup`); the run
+moves on by itself on the first tick after the removal ends.
 
 ## plan_validation
 
@@ -3915,6 +4001,21 @@ commits already on the branch when the run got here are part of the work and
 its review; you don't set it by hand. You don't submit it, and you don't classify the issue's type here: that
 question is asked once, at `issue_type_routing`, after implementation.
 
+**A fix is declared here.** Right after this state koto decides whether the unit
+is a fix (`references/red-first.md`): a fix when the issue carries one of the
+repository's fix labels (`## Fix Labels:` in CLAUDE.md, `bug` by default) or the
+plan step has a `**Fixes**:` line, a change otherwise, and it routes on that in
+the same tick, without stopping. If the report describes existing behaviour as
+wrong (something worked before, or is documented to work, and doesn't) and none of
+those marks it, declare the fix now, before you submit `plan_outcome`:
+
+```bash
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" declare "{{SESSION_NAME}}" --reason "<why the report says this is a defect>"
+```
+
+A fix can't be taken back: `fix-kind.sh` refuses to make one a change, and the run
+owes a red before implementation.
+
 Retry cap: self-loop with `scope_changed_retry` up to 3 times. After 3,
 use `scope_changed_escalate`. The cap lives here until koto enforces it from its
 attempt counts, with the same number. Submit `blocked_missing_context` if stuck.
@@ -3997,36 +4098,22 @@ read its message and run it again. If no level can be recorded, submit
 
 ## fix_determination
 
-koto has decided whether this unit is a fix, before anything is implemented
-(`references/red-first.md`). On entry it ran `fix-kind.sh resolve`, which records
-a fix when the issue carries one of the repository's fix labels (`## Fix Labels:`
-in CLAUDE.md, `bug` by default) or the plan step has a `**Fixes**:` line, and a
-change otherwise, and binds `UNIT_KIND` to match. Before that it started the
+koto decides here whether this unit is a fix, before anything is implemented
+(`references/red-first.md`), and routes on it in the tick that entered the state:
+a change goes to `implementation`, a fix to `reproduce`. On entry it ran
+`fix-kind.sh resolve`, which records a fix when the issue carries one of the
+repository's fix labels or the plan step has a `**Fixes**:` line, keeps a fix
+declared at `analysis`, and records a change otherwise. Before that it started the
 test-change ledger (`test-change.sh init`), which an edited test is judged against
-at `pass_counting`. See what it recorded:
+at `pass_counting`. You see this directive only when the run is held here.
 
-```bash
-"{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" kind "{{SESSION_NAME}}"
-```
-
-If the unit is recorded as a change but its report describes existing behaviour
-as wrong (something worked before, or is documented to work, and doesn't), declare
-it a fix yourself:
-
-```bash
-"{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" declare "{{SESSION_NAME}}" --reason "<why the report says this is a defect>"
-```
-
-A fix can't be taken back: `fix-kind.sh` refuses to make one a change, and the run
-owes a red before implementation. Then tick with nothing submitted
-(`koto next {{SESSION_NAME}} --no-cleanup`). koto routes on `UNIT_KIND` from the tick
-after it was bound, so a fresh determination holds `kind_unchanged` once, saying to
-tick again. A change goes to `implementation`, a fix to `reproduce`.
-
-`kind_unchanged` also holds when `UNIT_KIND` was rebound by hand away from the
-ledger; its `hold:` line names both, and `fix-kind.sh declare` puts a fix back. If
-the action failed (its fallback is shown above) and the cause can't be fixed, submit
-`kind_status: blocked` with `detail`.
+The `kind_route` gate holds when `UNIT_KIND` was rebound by hand away from the
+ledger, and `kind_unchanged`'s `hold:` line names both: `fix-kind.sh declare
+"{{SESSION_NAME}}" --reason "<why>"` puts a fix back, and a change recorded in the
+ledger stays a change. It also holds when the action failed and no kind is
+recorded: the action's fallback is shown above. Fix the cause and tick again with
+nothing submitted. If it can't be fixed, submit `kind_status: blocked` with
+`detail`.
 
 ## reproduce
 
@@ -4116,6 +4203,11 @@ submit nothing -- the run advances on its own.
 
 Say what kind of change this issue turned out to be. This is the only place the
 workflow asks, and it routes what happens next.
+
+You see this only when the facts didn't decide it. A run whose hint is `code` and
+whose changed paths include anything other than plain documentation takes the
+code route on entry, with nothing asked (the `code_route` gate). Here the hint is
+not `code`, or every changed path is documentation, or none was recorded.
 
 Read `changed_paths.txt` for what the implementation actually touched, alongside
 the issue context in `context.md`:
@@ -4556,8 +4648,8 @@ Two records are required, and `ready_for_pr` does not advance without them:
   in `HEAD`'s tree, or `design_diagram: not-applicable: <reason>`. Each line
   starts at the beginning of the line and carries nothing after the value. The
   not-applicable form is hyphenated and carries a reason; the evidence enum
-  `not_applicable` at `pre_pr_evidence` is a different thing and does not
-  satisfy it. When the issue body carries a `Design:` reference, update that
+  `design_diagram: not_applicable` you submit is a different thing and does
+  not satisfy it. When the issue body carries a `Design:` reference, update that
   diagram now (phase-5 says how), commit it, and record its path.
 
 ```bash
@@ -4567,9 +4659,14 @@ design_diagram: not-applicable: no design document is touched
 EOF
 ```
 
-The same checks run again at `pre_pr_evidence`, where a failure ends the
-run at `done_blocked`. Here a failure only holds: the submission matches no edge,
-the state stays `finalization`, and `blocking_conditions` names the failing gate.
+`cleanup_commit` is the commit whose diff you reviewed for debug statements,
+commented-out code, addressed TODOs and unused imports. `design_diagram` is the
+path of the diagram you updated, or `not-applicable: <reason>` when the change
+touches no design document. Both are checked for existence, so a word, or a sha
+or path that names nothing, holds the state rather than satisfying it.
+
+A failure holds: the submission matches no edge, the state stays
+`finalization`, and `blocking_conditions` names the failing gate.
 Fix that one artifact with `koto context add` and submit `ready_for_pr` again:
 
 - `summary_exists` or `summary_shape` failed: write `summary.md` with a
@@ -4630,7 +4727,14 @@ criterion that step owns; if the stated scope is empty, it means every criterion
 as on `closes`. A split doesn't lower the bar for the criteria it owns: one of
 them the run can't meet still goes to `deferral_requested` and a person.
 
-Submit `finalization_status: ready_for_pr` only when every acceptance criterion is met.
+Submit `finalization_status: ready_for_pr` only when every acceptance criterion is met,
+with `cleanup_done` (`removed` or `none_found`) and `design_diagram` (`updated` or
+`not_applicable`). The evidence value is the underscored enum; the `pre_pr.md`
+line is the hyphenated form with a reason. Both are required with `ready_for_pr`:
+a submission without them holds. A passing submission goes straight to
+`pr_precheck`. If an obligation can't be met, don't record a referent you can't
+stand behind: submit `issues_found` to fix it, or `deferral_requested` to put it
+in front of a person.
 Submit `issues_found` to return to implementation. If an acceptance criterion is unmet
 and you want to defer it, submit `deferral_requested` — this does NOT finalize the issue;
 it routes to the `deferral_approval` human gate. There is no self-reported clean deferral
@@ -4638,6 +4742,8 @@ terminal: a deferral is only legitimate once a human approves it.
 
 Evidence schema:
 - `finalization_status`: `ready_for_pr`, `deferral_requested`, or `issues_found`
+- `cleanup_done`: `removed` or `none_found`, with `ready_for_pr`
+- `design_diagram`: `updated` or `not_applicable`, with `ready_for_pr`
 
 ## deferral_approval
 
@@ -4677,47 +4783,9 @@ Halt and surface the specific unmet criterion to the human as an explicit decisi
 
 Evidence schema:
 - `approval_decision`: `approved` or `rejected`
+- `cleanup_done` and `design_diagram`, with `approved`, as `finalization` takes them
+  with `ready_for_pr`; an approval without them holds
 - `deferral_detail`: the unmet criterion and the human's rationale
-
-## pre_pr_evidence
-
-The finishing obligations that can be decided before a pull request exists.
-`pre_pr.md` was written and checked at `finalization`; don't rewrite it here.
-The one exception is history rewritten since then (an amend of the reviewed
-commit; catching up with main is a merge, which rewrites nothing): its old sha
-is no longer in `HEAD`'s history and the gate fails. A failure here ends the run rather than holding it, so if you rewrote
-history, run
-`"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --cleanup "{{SESSION_NAME}}"`
-before submitting, and on a failure rewrite `pre_pr.md` with the reviewed
-commit's new sha, keeping its `design_diagram` line (`koto context add`
-replaces the whole key). If the check can't run at all, stop and report it, as
-the `finalization` section says, rather than submitting.
-
-The two lines of `pre_pr.md` are the referents:
-
-`cleanup_commit` is the commit whose diff you reviewed for debug statements,
-commented-out code, addressed TODOs and unused imports. `design_diagram` is the
-path of the diagram you updated, or `not-applicable: <reason>` when the change
-touches no design document. Both are checked for existence: the commit must be
-`HEAD` or an ancestor of it and the path a file in `HEAD`'s tree, so a word, or a sha or path
-that names nothing, fails the state rather than satisfying it — that is the
-point of asking for them rather than for a claim that the work was done.
-
-Submit `pre_pr_status: recorded` with `cleanup_done` (`removed` or
-`none_found`) and `design_diagram` (`updated` or `not_applicable`). The
-evidence value is the underscored enum; the `pre_pr.md` line is the hyphenated
-form with a reason. They are different fields and neither accepts the other's
-spelling.
-
-If an obligation cannot be met, submit `pre_pr_status: blocked` instead of
-recording a referent you cannot stand behind.
-
-The gates check the summary's shape, every commit's subject (`commit_convention`, through `check-branch-output.sh --commits`) against
-Conventional Commits, and the two referents. A failing one stops the run before
-the pull request is opened, with the reason naming which. The shape, commit and referent
-checks already held at `finalization`, so here they are the backstop. The tip
-moving after finalization doesn't invalidate `cleanup_commit`: a commit that was
-`HEAD` then is an ancestor of `HEAD` now.
 
 ## pr_precheck
 
@@ -4769,7 +4837,7 @@ Push with `git push -u origin {{BRANCH}}`. `pr_precheck` read the branch and it 
 The body references the issue in Part 2, and the `closing_keyword` gate reads the
 pull request from GitHub. Which reference it takes depends on the run's delivery,
 `DELIVERY`, fixed at init (`closes` unless the run was started with
-`--delivery=partial`), and on how this pass reached `pre_pr_evidence`:
+`--delivery=partial`), and on how this pass reached `pr_precheck`:
 
 - **It closes the issue**: a `closes` run, unless it came here straight from an
   approved deferral. Write `Fixes #<N>` for an issue in this repository, or, for a
@@ -5137,8 +5205,13 @@ it reaches `pr_creation` only, and the next submission comes straight back here.
 Take a fix round instead, from the branch this run worked on:
 
 ```bash
-"{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-round.sh" start --from {{SESSION_NAME}}
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-round.sh" start --from {{SESSION_NAME}} --fix-report "<the failure or finding>"
 ```
+
+`--fix-report` is the round's own report, the CI failure or review finding that
+caused it, and takes this run's Fixes line's place, so the round's red can cite
+it. It holds only letters, digits, spaces and `. _ / : @ + -`, starting with a
+letter or digit; leave it off and the round keeps this run's.
 
 It starts `{{SESSION_NAME}}-fix-<n>`, a new work-on session with this run's
 variables and parent (a child stays a child, so it never cascades), and records
