@@ -16,6 +16,10 @@
 #   - the live record's written time must equal the state's own, the time of
 #     the version it was edited from (exit 12, record-changed), so a write that
 #     landed since the read, by another writer, is never silently overwritten;
+#     the compare and every key's write are made holding the record's write
+#     lock (state-write-core.sh core_lock), so a second writer can't pass the
+#     compare until the first has landed, and one that waits past
+#     CORE_LOCK_WAIT for it is refused record-changed (12) as well;
 #   - when the host is public, no repository the state names (a Holdings Repo,
 #     a Pull request link, a Side effects Target, or any other string) may be
 #     private or unreadable (exit 65, naming it): this script reads each named
