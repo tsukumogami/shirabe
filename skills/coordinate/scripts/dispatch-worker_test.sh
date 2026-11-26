@@ -46,6 +46,11 @@
 # help lists each (a stderr line names each one dropped), with the launch
 # unchanged when it's absent, and a value outside its fixed set refused before
 # anything is written or launched.
+# The launch's profile reaches niwa dispatch as --profile <name>, on a dispatch
+# and on a successor, only when niwa's help lists --profile itself (not
+# --no-profile, nor --profile named in another flag's text); a name outside
+# niwa's profile-name grammar is refused before anything is written or
+# launched.
 # The role on a coordinator's brief: a successor, its positional this run's
 # own roadmap, gets the record's role row (director, or manager whatever its
 # Goal and input say; none exits 1 naming the command that sets it); a lane
@@ -208,6 +213,10 @@ case "$1" in
                 launch) printf 'Flags:\n      --accept-session-messages   accept messages\n      --brief string\n      --detach\n      --model string\n      --name string\n      --permission-mode string\n      --skill string\n' ;;
                 # `prose` names the three flags only inside other flags' text.
                 prose) printf 'Flags:\n      --brief string     not --model or --permission-mode\n      --detach\n      --model-category string   the --accept-session-messages-ish flag\n      --name string\n      --skill string\n' ;;
+                # `profile` adds --no-profile and --profile to `lineage`;
+                # `noprofile` adds only --no-profile, whose text names --profile.
+                profile) printf 'Flags:\n      --brief string\n      --detach\n      --name string\n      --no-profile   launch with no profile\n      --profile string   a [session.dispatch_profiles] name\n      --skill string\n' ;;
+                noprofile) printf 'Flags:\n      --brief string\n      --detach\n      --name string\n      --no-profile   it cannot be combined with --profile\n      --skill string\n' ;;
                 old) printf 'Flags:\n      --detach\n      --name string\n' ;;
                 fail) exit 1 ;;
             esac
@@ -656,6 +665,69 @@ for l in '{"model": "opus --permission-mode bypassPermissions"}' '{"model": "--d
     eq  "launch refused $l: exit 1" 1 "$RC"
     eq  "launch refused $l: nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|request create' "$ST/calls.log")"
     has "launch refused $l: says why" "$(cat "$T/err")" "launch: "
+done
+fi
+
+if section "deliver" "the worker's launch profile"; then
+#
+# The launch's profile reaches niwa dispatch as --profile <name>, one flag and
+# its name as its own argument, when niwa's help lists --profile.
+reset "$(jq -c '.launch = {"profile": "lean-worker"}' <<<"$INPUT_DELIVER")"
+export NIWA_HELP=profile
+OUT=$(run 2>"$T/err"); RC=$?
+eq  "launch profile: exit 0" "0 session=$NIWA_NAME" "$RC $OUT"
+LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
+has "launch profile: dispatch-worker.sh passes it as --profile <name>" "$LAUNCHED" "[--profile] [lean-worker]"
+eq  "launch profile: one --profile" 1 "$(grep -o -e '\[--profile\]' <<<"$LAUNCHED" | wc -l | tr -d ' ')"
+lacks "launch profile: no --no-profile" "$LAUNCHED" "[--no-profile]"
+eq  "launch profile: nothing dropped" "" "$(grep 'takes no' "$T/err")"
+
+# With the other keys, each is judged on its own help line.
+reset "$(jq -c '.launch = {"model": "opus", "permission_mode": "bypassPermissions", "profile": "lean-worker"}' <<<"$INPUT_DELIVER")"
+export NIWA_HELP=profile
+run >/dev/null 2>"$T/err"; RC=$?
+eq  "launch profile with other keys: exit 0" 0 "$RC"
+LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
+has "launch profile with other keys: --profile <name> goes on" "$LAUNCHED" "[--profile] [lean-worker]"
+lacks "launch profile with other keys: no --model" "$LAUNCHED" "[--model]"
+lacks "launch profile with other keys: no --permission-mode" "$LAUNCHED" "[--permission-mode]"
+has "launch profile with other keys: says --model is dropped" "$(cat "$T/err")" "takes no --model"
+has "launch profile with other keys: says --permission-mode is dropped" "$(cat "$T/err")" "takes no --permission-mode"
+
+# A niwa whose help doesn't list --profile itself gets none, and a stderr line
+# says so; --no-profile, and --profile named in its text, don't count.
+for help in lineage old noprofile; do
+    reset "$(jq -c '.launch = {"profile": "lean-worker"}' <<<"$INPUT_DELIVER")"
+    export NIWA_HELP=$help
+    run >/dev/null 2>"$T/err"; RC=$?
+    eq  "launch profile, niwa without --profile ($help): exit 0" 0 "$RC"
+    LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
+    lacks "launch profile, niwa without --profile ($help): no --profile" "$LAUNCHED" "[--profile]"
+    has "launch profile, niwa without --profile ($help): says --profile <name> is dropped" "$(cat "$T/err")" "takes no --profile"
+done
+
+# No profile given: the launch is exactly what it was, even on a niwa that
+# takes --profile.
+reset "$INPUT_DELIVER"
+export NIWA_HELP=profile
+run >/dev/null 2>"$T/err"
+LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
+case "$LAUNCHED" in
+    *" [--name] [plugin-api] [--detach] [--brief] [$BRIEF_FILE] [--skill] [shirabe:deliver]") ok "launch profile absent: the launch ends as before" ;;
+    *) bad "launch profile absent: the launch ends as before" "$LAUNCHED" ;;
+esac
+lacks "launch profile absent: no --profile" "$LAUNCHED" "[--profile]"
+
+# A name outside niwa's profile-name grammar, or a value that isn't a string:
+# refused before anything is written or launched.
+for l in '{"profile": "Lean"}' '{"profile": "-x"}' '{"profile": "--no-profile"}' '{"profile": "lean worker"}' \
+         '{"profile": ""}' '{"profile": 7}' '{"profile": "lean\nworker"}' '{"profile": "lean\n"}'; do
+    reset "$(jq -c --argjson l "$l" '.launch = $l' <<<"$INPUT_DELIVER")"
+    export NIWA_HELP=profile
+    run >/dev/null 2>"$T/err"; RC=$?
+    eq  "launch profile refused $l: exit 1" 1 "$RC"
+    eq  "launch profile refused $l: nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|request create' "$ST/calls.log")"
+    has "launch profile refused $l: says why" "$(cat "$T/err")" "launch: profile must be"
 done
 fi
 
@@ -2319,6 +2391,18 @@ has "successor: ... and the brief's path" "$(cat "$ST/prompt")" "Read $SBRIEF fo
 eq  "successor: the invocation line is the brief's only line naming a role" "$SUCC_GOAL" "$(grep -iwE 'managers?|directors?' "$SBRIEF")"
 has "successor: the brief reports to the record's address" "$(cat "$SBRIEF")" 'addressed to `lane-coord`'
 has "successor: ... and names this run as its dispatcher" "$(cat "$SBRIEF")" "--dispatched-by coord"
+
+# The successor input's launch profile reaches niwa as --profile <name> when
+# the help lists it, and is dropped with a stderr line when it doesn't.
+sreset "$(jq -c '.launch = {"profile": "lean-worker"}' <<<"$SUCC_INPUT")"; export NIWA_HELP=profile
+OUT=$(srun 2>"$T/err"); RC=$?
+eq  "successor: a launch profile exits 0" "0 session=$SUCC_S" "$RC $OUT"
+has "successor: the successor path passes it as --profile <name>" "$(grep '^niwa dispatch' "$ST/calls.log")" "[--profile] [lean-worker]"
+sreset "$(jq -c '.launch = {"profile": "lean-worker"}' <<<"$SUCC_INPUT")"; export NIWA_HELP=lineage
+OUT=$(srun 2>"$T/err"); RC=$?
+eq  "successor: a launch profile on a niwa without --profile exits 0" "0 session=$SUCC_S" "$RC $OUT"
+lacks "successor: ... launching no --profile" "$(grep '^niwa dispatch' "$ST/calls.log")" "[--profile]"
+has "successor: ... and says --profile <name> is dropped" "$(cat "$T/err")" "takes no --profile"
 
 # A director's run renders --role director, whatever the input says.
 sreset "$(jq -c '.role = "manager" | .successor = false' <<<"$SUCC_INPUT")"; export RECORD_ROLE=director
