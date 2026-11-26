@@ -77,8 +77,10 @@
 #                 Items name
 #   paths         the paths the row's Unit cell and its Work rows' Item and
 #                 Next cells name
-# A lane's Work rows are those whose Who is its Worker or whose Item names its
-# Unit. A cell names a path through a whitespace-separated token, stripped of
+# A lane's Work rows are those whose Who is its Worker or, for a row of any
+# kind but holding, whose Item names its Unit: a holding row is its own
+# worker's alone, since another lane can hold the same unit (shirabe#1588).
+# A cell names a path through a whitespace-separated token, stripped of
 # leading quotes, backticks and brackets and of trailing quotes, backticks,
 # brackets and `.,;:!?`, that holds a `/`, holds only letters, digits and
 # `._/-`, doesn't start with `/` or hold `..`, and either ends in `/` (a
@@ -385,7 +387,8 @@ jq -n -c -L "$HERE" --arg on "$ON" --arg own "$OWN" --arg host "$HOST" --arg roa
     | ($on | lc) as $o | ($on | split("#")[0] | lc) as $onrepo
     | ([$host] + [$H[].repo] | map(lc)) as $scope
     | def items($texts): [$texts[] | . as $t | $F[] | select((.id | tag_key) == ($t | unitkey)) | .id] | unique;
-      def lane($row): ([$L.work[] | select(.who == $row.worker or ((.item | unitkey) == ($row.unit | unitkey)))]) as $w
+      def lane($row): ([$L.work[] | select(.who == $row.worker
+                                            or (.kind != "holding" and ((.item | unitkey) == ($row.unit | unitkey))))]) as $w
         | ([$E[] | select(.unit == $row.worker)] | first) as $last
         | (($last.opens // []) | reduce .[] as $x ([]; if any(.[]; lc == ($x | lc)) then . else . + [$x] end)) as $opens
         | {lane: $row.worker, repo: $row.repo, report: ($last.seq // null),

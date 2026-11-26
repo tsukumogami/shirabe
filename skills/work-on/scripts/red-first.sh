@@ -277,6 +277,21 @@ marker_context() {
         }' "$1" | head -c "$TAIL_BYTES"
 }
 
+# filter_warning <command> [<arg>...]: a warning line when the command pipes
+# into a line filter (grep, egrep, fgrep, rg), whose exit then decides the
+# command's: once the test passes the matched lines are gone, the filter exits
+# 1, and no green can ever exit 0 (#2017). The words are read joined, so a
+# pipe inside a `sh -c` script counts; `||` is not a pipe. A text heuristic,
+# so it warns and never refuses.
+filter_warning() {
+    local words re
+    words=" $* "
+    re='(^|[^|])[|]&?[[:space:]]*(egrep|fgrep|grep|rg)[[:space:]]'
+    [[ $words =~ $re ]] || return 0
+    printf 'warning: the command pipes its output through %s, so its exit comes from %s, not only from the test: once the test passes and the matched lines are gone, %s exits 1 and every green fails. A red'"'"'s command has to exit 0 once the test passes, since the green runs it unchanged. Run the test without the filter (its output is already checked for the marker) and record the red again.\n' \
+        "${BASH_REMATCH[2]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[2]}"
+}
+
 # make_worktree <commit>: a detached temporary worktree at <commit> in $WT.
 make_worktree() {
     WT="$TMP/wt"
@@ -482,6 +497,7 @@ cmd_red() {
         | .green = null' "$TMP/record" > "$TMP/record.next" || undecided "could not build the record"
     save_record "$s"
     echo "recorded: red at base $base, exit $RUN_EXIT, marker found; reproducing tests: $(cut -f 1 "$TMP/tests.tsv" | paste -sd, -)"
+    filter_warning "$@"
     exit 0
 }
 

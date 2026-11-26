@@ -666,7 +666,7 @@
         "EXECUTE_CI_WAIT_LIMIT_SECS": "60"
       },
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
-      "expected_output": "A check stays pending past EXECUTE_CI_WAIT_LIMIT_SECS (60 s, measured from the head commit's date). The verdict is error:execute:ci-timeout and the run ends at done_blocked.",
+      "expected_output": "A check stays pending past EXECUTE_CI_WAIT_LIMIT_SECS (60 s, measured from the head commit's date because the check reports no start time). The verdict is error:execute:ci-timeout and the run ends at done_blocked.",
       "files": [],
       "expectations": [
         "gh-calls.log contains no line starting `pr merge`",

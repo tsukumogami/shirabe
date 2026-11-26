@@ -79,6 +79,13 @@ export DC_CLAUDE_HOME="$T/claude"
 mkdir -p "$DC_CLAUDE_HOME/jobs/$J1" "$DC_CLAUDE_HOME/jobs/$J2"
 jq -n --arg n "$N1" '{name: $n, state: "working"}' > "$DC_CLAUDE_HOME/jobs/$J1/state.json"
 jq -n --arg n "$N2" '{name: $n, state: "done"}' > "$DC_CLAUDE_HOME/jobs/$J2/state.json"
+# A claude agents listing that reads and shows neither job, so feat-2's done
+# state file decides. Without a stand-in the host's own claude answers, and
+# where there is none the listing can't be read and feat-2 can't be told
+# finished.
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$T/claude-cli"
+chmod +x "$T/claude-cli"
+export DC_CLAUDE_CLI="$T/claude-cli"
 
 # feat-1's instance holds its running koto session.
 cat > "$T/worker.md" <<'TPL'

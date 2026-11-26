@@ -66,15 +66,17 @@
 # the two (parents `impl_base` and that merge-base, a fixed author and date), so
 # what the merge brought in is neither listed nor counted. A merge that
 # conflicts, or that git can't build (`merge-tree --write-tree` needs git 2.38),
-# keeps `impl_base`. review-level.sh's facts fold the same merge into the same
-# base.
+# keeps `impl_base`. The fold is scripts/lib/default-merge.sh's
+# fold_default_merge, which review-level.sh, panel-scope.sh and review-packet.sh
+# source too, so all of them fold the same merge into the same base.
 #
 # When `impl_base` is unset -- the `analysis` action failed and the base was
 # never recorded by hand, which analysis's fallback asks for because
 # has-commits.sh fails the docs and scrutiny routes without it -- the base
-# here is `git merge-base HEAD origin/<default-branch>`, where
-# the default branch is what `origin/HEAD` names, or `main` when origin names
-# none. With no usable origin ref at all it falls back to `git merge-base HEAD
+# here is the library's default_merge_base: `git merge-base HEAD
+# origin/<default-branch>`, where the default branch is what `origin/HEAD`
+# names, or `main` when origin names none. With no usable origin ref, or one
+# that shares no history with HEAD, it falls back to `git merge-base HEAD
 # main`. A shared branch loses its sibling filtering on this path; the file
 # still records which base it used.
 #
@@ -154,11 +156,13 @@ git rev-parse --git-dir >/dev/null || die 64 "not inside a git repository"
 
 # ---------------------------------------------------------------- --base ------
 
-# default_merge_base: prints the merge-base of HEAD with origin's default
-# branch, as default-remote-ref.sh names it. Returns 1 with nothing on stdout
+# origin_merge_base: prints the merge-base of HEAD with origin's default
+# branch, as default-remote-ref.sh names it. Unlike the default-merge library's
+# default_merge_base it never falls back to local main: impl_base is recorded
+# only from origin's branch. Returns 1 with nothing on stdout
 # when the library doesn't load, origin has no such ref, or HEAD shares no
 # history with it; git's own diagnostics stay on stderr.
-default_merge_base() {
+origin_merge_base() {
     local lib ref
     lib="$(cd "$(dirname "$0")" && pwd)/../../../scripts/lib/default-remote-ref.sh"
     # shellcheck source=../../../scripts/lib/default-remote-ref.sh
@@ -184,7 +188,7 @@ if [ "$MODE" = "--base" ]; then
     # branch left the default branch, so commits made before analysis count.
     if [ "$SHARED_FLAG" -eq 1 ] && [ -z "$SHARED_BRANCH" ] \
         && ! koto context exists "$SESSION" fix_round.json; then
-        if merge_base=$(default_merge_base) && [ -n "$merge_base" ]; then
+        if merge_base=$(origin_merge_base) && [ -n "$merge_base" ]; then
             base="$merge_base"
         fi
     fi
@@ -219,36 +223,20 @@ if [ -n "$stored" ]; then
     fi
 fi
 
-# origin's default branch: what origin/HEAD points at, else origin/main; with
-# neither, or no shared history with it, local main.
-DEFAULT_BASE=""
-default_ref=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
-if [ -z "$default_ref" ] && git rev-parse --verify -q "refs/remotes/origin/main^{commit}" >/dev/null; then
-    default_ref=origin/main
-fi
-if [ -n "$default_ref" ]; then
-    DEFAULT_BASE=$(git merge-base HEAD "$default_ref")
-fi
-if [ -z "$DEFAULT_BASE" ] && git rev-parse --verify -q "refs/heads/main^{commit}" >/dev/null; then
-    DEFAULT_BASE=$(git merge-base HEAD main)
-fi
-
+# The default branch's merge-base and the fold come from the default-merge
+# library: what origin/HEAD points at, else origin/main; with neither, or no
+# shared history with it, local main.
+# shellcheck source=../../../scripts/lib/default-merge.sh
+. "$(cd "$(dirname "$0")" && pwd)/../../../scripts/lib/default-merge.sh" \
+    || no_base "cannot load scripts/lib/default-merge.sh"
 if [ -z "$BASE" ]; then
-    BASE="$DEFAULT_BASE"
-elif [ -n "$DEFAULT_BASE" ] && ! git merge-base --is-ancestor "$DEFAULT_BASE" "$BASE" \
-    && ! git merge-base --is-ancestor HEAD "$DEFAULT_BASE"; then
-    # The default branch was merged in after impl_base. The base becomes the
-    # clean merge of the two, so what that merge brought in isn't listed; a
-    # merge that conflicts, or that git can't build, keeps impl_base.
-    if tree=$(git merge-tree --write-tree "$BASE" "$DEFAULT_BASE") \
-        && merged=$(GIT_AUTHOR_NAME=work-on GIT_AUTHOR_EMAIL=work-on@localhost \
-            GIT_AUTHOR_DATE='2000-01-01T00:00:00+0000' GIT_COMMITTER_NAME=work-on \
-            GIT_COMMITTER_EMAIL=work-on@localhost GIT_COMMITTER_DATE='2000-01-01T00:00:00+0000' \
-            git commit-tree --no-gpg-sign "$tree" -p "$BASE" -p "$DEFAULT_BASE" \
-            -m "impl_base with the default branch merged in" </dev/null) \
-        && [ -n "$merged" ]; then
-        BASE="$merged"
-    fi
+    BASE=$(default_merge_base)
+else
+    # A merge of the default branch after impl_base: the base becomes the clean
+    # merge of the two, so what that merge brought in isn't listed; a merge
+    # that conflicts, or that git can't build, keeps impl_base.
+    fold_default_merge "$BASE"
+    BASE="$FOLDED_BASE"
 fi
 [ -n "$BASE" ] || no_base "no base resolves: impl_base is unset and HEAD shares no history with origin's default branch or local main"
 

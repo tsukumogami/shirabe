@@ -67,7 +67,10 @@ summary: name the koto session, branch, pull request, note key and each
 `SessionStart` hook JSON whose `additionalContext` says to re-read each
 `SKILL.md`, run `koto status` on the koto session, then read the note with
 `handoff-brief.sh read --note --session <koto session>`, which prints it as
-data (see [Reading the note back](#reading-the-note-back)).
+data (see [Reading the note back](#reading-the-note-back)). Both judge the
+note's freshness (see [The stale flag](#the-stale-flag)); the re-anchor opens
+with its verdict whichever it is, so a compacted session hears it even when
+the summary dropped pre-compact's line.
 
 Both read only `session_id` from the hook input on stdin. A session id that
 fails its grammar, or an input that isn't JSON, gets exit 0 and no output,
@@ -133,46 +136,66 @@ worktree (`koto workflows` lists the sessions there), and read the note with
 `handoff-brief.sh read --note --session <koto session>`. A usable entry whose
 re-anchor block would reach 10,000 characters gets the same steps rather than
 a cut block, behind a first line saying its ledger entry is recorded but too
-long to show, instead of saying no note is recorded. Both outputs stay under
-10,000 characters.
+long to show, instead of saying no note is recorded; that one still carries
+the freshness verdict, and the rewrite step when there is one. Both outputs
+stay under 10,000 characters.
 
 ### The stale flag
 
-`pre-compact` judges the note stale when the work moved on after the note's
-last write, and then adds one line: the note is stale, and rewriting it is the
-first step after the compaction. It has two inputs.
+Both hooks judge the note stale when the work moved on after the note's last
+write. `pre-compact` then adds one line to the summary instruction: the note
+is stale, and rewriting it is the first step after the compaction.
+`re-anchor` opens with one of three verdicts: the note is fresh (nothing in
+the koto session or on the branch came after its last write), stale (it is
+behind the work), or its freshness could not be checked. A stale note also
+gets a step right after the one that reads it: rewrite the note with
+`handoff-brief.sh note`, from where koto says the run stands, before any other
+work. A note whose freshness is unknown gets a step to rewrite it first if
+koto shows the run past it. A fresh note gets no extra step. The judgment has
+two inputs.
 
-- **The koto session.** koto prints no session-wide latest event seq (neither
-  `koto status` nor `koto session list` carries one), so the hook reads it
-  through koto's own CLI, none of whose verbs used here logs a read. `koto
-  context history <session> compaction/note.md` gives the note's last write:
-  its seq, timestamp and the state the run was in. `koto status <session>`
-  gives the run's current state; a different one means a transition came
-  after the note. `koto context list <session>`, then `koto context history`
-  for each other key, gives each key's latest write seq; one above the note's
-  means a key was written after it. Reads are logged by koto but don't count:
-  only writes and state changes move the work on. A transition that returns
-  to the note's own state, with no key written, isn't seen.
+- **The koto session.** koto's CLI prints no session-wide latest event seq
+  (neither `koto status` nor `koto session list` carries one), so the hooks
+  read it through calls that log no read. `koto context history <session>
+  compaction/note.md` gives the note's last write: its seq, timestamp and the
+  state the run was in. `koto status <session>` gives the run's current
+  state; a different one means a transition came after the note. The run's
+  event log, `koto-<session>.state.jsonl` in the directory `koto session dir
+  <session>` prints, gives every event's seq and type: any event with a seq
+  above the note's that moved the work on marks the note stale, so evidence,
+  a decision, an override, or a transition back to the note's own state is
+  seen even with no key written. A read (`context_read`), an import
+  (`session_imported`) and a key a cloud sync copied in (`context_added` by
+  writer `sync`) don't count. The log is opened without following a link and
+  must be a regular file; only its last mebibyte is read. `koto context list
+  <session>`, then `koto context history` for each other key, gives each
+  key's latest write seq; one above the note's means a key was written after
+  it.
 - **The branch.** The commit time of the tip of `refs/heads/<branch>`, the
   entry's branch (`git log -1 --no-show-signature --format=%ct`), run with
   `git -C` in the entry's `repo` when the hook accepts it, else in the hook's
   working directory's repository. A commit time later than the note's write,
   in whole seconds, marks the note stale.
 
-Rewriting the note puts its last write after every other key's and after the
-commit, which clears the line.
+Rewriting the note puts its last write after every other key's, every event
+and the commit, which clears the line.
 
 When freshness can't be read, the summary instruction is printed whole and
 gets a different line instead of the stale one: whether the note is current
 could not be checked, so after the compaction the session reads the note and
-rewrites it first if it is behind the work. That happens when koto or git
-can't be run, the note has no write history, any koto answer can't be read or
-parsed, the entry's branch isn't in the repository read (the entry's `repo`,
-or the working directory's when that is refused or absent), a key
-name falls outside koto's key grammar, or the session holds more than 256
-keys. Each koto or git call is killed after 5 seconds and the whole read after
-20. A stale finding wins over an unreadable one: if any input shows the note
-stale, the stale line is printed.
+rewrites it first if it is behind the work. The re-anchor says the same and
+never calls such a note fresh. That happens when koto or git can't be run,
+the note has no write history, any koto answer can't be read or parsed, the
+session directory koto prints isn't an absolute path or holds a control
+character, the event log is missing, a link, not a regular file or holds no
+event, the log's last mebibyte starts past the event right after the note's
+write (so what came between isn't in it), the entry's branch isn't in the
+repository read (the entry's `repo`, or the working directory's when that is
+refused or absent), a key name falls outside koto's key grammar, or the
+session holds more than 256 keys. Each koto or git call is killed after 5
+seconds and the whole read after 20, in each hook. A stale finding wins over
+an unreadable one: if any input shows the note stale, the note is reported
+stale.
 
 ## Reading the note back
 

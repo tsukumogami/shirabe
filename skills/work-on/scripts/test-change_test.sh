@@ -1273,6 +1273,97 @@ eq "an over-cap overrule writes no ledger line" "$LINES_BEFORE" "$(ledger "$S" |
 run status "$S"
 eq "after the refused overrule the unit is still counted" 0 "$RC"
 
+# --- a read-back that can't run (#2034) ------------------------------------------------
+# A ledger write is an add, then a get of what was added, then a cmp. A get that
+# fails after an add that landed is "written, not confirmed", not "not written":
+# the write is never repeated (the ledger is append-only), the get alone is
+# retried, and nothing exits 0 without a get that ran and matched.
+# FLAKY_ADD: land (the add writes, then exits 1, as a failed cloud push does),
+# refuse (the add writes nothing and exits 1) or garble (the add writes
+# something else). FLAKY_GET_FAILS: how many ledger gets fail once an add ran.
+echo "--- a read-back that can't run"
+FLAKY="$W/flaky"
+mkdir -p "$FLAKY/bin"
+cat > "$FLAKY/bin/koto" <<EOF
+#!/usr/bin/env bash
+if [ "\${1-}" = context ] && [ "\${4-}" = test_change_ledger.jsonl ]; then
+    case "\$2" in
+        add)
+            echo add >> "$FLAKY/adds"
+            : > "$FLAKY/added"
+            case "\${FLAKY_ADD-}" in
+                refuse) cat > /dev/null; echo "flaky: add failed" >&2; exit 1 ;;
+                land) "$BIN/koto" "\$@"; echo "flaky: cloud push failed" >&2; exit 1 ;;
+                garble) printf 'garbled\n' | "$BIN/koto" "\$@"; exit \$? ;;
+                stale) cat > /dev/null; exit 0 ;;
+            esac ;;
+        get)
+            if [ -e "$FLAKY/added" ]; then
+                n=\$(cat "$FLAKY/gets" 2>/dev/null || echo 0)
+                echo \$((n + 1)) > "$FLAKY/gets"
+                if [ "\$n" -lt "\${FLAKY_GET_FAILS:-0}" ]; then
+                    echo "flaky: listing failed: Got HTTP 500" >&2
+                    exit 1
+                fi
+            fi ;;
+    esac
+fi
+exec "$BIN/koto" "\$@"
+EOF
+chmod +x "$FLAKY/bin/koto"
+# flaky <add> <get-fails> <subcommand> <arg>...: run under the flaky koto.
+flaky() {
+    rm -f "$FLAKY/adds" "$FLAKY/added" "$FLAKY/gets"
+    fa=$1 fg=$2
+    shift 2
+    OUT=$(cd "$R" && PATH="$FLAKY/bin:$BIN:$PATH" FLAKY_ADD="$fa" FLAKY_GET_FAILS="$fg" \
+        TEST_CHANGE_READBACK_DELAY=0 bash "$SCRIPT" "$@" 2>"$W/err")
+    RC=$?
+}
+adds() { wc -l < "$FLAKY/adds" 2>/dev/null | tr -d ' '; }
+notes() { ledger "$1" | jq -s --arg r "$2" '[.[] | select(.event == "note" and .reason == $r)] | length'; }
+
+S=rback
+start "$S"
+flaky "" 1 note "$S" --file tests/greet_test.sh --reason "get fails once"
+eq "a read-back that fails once and then runs records the note: exit 0" 0 "$RC"
+eq "the note is in the ledger once" 1 "$(notes "$S" "get fails once")"
+eq "the write ran once" 1 "$(adds)"
+
+flaky "" 99 note "$S" --file tests/greet_test.sh --reason "get never runs"
+eq "a landed write whose read-back never runs is not reported as not written: exit 67" 67 "$RC"
+has "a landed write whose read-back never runs says written, not confirmed" "written, not confirmed" "$(cat "$W/err")"
+hasnt "a landed write whose read-back never runs doesn't say could not write" "could not write" "$(cat "$W/err")"
+has "the message says not to repeat the write" "do not run it again" "$(cat "$W/err")"
+eq "the write was not repeated" 1 "$(adds)"
+eq "the landed note is in the ledger once" 1 "$(notes "$S" "get never runs")"
+
+flaky refuse 0 note "$S" --file tests/greet_test.sh --reason "add refused"
+eq "a write that didn't land and read back unchanged exits 66" 66 "$RC"
+has "a write that didn't land says could not write" "could not write" "$(cat "$W/err")"
+eq "the refused note is not in the ledger" 0 "$(notes "$S" "add refused")"
+
+flaky land 0 note "$S" --file tests/greet_test.sh --reason "add failed but landed"
+eq "an add that failed after landing, read back as written, records the note: exit 0" 0 "$RC"
+has "it warns that the add reported a failure" "reported a failure" "$(cat "$W/err")"
+eq "that note is in the ledger once" 1 "$(notes "$S" "add failed but landed")"
+
+flaky refuse 99 note "$S" --file tests/greet_test.sh --reason "add failed, get never runs"
+eq "a failed add whose read-back never runs is unknown, not not written: exit 67" 67 "$RC"
+has "it says the write may have landed" "may have been written" "$(cat "$W/err")"
+
+# stale: the add exits 0 but every read-back still serves the prior ledger, as
+# a copy older than the write would. That's not confirmed, not "not written".
+flaky stale 0 note "$S" --file tests/greet_test.sh --reason "stale read"
+eq "an add that exited 0 but reads back as the prior ledger is not reported as not written: exit 67" 67 "$RC"
+has "it says the write is not confirmed" "not confirmed" "$(cat "$W/err")"
+hasnt "it doesn't say could not write" "could not write" "$(cat "$W/err")"
+eq "the write was not repeated after the stale read" 1 "$(adds)"
+
+flaky garble 0 note "$S" --file tests/greet_test.sh --reason "garbled"
+eq "a read-back that runs and differs exits 66" 66 "$RC"
+has "it says the ledger didn't read back as written" "didn't read back as written" "$(cat "$W/err")"
+
 echo
 echo "test-change: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

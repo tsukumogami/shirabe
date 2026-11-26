@@ -350,13 +350,18 @@ eq "  ... and read back through the seam" "merge on green|merge" \
     "$(reader_state | jq -r '"\(.reversals[0].reversed)|\(.side_effects[0].action)"')"
 reader_state > "$T/cur.json"
 jq -c '.holds = [{hold: "after-release", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-29T20:30Z", lifted: ""}]' "$T/cur.json" > "$T/hold.json"
-# A write part way through, left by a crash: the reader re-reads, then refuses.
-# The mark is read into a file before it is written back: in one pipeline the
-# write could truncate the key before the read had it.
+# A write part way through, its writer holding the record's write lock: the
+# reader re-reads, then refuses. The mark is read into a file before it is
+# written back: in one pipeline the write could truncate the key before the
+# read had it.
 koto context get "$SR" record/meta > "$T/meta.json"
 jq -c '.pending = true' "$T/meta.json" | koto context add "$SR" record/meta
-RS_RETRY_PAUSE=0 bash "$WR" "${RM[@]}" --state-file "$T/hold.json" >/dev/null 2>"$T/err"; rc=$?
-eq "a record left marked pending is record-changed to a writer" 12 "$rc"
+LOCK="$(koto session dir "$SR")/record-write.lock"
+mkdir -p "${LOCK%/*}" && printf '%s %s\n' "$$" "$(date +%s)" > "$LOCK"
+RS_RETRY_PAUSE=0 CORE_LOCK_WAIT=0 bash "$WR" "${RM[@]}" --state-file "$T/hold.json" >/dev/null 2>"$T/err"; rc=$?
+eq "a record marked pending by a writer holding the lock is record-changed to a writer" 12 "$rc"
+eq "  ... and the lock is still the other writer's" "$$" "$(cut -d' ' -f1 "$LOCK")"
+rm -f "$LOCK"
 jq -c '.pending = false' "$T/meta.json" | koto context add "$SR" record/meta
 # The legacy store session row an existing session holds stays through a write.
 seed_session "$SR" "$(printf '%s' "$OLDJ" | jq -c '.run = [{key: "store", value: "session", set_by: "the invocation (--store session)", set: "2026-09-26T08:00Z"}]')"

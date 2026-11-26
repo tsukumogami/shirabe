@@ -893,6 +893,19 @@ expect_rc "facts on a shared branch after a merge of main" 0
 [ "$(fact '.base')" != "\"$BASE\"" ] && (cd "$FX/repo" && git merge-base --is-ancestor "$MAIN_TIP" "$(jq -r .base "$(store review_facts.json)")") \
     && pass "the measured base contains the merged-in main" || fail "base is $(fact .base)"
 
+# An origin/main that shares no history with HEAD: the default branch falls
+# back to local main, as scripts/lib/default-merge.sh decides, so the merge of
+# main is folded here too (#1715).
+merged_main merged-orphan-origin feat/plan
+(cd "$FX/repo" && git update-ref refs/remotes/origin/main \
+    "$(git commit-tree -m orphan "$(git hash-object -t tree -w /dev/null)")") >/dev/null 2>&1 \
+    || fail "setup: orphan origin/main"
+run facts "$SESSION" standard --shared-branch feat/plan
+expect_rc "facts with an origin/main that shares no history" 0
+[ "$(fact '.bases.merged_default')" = "\"$MAIN_TIP\"" ] && [ "$(fact '.lines')" = "20" ] \
+    && pass "an origin/main with no shared history falls back to local main and folds its merge" \
+    || fail "an origin/main with no shared history folds nothing while the other two fold: facts are $(fact '{lines, files, bases}')"
+
 # Off a shared branch the same merge: neither candidate counts main's lines.
 merged_main merged-off work
 run facts "$SESSION" standard

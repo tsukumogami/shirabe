@@ -374,16 +374,25 @@ else
 # $KOTO_STUB_STORE, keys are files under <session>/ctx. Each session counts
 # its events in <session>/seq, and each key write is a line of
 # <session>/writes (seq, timestamp, key, state), which `context history`
-# prints as koto does.
+# prints as koto does. Each event is also a line of the session's event log,
+# <session>/koto-<session>.state.jsonl, in the directory `session dir`
+# prints, which the compaction hooks read.
 S="$KOTO_STUB_STORE"
-bump() { n=$(cat "$S/$1/seq" 2>/dev/null) || n=0; n=$((n + 1)); echo "$n" >"$S/$1/seq"; }
+bump() {
+    n=$(cat "$S/$1/seq" 2>/dev/null) || n=0; n=$((n + 1)); echo "$n" >"$S/$1/seq"
+    printf '{"seq":%s,"timestamp":"%s","type":"%s","payload":{}}\n' "$n" "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$2" \
+        >>"$S/$1/koto-$1.state.jsonl"
+}
 case "$1" in
     init)
         [ -d "$S/$2" ] && { echo "{\"error\":\"workflow '$2' already exists\"}"; exit 1; }
-        mkdir -p "$S/$2/ctx" && echo open >"$S/$2/state" && bump "$2" && echo "{\"name\":\"$2\",\"state\":\"open\"}" ;;
+        mkdir -p "$S/$2/ctx" && echo open >"$S/$2/state" && bump "$2" workflow_initialized && echo "{\"name\":\"$2\",\"state\":\"open\"}" ;;
+    session)
+        [ "$2" = dir ] && [ -d "$S/$3" ] || exit 2
+        printf '%s\n' "$S/$3" ;;
     next)
         [ -d "$S/$2" ] || exit 2
-        case "$*" in *'"close":"done"'*) echo done >"$S/$2/state"; bump "$2" ;; esac
+        case "$*" in *'"close":"done"'*) echo done >"$S/$2/state"; bump "$2" transitioned ;; esac
         echo '{"action":"evidence_required"}' ;;
     status)
         [ -d "$S/$2" ] || { echo "{\"error\":\"workflow '$2' not found\"}"; exit 2; }
@@ -401,7 +410,7 @@ case "$1" in
                 [ "$n" -le 1048576 ] || { echo '{"error":"value over 1 MiB"}'; exit 1; }
                 mkdir -p "$(dirname "$S/$s/ctx/$k")"
                 cat "$src" >"$S/$s/ctx/$k"
-                bump "$s"
+                bump "$s" context_added
                 printf '%s\t%s\t%s\t%s\n' "$(cat "$S/$s/seq")" "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$k" "$(cat "$S/$s/state")" >>"$S/$s/writes"
                 # A later store failure: after this key, a directory goes read-only.
                 case "${KOTO_STUB_RO_AFTER-}" in "$k:"*) chmod 555 "${KOTO_STUB_RO_AFTER#*:}" ;; esac ;;

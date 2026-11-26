@@ -167,6 +167,9 @@ REASON_MAX=200
 # shellcheck source=../../../scripts/lib/test-classify.sh
 . "$PLUGIN_ROOT_SELF/scripts/lib/test-classify.sh" \
     || { echo "review-level: cannot load scripts/lib/test-classify.sh" >&2; exit 64; }
+# shellcheck source=../../../scripts/lib/default-merge.sh
+. "$PLUGIN_ROOT_SELF/scripts/lib/default-merge.sh" \
+    || { echo "review-level: cannot load scripts/lib/default-merge.sh" >&2; exit 64; }
 
 WORK=$(mktemp -d) || { echo "review-level: could not create a temporary directory" >&2; exit 66; }
 trap 'rm -rf "$WORK"' EXIT
@@ -601,55 +604,6 @@ stored_base() {
     [ -n "$stored" ] && git rev-parse --verify -q "${stored}^{commit}"
 }
 
-# default_merge_base: prints the merge-base of HEAD with the default branch
-# (origin/HEAD's branch, else origin/main, else main). 1 when there is no such
-# branch or no shared history.
-default_merge_base() {
-    local ref=""
-    ref=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
-    if [ -z "$ref" ] && git rev-parse --verify -q "refs/remotes/origin/main^{commit}" >/dev/null; then
-        ref=origin/main
-    fi
-    if [ -z "$ref" ] && git rev-parse --verify -q "refs/heads/main^{commit}" >/dev/null; then
-        ref=main
-    fi
-    [ -n "$ref" ] && git merge-base HEAD "$ref"
-}
-
-# step_base <impl_base> <default merge-base>: sets STEP_BASE to the commit the
-# step is measured from, and MERGED_DEFAULT to the default-branch commit folded
-# into it, or "". When the default branch's merge-base with HEAD is already in
-# impl_base, or there is none, nothing of the default branch came in after
-# impl_base and STEP_BASE is impl_base itself. So it is when HEAD is itself in
-# the default branch (the merge-base is HEAD): the work was committed there,
-# and folding it in would hide it. Otherwise the default branch was
-# merged in after impl_base, and STEP_BASE is a commit whose tree is the clean
-# merge of the two (parents impl_base and the merge-base, a fixed author and
-# date, so the same inputs give the same commit), so the lines, files and
-# classes that merge brought in aren't the step's. A merge that conflicts, or
-# that git can't build (merge-tree --write-tree needs git 2.38), leaves
-# STEP_BASE at impl_base, which counts what the merge brought in: never less
-# than the step's own change.
-STEP_BASE=""
-MERGED_DEFAULT=""
-step_base() {
-    local tree commit
-    STEP_BASE="$1"
-    MERGED_DEFAULT=""
-    [ -n "$2" ] || return 0
-    git merge-base --is-ancestor "$2" "$1" && return 0
-    git merge-base --is-ancestor HEAD "$2" && return 0
-    tree=$(git merge-tree --write-tree "$1" "$2") || return 0
-    commit=$(GIT_AUTHOR_NAME=work-on GIT_AUTHOR_EMAIL=work-on@localhost \
-        GIT_AUTHOR_DATE='2000-01-01T00:00:00+0000' GIT_COMMITTER_NAME=work-on \
-        GIT_COMMITTER_EMAIL=work-on@localhost GIT_COMMITTER_DATE='2000-01-01T00:00:00+0000' \
-        git commit-tree --no-gpg-sign "$tree" -p "$1" -p "$2" \
-        -m "impl_base with the default branch merged in" </dev/null) || return 0
-    [ -n "$commit" ] || return 0
-    STEP_BASE="$commit"
-    MERGED_DEFAULT="$2"
-}
-
 # measure <base> <tag>: diffs <base>..HEAD, writes every changed path (both
 # sides of a rename) NUL-separated to $WORK/paths.<tag>, and sets M_LINES and
 # M_FILES. numstat -z: "<add>\t<del>\t<path>\0", or for a rename
@@ -753,8 +707,9 @@ cmd_facts() {
     # but falls back to the merge-base; a floor must not.)
     #
     # Either way, a merge of the default branch after impl_base is not the
-    # step's change: the impl_base candidate is measured from step_base, which
-    # folds what the merge brought in into the base.
+    # step's change: the impl_base candidate is measured from
+    # fold_default_merge's base (scripts/lib/default-merge.sh), which folds
+    # what the merge brought in into the base.
     local ibase="" mbase="" dbase="" base="" source="" lines=0 files=0
     ctx_get "$s" impl_base "$WORK/impl_base" || die 66 "could not read impl_base"
     ibase=$(stored_base "$WORK/impl_base") || ibase=""
@@ -767,9 +722,9 @@ cmd_facts() {
     [ -n "$ibase" ] || [ -n "$mbase" ] \
         || die 64 "no base resolves: impl_base is unset and HEAD shares no history with origin's default branch or main"
     if [ -n "$ibase" ]; then
-        step_base "$ibase" "$dbase"
-        measure "$STEP_BASE" impl || die 64 "git diff $STEP_BASE HEAD failed"
-        base="$STEP_BASE"; source=impl_base; lines="$M_LINES"; files="$M_FILES"
+        fold_default_merge "$ibase"
+        measure "$FOLDED_BASE" impl || die 64 "git diff $FOLDED_BASE HEAD failed"
+        base="$FOLDED_BASE"; source=impl_base; lines="$M_LINES"; files="$M_FILES"
         cp "$WORK/paths.impl" "$WORK/paths"
     fi
     if [ -n "$mbase" ] && [ "$mbase" != "$ibase" ]; then
@@ -898,7 +853,7 @@ cmd_facts() {
         --argjson unclassified "$unclassified" \
         --arg floor "$floor" --arg rule "$rule" --arg head "$head" --arg base "$base" \
         --arg base_source "$source" --arg impl_base "$ibase" --arg merge_base "$mbase" \
-        --arg shared_branch "$shared" --arg merged_default "$MERGED_DEFAULT" \
+        --arg shared_branch "$shared" --arg merged_default "$FOLDED_DEFAULT" \
         --rawfile classes "$WORK/classes" --rawfile fired "$WORK/fired" '
         {lines: $lines, files: $files,
          classes: ($classes | split("\n") | map(select(length > 0))),

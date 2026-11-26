@@ -307,12 +307,13 @@ All must pass before proceeding:
       already holds:
 
       ```bash
-      env | grep -o '^RELEASE_CONFIRMED_[A-Za-z0-9_]*='
+      env | cut -d= -f1 | grep -x 'RELEASE_CONFIRMED_[A-Za-z0-9_]*'
       ```
 
-      Each `NAME=` it prints goes on every check's command line beside
-      `RELEASE_CONFIRMED_DROPS=`, so no confirmation set in advance reaches a
-      check.
+      It prints names only, never values, so an environment-print guard lets
+      it run. Each `NAME` it prints goes on every check's command line as
+      `NAME=`, beside `RELEASE_CONFIRMED_DROPS=`, so no confirmation set in
+      advance reaches a check.
 
       | Variable | Value |
       |----------|-------|
@@ -327,7 +328,7 @@ All must pass before proceeding:
       RELEASE_VERSION=0.3.0 RELEASE_LAST_TAG=v0.2.0 RELEASE_DRY_RUN=0 RELEASE_CONFIRMED_DROPS= scripts/example-check.sh --flag
       ```
 
-      And when the listing printed `RELEASE_CONFIRMED_SKIPS=`:
+      And when the listing printed `RELEASE_CONFIRMED_SKIPS`:
 
       ```bash
       RELEASE_VERSION=0.3.0 RELEASE_LAST_TAG=v0.2.0 RELEASE_DRY_RUN=0 RELEASE_CONFIRMED_DROPS= RELEASE_CONFIRMED_SKIPS= scripts/example-check.sh --flag

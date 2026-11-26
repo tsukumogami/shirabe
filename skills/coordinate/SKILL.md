@@ -1394,10 +1394,12 @@ milestone roadmap ends is left to the roadmap's own lifecycle.
   topic: the dispatch script refuses a topic whose session is still live. A
   worker on the message path that went quiet past the second silence, whose
   unit you choose to dispatch again, is marked stranded first
-  (`state-holding.sh --strand <topic>`, refused for a leg-bound worker); the
-  new topic's brief names the old branch and last pushed head, and the
-  stranded row is retired once the new worker is dispatched, so a late report
-  from the old topic matches no holding. A `dispatch-failed` row whose unit has
+  (`state-holding.sh --strand <topic>`, refused for a leg-bound worker), and
+  the new brief input names it in `continues`: the new topic's brief names
+  that holding's branch and last pushed head, and only its row is retired
+  once the new worker is dispatched, so a late report from the old topic
+  matches no holding. A dispatch without `continues` takes no stranded row,
+  even one on the same unit. A `dispatch-failed` row whose unit has
   moved on, such as one carried into a continued run, is retired the same way
   (`state-holding.sh --topic <topic> --retire`), which refuses while niwa lists
   a session or an unfinished Claude job carries the topic and leaves an entry
