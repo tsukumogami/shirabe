@@ -28,16 +28,16 @@ Absorbed [BRIEF-decision-escalation-ladder](docs/briefs/BRIEF-decision-escalatio
 
 ## Absorbed Brief
 
-The feature exists because of a paragraph its author kept typing. Coordinators
-would report sessions blocked on them, and the author would answer: have the
-session that owns the problem decide first, answer what you can yourself, and
-bring me only the rest, with context, the problem, the question, a
-recommendation and reasoned alternatives. It worked each time and lapsed
-within hours, because it lived in a session's memory. The brief framed the
-problem as that and its consequences: questions arrive unexamined or
-misaddressed, a question that reaches the person has no durable home, nothing
-lists what is waiting on them, and an answer given once is not reused. This
-document's Problem Statement states that in full.
+The brief framed the problem as an instruction with nowhere durable to live.
+The rule is simple to state: the session that owns a problem decides first, a
+coordinator answers what it can itself, and only the rest reaches the person,
+with context, the problem, the question, a recommendation and reasoned
+alternatives. Given to a session as an instruction, the rule holds for a while
+and then lapses, because it lives in that session's memory. The consequences
+follow from that: questions arrive unexamined or misaddressed, a question that
+reaches the person has no durable home, nothing lists what is waiting on them,
+and an answer given once is not reused. This document's Problem Statement
+states that in full.
 
 The outcome it asked for is a person who can open a session at any level of a
 reporting chain, see what is waiting on them, answer in the terminal with
@@ -745,8 +745,8 @@ that record or list must show.
 
 **Agents settle unless a case is reserved.** Alternatives were settling only
 what facts decide clearly, and settling everything except reserved steps with
-review afterward. The author chose the middle: experience applying the rule by
-hand was that most questions reaching the person only needed a recommendation
+review afterward. R2 takes the middle: experience applying the rule by hand
+was that most questions reaching the person only needed a recommendation
 confirmed. This drops two of today's reasons for sending a question up,
 "outside scope" as a category of its own (a scope change is reserved; a
 question merely outside the brief is the coordinator's) and "extends an answer
@@ -755,12 +755,12 @@ not).
 
 **Unattended contested calls split by cost to reverse.** Always passing up
 would queue many small questions; always assuming lets a large assumption be
-built on unseen. The author chose to decide cheap ones provisionally and raise
-costly ones.
+built on unseen. R8 takes neither extreme: cheap ones are decided
+provisionally and costly ones are raised.
 
 **Everything pending, four at a time, by impact.** One at a time, the current
-coordinator rule, takes many round trips for a long list. The author asked for
-everything blocked on them. Impact is the count of work items recorded as
+coordinator rule, takes many round trips for a long list. R19 requires
+everything pending for the person to be presented. Impact is the count of work items recorded as
 waiting, so the order is a fact and not an estimate.
 
 **Needs share the record.** Keeping needs apart, as today, gives the person
@@ -768,7 +768,7 @@ two places to look for what is waiting on them.
 
 **"Open" is the engine's to answer.** A convention each reader applies to
 write-once entries would ship sooner, but every reader would have to apply the
-same rule and the join is slow on a large store. The author chose a
+same rule and the join is slow on a large store. R14 therefore requires a
 first-class read. This means the engine's own requirements, which declare its
 decision kinds and fields closed, change.
 
@@ -778,7 +778,7 @@ wording in conversation was rejected for its per-turn cost and false
 positives.
 
 **One question, no copies.** Today a coordinator re-words and re-opens a
-question at each level. The author asked for no bureaucracy: a question keeps
+question at each level. R10 removes that overhead: a question keeps
 one identity, passing up changes who it waits on, and the person's answer
 anywhere closes it. This PRD requires the identity and the single read and
 leaves where entries are stored to the design.
@@ -789,7 +789,9 @@ overturned; the person can answer again.
 **The top coordinator is the preferred place to answer.** Answering a worker
 is a shortcut for speed. R24 exists so the shortcut costs the chain nothing.
 
-**Dogfooding is an acceptance criterion.** The author required it. One chain
+**Dogfooding is an acceptance criterion.** R34 makes it one, because the
+criteria marked (observed) depend on an agent's judgment, which no test in
+the repository exercises. One chain
 with two coordinators plus a solo worker was chosen over a week on every
 coordinator, which ties done to calendar time, and over one lane, which never
 exercises three levels.
@@ -798,35 +800,36 @@ exercises three levels.
 link is repaired would strand the question. Addressing the person and marking
 it keeps the question visible.
 
-**Coordinators outside a workflow session get one command.** Coordinators in
-use today carry their rules as brief text and run in no workflow session, so
+**Coordinators outside a workflow session get one command.** Some
+coordinators carry their rules as brief text and run in no workflow session, so
 nothing can prompt them when a question appears. Leaving them out would change
 nothing for them; requiring a workflow session would turn this feature into a
-migration. The author chose a command that runs the procedure on demand in any
-session.
+migration. R20a takes a third course: a command that runs the procedure on
+demand in any session.
 
 **A need goes straight to whoever can meet it.** Routing a credential request
 through coordinators that cannot supply it is a relay with no purpose. The
 coordinators still see it when they read what is open below them.
 
 **The owner is named `owner`, and only an answered prompt makes a record
-theirs.** Records named the owner in four free-text spellings, and nothing
-had ever recorded the owner as a decider. A full structured decision, with
-research into transcripts and live coordinators, found that every false
-attribution of the owner's word was typed text or a relay turned into a rule
-for other sessions, and none was an answer to a question the owner had been
-asked. Alternatives were letting any session record the owner with no
+theirs.** A free-text field admits any spelling of the owner, and a read
+that matches a handle exactly needs one. The failure R21b to R21d guard
+against is a false attribution of the owner's word: typed text or a relay
+turned into a rule for other sessions. Neither is an answer to a question
+the owner was asked, so neither can produce an answered prompt.
+Alternatives were letting any session record the owner with no
 evidence, and letting only the top coordinator record the owner, which made
 the owner answer twice. The standing mark exists because a session writes a
 prompt's wording: a rule exists only where the owner chose an option that
-says it is one. The author set how the evidence is trusted: the engine
+says it is one. R21b fixes how the evidence is trusted: the engine
 verifies it once when the answer is recorded, everything afterward trusts
-that, and what agents judge is the content of what the owner said. This replaces, with the author's ruling, the rule in a
+that, and what agents judge is the content of what the owner said. This
+replaces, because R21 allows no ratifying step, the rule in a
 planned design that a rule is the owner's only when entered at the top
 coordinator.
 
-**Solicited prompts stay as they are.** A skill asking its author to confirm
-a step in a turn the author started is not a question under this record, and
+**Solicited prompts stay as they are.** A skill asking the person running it
+to confirm a step in a turn that person started is not a question under this record, and
 R27 leaves it alone. Applying the guard to every prompt would break existing
 skills for everyone using the plugin.
 
@@ -851,7 +854,7 @@ workflow states and values as they stand when this PRD is written.
 | `/scope` | `full_run_blocked` | `next_move: abandon` |
 
 Not covered, because nothing is left for the agent to decide or because the
-author is choosing in a turn they started: stops paired with a failed check or
+person is choosing in a turn they started: stops paired with a failed check or
 gate (`ci_outcome: failing_unresolvable` and the like), the review panels'
 `blocking_escalate` safety stops, and `/scope`'s chain-proposal `bail`.
 `/deliver` forwards its children's outcomes and has no exit of its own.

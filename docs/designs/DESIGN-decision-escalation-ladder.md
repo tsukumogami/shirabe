@@ -24,8 +24,8 @@ rationale: |
   time gives every reader one rule. A state is the only thing koto delivers
   instructions for on arrival, so it is the only shape that prompts the
   attempt at the moment it is needed. Tying the owner's word to a prompt koto
-  verifies once, on the machine where it was answered, addresses what went
-  wrong in practice, which was typed remarks and relays being treated as the
+  verifies once, on the machine where it was answered, addresses the failure
+  it guards against, typed remarks and relays being treated as the
   owner's word, without making the owner answer twice.
 upstream: docs/prds/PRD-decision-escalation-ladder.md
 decision_provenance: inline-resolved
@@ -86,9 +86,9 @@ addressed to me" (`--received`) is specified and unbuilt; and the read that
 would let a session notice another session's entry about its own decision at
 `koto next` is unbuilt. Its kinds, outcomes and subjects are declared closed
 in koto's own requirements. Every listing scans the whole local store and,
-under the cloud backend, lists the bucket once per session, which is why a
-single-session listing was seen not to return in minutes on a store of about a
-thousand sessions.
+under the cloud backend, lists the bucket once per session, so the cost of
+even a single-session listing grows with the size of the store and cannot be
+relied on to meet a bound at about a thousand sessions.
 
 **Chain structure.** `koto session origin <name>` reports the session or
 anchor that dispatched a session, `none`, or `unrecorded`. Two trees exist:
@@ -141,7 +141,7 @@ answers asks for.
   each behaviour needs a script, template or engine test, with judgment left to
   the dogfooding run.
 - **No change for sessions that raise nothing,** and the guard must not break
-  the seven skills that open question prompts in turns their author started.
+  the seven skills that open question prompts in turns the person running them started.
 - **Release order.** koto releases first; shirabe raises its koto floor and
   only then merges anything that calls the new commands.
 - **A later answering surface.** Recording an answer must need only the
@@ -178,7 +178,8 @@ Key assumptions:
   backend, since reads across machines are out of scope.
 - Recording a decision into a dispatch anchor works end to end. It was
   inferred from the code and not run.
-- The cost figures beyond one measured scan are estimates from one machine.
+- The cost figures are estimates, and the plan's performance tests are what
+  verify them.
 
 #### Chosen: extend the decision record, with the answer stored where it is given
 
@@ -249,9 +250,9 @@ and that session's run mode, and every aimed entry with whether it counted.
 Another returns the stored content bytes untouched to any session on the
 machine, which is what makes re-presentation byte-for-byte.
 
-Measured on a store of 993 sessions, the scan these reads use takes about a
-tenth of a second. The listing that was seen not to return was slow because
-the cloud backend's listing issues several bucket requests per session; every
+The scan these reads use is expected to complete well inside the five-second
+bound on about a thousand local sessions, which Phase 3 tests. The existing
+listing misses that bound because the cloud backend's listing issues several bucket requests per session; every
 decision a machine writes is also on its own disk, and these reads use that.
 
 The asker finds an answer through a new read on `koto next`. While a
@@ -404,8 +405,8 @@ because it forces the compatibility bump, strands running coordinators, and
 does nothing for coordinators outside the template.
 
 **Require every coordinator to run in a workflow session.** Rejected because
-the author ruled it out: it turns this feature into a migration of how
-coordinators are run.
+it turns this feature into a migration of how coordinators are run, and R20a
+requires the command to work whether or not a workflow drives the session.
 
 **The command alone, with no script enforcement.** Rejected because a
 template-driven coordinator could still pass a question up with no attempt
@@ -413,17 +414,18 @@ behind it.
 
 ### Decision 4: How the question-prompt guard knows the person started the turn
 
-Resolved inline. Revised after Decision 6's research: the harness labels
+Resolved inline. Revised after Decision 6: the harness labels
 each turn-starting message as typed by a person, sent by another session, or a
 background notice, but a dispatched session's first prompt and a scheduled
-wake-up carry the same label as typed text, and about seven in eight turns so
-labelled on one machine were not the owner.
+wake-up carry the same label as typed text. The harness's label for a
+person-typed turn does not reliably mean the owner typed it, so it cannot
+serve as evidence by itself.
 
 A question prompt must not open in a turn the person did not start. The only
 presence signal either plugin reads today is whether a person is attending the
 session, which is true of a coordinator the person is attached to even while
 it is processing a worker's report. The guard also has to leave alone the
-prompts seven existing skills open in turns their author started.
+prompts seven existing skills open in turns the person running them started.
 
 #### Chosen: a pre-tool hook on the question tool that applies a narrow turn test
 
@@ -520,18 +522,18 @@ A skill is the right wrapper only for the command a person types.
 
 ### Decision 6: How the owner is identified, where the owner's decision may be recorded, and what weight it carries
 
-Delegated to /decision. Two research agents read the repositories and about
-twelve weeks of session transcripts; four alternatives went through a
+Delegated to /decision. Four alternatives went through a
 bakeoff, a revision round and a cross-examination, and two reviewers
 abandoned their own alternatives. All four converged on everything below
-except whether to replace the planned root test now. They split two against
-two and the author ruled: replace it now.
+except whether to replace the planned root test now, on which they split
+evenly. This design replaces it now, because R21 lets the owner answer in
+any session with no ratifying step and a root test would be one.
 
 The read of what is open for a person matches a handle exactly, so every
 session has to name the workspace's one owner the same way. Today nothing
-does: coordinator records name the owner in free text in four spellings or by
-the relaying session's name, and no session had ever recorded a person as a
-decider in koto. A second question sits under the first. The requirements let
+does: coordinator records name the owner in free text, which admits any
+spelling, or by the relaying session's name, and nothing prompts a session to
+record a person as a decider in koto. A second question sits under the first. The requirements let
 the owner answer in any session with no ratifying step, while a planned
 design for standing rules counts a rule as the owner's only when the decision
 behind it was entered at a root coordinator. That test is unbuilt, and that
@@ -568,7 +570,7 @@ command copies the question, the option labels and the answer from the
 recorded question and the prompt's result, so what is recorded is the owner's
 choice and not a session's paraphrase.
 
-The author set the principle for how that evidence is trusted: koto verifies
+R21b sets the principle for how that evidence is trusted: koto verifies
 it once, on the spot, and from then on every reader trusts that it was
 verified. The session hands koto the pointer; koto checks it deterministically
 when the answer is recorded and records nothing if the check fails; the entry
@@ -613,13 +615,13 @@ A coordinator can list the owner's answers given at and below it that it has
 not marked seen. Marking one seen ratifies nothing, and a handover reports
 any left unseen.
 
-The evidence behind this shape is what was found in practice. The owner
-answers in whatever session is in front of them: about 220 typed turns on one
-machine, none at the top coordinator, which runs on another. Carrying those
-answers to the top took nine minutes to an hour and once had the owner answer
-twice. Every false attribution of the owner's word was typed text or a relay
-turned into a rule for other sessions, and none was an answer to a question
-the owner had been asked. None could have produced an answered prompt.
+Three constraints lead to this shape. The owner answers in whatever session
+is in front of them, which need not be the top coordinator and may be on
+another machine. Carrying an answer to the top before it counts adds delay
+and can have the owner answer twice, which R21 rules out. And the failure to
+prevent, a false attribution of the owner's word, takes the form of typed
+text or a relay turned into a rule for other sessions, never of an answer to
+a question the owner was asked. Neither can produce an answered prompt.
 
 #### Alternatives Considered
 
@@ -631,26 +633,28 @@ kept only open recording, which the chosen shape has.
 **Root only.** Only a root coordinator records the owner; an answer given
 elsewhere is a claim until confirmed at the root. Rejected, and withdrawn by
 its reviewer, because the confirmation is the same answered prompt moved to
-another place, it adds a ratifying step, the root was absent from every owner
-turn on the measured machine, and the false attributions happened under
-root-by-convention practice anyway.
+another place, it adds a ratifying step, the root need not be the session
+the owner is in or even on the same machine, and recording at the root by
+convention does not stop a typed remark or a relay being recorded as the
+owner's word.
 
-**Evidence from how the turn started.** Count a turn the transcript labels
-as typed by a person. Rejected because that label was the owner in about one
-turn in eight; the rest were dispatch briefs, scheduled wake-ups, notices and
-injected relays.
+**Evidence from how the turn started.** Count a turn the harness labels
+as typed by a person. Rejected because that label does not reliably mean the
+owner typed it: dispatch briefs, scheduled wake-ups, notices and injected
+relays can carry it too, so it cannot serve as evidence by itself.
 
 **Keep the root test for standing rules for now.** Record the pointer and
 the mark from the first release and switch the classifier later. Two
 reviewers ended here, because loosening later downgrades nothing and a
-pointer cannot be opened from another machine. The author chose to replace
-the test now, and settled the other-machine concern: koto verifies the
+pointer cannot be opened from another machine. This design replaces
+the test now, because keeping it would add the ratifying step R21 excludes,
+and R21b answers the other-machine concern: koto verifies the
 evidence once, on the machine where the owner answered, and on another
 machine the entry reads as a remote session's answer without the owner's
 authority until verified claims can be carried over shared storage.
 
 **The workspace manager's principal setting as the handle.** Rejected by all
-four reviewers: it is unset on the measured machine, declared per machine,
+four reviewers: it is optional and can be unset, declared per machine,
 barred from gates by its own requirement, and puts a personal name in records.
 
 ## Decision Outcome
@@ -673,7 +677,8 @@ to, whether it is open, and which answer is in effect, with the owner's answer
 ahead of any session's. Three reads serve everything above koto: open questions
 at and below a position, open questions for a person, and the owner's earlier
 answers in a chain by subject label. Each is one scan of the machine's own
-sessions, measured at about a tenth of a second for a thousand.
+sessions, expected to complete well inside the five-second bound at a
+thousand, which the plan's performance tests verify.
 
 shirabe wraps those in one command family, `shirabe question`, which is the
 only writer and the only renderer. `raise` validates the content and refuses a
@@ -1092,8 +1097,8 @@ that from where the session came from, not from the entry: only a session
 this machine created can hold a mark that reads as verified, and a session
 that arrived by import or by a pull from shared storage is read as remote. A
 forged entry therefore cannot borrow the owner's authority by being copied to
-a machine that cannot check it. Residual risk, which is the trust root the author
-named: koto verifies that the user answered that prompt with that content in
+a machine that cannot check it. Residual risk, which is the trust root this
+design accepts: koto verifies that the user answered that prompt with that content in
 that session, not which person did; anyone able to act as the owner on the
 machine can answer a prompt; and a session runs as the same user as the
 harness, so an agent following injected instructions could write koto's files
@@ -1218,7 +1223,7 @@ permissions.
   `koto next` path and retention, and it amends requirements that are still
   in progress.
 - The read on `koto next` looks outside the session's chain and grows with
-  the number of local sessions: about 15 ms at a thousand, an estimated 75 to
+  the number of local sessions: an estimated 15 ms at a thousand and 75 to
   115 ms at ten thousand.
 - Hierarchies grow. An answer links its holder to the question's session, and
   a question nobody answers or withdraws keeps its session.
