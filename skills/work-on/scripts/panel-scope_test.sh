@@ -881,6 +881,38 @@ plan_record scrutiny "$ALL_PASS"
 run --plan scrutiny "$SESSION"
 expect_full "a conflicting merge of main" scrutiny "over the 200-line threshold"
 
+# The fix-diff review is decided on the same folded base (#2156): a branch
+# whose only commit since the panel's record is a merge of main wrote no fix
+# diff, so no fix_review is planned. The branch's own commit after the merge
+# still plans one.
+fixture tr-merged-review
+plan_record scrutiny "$ALL_PASS"
+merge_main 30 docs/merged.md
+run --plan scrutiny "$SESSION"
+jq -e 'all(.decisions[]; (.fix_review // false) == false)' "$SHIM_STORE/$SESSION/scrutiny_scope.json" >/dev/null 2>&1 \
+    && pass "a merge-only change since the record plans no fix_review" \
+    || fail "a merge-only change planned $(jq -c '[.decisions[] | {seat, decision, fix_review}]' "$SHIM_STORE/$SESSION/scrutiny_scope.json")"
+edit src/b.sh 5 five
+run --plan scrutiny "$SESSION"
+jq -e '[.decisions[] | select(.seat == "reverifier") | .fix_review] == [true]' "$SHIM_STORE/$SESSION/scrutiny_scope.json" >/dev/null 2>&1 \
+    && pass "the branch's own commit after a merge of main still plans fix_review" \
+    || fail "own commit after a merge planned $(jq -c '[.decisions[] | {seat, decision, fix_review}]' "$SHIM_STORE/$SESSION/scrutiny_scope.json")"
+
+# The moved citations are measured from the folded judged_at too (#2156): main
+# appends to a file a seat cited and the branch merges main; the seat's next
+# round keeps the cited line range rather than coarsening it to the path.
+# The amended criteria make that round full, so every seat records again.
+fixture tr-merged-cited
+plan_record scrutiny '[{"seat":"completeness","blocking_count":0,"cited":[{"path":"src/b.sh","lines":"1-5"}]},
+                       {"seat":"justification","blocking_count":0},{"seat":"intent","blocking_count":0}]'
+(cd "$FX/repo" && git checkout -q main && seq 41 60 >> src/b.sh && git add -A && git commit -q -m main-moves \
+    && git checkout -q "impl/$SESSION" && git merge -q --no-ff --no-edit main) >/dev/null 2>&1
+printf 'AC: the issue body, amended\n' > "$SHIM_STORE/$SESSION/context.md"
+plan_record scrutiny '[{"seat":"completeness","blocking_count":0},{"seat":"justification","blocking_count":0},{"seat":"intent","blocking_count":0}]'
+jq -e '.seats["scrutiny/completeness"].cited == [{path: "src/b.sh", lines: "1-5"}]' "$SHIM_STORE/$SESSION/verdict_ledger.json" >/dev/null 2>&1 \
+    && pass "a merge of main keeps a seat's cited line range in a file main changed" \
+    || fail "after a merge of main the seat lost its cited line ranges: $(jq -c '.seats["scrutiny/completeness"].cited' "$SHIM_STORE/$SESSION/verdict_ledger.json")"
+
 # A full round hands each seat its own unclosed findings, and the findings no
 # seat raised to a re-verifier.
 fixture tr-handoff
