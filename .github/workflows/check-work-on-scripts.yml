@@ -57,6 +57,8 @@ on:
       - 'scripts/lib/claude-md-header_test.sh'
       - 'scripts/lib/test-classify.sh'
       - 'scripts/lib/test-classify_test.sh'
+      - 'scripts/lib/default-merge.sh'
+      - 'scripts/lib/default-merge_test.sh'
       # clean-build-output.sh sources the default-branch ref reader, and its
       # test sits beside it.
       - 'scripts/lib/default-remote-ref.sh'
@@ -114,6 +116,8 @@ on:
       - 'scripts/lib/claude-md-header_test.sh'
       - 'scripts/lib/test-classify.sh'
       - 'scripts/lib/test-classify_test.sh'
+      - 'scripts/lib/default-merge.sh'
+      - 'scripts/lib/default-merge_test.sh'
       - 'scripts/lib/default-remote-ref.sh'
       - 'scripts/lib/default-remote-ref_test.sh'
       - 'scripts/lib/acceptance-rule.sh'

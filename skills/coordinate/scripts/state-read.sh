@@ -159,6 +159,50 @@ RS_FIELDS_ALL="holdings deferrals side_effects reversals decisions holds run sta
 # How long a reader waits before re-reading a session record a write is part way
 # through, in seconds; tests set 0.
 RS_RETRY_PAUSE=${RS_RETRY_PAUSE:-1}
+# The age, in seconds, past which a record write lock is stale whatever its
+# holder (rs_write_locked).
+RS_LOCK_MAX_SECONDS=${RS_LOCK_MAX_SECONDS:-300}
+
+# The record's write lock (shirabe#2059). Every write that changes record/meta
+# or a section key (state-write-core.sh core_lock) holds it from its read of
+# record/meta to its last key, so two writers never both pass the compare on
+# the written time. It is a file in the session's own directory, the path
+# `koto session dir` prints for the session name, so every writer on the host
+# finds the same one, and it holds its owner, `<pid> <epoch secs>`.
+#
+# rs_write_lock_path <session>: the lock's path. Returns 1 when koto can't
+# name the session's directory.
+rs_write_lock_path() {
+    local d
+    d=$("${KOTO:-${KOTO_BIN:-koto}}" session dir "$1" < /dev/null 2> /dev/null) && [ -n "$d" ] || return 1
+    printf '%s/record-write.lock\n' "$d"
+}
+
+# rs_lock_live <lock path>: 0 when the lock is held by a live process younger
+# than RS_LOCK_MAX_SECONDS, or names no owner yet (its holder has made it and
+# not written it, for at most a moment); 1 when there is no lock, or its
+# holder is gone or older.
+rs_lock_live() {
+    local own pid at
+    [ -e "$1" ] || return 1
+    own=$(cat -- "$1" 2> /dev/null) || own=
+    [ -n "$own" ] || return 0
+    pid=${own%% *} at=${own##* }
+    case "$pid$at" in '' | *[!0-9]*) return 1 ;; esac
+    kill -0 "$pid" 2> /dev/null || return 1
+    [ $(( $(date +%s) - at )) -le "$RS_LOCK_MAX_SECONDS" ]
+}
+
+# rs_write_locked <session>: 0 when a writer holds the session's record write
+# lock, or the lock can't be found (a reader then waits, as before); 1 when no
+# live writer holds it. A record/meta marked pending while no writer holds the
+# lock was left by a writer that stopped part way: every writer marks it only
+# while it holds the lock and clears it before letting go.
+rs_write_locked() {
+    local p
+    p=$(rs_write_lock_path "$1") || return 0
+    rs_lock_live "$p"
+}
 
 # rs_list <session> <prefix> <file>: the session's keys under <prefix>, koto's
 # JSON array, into <file>. Returns 0 listed; 2 the listing failed or isn't an
@@ -198,9 +242,11 @@ rs_assemble() {
 # rs_session_state <session> <out> [<fields>]: the session's record, assembled
 # from its keys into <out> as the state's JSON, with `written` from
 # record/meta. record/meta is read before and after the section keys, and the
-# whole read is taken again, up to three times, while meta is marked pending or
-# the two meta reads differ: a write changes its sections between two meta
-# writes. Returns 0 assembled; 2 a read failed or a key isn't JSON; 4 the
+# whole read is taken again, up to three times, while meta is marked pending by
+# a writer that holds the record's write lock (rs_write_locked) or the two meta
+# reads differ: a write changes its sections between two meta writes. A
+# pending mark no live writer holds the lock for is a stopped writer's, read
+# past. Returns 0 assembled; 2 a read failed or a key isn't JSON; 4 the
 # session holds no record/meta (session-absent), the reason in <out>.err; 12
 # the record was still being written after three re-reads.
 #
@@ -229,7 +275,13 @@ rs_session_state() {
             esac
         fi
         jq -e 'type == "object" and (.written | type) == "string"' "$out.m1" > /dev/null 2>> "$out.err" || return 2
-        [ "$(jq -r '.pending // false' "$out.m1")" = true ] && continue
+        # A pending mark is a write part way through while a writer holds
+        # the lock; with none holding it, the mark is a stopped writer's, and
+        # the sections are read as they stand, each key whole, so the next
+        # write can replace them and clear the mark.
+        if [ "$(jq -r '.pending // false' "$out.m1")" = true ] && rs_write_locked "$s"; then
+            continue
+        fi
         rm -rf "$out.sec"; mkdir -p "$out.sec" || return 2
         # Every section is got directly, the whole record's nine or <fields>'
         # few: the record/ listing, which names every entry key, is never made

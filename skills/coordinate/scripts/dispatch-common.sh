@@ -42,13 +42,20 @@
 #                it), `skill-session.sh open <entry> <topic>` for /explore,
 #                /decision and /release (`<topic>` the one the entry point
 #                derives)
-#         link   link-dispatcher.sh `<session>`, run once the entry point has
-#                opened its session (`<session>` that session), for /scope,
-#                /deliver, /execute and /work-on, whose openers take a
-#                dispatcher only through a request leg
+#       Every other entry point (/scope, /deliver, /execute, /work-on and
+#       the planning skills) prints nothing and returns 0: koto records the
+#       dispatcher on the session's anchor when it opens, from the name the
+#       koto-skills start hook exports, so the worker records nothing. Their
+#       briefs once carried a link-dispatcher.sh step; the script stays for
+#       briefs already in flight.
 #       The commands start from "${CLAUDE_PLUGIN_ROOT}", as the skills' own
-#       commands do. Returns 1 when dispatcher_session isn't a koto session
-#       name, which render-brief.sh refuses first.
+#       commands do. Returns 1 when an open entry point's dispatcher_session
+#       isn't a koto session name, which render-brief.sh refuses first.
+#
+#   dc_opener_takes_dispatcher <entry_point>
+#       0 for an entry point whose own opener takes --dispatched-by
+#       (/coordinate, /explore, /decision, /release), the ones dc_opener
+#       prints an open row for; 1 otherwise.
 #
 #   dc_mode <brief-input-file>
 #       Prints the flags part of the invocation (run_mode, then entry_args
@@ -167,7 +174,8 @@
 #   (koto's result for the leg, once read), new_request (a re-leg's new
 #   request), from (the request a re-legged key replaced) and rebriefed (the
 #   UTC time a --rebrief moved its holding to the message path; the land
-#   step then reads the round in child, board-lib.sh bl_rebriefed_round).
+#   step then reads the round in child, board-lib.sh bl_rebriefed_round),
+#   and opened (the UTC time dispatch-worker.sh opened the leg).
 #   templates and
 #   inputs are the leg's declaration at dispatch. state is one of:
 #     open           dispatched on this leg; no result read yet
@@ -181,6 +189,16 @@
 #     relegged       the re-leg finished: the holding names new_request
 #     unwatchable    after an import its worker can't be watched from this
 #                    host, and the holding reports by message
+#
+#   dc_leg_field <key-json> child|rebriefed|opened [<value>]
+#       The one accessor for those three fields of a leg key: every script
+#       that reads or writes them goes through it, so a field renamed here
+#       is renamed for its writers and readers at once, and a caller that
+#       names a field this doesn't know is refused on stderr (return 2)
+#       rather than reading an empty value. With no value it prints the
+#       field, or nothing when it isn't set; with one it prints the key with
+#       the field set. Returns 0, or 2 for an unknown field, a key that
+#       isn't a JSON object, or a field that isn't a string.
 #
 #   dc_record_list <session>
 #       Prints every holding row as one JSON array, in record order. Returns
@@ -283,7 +301,10 @@
 #       0 when the topic's worker is stopped on this host: at least one
 #       Claude job under <claude-home>/jobs carries the topic's session (its
 #       state file's `name` passes dc_session_matches) and every such job is
-#       finished (dc_job_finished). 1 otherwise: no job for the topic is seen
+#       finished (dc_job_finished, given the job's dc_job_row: the same
+#       listing-row pid check dc_session_live applies, so a worker whose state
+#       file reads done while its listing row shows its live pid is not
+#       stopped, shirabe#1594). 1 otherwise: no job for the topic is seen
 #       here (a worker on another host, or none yet), one of them is
 #       unfinished, or a state file that names the topic's slug can't be
 #       read. Only a positive answer frees anything, so every doubt reads as
@@ -461,15 +482,22 @@ dc_invocation() {
 dc_opener() {
     local entry d root='${CLAUDE_PLUGIN_ROOT}'
     entry=$(jq -r '.entry_point // "" | strings' "$1") || return 2
+    dc_opener_takes_dispatcher "$entry" || return 0
     d=$(jq -r '.dispatcher_session // "" | strings' "$1") || return 2
     { [ "${#d}" -le 200 ] && [[ $d =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; } || return 1
     case "$entry" in
         coordinate)
             printf 'open\t"%s/skills/coordinate/scripts/coordinate-open.sh" --plugin-root "%s" --dispatched-by %s "$ARGS_DIR/args.json"\n' "$root" "$root" "$d" ;;
-        explore | decision | release)
-            printf 'open\t"%s/scripts/skill-session.sh" open %s <topic> --dispatched-by %s\n' "$root" "$entry" "$d" ;;
         *)
-            printf 'link\t"%s/skills/coordinate/scripts/link-dispatcher.sh" <session> --dispatched-by %s\n' "$root" "$d" ;;
+            printf 'open\t"%s/scripts/skill-session.sh" open %s <topic> --dispatched-by %s\n' "$root" "$entry" "$d" ;;
+    esac
+}
+
+# render-brief.sh requires dispatcher_session for these entry points alone.
+dc_opener_takes_dispatcher() {
+    case "$1" in
+        coordinate | explore | decision | release) return 0 ;;
+        *) return 1 ;;
     esac
 }
 
@@ -624,6 +652,22 @@ dc_leg_put() {
     jq -e --arg r "$2" --arg l "$3" --arg re "$DC_RE_LEG_STATE" \
         'type == "object" and .request == $r and .leg == $l and ((.state // "") | test($re))' <<<"$4" >/dev/null || return 2
     jq -c . <<<"$4" | "${KOTO:-koto}" context add "$1" "$key" >/dev/null || return 2
+}
+
+dc_leg_field() {
+    case "$2" in
+        child | rebriefed | opened) ;;
+        *)
+            printf 'dispatch-common: dc_leg_field: %s is not a leg key field (child, rebriefed, opened)\n' "$2" >&2
+            return 2
+            ;;
+    esac
+    if [ $# -ge 3 ]; then
+        jq -c --arg f "$2" --arg v "$3" 'if type == "object" then .[$f] = $v else error("the leg key is not a JSON object") end' <<<"$1" || return 2
+    else
+        jq -r --arg f "$2" 'if type != "object" then error("the leg key is not a JSON object")
+            else .[$f] // "" | if type == "string" then . else error("the leg key'"'"'s \($f) is not a string") end end' <<<"$1" || return 2
+    fi
 }
 
 dc_record_present() {
@@ -958,7 +1002,7 @@ dc_topic_stopped() {
         dc_session_matches "$topic" "$name" || continue
         job=${f%/state.json}
         job=${job##*/}
-        dc_job_finished "$home" "$job" '{}' > /dev/null || return 1
+        dc_job_finished "$home" "$job" "$(dc_job_row "$job")" > /dev/null || return 1
         seen=1
     done < <(grep -lF -- "$slug-" "$home"/jobs/*/state.json 2>/dev/null)
     [ "$seen" = 1 ]

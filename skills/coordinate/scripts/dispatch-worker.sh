@@ -27,7 +27,17 @@
 #                      none when it hands it none, or `own` for a successor
 #                      (entry point coordinate), which takes this
 #                      coordinator's own grant (below). Anything else exits
-#                      1 with nothing written
+#                      1 with nothing written. Its optional `continues` is
+#                      the topic of the stranded holding this dispatch
+#                      continues: that row alone is named in the brief (its
+#                      branch and last pushed head) and retired once this
+#                      one is dispatched. With no `continues` the dispatch
+#                      takes no stranded row, whatever else is stranded on
+#                      the unit. On a new dispatch, a `continues` that isn't
+#                      a string, isn't a valid topic, is this topic, or
+#                      names no stranded holding of the unit exits 1 with
+#                      nothing written; a resumed `dispatching` run never
+#                      refuses it and takes what it finds
 #   coord/posture.json the coordinator's own `niwa authority check` answer,
 #                      as posture-read.sh stored it under grant_check: `own`
 #                      is its grant when its state is bound, and none
@@ -308,8 +318,9 @@
 #   1  brief refused, a role_change refused, a successor brief whose run
 #      records no role, a --successor input refused or whose run's facts
 #      can't be read, a send_execution brief input that isn't the
-#      execution's, or a /shirabe:deliver or /shirabe:scope brief for a unit
-#      whose scoping landed (pick's follow_up); nothing written
+#      execution's, a /shirabe:deliver or /shirabe:scope brief for a unit
+#      whose scoping landed (pick's follow_up), or a new dispatch whose
+#      `continues` names no stranded holding of its unit; nothing written
 #   2  usage, mismatched topic, no workspace root, a failed read or write
 #   3  the topic already failed or is stranded; dispatch under a new topic
 #   4  the launch failed; the row says dispatch-failed
@@ -957,10 +968,15 @@ EOF
     local unit
     unit=$(jq -r '.unit // "" | strings | select(length <= 200 and (test("[[:cntrl:]]") | not))' "$INPUT") || unit=""
     [[ ${unit%%: *} =~ ^[A-Za-z0-9][A-Za-z0-9\ _.#/-]{0,63}$ ]] || unit=""
-    dc_leg_put "$SESSION" "$req" "$leg" "$(jq -nc --arg r "$req" --arg l "$leg" --arg t "$TOPIC" \
+    # `opened` lets the land step tell a re-brief stamp on an earlier leg of
+    # the topic from one this leg superseded (board-lib.sh bl_rebriefed_round).
+    local newkey
+    newkey=$(jq -nc --arg r "$req" --arg l "$leg" --arg t "$TOPIC" \
         --arg tp "$templates" --argjson in "$inputs" --arg u "$unit" \
         '{request: $r, leg: $l, topic: $t, state: "open", templates: ($tp | split(",")), inputs: $in}
-         + (if $u == "" then {} else {unit: $u} end)')" ||
+         + (if $u == "" then {} else {unit: $u} end)') &&
+        newkey=$(dc_leg_field "$newkey" opened "$(date -u +%Y-%m-%dT%H:%M:%SZ)") &&
+        dc_leg_put "$SESSION" "$req" "$leg" "$newkey" ||
         die 2 "could not write the leg key for $TOPIC's leg $RETURN_PATH"
 }
 
@@ -1163,7 +1179,7 @@ stamp_rebriefed() {
     esac
     [ "$(jq -r '.topic // "" | strings' <<<"$key")" = "$TOPIC" ] || {
         printf '%s: the leg key for %s names another worker: not stamped\n' "$PROG" "$rp" >&2; return 0; }
-    child=$(jq -r '.child // "" | strings' <<<"$key")
+    child=$(dc_leg_field "$key" child) || child=
     if [ -z "$child" ] && request_view "$req"; then
         child=$(jq -r --arg l "$leg" '(.request // .) | .legs[$l].bound_child // "" | strings' <<<"$VIEW") || child=
     fi
@@ -1172,7 +1188,8 @@ stamp_rebriefed() {
         return 0
     fi
     now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    dc_leg_put "$SESSION" "$req" "$leg" "$(jq -c --arg c "$child" --arg t "$now" '.child = $c | .rebriefed = $t' <<<"$key")" ||
+    { key=$(dc_leg_field "$key" child "$child") && key=$(dc_leg_field "$key" rebriefed "$now") &&
+        dc_leg_put "$SESSION" "$req" "$leg" "$key"; } ||
         printf '%s: could not stamp the leg key for %s: the land step reads %s'"'"'s round from its report only\n' "$PROG" "$rp" "$TOPIC" >&2
 }
 
@@ -1224,7 +1241,7 @@ if [ -n "$IMPORTED" ]; then
     [ "$(jq -r '.topic // "" | strings' <<<"$KEY")" = "$TOPIC" ] ||
         die 9 "the leg key for $RP names worker [$(jq -r '.topic // ""' <<<"$KEY")], not the holding's $TOPIC"
     KSTATE=$(jq -r '.state // "" | strings' <<<"$KEY")
-    CHILD=$(jq -r '.child // "" | strings' <<<"$KEY")
+    CHILD=$(dc_leg_field "$KEY" child) || die 2 "the leg key for $RP is malformed"
 
     FROM=$(jq -r '.from // "" | strings' <<<"$KEY")
     case "$KSTATE" in
@@ -1356,9 +1373,12 @@ EOF
     fi
 
     # 3. The new leg's key, naming where it came from.
-    dc_leg_put "$SESSION" "$NEW" "$LEG" "$(jq -c --arg n "$NEW" --arg f "$REQ" --argjson in "$INPUTS" --arg t "$TEMPLATES" \
-        '{request: $n, leg, topic, state: "open", templates: ($t | split(",")), inputs: $in, child, from: $f}
-         + (if has("unit") then {unit} else {} end)' <<<"$KEY")" ||
+    NEWKEY=$(jq -c --arg n "$NEW" --arg f "$REQ" --argjson in "$INPUTS" --arg t "$TEMPLATES" \
+        '{request: $n, leg, topic, state: "open", templates: ($t | split(",")), inputs: $in, from: $f}
+         + (if has("unit") then {unit} else {} end)' <<<"$KEY") &&
+        NEWKEY=$(dc_leg_field "$NEWKEY" child "$CHILD") &&
+        NEWKEY=$(dc_leg_field "$NEWKEY" opened "$(date -u +%Y-%m-%dT%H:%M:%SZ)") &&
+        dc_leg_put "$SESSION" "$NEW" "$LEG" "$NEWKEY" ||
         die 2 "could not write the leg key for $NEW:$LEG"
     # 4. The holding's return path, then 5. the old key marked.
     write_row "$(jq -c --arg rp "$(dc_rp_to_row "$NEW:$LEG")" '.return_path = $rp' <<<"$ROW")"
@@ -1580,10 +1600,12 @@ EOF
     done
     bash "$EMIT" event --scope unit-cost --kind dispatched --koto-dir "$ROOT" ${f[@]+"${f[@]}"} </dev/null >/dev/null 2>&1 || :
 }
-# retire_stranded: remove the stranded rows this dispatch replaced. The new
-# worker is already launched, so a failed removal is reported, not fatal: the
-# row stays stranded, which nothing dispatches or watches, and the next
-# dispatch of the unit retires it.
+# retire_stranded: remove the stranded row this dispatch replaced, the one its
+# brief input names in `continues` (STRANDED holds it, or nothing). Another
+# topic's stranded row on the same unit is never touched. The new worker is
+# already launched, so a failed removal is reported, not fatal: the row stays
+# stranded, which nothing dispatches or watches, until it is removed with the
+# command the report names.
 retire_stranded() {
     local old
     [ -n "${STRANDED:-}" ] && [ "$STRANDED" != '[]' ] || return 0
@@ -1654,19 +1676,45 @@ clear_follow_up() {
 }
 
 # A unit whose earlier worker was stranded (state-holding.sh --strand) goes
-# out again under this new topic. Its brief names the stranded row's branch
-# and last pushed head, so the new worker continues from what was pushed, and
-# the stranded row is retired once this one is dispatched (PRD R15;
-# shirabe#732). A report from the retired topic then matches no holding.
+# out again under this new topic, and the brief input names the stranded
+# topic it continues in `continues`. The brief names that row's branch and
+# last pushed head, so the new worker continues from what was pushed, and
+# that row alone is retired once this one is dispatched (PRD R15;
+# shirabe#732). A report from the retired topic then matches no holding. A
+# unit can hold more than one topic, so a stranded row is taken only by the
+# dispatch that names it (shirabe#1588): with no `continues`, STRANDED is
+# empty and no stranded row is named or retired. On a new dispatch a
+# `continues` naming no stranded holding of the unit is refused here, before
+# anything is written; a resumed `dispatching` run already wrote its row, and
+# may already have retired the one it continues, so it takes what it finds.
 ALL_ROWS=$(dc_record_list "$SESSION")
 case "$?" in
     0) ;;
     10) die 8 "the record refused the read for $TOPIC (no open record, or a directed transition in the run log)" ;;
     *) die 2 "reading the holdings failed" ;;
 esac
-STRANDED=$(jq -c --arg u "$(jq -r '.unit // ""' "$INPUT")" --arg t "$TOPIC" \
-    '[.[] | select(.dispatch_status == "stranded" and .unit == $u and .worker != $t)]' <<<"$ALL_ROWS") ||
-    die 2 "the holdings are not JSON"
+UNIT_IN=$(jq -r '.unit // ""' "$INPUT")
+CONTINUES_BAD=""
+jq -e '(.continues // "") | type == "string"' "$INPUT" >/dev/null || CONTINUES_BAD=1
+CONTINUES=$(jq -r '.continues // "" | strings' "$INPUT")
+STRANDED='[]'
+if [ -n "$CONTINUES" ]; then
+    STRANDED=$(jq -c --arg u "$UNIT_IN" --arg c "$CONTINUES" \
+        '[.[] | select(.dispatch_status == "stranded" and .unit == $u and .worker == $c)]' <<<"$ALL_ROWS") ||
+        die 2 "the holdings are not JSON"
+fi
+if [ -z "$STATUS" ]; then
+    [ -z "$CONTINUES_BAD" ] ||
+        die 1 "refused: brief_input.json's continues is not a string; name the stranded topic this dispatch continues, or leave it out"
+    if [ -n "$CONTINUES" ]; then
+        dc_valid_topic "$CONTINUES" ||
+            die 1 "refused: continues [$CONTINUES] is not a valid topic, so it names no stranded holding of unit [$UNIT_IN]"
+        [ "$CONTINUES" != "$TOPIC" ] ||
+            die 1 "refused: continues [$CONTINUES] is this dispatch's own topic; a dispatch continues the stranded holding of another topic on unit [$UNIT_IN]"
+        [ "$STRANDED" != '[]' ] ||
+            die 1 "refused: continues [$CONTINUES] names no stranded holding of unit [$UNIT_IN]; name a topic the record shows stranded on that unit, or leave continues out"
+    fi
+fi
 if [ "$STRANDED" != '[]' ]; then
     jq --argjson s "$STRANDED" '.decisions = ((.decisions // []) + [$s[]
         | ((.pushed_head // "") | if . == "" then null else . end) as $p

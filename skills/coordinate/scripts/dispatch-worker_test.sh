@@ -31,8 +31,9 @@
 # path that moves a worker to the message path (a re-brief, a leg-bound one
 # included; a re-brief after a leg was found unwatchable, from the importing
 # run; an execution sent to an entry point with no leg) renders a brief whose
-# dispatcher_session is the run that rendered it, with the link command
-# --dispatched-by filled in; an execution sent on a leg carries none.
+# dispatcher_session is the run that rendered it, which its Reporting resolves
+# the coordinator from, and which shows no link step; an execution sent on a
+# leg carries none.
 # A confirmed launch sends one `dispatched` event whose arguments a stand-in
 # for scripts/emit-event.sh records (from niwa's output on a launch, from the
 # listing row on a resumed run, without a leg on the message path); a re-run,
@@ -705,7 +706,9 @@ run >/dev/null 2>&1
 lacks "explore: no request opened" "$(calls)" "koto request create"
 eq  "explore: return path" message "$(row return_path)"
 
-# So does a charter (shirabe#1290), and its brief records the dispatcher itself.
+# So does a charter (shirabe#1290), and its brief names the run that rendered
+# it as the one Reporting resolves, with no link step: koto records the
+# dispatcher when the worker's session opens.
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "charter" | .entry_args = ["plugin-api"] | .run_mode = "--auto"')"
 OUT=$(run 2>/dev/null); RC=$?
 eq  "charter: dispatched" "0 session=$NIWA_NAME" "$RC $OUT"
@@ -714,9 +717,9 @@ eq  "charter: return path" message "$(row return_path)"
 eq  "charter: one launch" 1 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 lacks "charter: the invocation carries no leg" "$(cat "$ST/prompt")" "--koto-leg"
 has "charter: the prompt runs charter" "$(cat "$ST/prompt")" "/shirabe:charter plugin-api --auto"
-eq  "charter: the brief names the run that rendered it as its dispatcher" "dispatcher_session: coord" \
-    "$(grep '^dispatcher_session:' "$W/.niwa/dispatch-briefs/plugin-api.md")"
-has "charter: the brief records it with link-dispatcher.sh" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "link-dispatcher.sh\" <session> --dispatched-by coord\`"
+has "charter: the brief resolves the run that rendered it" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" 'resolve-coordinator.sh" coord`'
+lacks "charter: the brief shows no link step" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "link-dispatcher.sh"
+lacks "charter: the brief has no dispatcher_session line" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "dispatcher_session:"
 fi
 
 # --- a resumed dispatching row -------------------------------------------------------------------
@@ -1136,12 +1139,13 @@ OUT=$(run --rebrief 2>/dev/null); RC=$?
 eq  "rebrief: exit 0, with no coord/pick.json to read" 0 "$RC"
 has "rebrief: prints the brief" "$OUT" "brief=$W/.niwa/dispatch-briefs/plugin-api.md"
 # The worker is on the message path, so the brief names the run that
-# rendered it as its dispatcher, not the input's value, with the command
-# that records it.
+# rendered it, not the input's value, as the one its Reporting resolves and
+# its report step names, and shows no link step.
 B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
-eq  "rebrief: dispatcher_session is the run that rendered it" 1 "$(grep -cx 'dispatcher_session: coord' <<<"$B")"
+has "rebrief: Reporting resolves the run that rendered it" "$B" 'resolve-coordinator.sh" coord`'
+has "rebrief: the report step names it" "$B" 'render-result.sh" --session <your session> --dispatcher coord`'
 lacks "rebrief: not the input's dispatcher_session" "$B" "coord-alpha"
-has "rebrief: the link command, --dispatched-by filled in" "$B" 'link-dispatcher.sh" <session> --dispatched-by coord`'
+lacks "rebrief: no link step" "$B" "link-dispatcher.sh"
 has "rebrief: render-result.sh is the report step" "$B" "render-result.sh"
 eq  "rebrief: no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
@@ -1167,8 +1171,9 @@ eq  "rebrief, leg-bound: exit 0" 0 "$RC"
 eq  "rebrief, leg-bound: the holding moves to the message path" message "$(row return_path)"
 has "rebrief, leg-bound: the spent request is abandoned" "$(calls)" "koto request abandon-request req_1"
 lacks "rebrief, leg-bound: the brief no longer names the leg" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "--koto-leg"
-has "rebrief, leg-bound: moved to the message path, it carries the link command" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" \
-    'link-dispatcher.sh" <session> --dispatched-by coord`'
+has "rebrief, leg-bound: moved to the message path, it gets the report step" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" \
+    'render-result.sh" --session <your session> --dispatcher coord`'
+lacks "rebrief, leg-bound: and no link step" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "link-dispatcher.sh"
 fi
 
 if section "scope" "--rebrief of a leg-bound worker, then the land step's round"; then
@@ -1222,6 +1227,29 @@ lacks "never re-briefed: the bound session is not read" "$EV" '"source":"session
 jq -c '.topic = "someone-else" | .rebriefed = "2026-01-01T00:00:00Z"' "$ST/ctx/legs/req_1/scope" >"$ST/k" && mv "$ST/k" "$ST/ctx/legs/req_1/scope"
 EV=$(land_round 2>"$T/land.err")
 lacks "another worker's stamped key: not read" "$EV" '"source":"session"'
+# A stamp the store refuses: the re-brief still goes through, stderr names
+# the fallback, and the land step reads the round the worker's report
+# carried, since the leg key holds no stamp.
+reset "$INPUT_SCOPE"
+run >/dev/null 2>&1
+jq -c '.pull_request = "[#12](https://github.com/acme/widgets/pull/12)"' "$ST/rows/plugin-api.json" >"$ST/r" && mv "$ST/r" "$ST/rows/plugin-api.json"
+jq -c '.child = "scope-plugin-api"' "$ST/ctx/legs/req_1/scope" >"$ST/k" && mv "$ST/k" "$ST/ctx/legs/req_1/scope"
+printf '%s\n' "$ROUND" >"$ST/ctx/review_round.json"
+printf 'plugin-api' >"$ST/ctx/report_topic"
+KOTO_LEG_PUT_FAIL=1 run --rebrief >/dev/null 2>"$T/rebrief.err"; RC=$?
+eq  "refused stamp: the re-brief still exits 0" 0 "$RC"
+eq  "refused stamp: the holding is on the message path" message "$(row return_path)"
+has "refused stamp: stderr names the fallback to the report" "$(cat "$T/rebrief.err")" \
+    "could not stamp the leg key for req_1:scope: the land step reads plugin-api's round from its report only"
+eq  "refused stamp: the leg key carries no stamp" "" "$(jq -r '.rebriefed // ""' "$ST/ctx/legs/req_1/scope")"
+mkdir -p "$ST/session"
+{ printf '{"schema_version":1,"workflow":"coord","created_at":"2026-09-26T10:00:00.000Z"}\n'
+  jq -nc --arg r "$(printf 'Ready.\n\n=== RESULT ===\nsession=scope-plugin-api\npr=https://github.com/acme/widgets/pull/12\nreview_round=%s\n=== END RESULT ===\n' "$ROUND")" \
+    '{seq: 1, timestamp: "2026-09-26T10:02:00.000Z", type: "evidence_submitted", payload: {state: "wait", fields: {event: "report", unit: "plugin-api", report: $r}}}'
+} >"$ST/session/koto-coord.state.jsonl"
+EV=$(land_round 2>"$T/land.err")
+eq  "refused stamp: the land step reads the report's result block" "report scope-plugin-api ok" \
+    "$(jq -r '"\(.source) \(.session) \(.status)"' <<<"$EV" 2>/dev/null)"
 fi
 
 if section "deliver" "--rebrief from the importing run"; then
@@ -1235,8 +1263,9 @@ printf 'plugin-api' >"$ST/ctx/report_topic"
 (cd "$W/inst" && bash "$S" --session coordinate-roadmap-plugin-system-20261024T090000Z --rebrief) >/dev/null 2>&1
 eq  "unwatchable: the importing run re-briefs the worker" 0 "$?"
 B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
-has "unwatchable: dispatcher_session is the importing run" "$B" "dispatcher_session: coordinate-roadmap-plugin-system-20261024T090000Z"
-has "unwatchable: the link command names it" "$B" '--dispatched-by coordinate-roadmap-plugin-system-20261024T090000Z`'
+has "unwatchable: Reporting resolves the importing run" "$B" 'resolve-coordinator.sh" coordinate-roadmap-plugin-system-20261024T090000Z`'
+has "unwatchable: the report step names it" "$B" '--dispatcher coordinate-roadmap-plugin-system-20261024T090000Z`'
+lacks "unwatchable: no link step" "$B" "link-dispatcher.sh"
 fi
 
 # --- a review-level bound ---------------------------------------------------------------------------------
@@ -1372,15 +1401,17 @@ fi
 
 if section "work-on" "send_execution to the message path"; then
 # An execution whose entry point takes no leg here (/work-on given a PLAN)
-# goes to the message path, and its brief carries the link command.
+# goes to the message path, and its brief names the run for Reporting, with
+# no link step.
 reset "$(printf '%s' "$INPUT_SCOPE" | jq -c '.phase = "scoping-ahead"')"; run >/dev/null 2>&1
 printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "work-on" | .entry_args = ["docs/plans/PLAN-plugin-api.md"] | .phase = "executing"' >"$ST/ctx/brief_input.json"
 log_pick send_execution plugin-api; : >"$ST/calls.log"
 run >/dev/null 2>"$ST/err"; eq "send_execution to the message path: exit 0" 0 "$?"
 eq  "send_execution to the message path: the holding reports by message" message "$(row return_path)"
 B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
-eq  "send_execution to the message path: dispatcher_session is the run" 1 "$(grep -cx 'dispatcher_session: coord' <<<"$B")"
-has "send_execution to the message path: the link command, --dispatched-by filled in" "$B" 'link-dispatcher.sh" <session> --dispatched-by coord`'
+has "send_execution to the message path: Reporting resolves the run" "$B" 'resolve-coordinator.sh" coord`'
+has "send_execution to the message path: the report step names it" "$B" 'render-result.sh" --session <your session> --dispatcher coord`'
+lacks "send_execution to the message path: no link step" "$B" "link-dispatcher.sh"
 fi
 
 if section "scope execute" "send_execution refused"; then
@@ -1490,7 +1521,9 @@ reset "$INPUT_DELIVER"
 run >/dev/null 2>&1
 eq  "legkey: a dispatch on a leg writes its key, open, with the worker, the declaration and the unit" \
     '{"request":"req_1","leg":"deliver","topic":"plugin-api","state":"open","templates":["deliver.md"],"inputs":{"TOPIC":"plugin-api"},"unit":"Feature 2: the plugin API"}' \
-    "$(lkey req_1 deliver)"
+    "$(lkey req_1 deliver | jq -c 'del(.opened)')"
+eq  "legkey: and the UTC time the leg was opened" true \
+    "$(lkey req_1 deliver | jq '.opened | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")')"
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature (2): the plugin API"')"
 printf '%s' "$PICK_ROADMAP" | jq -c '.units[1].unit = "Feature (2)"' >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1
@@ -1720,7 +1753,7 @@ stranded_row() {
         dispatch_status: "stranded", return_path: "message", worker: "plugin-api", repo: "acme/widgets", branch: "feat/plugin-api",
         verified_head: "", dispatched: "2026-10-01", pull_request: "", pushed_head: $h}' >"$ST/rows/plugin-api.json"
 }
-reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "relaunch"')" relaunch
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "relaunch" | .continues = "plugin-api"')" relaunch
 stranded_row
 export NIWA_NAME=relaunch-1a2b3c4d
 OUT=$(run 2>"$T/st.err"); RC=$?
@@ -1740,6 +1773,47 @@ stranded_row
 run >/dev/null 2>&1
 has "stranded: another unit's stranded row isn't named" "$(cat "$W/.niwa/dispatch-briefs/relaunch.md")" "None beyond what the documents you read record."
 [ -f "$ST/rows/plugin-api.json" ] && ok "  ... or retired" || bad "  ... or retired" ""
+
+# Two topics stranded on one unit (shirabe#1588): the dispatch names the one it
+# continues, and only that one is rendered and retired.
+second_stranded_row() {
+    jq -c '.worker = "plugin-docs" | .branch = "docs/plugin-api" | .pushed_head = "dddddddddddddddddddddddddddddddddddddddd"' \
+        "$ST/rows/plugin-api.json" >"$ST/rows/plugin-docs.json"
+}
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "relaunch" | .continues = "plugin-api"')" relaunch
+stranded_row
+second_stranded_row
+export NIWA_NAME=relaunch-1a2b3c4d
+run >/dev/null 2>"$T/st2.err"
+eq  "stranded two topics: the dispatch that continues one goes out" 0 "$?"
+BR=$(cat "$W/.niwa/dispatch-briefs/relaunch.md")
+has "stranded two topics: the brief names the topic it continues" "$BR" "This unit was held by worker plugin-api, which was stranded"
+lacks "stranded two topics: the brief names no other topic's stranded row on the same unit" "$BR" "worker plugin-docs"
+[ -f "$ST/rows/plugin-api.json" ] && bad "stranded two topics: the continued row is retired" "" || ok "stranded two topics: the continued row is retired"
+[ -f "$ST/rows/plugin-docs.json" ] && ok "stranded two topics: a dispatch retires only the stranded row of the topic it continues, never another topic's row on the same unit" ||
+    bad "stranded two topics: a dispatch retires only the stranded row of the topic it continues, never another topic's row on the same unit" "$(calls)"
+
+# A dispatch of another topic on the unit that continues nothing takes no
+# stranded row.
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "followup"')" followup
+stranded_row
+export NIWA_NAME=followup-1a2b3c4d
+run >/dev/null 2>"$T/st3.err"
+eq  "stranded, continuing nothing: the other topic goes out" 0 "$?"
+lacks "stranded, continuing nothing: the brief names no stranded predecessor" "$(cat "$W/.niwa/dispatch-briefs/followup.md")" "which was stranded"
+[ -f "$ST/rows/plugin-api.json" ] && ok "stranded, continuing nothing: a dispatch never retires another topic's row on the same unit" ||
+    bad "stranded, continuing nothing: a dispatch never retires another topic's row on the same unit" "$(calls)"
+
+# continues naming no stranded holding of the unit is refused before anything is written.
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "relaunch" | .continues = "no-such-topic"')" relaunch
+stranded_row
+export NIWA_NAME=relaunch-1a2b3c4d
+run >/dev/null 2>"$T/st4.err"
+eq  "stranded: continues naming no stranded holding of the unit is exit 1" 1 "$?"
+has "  ... naming it" "$(cat "$T/st4.err")" "no-such-topic"
+eq  "  ... and launches nothing" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+[ -f "$ST/rows/relaunch.json" ] && bad "  ... and writes no row" "$(cat "$ST/rows/relaunch.json")" || ok "  ... and writes no row"
+[ -f "$ST/rows/plugin-api.json" ] && ok "  ... and retires nothing" || bad "  ... and retires nothing" ""
 fi
 
 # --- --releg-imported: a worker that moved here with the session (PRD R15) ------------------------------------

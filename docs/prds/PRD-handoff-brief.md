@@ -315,7 +315,13 @@ states them.
   branch has a commit whose commit time is later than that write's
   timestamp, and then its output tells the summary that the
   note is stale and that rewriting it is the first step after the
-  compaction. The hook never blocks a compaction by default: a block is
+  compaction. Every event that moves the work on counts, not only key
+  writes and state changes; a read doesn't. The compact-matched
+  SessionStart hook makes the same judgment and tells the compacted
+  session directly: the note is fresh, stale, or its freshness couldn't be
+  checked, and a stale note is rewritten before any other work. A note
+  whose freshness can't be checked is never reported fresh. Neither hook
+  blocks a compaction by default: a block is
   invisible to the model and can't tell a window compaction from a recovery
   at the hard limit, so an unbounded block runs the session into a failed
   request. Serves: E2, E3.
@@ -514,6 +520,12 @@ unique string the test plants.
   hook's output says the note is stale and that rewriting it comes first;
   with no later event and no later commit, it doesn't. In both cases the hook
   exits 0 and the compaction runs. (R17)
+- [ ] With the note last written before a later koto event of any kind that
+  moves the work on (evidence or a decision in the same state counts), the
+  compact-matched SessionStart hook's output says the note is stale and puts
+  rewriting it before any other work; with no later event and no later
+  commit, it says the note is fresh; when its freshness can't be read, it
+  says so and never says fresh. (R17)
 - [ ] The reader's figure matches the transcript's last usage record within
   1K tokens on the first read after a compaction and after five more turns, run
   from an instance and from the workspace root. On a transcript with two

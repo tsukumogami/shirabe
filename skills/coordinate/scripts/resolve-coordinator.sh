@@ -28,6 +28,14 @@
 #      to its brief's address
 #   3  the walk passed its hop cap (DC_HOP_CAP, 1024 by default); the worker
 #      reports to its brief's address
+#   4  the newest member is still finishing its takeover: its record/meta
+#      records one (`takeover`) and `takeover_done` isn't true, so its
+#      coordinator row may still be the copy carried from its predecessor.
+#      A `takeover` with no `takeover_done` reads as not done. Nothing is
+#      printed; the worker reports to its brief's address. Before the
+#      opener's first record/meta write the member still holds the
+#      predecessor's carried record/meta, which this can't tell apart from a
+#      finished one (shirabe#2157)
 #   64 usage
 #
 # Reads only: koto session dir, the logs, and koto context get of record/meta
@@ -75,6 +83,18 @@ if [ "$MEMBER" != "$DISP" ]; then
     [ -n "$MSCOPE" ] || fail "$MEMBER, the newest member, holds no record/meta naming its run"
     [ "$MSCOPE" = "$DSCOPE" ] || fail "$MEMBER's record/meta names another run ($MSCOPE) than $DISP's ($DSCOPE)"
 fi
+# A member whose takeover is still finishing holds the carried copy of its
+# predecessor's record/run, coordinator row included, until coordinate-open.sh's
+# finish_takeover writes its own row and then marks the takeover done: its row
+# is an earlier member's coordinator, so it isn't printed.
+TDONE=$(key "$MEMBER" record/meta | jq -r 'if (.takeover | type) == "object" then (.takeover_done == true | tostring) else "none" end' 2>/dev/null)
+case $TDONE in
+    true | none) ;;
+    false)
+        echo "$PROG: $MEMBER, the newest member, is still finishing its takeover, so its coordinator row may be an earlier member's; report to the address your brief names" >&2
+        exit 4 ;;
+    *) fail "$MEMBER's record/meta can't be read" ;;
+esac
 ADDR=$(key "$MEMBER" record/run | jq -r '[(. // [])[] | select(.key == "coordinator") | .value][0] // "" | strings' 2>/dev/null)
 [[ $ADDR =~ $DC_RE_SESSION ]] || fail "$MEMBER's record names no coordinator address"
 printf 'coordinator=%s\nmember=%s\n' "$ADDR" "$MEMBER"

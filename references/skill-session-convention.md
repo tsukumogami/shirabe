@@ -256,8 +256,9 @@ does the same after its open, and a coordinated `/execute` run's step agent
 opens each `/work-on` child with `koto init --dispatched-by execute-<slug>`
 (`skills/execute/references/step-agent-handoff.md`). `/coordinate`'s opener,
 `coordinate-open.sh`, takes `--dispatched-by` too, and its
-`link-dispatcher.sh` links a session already open; a worker `/coordinate`
-dispatches on the message path runs the one its brief shows
+`link-dispatcher.sh` links a session already open, kept for briefs already
+in flight; a worker `/coordinate` dispatches on the message path runs the
+open its brief shows, when its entry point's opener takes the flag
 (`references/koto-session-retention.md`).
 
 A failed link is run once more. When the retry fails too, the script prints

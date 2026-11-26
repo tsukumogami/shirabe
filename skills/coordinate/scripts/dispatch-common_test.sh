@@ -435,6 +435,31 @@ eq  "job: state file that isn't JSON" "the state file of job $JF is not readable
 rm -f "$CH/jobs/$JF/state.json"
 eq  "job: no state file" "job $JF has no state file at $CH/jobs/$JF/state.json" "$(dc_job_finished "$CH" "$JF" '{}')"
 
+# --- dc_leg_field: the one accessor for a leg key's child, rebriefed and opened ---
+LK='{"request":"req-1","leg":"work-on","topic":"w","state":"open","child":"issue_7"}'
+eq  "leg field: reads child" issue_7 "$(dc_leg_field "$LK" child)"
+eq  "leg field: a field not set reads empty, exit 0" ":0" "$(dc_leg_field "$LK" rebriefed):$?"
+eq  "leg field: sets rebriefed and keeps the rest" '2026-09-26T10:00:00Z issue_7 open' \
+    "$(dc_leg_field "$LK" rebriefed 2026-09-26T10:00:00Z | jq -r '"\(.rebriefed) \(.child) \(.state)"')"
+eq  "leg field: a set value reads back" 2026-09-26T09:00:00Z "$(dc_leg_field "$(dc_leg_field "$LK" opened 2026-09-26T09:00:00Z)" opened)"
+OUT=$(dc_leg_field "$LK" bound_child 2>&1); RC=$?
+eq  "leg field: a field it doesn't know is refused: exit 2" 2 "$RC"
+eq  "  ... and stderr names it" "dispatch-common: dc_leg_field: bound_child is not a leg key field (child, rebriefed, opened)" "$OUT"
+dc_leg_field "$LK" child x >/dev/null 2>&1 && dc_leg_field "$LK" rebriefd x >/dev/null 2>&1
+eq  "leg field: a misspelled field is refused on write too" 2 "$?"
+dc_leg_field '["not","an","object"]' child >/dev/null 2>&1
+eq  "leg field: a key that isn't an object: exit 2" 2 "$?"
+dc_leg_field '{"child":7}' child >/dev/null 2>&1
+eq  "leg field: a field that isn't a string: exit 2" 2 "$?"
+# Every other coordinate script reaches those fields through dc_leg_field, so
+# a rename here can't leave a writer or a reader on the old name.
+DIRECT=$(cd "$HERE" && for f in *.sh *.jq; do
+    # No case here: bash 3.2 misreads a case pattern's `)` inside $( ).
+    if [[ $f == *_test.sh ]] || [ "$f" = dispatch-common.sh ]; then continue; fi
+    grep -nE '\.(child|rebriefed|opened)\b|[{,] *(child|rebriefed|opened) *[,}]' "$f" | grep -vE '^[0-9]+: *#' | sed "s#^#$f:#"
+done)
+eq  "leg field: no other script reads or writes child, rebriefed or opened directly" "" "$DIRECT"
+
 # --- a live, idle worker whose turn ended (shirabe#1594) ------------------------
 # A worker that ends its turn to wait for its coordinator gets a state file
 # reading done while its process lives on and `claude agents` lists it idle
@@ -478,6 +503,21 @@ jq -n --arg n "$LN" '{name: $n, state: "working"}' >"$LH/jobs/$LJ/state.json"
 printf 'not json' >"$LROWS"
 eq  "live: a working job is live whatever the listing says" \
     "0 $LN is a running Claude job: the state file of job $LJ reads working" "$(out=$(live); echo "$? $out")"
+
+# --- a stopped topic reads the listing row too (shirabe#2080) --------------------
+# dc_topic_stopped applies dc_session_live's listing-row pid check: a worker
+# whose state file reads done while the listing shows its live pid is not
+# stopped, so its holding stays in the live set.
+SH="$T/stop-home"
+SJ=$(printf '%s%s' 6d57 19f4)
+SN=$(printf 'stopq-%s%s' 1e2d 3c4b)
+mkdir -p "$SH/jobs/$SJ"
+jq -n --arg n "$SN" '{name: $n, state: "done"}' >"$SH/jobs/$SJ/state.json"
+stopped() { DC_CLAUDE_CLI="$LCLI" dc_topic_stopped "$SH" stopq; }
+jq -n --arg j "$SJ" --argjson p "$LIVE" '[{id: $j, status: "idle", state: "done", pid: $p}]' >"$LROWS"
+stopped; eq "stopped: a done job listed idle with a live pid is not stopped" 1 $?
+jq -n --arg j "$SJ" --argjson p "$DEAD" '[{id: $j, status: "idle", state: "done", pid: $p}]' >"$LROWS"
+stopped; eq "stopped: a done job listed with no live pid is stopped" 0 $?
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

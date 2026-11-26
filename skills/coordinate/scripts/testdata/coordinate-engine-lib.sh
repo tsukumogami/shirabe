@@ -135,12 +135,12 @@ seed_roadmap() { # seed_roadmap <name> [status]; ROADMAP_TEXT, when set, is the 
 # reconcile's handover gate passes: the run's arguments and cap, this
 # coordinator's address, who it reports to (every run is on the session, so the
 # gate asks every run for it), its role (manager, the role open_run starts
-# with), and for every live holding a next step and its worker told. The
-# handover cases build theirs by hand.
+# with), and for every dispatched holding a next step and its worker told: a
+# merged one is live too until its worker is seen to have finished
+# (state-handover.sh). The handover cases build theirs by hand.
 stored() {
     printf '%s' "$1" | jq -c '
-        ([.holdings[] | select(.dispatch_status == "dispatched")
-          | select(((.verified_head // "") != "" and (.pull_request // "") == "") | not)]) as $live
+        ([.holdings[] | select(.dispatch_status == "dispatched")]) as $live
         | .run = ((.run // []) + [{key: "arguments", value: "--roadmap docs/roadmaps/ROADMAP-test.md", set_by: "the human", set: "2026-09-26T08:00Z"},
                                   {key: "cap", value: "5", set_by: "the human", set: "2026-09-26T08:00Z"},
                                   {key: "coordinator", value: "coord-test", set_by: "coord-test", set: "2026-09-26T08:00Z"},
