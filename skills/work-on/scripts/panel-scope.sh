@@ -1122,13 +1122,16 @@ if [ "$MODE" = "--record" ]; then
     # A seat's earlier citations carry forward, but their line ranges are in
     # the numbering of the commit it judged then. Where the file has changed
     # since, the range no longer names the same code, so only the path is
-    # carried: coarser, never wrong.
+    # carried: coarser, never wrong. A merge of the default branch made since
+    # is folded into that commit first, as changed_lines does, so the files
+    # the merge brought in don't count as moved.
     : > "$WORK/moved"
     for s in $(jq -r '.[] | .seat? // empty' "$ROUND_FILE"); do
         old=$(printf '%s' "$LEDGER_JSON" | jq -r --arg k "$PANEL/$s" '.seats[$k].judged_at // empty')
         [ -n "$old" ] || continue
         if git rev-parse --verify -q "${old}^{commit}" >/dev/null; then
-            git diff --no-renames --name-only "$old" HEAD | jq -R --arg s "$s" '{seat: $s, path: .}'
+            fold_default_merge "$old"
+            git diff --no-renames --name-only "$FOLDED_BASE" HEAD | jq -R --arg s "$s" '{seat: $s, path: .}'
         else
             jq -n --arg s "$s" '{seat: $s, path: "*"}'
         fi >> "$WORK/moved"
@@ -1466,7 +1469,10 @@ if [ -z "$FULL_REASON" ]; then
     if [ -z "$FIXBASE" ]; then
         FULL_REASON="no commit the ledger recorded is an ancestor of HEAD"
     else
-        git diff --no-renames --quiet "$FIXBASE" HEAD
+        # Decided on the folded base, as changed_lines measures the round's
+        # size: a merge of the default branch alone wrote no fix diff.
+        fold_default_merge "$FIXBASE"
+        git diff --no-renames --quiet "$FOLDED_BASE" HEAD
         case $? in
             0) ;;
             1) FIX_REVIEW=1 ;;
