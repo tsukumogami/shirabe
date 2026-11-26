@@ -371,6 +371,70 @@ can wire into its own settings. When a host does wire it, the plugin's hook
 leaves the PR-body rules to that entry point, so each broken rule is reported
 once.
 
+## The question guard
+
+A second PreToolUse hook, `hooks/question-guard.sh`, covers the question tool
+(`AskUserQuestion`) and nothing else. A question prompt that opens in a turn
+no person typed waits for an answer nobody is there to give, so the guard
+denies it there. A prompt opened in a turn a person typed is left alone,
+including one a skill the person invoked opens later in that turn, after any
+number of tool calls: a skill's confirmation or approval prompt behaves as it
+always has.
+
+The guard reads where the turn came from in the session record the harness
+names in the hook's input, and only from its structured fields, never from
+message text. It denies:
+
+- a turn started by a background task's completion notice, a scheduled
+  wake-up, or a message from another session;
+- a turn a Stop hook continued after the person's prompt;
+- a call made by a subagent.
+
+A turn labelled as typed is allowed in an attended session. A session started
+with a dispatched brief carries the same label as one a person typed, so the
+record can't tell the two apart; that start, and any turn whose origin can't
+be read, falls back to the session's run mode: denied when the session is
+unattended, allowed otherwise. A turn's origin can't be read when the record
+is missing, lies outside the harness's own directory once symbolic links are
+resolved (the guard never opens such a path), holds no entry for the turn, or
+labels it in a way the guard doesn't know. The run mode is
+`CLAUDE_CODE_SESSION_ATTENDED`, which Claude Code sets for every hook (`0`
+unattended, `1` attended); with any other value, or none, the session isn't
+known to be unattended. `docs/spikes/SPIKE-question-guard-turn-origin.md`
+records what the harness reported for each start of a turn and the cases the
+guard can't tell apart.
+
+The deciding is done by the `shirabe` binary (`shirabe hook question-guard`),
+found the way the pre-action hook finds it. Without the binary, or with one
+that fails, hangs past four seconds, or prints anything but a deny, the guard
+gives no decision and the prompt opens: without the binary it can read
+neither the turn's origin nor the run mode, and a prompt is refused only where
+the session is known to be unattended or the turn known not to be a person's.
+Unlike the pre-action hook, it has no fallback deny.
+
+The guard is on wherever the plugin is installed. `SHIRABE_PRE_ACTION_HOOK`
+set to exactly `off`, the same switch as above, turns it off along with the
+pre-action hook. The guard writes nothing and keeps no log: a denial shows in
+the session as the denied question call, with this reason, and searching a
+session's record for the reason's first sentence finds every denial. The
+reason, in full:
+
+> A question prompt was denied because no person typed the message that started this turn. Do not open a question prompt again in this turn. Hand the question to whoever dispatched this session, or record it by the means you already have, then continue with work that does not depend on the answer. The person running this host can turn this guard off by setting SHIRABE_PRE_ACTION_HOOK to off in the env block of their Claude Code settings.
+
+`hooks/question-guard_test.sh` runs the guard against fixtures copied from the
+harness's own hook inputs and session records. Each fixture's
+`transcript_path` is the marker `PATH-1`, which the suite points at the
+fixture's `.record.jsonl` placed under a scratch `$HOME/.claude`. To try one
+by hand, do the same:
+
+```sh
+d=$(mktemp -d) && mkdir -p "$d/.claude/projects/p" &&
+cp hooks/testdata/question-guard/background-notification.record.jsonl "$d/.claude/projects/p/r.jsonl" &&
+sed "s|PATH-1|$d/.claude/projects/p/r.jsonl|" hooks/testdata/question-guard/background-notification.json |
+  HOME="$d" CLAUDE_CODE_SESSION_ATTENDED=1 CLAUDE_PLUGIN_ROOT="$PWD" \
+  sh -c 'bash "${CLAUDE_PLUGIN_ROOT}/hooks/question-guard.sh"'
+```
+
 ## CLI and doc validation
 
 shirabe ships a `shirabe` binary and a reusable GitHub Actions workflow so
