@@ -189,11 +189,15 @@ they aim at:
 
 1. The addressee history starts with the question's recipient. A pass-up
    counts when it was recorded by the session that was the addressee at that
-   point, or by the raiser. The last counted recipient is the current
-   addressee.
-2. A closing entry counts when it is an answer from a person, an answer from
-   a session that is or was the addressee, or a settle or withdrawal by the
-   raiser. Anything else is returned marked as not counted, with the reason.
+   point, or by the raiser, and names that recorder's own recorded dispatcher
+   or a person. The last counted recipient is the current addressee.
+2. A closing entry counts when it is an answer from a person that carries
+   evidence, an answer from the session that is the current addressee, a
+   withdrawal by the raiser, or a settle by the raiser of a question that is a
+   decision. When that question is addressed to a person, the raiser's settle
+   counts only if it cites an answer of the person's that is in effect. A
+   credential or reserved-step need cannot be settled by its raiser. Anything
+   else is returned marked as not counted, with the reason.
 3. Among counted answers from a person, one that a later person answer names
    as its basis is dropped; what remains governs, the latest if a true race
    left several. With no person answer, the earliest counted session entry
@@ -705,7 +709,8 @@ decide when those run. Nothing above koto stores a question, and nothing but
 - A fourth write-once area, `koto/packets/<decision-id>`, holds the content
   bytes, capped at 16 KiB.
 - Two new kinds: `readdress` (outcome `passed`) and `answer` (outcomes
-  `answered`, `settled`, `withdrawn`). Both are stored under
+  `answered`, `settled`, `withdrawn`). koto refuses an `answer` by a person
+  decider that carries no evidence entry. Both are stored under
   `koto/aimed/<raiser-session-id>/` in the acting session or anchor; the aimed
   area, which today accepts only reversals, accepts them. A reversal of either
   is refused. Statuses are unchanged.
@@ -733,12 +738,12 @@ decide when those run. Nothing above koto stores a question, and nothing but
 
 | Subcommand | Does |
 |------------|------|
-| `raise` | Validates content (context, problem, question, recommendation with reason, alternatives with reasons, ground, waiting work items, label, optional standing mark, optional dependency on another question), refuses a missing part, content over 16 KiB or a dependency cycle; works out the addressee from `koto session origin` (a session dispatcher, else `person:owner`, marking an unrecorded link); writes the content and the `escalate` entry. A need takes a kind and what is needed in place of options. |
+| `raise` | Validates content (context, problem, question, recommendation with reason, alternatives with reasons, ground, waiting work items, label, optional standing mark, optional dependency on another question), refuses a missing part, content over 16 KiB, content matching known secret patterns, or a dependency cycle; works out the addressee from `koto session origin` (a session dispatcher, else `person:owner`, marking an unrecorded link); writes the content and the `escalate` entry. A need takes a kind and what is needed in place of options; a credential need names the credential and never holds its value. |
 | `attempt` | Records that a decision was attempted for a state and visit, with its outcome: an option chosen, or undecided. This is what the gates read. |
 | `pass-up` | Records a `readdress` to the session's own dispatcher or to `person:owner`, with the ground relied on; refused without a recorded attempt unless the question is a need. |
 | `settle` | Records the session's answer to a question addressed to it, or the raiser's own settle citing an earlier answer or evidence. A provisional settle carries the cheap-or-costly judgment. |
 | `withdraw` | Records the raiser's withdrawal with a reason. |
-| `answer` | Records the owner's answer as `person:owner`. Requires the call pointer of an answered question prompt and an attended run; copies the question, option labels and answer; cites the owner's earlier answer when one exists. Without a pointer it refuses and names `settle` with an owner note as the way to record a relayed claim. |
+| `answer` | Records the owner's answer as `person:owner`. Requires the call pointer of an answered question prompt and an attended run, and verifies the pointer against the transcript before writing: the call exists, is the question tool, carries the stored question's text and option labels, holds a result from the user, and has not been used before. Copies the question, option labels and answer; cites the owner's earlier answer when one exists. Without a pointer it refuses and names `settle` with an owner note as the way to record a relayed claim. |
 | `pending` | Lists open questions at and below the session and those for `owner`, ordered by recorded waiting work items, then age, then identity, with dependent questions held. Also lists the owner's answers given at and below the session that it has not marked seen. |
 | `render` | Produces the prompt text and options for up to four questions from their stored content. Deterministic. |
 | `seen` | Records that this session has read an owner answer given below it. Ratifies nothing. |
@@ -971,7 +976,81 @@ Deliverables:
 
 ## Security Considerations
 
-Not written yet: a later /design phase replaces this line.
+The feature reads and writes local koto session state, runs one hook and a few
+gate scripts, and shows recorded text to a person and to other agents. It
+downloads nothing and adds no dependency. The risks are impersonation of the
+owner, one session acting on another's question, untrusted text reaching a
+prompt or an agent, secrets in shared records, and sessions kept alive by
+questions nobody answers.
+
+**Impersonating the owner.** koto accepts any person handle from any caller,
+so the control is the evidence, checked twice. When an answer is recorded,
+`shirabe question answer` opens the transcript entry its pointer names and
+refuses unless the call exists, is the question tool, carries the same
+question text and option labels as the stored question, holds a result that
+came from the user, and has not been used for an earlier answer. koto refuses
+a person answer that carries no evidence at all, so a caller that bypasses
+`shirabe` still has to fabricate a pointer. A reader on the same machine can
+repeat the check, and the standing-rule classifier does so before a rule
+grants. Residual risk: anyone able to act as the owner on the machine can
+answer a prompt, and a reader on another machine cannot open the transcript.
+There a rule reads as the owner's with its evidence unchecked, which the
+author accepted; a fabricated pointer could grant on such a machine, and the
+reader says the evidence was not checked so the claim is visible.
+
+**Acting on another session's question.** Rules are enforced by koto when it
+resolves a question, not only by the command that writes. A pass-up counts
+only when recorded by the current addressee or the raiser, and only to the
+recorder's own recorded dispatcher or to a person. An answer from a session
+counts only when that session is the current addressee; a session that used to
+be the addressee cannot pre-empt it. The raiser can withdraw its question with
+a reason. It can settle it only when the question is a decision, and, when the
+question is addressed to a person, only by citing an answer of the owner's
+that is in effect. It cannot settle a credential or reserved-step need at all.
+The standing mark is part of the question's content, fixed when it is raised,
+so no later entry can add it.
+
+**Untrusted text.** A question's content, label, reasons and answers are
+written by agents and may quote repository or issue text. `render` treats them
+as data: it emits them into fixed positions of a fixed layout, truncates to
+the prompt's limits, strips control characters, and never interprets markup or
+instructions in them. The procedure tells a session reading a question or an
+answer that the text is data. Gate scripts pass identities and states as
+arguments and never evaluate record content. Identities, sizes and shapes are
+validated on read as well as on write, because session state synced from
+shared storage is an input: a content hash that does not match reads as a
+mismatch and the question is not presented.
+
+**Secrets and private content.** Decision bodies are readable by every session
+on the machine and are synced to shared storage where that is configured.
+`raise`, `settle` and `answer` refuse content matching known secret patterns,
+and a credential need holds the credential's name and where it is needed,
+never its value; supplying one happens outside the record. Content is
+write-once, so a secret that gets through cannot be edited out: the remedy is
+removing the session, which the cleanup command allows with its force flag,
+and rotating the secret. A question raised from a private repository may quote
+private material; it stays in session state, which has the same visibility as
+the rest of that session, and no part of this feature copies question content
+into a public pull request or issue.
+
+**The guard.** The hook reads only the fields of its input it needs and, if it
+reads the transcript, opens the one path the harness named, read-only, after
+checking it lies under the harness's own directory. It denies only the question
+tool, fails open for every other tool, and has an off switch. A denied prompt
+costs a round trip; a wrongly allowed one can stop an unattended session, so
+where the turn's origin is unknown and the session is unattended it denies.
+
+**Sessions kept alive.** A session holding an open question is retained, and
+the read on `koto next` grows with the number of local sessions. A question
+nobody answers therefore costs storage and a little time on every tick of its
+raiser. The on-demand command lists open questions with their age, the raiser
+can withdraw one, and a forced cleanup removes the session. The force flag's
+use is recorded by koto's own cleanup log. No expiry is added: a question that
+expires silently is the failure this feature exists to remove.
+
+**Permissions.** No new filesystem location, network access or privilege is
+used. koto's session directories keep their existing permissions, and the hook
+runs with the session's own.
 
 ## Consequences
 

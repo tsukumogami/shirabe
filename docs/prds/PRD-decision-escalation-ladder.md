@@ -271,7 +271,8 @@ The content does not change after it is raised, and is at most 16 KiB.
 step the person reserved, or an action outside the session's reach is recorded
 in the same way as a question, with its kind and what is needed, and is
 counted, listed and restored like one. It skips R5 and R6 and is presented as
-a request. It carries a subject label like any question. A credential need records
+a request. Raising or answering is refused when the content matches a known
+secret pattern. It carries a subject label like any question. A credential need records
 that a credential was requested and, once met, that it was supplied, never
 the credential.
 
@@ -298,9 +299,11 @@ given in is still live.
 
 **R16a. How a question closes.** A question closes when an answer is recorded
 for it by a decider entitled to settle it: the person, the session it is
-addressed to under R2, or the session that raised it when new evidence or an
-earlier answer (R9) now covers it. The raising session can also withdraw a
-question that no longer matters, with a reason. Each of these is recorded with
+currently addressed to under R2, or the session that raised it. The raiser
+may settle its own question only when the question is a decision; when that
+question is addressed to a person, only by citing an answer of the person's
+that is in effect (R9); and never when it is a need (R12). The raising
+session can also withdraw a question that no longer matters, with a reason. Each of these is recorded with
 its decider, and a closed or withdrawn question is no longer returned by the
 open reads. An answer from a session that is neither the raiser nor the
 addressee, and is not recording the person's answer, is refused.
@@ -557,8 +560,10 @@ that record or list must show.
   addressed to; an answer from the raising session citing an earlier answer; a
   withdrawal by the raising session with a reason. A withdrawal with no reason
   is refused, each closing records its decider, and an answer from a session
-  that is neither raiser nor addressee and is not recording the person's answer
-  is refused. (R16a)
+  that is neither raiser nor current addressee and is not recording the
+  person's answer is refused. A raiser's settle of a question addressed to a
+  person that cites no answer of the person's is refused, and so is a raiser's
+  settle of a need. (R16a)
 - [ ] (checked) After the person answers a question twice, reads return the
   second answer as the one in effect and both remain readable; answering a
   question identity that does not exist is refused. (R16b)
