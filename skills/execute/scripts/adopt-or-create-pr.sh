@@ -42,7 +42,7 @@
 #                Only /execute's re-entry passes it, after exit 6 said so;
 #                see orchestrator_setup in koto-templates/execute.md.
 #   --plan-slug  ^[a-z0-9-]+$            (required with --create)
-#   --plan-doc   ^[A-Za-z0-9._/-]+\.md$   (required with --create)
+#   --plan-doc   ^[A-Za-z0-9._/+-]+\.md$, no `..` segment   (required with --create)
 #
 # Each flag appears at most once, as `--flag value`.
 #
