@@ -31,7 +31,11 @@
 #   4  the newest member is still finishing its takeover: its record/meta
 #      records one (`takeover`) and `takeover_done` isn't true, so its
 #      coordinator row may still be the copy carried from its predecessor.
-#      Nothing is printed; the worker reports to its brief's address
+#      A `takeover` with no `takeover_done` reads as not done. Nothing is
+#      printed; the worker reports to its brief's address. Before the
+#      opener's first record/meta write the member still holds the
+#      predecessor's carried record/meta, which this can't tell apart from a
+#      finished one (shirabe#2157)
 #   64 usage
 #
 # Reads only: koto session dir, the logs, and koto context get of record/meta

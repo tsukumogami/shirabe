@@ -118,6 +118,11 @@ if needs_takeover "1-3: a worker resolving its coordinator while C's takeover fi
     OUT=$(bash "$RC" "$A" 2>/dev/null); rc=$?
     eq "2: ... and resolve-coordinator.sh A prints C's row too" "0 coordinator=coord-c" "$rc $(printf '%s\n' "$OUT" | grep '^coordinator=')"
 
+    put "$C" record/meta "$(meta "$B" true | jq -c 'del(.takeover_done)')"
+    OUT=$(bash "$RC" "$B" 2>/dev/null); rc=$?
+    eq "2: a takeover with no takeover_done reads as not done: exit 4" 4 "$rc"
+    eq "2: ... printing nothing" "" "$OUT"
+
     echo "== 3. render-result.sh in C's window =="
     put "$C" record/meta "$(meta "$B" false)"
     put "$C" record/run "$(koto context get "$B" record/run)"
