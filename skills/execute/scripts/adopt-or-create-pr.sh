@@ -72,7 +72,9 @@ RE_SESSION='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 RE_BRANCH='^[A-Za-z0-9._/-]+$'
 RE_SLUG='^[a-z0-9-]+$'
-RE_DOC='^[A-Za-z0-9._/-]+\.md$'
+# --plan-doc takes a + because a niwa instance directory is named
+# <workspace>+<instance>, so an absolute PLAN path under one holds it.
+RE_DOC='^[A-Za-z0-9._/+-]+\.md$'
 RE_URL='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$'
 
 usage_error() {
