@@ -15,6 +15,7 @@ skills/coordinate/scripts/state-find_test.sh
 skills/coordinate/scripts/find-reads_test.sh
 skills/coordinate/scripts/state-open_test.sh
 skills/coordinate/scripts/state-write_test.sh
+skills/coordinate/scripts/state-write-race_test.sh
 skills/coordinate/scripts/state-holding_test.sh
 skills/coordinate/scripts/state-confirm_test.sh
 skills/coordinate/scripts/start-check_test.sh

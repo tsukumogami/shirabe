@@ -11,6 +11,12 @@
 //!   SessionStart hook JSON whose `additionalContext` tells the compacted
 //!   session to re-read each recorded `SKILL.md`, run `koto status` on its
 //!   koto session, and read its compaction note, before doing anything else.
+//!   It runs the same freshness read and opens with its verdict: the note is
+//!   fresh, stale, or its freshness couldn't be checked. A stale note gets a
+//!   step, right after reading it, to rewrite it before any other work; one
+//!   whose freshness is unknown gets a step to rewrite it first if koto shows
+//!   the run past it. The verdict reaches the session here even when the
+//!   summary doesn't carry pre-compact's line, or pre-compact never ran.
 //!
 //! Both read the hook JSON on stdin for `session_id` and look up the ledger
 //! entry `scripts/handoff-brief.sh note` wrote for that session:
@@ -39,14 +45,23 @@
 //!
 //! The stale flag. The note is stale when the koto session moved on after
 //! the note's last write, or the branch has a commit newer than that write.
-//! koto prints no session-wide latest seq, so "moved on" is read through
-//! koto's own CLI, which logs no read for any of these: `koto context
-//! history` of the note gives its last write's seq, timestamp and state;
-//! `koto status` gives the current state (a transition after the note
-//! changes it); and `koto context list` plus `koto context history` of each
-//! other key gives the latest write seq of every key. The branch's tip
-//! commit time comes from `git log -1 --format=%ct refs/heads/<branch>`, run
-//! in the entry's repository when that is still a work tree, else in the
+//! koto's CLI prints no session-wide latest seq, so "moved on" is read
+//! through calls that log no read: `koto context history` of the note gives
+//! its last write's seq, timestamp and state; `koto status` gives the current
+//! state (a transition after the note changes it); the run's event log,
+//! `koto-<session>.state.jsonl` in the directory `koto session dir` prints,
+//! gives every event's seq and type, so any event after the note's write
+//! that moved the work on (evidence, a decision, an override, a transition
+//! back to the same state) is seen; and `koto context list` plus `koto
+//! context history` of each other key gives the latest write seq of every
+//! key. In the log, a read (`context_read`), an import (`session_imported`)
+//! and a key copied in by a cloud sync (`context_added` by writer `sync`)
+//! don't count: none of them is work. The log is opened without following a
+//! link and must be a regular file; only its last mebibyte is read, and a
+//! tail that holds nothing older than the event right after the note can't
+//! say what came between, so it leaves the freshness unknown. The branch's
+//! tip commit time comes from `git log -1 --format=%ct refs/heads/<branch>`,
+//! run in the entry's repository when that is still a work tree, else in the
 //! hook's working directory. Every call is bounded in time. A check that
 //! can't be read leaves the freshness unknown unless another check already
 //! found the note stale.
@@ -97,6 +112,13 @@ const MAX_KEYS_SCANNED: usize = 256;
 
 /// The most bytes read from one tool's stdout.
 const MAX_TOOL_OUTPUT: u64 = 4 * 1024 * 1024;
+
+/// The most bytes read from the end of the run's event log. An event line is
+/// a few hundred bytes, so this holds the last few thousand events.
+const LOG_TAIL_BYTES: u64 = 1024 * 1024;
+
+/// The longest session directory path the freshness read accepts.
+const MAX_SESSION_DIR: usize = 4096;
 
 /// The flags every `git` call carries, so a repository's fsmonitor, hooks or
 /// signature program (`gpg.program`, run by `git log` when the repository
@@ -702,6 +724,100 @@ fn parse_key_list(json: &str) -> Option<Vec<String>> {
         .collect()
 }
 
+/// The end of a run's event log, as read: its bytes, and whether they are
+/// the whole log.
+struct LogTail {
+    bytes: Vec<u8>,
+    whole: bool,
+}
+
+/// The tail of the event log of koto session `ks`: the directory `koto
+/// session dir` prints, which must be an absolute path with no control
+/// character, and `koto-<ks>.state.jsonl` in it, opened without following a
+/// link and without waiting on a FIFO, which must be a regular file. `ks`
+/// passed its grammar when the entry was read, so the name has no `/`.
+fn run_log_tail(ks: &str, budget: &Budget) -> Option<LogTail> {
+    let out = budget.run("koto", &["session", "dir", ks])?;
+    let dir = out.strip_suffix('\n').unwrap_or(&out);
+    if !dir.starts_with('/') || dir.len() > MAX_SESSION_DIR || dir.chars().any(char::is_control) {
+        return None;
+    }
+    read_log_tail(&Path::new(dir).join(format!("koto-{ks}.state.jsonl")))
+}
+
+fn read_log_tail(path: &Path) -> Option<LogTail> {
+    use rustix::fs::{open, Mode, OFlags};
+    use std::io::{Seek, SeekFrom};
+    let fd = open(
+        path,
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .ok()?;
+    let mut file = fs::File::from(fd);
+    let meta = file.metadata().ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    let start = meta.len().saturating_sub(LOG_TAIL_BYTES);
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut bytes = Vec::new();
+    file.take(LOG_TAIL_BYTES).read_to_end(&mut bytes).ok()?;
+    Some(LogTail {
+        bytes,
+        whole: start == 0,
+    })
+}
+
+/// Whether an event moved the work on. A read, an import and a key a cloud
+/// sync copied in are not work; every other event is.
+fn moves_work_on(event: &serde_json::Value, ty: &str) -> bool {
+    match ty {
+        "context_read" | "session_imported" => false,
+        "context_added" => {
+            event.pointer("/payload/writer").and_then(|w| w.as_str()) != Some("sync")
+        }
+        _ => true,
+    }
+}
+
+/// What a log tail says about a note last written at `note_seq`:
+/// `Some(true)` when an event after it moved the work on, `Some(false)` when
+/// none did, and `None` when the tail can't tell: it holds no event, or it
+/// starts past the event right after the note, so what came between isn't
+/// in it. A tail that doesn't start the log starts mid-line, so its first
+/// line is dropped. Lines that aren't an event (the log's header, a line
+/// still being written) are passed over.
+fn moved_on_after(tail: &LogTail, note_seq: u64) -> Option<bool> {
+    let text = String::from_utf8_lossy(&tail.bytes);
+    let mut lines = text.split('\n');
+    if !tail.whole {
+        lines.next();
+    }
+    let mut first_seq = None;
+    for line in lines {
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let (Some(seq), Some(ty)) = (
+            event.get("seq").and_then(|s| s.as_u64()),
+            event.get("type").and_then(|t| t.as_str()),
+        ) else {
+            continue;
+        };
+        first_seq.get_or_insert(seq);
+        if seq > note_seq && moves_work_on(&event, ty) {
+            return Some(true);
+        }
+    }
+    let first_seq = first_seq?;
+    if tail.whole || first_seq <= note_seq.saturating_add(1) {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 /// Judge the entry's note against its koto session and its branch.
 fn note_freshness(e: &Entry, budget: &Budget) -> Freshness {
     let ks = e.koto_session.as_str();
@@ -735,6 +851,13 @@ fn note_freshness(e: &Entry, budget: &Budget) -> Freshness {
     match branch_commit_secs(&e.branch, repo, budget) {
         Some(ct) if ct > note.secs => return Freshness::Stale,
         Some(_) => {}
+        None => unknown = true,
+    }
+
+    // Any event after the note that moved the work on, whatever its kind.
+    match run_log_tail(ks, budget).and_then(|t| moved_on_after(&t, note.seq)) {
+        Some(true) => return Freshness::Stale,
+        Some(false) => {}
         None => unknown = true,
     }
 
@@ -792,6 +915,36 @@ pub fn freshness_line(f: Freshness) -> Option<&'static str> {
     }
 }
 
+/// The verdict the re-anchor opens with, for every freshness: the session
+/// after a compaction hears it whichever it is.
+pub fn re_anchor_verdict(f: Freshness) -> &'static str {
+    match f {
+        Freshness::Fresh => {
+            "The compaction note is fresh: nothing in the koto session or on the branch came after its last write."
+        }
+        Freshness::Stale => {
+            "The compaction note is stale: the koto session or the branch moved on after it was last written, so it is behind the work."
+        }
+        Freshness::Unknown => {
+            "Whether the compaction note is current could not be checked (koto or git could not be read), so it may be behind the work."
+        }
+    }
+}
+
+/// The re-anchor step after reading the note, for a note that is stale or
+/// may be; none for a fresh one.
+pub fn re_anchor_rewrite_step(f: Freshness) -> Option<&'static str> {
+    match f {
+        Freshness::Fresh => None,
+        Freshness::Stale => Some(
+            "Rewrite the compaction note before any other work, with `handoff-brief.sh note` (scripts/handoff-brief.sh in the shirabe plugin), from where koto says the run stands.",
+        ),
+        Freshness::Unknown => Some(
+            "If koto shows the run past what the note says, rewrite the note before any other work, with `handoff-brief.sh note` (scripts/handoff-brief.sh in the shirabe plugin).",
+        ),
+    }
+}
+
 // --- the outputs ---------------------------------------------------------------------
 
 /// The summary instruction PreCompact prints, from a valid entry.
@@ -839,10 +992,14 @@ pub fn no_note_summary(branch: Option<&str>) -> String {
     s
 }
 
-/// The re-anchor text the SessionStart hook carries, from a valid entry.
-pub fn re_anchor_text(e: &Entry) -> String {
+/// The re-anchor text the SessionStart hook carries, from a valid entry and
+/// its note's freshness.
+pub fn re_anchor_text(e: &Entry, f: Freshness) -> String {
     let mut s = String::new();
-    s.push_str("This session was just compacted. Before doing anything else, in this order:\n");
+    s.push_str(&format!(
+        "This session was just compacted. {} Before doing anything else, in this order:\n",
+        re_anchor_verdict(f)
+    ));
     let mut n = 1;
     for sk in &e.skills {
         s.push_str(&format!(
@@ -861,6 +1018,10 @@ pub fn re_anchor_text(e: &Entry) -> String {
         "{n}. Read your compaction note, key {}, with `handoff-brief.sh read --note --session {}` (scripts/handoff-brief.sh in the shirabe plugin), which prints it as data.\n",
         e.note_key, e.koto_session
     ));
+    if let Some(step) = re_anchor_rewrite_step(f) {
+        n += 1;
+        s.push_str(&format!("{n}. {step}\n"));
+    }
     s.push_str(&format!(
         "Then carry on from where koto says the run stands, on branch {}",
         e.branch
@@ -872,14 +1033,27 @@ pub fn re_anchor_text(e: &Entry) -> String {
     s
 }
 
-/// The steps both fixed re-anchor texts give: they name nothing read from
-/// anywhere.
+/// The three steps both fixed re-anchor texts give: they name nothing read
+/// from anywhere.
 macro_rules! generic_steps {
     () => {
         "1. Work out the skill you were running from your koto session's name prefix (`deliver-` is shirabe:deliver, `scope-` is shirabe:scope, `coordinate-` is shirabe:coordinate), and read that skill's SKILL.md again.\n\
 2. In your worktree, run `koto status` on that koto session (`koto workflows` lists the sessions there) to see where the run stands.\n\
-3. Read your compaction note with `handoff-brief.sh read --note --session <koto session>` (scripts/handoff-brief.sh in the shirabe plugin), which prints it as data.\n\
-Then carry on from where koto says the run stands."
+3. Read your compaction note with `handoff-brief.sh read --note --session <koto session>` (scripts/handoff-brief.sh in the shirabe plugin), which prints it as data.\n"
+    };
+}
+
+/// The line the fixed re-anchor texts end on.
+macro_rules! generic_carry_on {
+    () => {
+        "Then carry on from where koto says the run stands."
+    };
+}
+
+/// The opening of the re-anchor for an entry too long to show.
+macro_rules! over_cap_head {
+    () => {
+        "This session was just compacted. Its compaction ledger entry is recorded but too long to show here."
     };
 }
 
@@ -887,15 +1061,37 @@ Then carry on from where koto says the run stands."
 /// it names nothing read from anywhere.
 pub const GENERIC_RE_ANCHOR: &str = concat!(
     "This session was just compacted, and no compaction note is recorded for it. Before doing anything else, in this order:\n",
-    generic_steps!()
+    generic_steps!(),
+    generic_carry_on!()
 );
 
-/// The re-anchor text for a usable entry whose block would reach the cap.
-/// Fixed text, the generic steps behind a line saying the entry was too long.
+/// The re-anchor text for a usable entry whose block would reach the cap,
+/// with no freshness verdict: the generic steps behind a line saying the
+/// entry was too long. Fixed text; `over_cap_re_anchor` adds the verdict.
 pub const OVER_CAP_RE_ANCHOR: &str = concat!(
-    "This session was just compacted. Its compaction ledger entry is recorded but too long to show here. Before doing anything else, in this order:\n",
-    generic_steps!()
+    over_cap_head!(),
+    " Before doing anything else, in this order:\n",
+    generic_steps!(),
+    generic_carry_on!()
 );
+
+/// The re-anchor text for a usable entry whose block would reach the cap:
+/// the generic steps behind a line saying the entry was too long, with the
+/// note's freshness verdict and, for a note that is stale or may be, the
+/// rewrite step. It names nothing read from the entry.
+pub fn over_cap_re_anchor(f: Freshness) -> String {
+    let mut s = format!(
+        "{} {} Before doing anything else, in this order:\n{}",
+        over_cap_head!(),
+        re_anchor_verdict(f),
+        generic_steps!()
+    );
+    if let Some(step) = re_anchor_rewrite_step(f) {
+        s.push_str(&format!("4. {step}\n"));
+    }
+    s.push_str(generic_carry_on!());
+    s
+}
 
 /// `pre-compact`'s stdout for a hook input, or `None` for no output.
 pub fn pre_compact_output(input: &str) -> Option<String> {
@@ -914,21 +1110,29 @@ pub fn pre_compact_output(input: &str) -> Option<String> {
     }
 }
 
-/// `re-anchor`'s stdout for a hook input, or `None` for no output. An entry
-/// whose block would reach the cap gets the generic steps behind a line
-/// saying so.
+/// `re-anchor`'s stdout for a hook input, or `None` for no output. With an
+/// entry it judges the note's freshness, under the same time budget as
+/// `pre-compact`, and carries the verdict. An entry whose block would reach
+/// the cap gets the generic steps behind a line saying so, still with the
+/// verdict.
 pub fn re_anchor_output(input: &str) -> Option<String> {
     let sid = hook_sid(input)?;
     match read_entry(&sid) {
-        Some(e) => re_anchor_json(&e).or_else(|| context_json(OVER_CAP_RE_ANCHOR)),
+        Some(e) => {
+            let budget = Budget::new(FRESHNESS_BUDGET);
+            let f = note_freshness(&e, &budget);
+            re_anchor_json(&e, f)
+                .or_else(|| context_json(&over_cap_re_anchor(f)))
+                .or_else(|| context_json(OVER_CAP_RE_ANCHOR))
+        }
         None => context_json(GENERIC_RE_ANCHOR),
     }
 }
 
 /// The SessionStart hook JSON for an entry, withheld (`None`) rather than
 /// truncated when its text would reach the 10,000-character cap.
-fn re_anchor_json(e: &Entry) -> Option<String> {
-    context_json(&re_anchor_text(e))
+fn re_anchor_json(e: &Entry, f: Freshness) -> Option<String> {
+    context_json(&re_anchor_text(e, f))
 }
 
 /// A SessionStart hook JSON carrying `text` as `additionalContext`, or `None`
@@ -1045,15 +1249,158 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
     #[test]
     fn re_anchor_orders_skills_then_status_then_note() {
         let e = parse_entry(GOOD).unwrap();
-        let t = re_anchor_text(&e);
-        let deliver = t.find("skills/deliver/SKILL.md").unwrap();
-        let scope = t.find("skills/scope/SKILL.md").unwrap();
-        let status = t.find("koto status probe-run").unwrap();
-        let note = t
-            .find("handoff-brief.sh read --note --session probe-run")
-            .unwrap();
-        assert!(deliver < scope && scope < status && status < note);
-        assert!(t.chars().count() < CONTEXT_CAP);
+        for f in [Freshness::Fresh, Freshness::Stale, Freshness::Unknown] {
+            let t = re_anchor_text(&e, f);
+            let deliver = t.find("skills/deliver/SKILL.md").unwrap();
+            let scope = t.find("skills/scope/SKILL.md").unwrap();
+            let status = t.find("koto status probe-run").unwrap();
+            let note = t
+                .find("handoff-brief.sh read --note --session probe-run")
+                .unwrap();
+            assert!(deliver < scope && scope < status && status < note);
+            assert!(t.chars().count() < CONTEXT_CAP);
+        }
+    }
+
+    #[test]
+    fn re_anchor_opens_with_the_verdict_and_puts_a_rewrite_after_the_note() {
+        let e = parse_entry(GOOD).unwrap();
+        for f in [Freshness::Fresh, Freshness::Stale, Freshness::Unknown] {
+            let t = re_anchor_text(&e, f);
+            let verdict = re_anchor_verdict(f);
+            assert!(t.starts_with(&format!(
+                "This session was just compacted. {verdict} Before"
+            )));
+            let note = t.find("handoff-brief.sh read --note").unwrap();
+            let carry_on = t.find("Then carry on").unwrap();
+            match re_anchor_rewrite_step(f) {
+                Some(step) => {
+                    // Numbered after the note's step: two skills, status,
+                    // note, then the rewrite.
+                    let at = t.find(&format!("5. {step}\n")).expect("rewrite step");
+                    assert!(note < at && at < carry_on);
+                }
+                None => assert!(!t.contains("handoff-brief.sh note")),
+            }
+        }
+    }
+
+    #[test]
+    fn the_re_anchor_verdicts() {
+        let fresh = re_anchor_verdict(Freshness::Fresh);
+        let stale = re_anchor_verdict(Freshness::Stale);
+        let unknown = re_anchor_verdict(Freshness::Unknown);
+        assert!(fresh.contains("is fresh") && !fresh.contains("stale"));
+        assert!(stale.contains("is stale") && !stale.contains("fresh"));
+        assert!(unknown.contains("could not be checked"));
+        assert!(!unknown.contains("is fresh") && !unknown.contains("is stale"));
+        for v in [fresh, stale, unknown] {
+            assert!(!v.contains('\n'));
+        }
+        assert_eq!(re_anchor_rewrite_step(Freshness::Fresh), None);
+        let stale_step = re_anchor_rewrite_step(Freshness::Stale).unwrap();
+        assert!(stale_step.starts_with("Rewrite the compaction note before any other work"));
+        let unknown_step = re_anchor_rewrite_step(Freshness::Unknown).unwrap();
+        assert!(unknown_step.contains("before any other work"));
+        for s in [stale_step, unknown_step] {
+            assert!(s.contains("`handoff-brief.sh note`") && !s.contains('\n'));
+        }
+    }
+
+    #[test]
+    fn the_over_cap_re_anchor_carries_the_verdict() {
+        for f in [Freshness::Fresh, Freshness::Stale, Freshness::Unknown] {
+            let t = over_cap_re_anchor(f);
+            assert!(t.contains("too long to show"));
+            assert!(t.contains(re_anchor_verdict(f)));
+            assert!(t.contains("handoff-brief.sh read --note --session"));
+            assert!(!t.contains("no compaction note is recorded"));
+            assert!(t.ends_with("Then carry on from where koto says the run stands."));
+            assert_eq!(
+                t.contains("4. "),
+                re_anchor_rewrite_step(f).is_some(),
+                "{t}"
+            );
+            assert!(t.chars().count() < CONTEXT_CAP);
+        }
+    }
+
+    fn tail(lines: &[&str], whole: bool) -> LogTail {
+        LogTail {
+            bytes: lines.join("\n").into_bytes(),
+            whole,
+        }
+    }
+
+    #[test]
+    fn a_log_tail_sees_an_event_that_moved_the_work_on() {
+        let header = r#"{"schema_version":1,"workflow":"k"}"#;
+        let note = r#"{"seq":5,"timestamp":"t","type":"context_added","payload":{"key":"compaction/note.md"}}"#;
+        let evidence = r#"{"seq":6,"timestamp":"t","type":"evidence_submitted","payload":{}}"#;
+        let read = r#"{"seq":6,"timestamp":"t","type":"context_read","payload":{}}"#;
+        let import = r#"{"seq":7,"timestamp":"t","type":"session_imported","payload":{}}"#;
+        let sync =
+            r#"{"seq":8,"timestamp":"t","type":"context_added","payload":{"writer":"sync"}}"#;
+        let agent =
+            r#"{"seq":8,"timestamp":"t","type":"context_added","payload":{"writer":"agent"}}"#;
+        assert_eq!(moved_on_after(&tail(&[header, note], true), 5), Some(false));
+        assert_eq!(
+            moved_on_after(&tail(&[header, note, evidence], true), 5),
+            Some(true)
+        );
+        assert_eq!(
+            moved_on_after(&tail(&[header, note, read, import, sync], true), 5),
+            Some(false)
+        );
+        assert_eq!(
+            moved_on_after(&tail(&[header, note, read, agent], true), 5),
+            Some(true)
+        );
+        // An event at the note's own seq or before it never counts.
+        assert_eq!(
+            moved_on_after(&tail(&[header, evidence], true), 6),
+            Some(false)
+        );
+        // A trailing newline, a line still being written, and the header are
+        // passed over.
+        assert_eq!(
+            moved_on_after(&tail(&[header, note, "", r#"{"seq":9,"#], true), 5),
+            Some(false)
+        );
+        // No event at all can't tell.
+        assert_eq!(moved_on_after(&tail(&[header], true), 5), None);
+        assert_eq!(moved_on_after(&tail(&["", "not json"], true), 5), None);
+    }
+
+    #[test]
+    fn a_partial_log_tail_drops_its_first_line_and_must_reach_the_note() {
+        let cut = r#"type":"evidence_submitted","seq":99}"#;
+        let note = r#"{"seq":5,"timestamp":"t","type":"context_added","payload":{}}"#;
+        let next_read = r#"{"seq":6,"timestamp":"t","type":"context_read","payload":{}}"#;
+        let late_read = r#"{"seq":40,"timestamp":"t","type":"context_read","payload":{}}"#;
+        let late_work = r#"{"seq":41,"timestamp":"t","type":"decision_recorded","payload":{}}"#;
+        // The cut first line is dropped, even when it would parse.
+        let whole_line = r#"{"seq":99,"timestamp":"t","type":"evidence_submitted","payload":{}}"#;
+        assert_eq!(
+            moved_on_after(&tail(&[whole_line, note], false), 5),
+            Some(false)
+        );
+        assert_eq!(
+            moved_on_after(&tail(&[cut, note, next_read], false), 5),
+            Some(false)
+        );
+        // A tail starting right after the note still sees everything after it.
+        assert_eq!(
+            moved_on_after(&tail(&[cut, next_read], false), 5),
+            Some(false)
+        );
+        // A tail of reads that starts well past the note can't tell.
+        assert_eq!(moved_on_after(&tail(&[cut, late_read], false), 5), None);
+        // But work anywhere in it after the note is enough.
+        assert_eq!(
+            moved_on_after(&tail(&[cut, late_read, late_work], false), 5),
+            Some(true)
+        );
     }
 
     fn entry_with(skills: usize, arg_len: usize, args: usize) -> Entry {
@@ -1070,7 +1417,8 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
     #[test]
     fn re_anchor_json_is_hook_shaped() {
         let e = parse_entry(GOOD).unwrap();
-        let j: serde_json::Value = serde_json::from_str(&re_anchor_json(&e).unwrap()).unwrap();
+        let j: serde_json::Value =
+            serde_json::from_str(&re_anchor_json(&e, Freshness::Fresh).unwrap()).unwrap();
         assert_eq!(j["hookSpecificOutput"]["hookEventName"], "SessionStart");
         assert!(j["hookSpecificOutput"]["additionalContext"]
             .as_str()
@@ -1081,12 +1429,14 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
     #[test]
     fn re_anchor_is_withheld_at_the_cap_not_truncated() {
         // Eight skills with long paths and short arguments fit.
-        let fits = entry_with(MAX_SKILLS, 20, 3);
-        assert!(re_anchor_json(&fits).is_some());
-        // Eight skills each carrying 4,000 characters of arguments don't.
-        let over = entry_with(MAX_SKILLS, 200, 20);
-        assert!(re_anchor_text(&over).chars().count() >= CONTEXT_CAP);
-        assert!(re_anchor_json(&over).is_none());
+        for f in [Freshness::Fresh, Freshness::Stale, Freshness::Unknown] {
+            let fits = entry_with(MAX_SKILLS, 20, 3);
+            assert!(re_anchor_json(&fits, f).is_some());
+            // Eight skills each carrying 4,000 characters of arguments don't.
+            let over = entry_with(MAX_SKILLS, 200, 20);
+            assert!(re_anchor_text(&over, f).chars().count() >= CONTEXT_CAP);
+            assert!(re_anchor_json(&over, f).is_none());
+        }
     }
 
     #[test]
