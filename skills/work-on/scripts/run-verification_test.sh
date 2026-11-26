@@ -693,7 +693,10 @@ file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }
 # past it, ending no earlier than twice the budget, reads at least twice the
 # budget.
 budget_wait_ok() {
-    case "$1$2$3" in ''|*[!0-9]*) return 1 ;; esac
+    local t
+    for t in "$1" "$2" "$3"; do
+        case "$t" in ''|*[!0-9]*) return 1 ;; esac
+    done
     [ $(($2 - $1)) -ge "$3" ] && [ $(($2 - $1)) -lt $(($3 * 2)) ]
 }
 budget_wait_ok 1000 1005 5 && pass "budget_wait_ok: a wait ending at the budget is in bounds" \
