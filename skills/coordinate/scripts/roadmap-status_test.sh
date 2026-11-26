@@ -192,6 +192,33 @@ diff <(printf '%s\n' "$V2") <(on_branch "$PRB") > "$T/d"
 eq "  ... the Needs and old Delivered go with their wrapped lines; Status and Delivered are written; the two-line Outcome is untouched" \
     "$(printf '%s\n' '15,16d14' '< **Needs:** `needs-design` -- the loader shape,' '<   and where it reads from' '18,20c16,17' '< **Status:** In progress' '< **Delivered:** acme/widgets#3, a first cut' '<   behind a flag' '---' '> **Status:** Done' '> **Delivered:** acme/widgets#12')" "$(cat "$T/d")"
 
+echo "== a Done write-back drops the feature's Progress field =="
+# PS1's Progress field (two lines) goes; PS2's own Progress field and the
+# roadmap's `## Progress` section stay byte-identical.
+progress_roadmap() {
+    printf -- '---\nschema: roadmap/v1\nstatus: Active\n---\n\n# ROADMAP: plugins\n\n## Features\n\n### PS1: the loader\n**Outcome:** A plugin loads by name.\n**Dependencies:** None\n**Status:** In progress\n%s**Left open:** remote plugins\n\nThe loader.\n\n### PS2: the registry\n**Outcome:** A plugin is found by name.\n**Dependencies:** PS1\n**Status:** Not started\n**Progress:** nothing merged yet\n\n## Progress\n\n- PS1: issues 1 to 3 merged.\n' "$1"
+}
+V3=$(progress_roadmap '**Progress:** PLAN-loader issues 1 to 3 merged;\n  issues 4 to 7 remain.\n')
+db_init
+issue7
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$V3"
+seed_session "$SR" "$(record_json roadmap plugin-system)"
+bash "$RS" "${W[@]}" --unit PS1 --outcome "acme/widgets#12" >/dev/null 2>"$T/err"; eq "opened" 0 $?
+PRB=$(jq -r '.prs[] | select(.number == 8) | .headRefName' "$GH_DB")
+diff <(printf '%s\n' "$V3") <(on_branch "$PRB") > "$T/d"
+eq "  ... PS1's Progress field goes with its wrapped line; Status and Delivered are written; PS2 and ## Progress are untouched" \
+    "$(printf '%s\n' '13,15c13,14' '< **Status:** In progress' '< **Progress:** PLAN-loader issues 1 to 3 merged;' '<   issues 4 to 7 remain.' '---' '> **Status:** Done' '> **Delivered:** acme/widgets#12')" "$(cat "$T/d")"
+V4=$(progress_roadmap '')
+db_init
+issue7
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$V4"
+seed_session "$SR" "$(record_json roadmap plugin-system)"
+bash "$RS" "${W[@]}" --unit PS1 --outcome "acme/widgets#12" >/dev/null 2>"$T/err"; eq "a feature without a Progress field opens" 0 $?
+PRB=$(jq -r '.prs[] | select(.number == 8) | .headRefName' "$GH_DB")
+diff <(printf '%s\n' "$V4") <(on_branch "$PRB") > "$T/d"
+eq "  ... only its Status and Delivered change, as before; PS2's Progress field and ## Progress are untouched" \
+    "$(printf '%s\n' '13c13,14' '< **Status:** In progress' '---' '> **Status:** Done' '> **Delivered:** acme/widgets#12')" "$(cat "$T/d")"
+
 echo "== an outcome taken as written =="
 seed
 OUTC='C:\temp\new & 100% "quoted" a\\b [x]* ^$ (.+)? \1'
