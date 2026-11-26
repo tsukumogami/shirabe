@@ -1295,6 +1295,7 @@ if [ "\${1-}" = context ] && [ "\${4-}" = test_change_ledger.jsonl ]; then
                 refuse) cat > /dev/null; echo "flaky: add failed" >&2; exit 1 ;;
                 land) "$BIN/koto" "\$@"; echo "flaky: cloud push failed" >&2; exit 1 ;;
                 garble) printf 'garbled\n' | "$BIN/koto" "\$@"; exit \$? ;;
+                stale) cat > /dev/null; exit 0 ;;
             esac ;;
         get)
             if [ -e "$FLAKY/added" ]; then
@@ -1350,6 +1351,14 @@ eq "that note is in the ledger once" 1 "$(notes "$S" "add failed but landed")"
 flaky refuse 99 note "$S" --file tests/greet_test.sh --reason "add failed, get never runs"
 eq "a failed add whose read-back never runs is unknown, not not written: exit 67" 67 "$RC"
 has "it says the write may have landed" "may have been written" "$(cat "$W/err")"
+
+# stale: the add exits 0 but every read-back still serves the prior ledger, as
+# a copy older than the write would. That's not confirmed, not "not written".
+flaky stale 0 note "$S" --file tests/greet_test.sh --reason "stale read"
+eq "an add that exited 0 but reads back as the prior ledger is not reported as not written: exit 67" 67 "$RC"
+has "it says the write is not confirmed" "not confirmed" "$(cat "$W/err")"
+hasnt "it doesn't say could not write" "could not write" "$(cat "$W/err")"
+eq "the write was not repeated after the stale read" 1 "$(adds)"
 
 flaky garble 0 note "$S" --file tests/greet_test.sh --reason "garbled"
 eq "a read-back that runs and differs exits 66" 66 "$RC"

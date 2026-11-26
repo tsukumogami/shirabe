@@ -199,8 +199,9 @@
 #   66  a koto context read or write failed: a ledger write that read back
 #       without its line, or not as written
 #   67  a ledger write that could not be read back after
-#       TEST_CHANGE_READBACK_TRIES tries: written, not confirmed (or, when
-#       koto also reported the add failed, not known). Don't repeat the
+#       TEST_CHANGE_READBACK_TRIES tries, or whose add exited 0 but read back
+#       as the prior ledger: written, not confirmed (or, when koto also
+#       reported the add failed, not known). Don't repeat the
 #       write, which would duplicate the line; `record` shows whether it's there
 #   75  the lock is held by a live writer; retry
 #
@@ -396,10 +397,14 @@ ctx_get() {
 # after its write landed (a failed cloud push) and a read can fail on its own
 # (a transient listing error). Returns:
 #   0  the read-back ran and matches <file>
-#   1  the read-back ran and matches <prior>: not written
+#   1  the add failed and the read-back matches <prior>: not written
 #   2  the read-back ran and matches neither
 #   3  the add exited 0 and no read-back ran: written, not confirmed
 #   4  the add failed and no read-back ran: not known whether it was written
+#   5  the add exited 0 but the read-back matches <prior>: not confirmed
+# Three tries two seconds apart ride out a transient listing error (koto#713)
+# and hold the lock at most four seconds longer, well inside a waiting
+# writer's TEST_CHANGE_LOCK_WAIT default of ten.
 ctx_put() {
     local added=0 try=1
     koto context add "$1" "$2" < "$3" >/dev/null 2>>"$ERRLOG" && added=1
@@ -412,7 +417,12 @@ ctx_put() {
         [ "$added" = 1 ] || echo "test-change: warning: koto reported a failure adding $2, but it read back as written" >&2
         return 0
     fi
-    cmp -s "$4" "$TMP/readback" && return 1
+    if cmp -s "$4" "$TMP/readback"; then
+        # An add that exited 0 and reads back as the prior ledger may be a
+        # stale copy, older than the write, so it is only not confirmed.
+        [ "$added" = 1 ] && return 5
+        return 1
+    fi
     return 2
 }
 
@@ -542,6 +552,7 @@ append() {
         1) die66 "could not write $LEDGER: it read back without the new line" ;;
         2) die66 "$LEDGER didn't read back as written" ;;
         3) die67 "wrote $LEDGER, but could not read it back to check it (written, not confirmed): do not run it again; \`test-change.sh record $1\` shows whether the line is there" ;;
+        5) die67 "wrote $LEDGER, but it read back without the new line, perhaps from a copy older than the write (not confirmed): do not run it again; \`test-change.sh record $1\` shows whether the line is there" ;;
         *) die67 "koto reported a failure adding to $LEDGER and it could not be read back, so it may have been written: do not run it again; \`test-change.sh record $1\` shows whether the line is there" ;;
     esac
     cp "$TMP/ledger.next" "$TMP/ledger"
