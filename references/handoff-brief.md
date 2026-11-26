@@ -111,7 +111,8 @@ A hook uses an entry only when all of these hold:
 - where `KOTO_SESSION` is set, the entry's koto session equals it.
 
 An entry that fails any of these is treated as no entry at all, and the hooks
-print the no-entry outputs below, which hold none of its text.
+take the no-entry path below, which reads koto and git only and prints none of
+the entry's text.
 
 The `repo` line is checked apart from the rest, and failing its checks never
 makes the entry unusable. It may appear at most once. The hook uses it only
@@ -126,7 +127,39 @@ The path is never printed.
 ### No usable entry
 
 For a valid session id with no usable entry (none written, deleted, or
-refused by the checks above), `pre-compact` prints a summary instruction that
+refused by the checks above), the hooks first look for the koto run the
+session's anchor holds. They run
+`koto session hierarchy anchor-<session id> --json`, within the same 20-second
+budget and 5-second limit per call as the freshness read, and keep the
+members of kind `koto_session` that are alive and have a `joined_by` link
+with `via` set to `held-by link`, `holder` naming the member itself and
+`named` naming that anchor; each name must pass koto's session grammar. The
+hierarchy spans every session joined to the anchor, so another anchor's runs
+and links of any other kind are passed over. The hooks never list or search
+koto's sessions directory.
+
+Exactly one such run gives a pointer; none, two or more give the outputs
+below, so the hooks never pick between runs and never name a run the anchor
+holds no link to (an anchor lost when a session opened slowly, for one). With
+one run, the hooks read the directory it executes in: the `to` of the latest
+`execution_anchor_rebound` event in the tail of its event log (found through
+`koto session dir`, opened with the same checks as for the freshness read),
+else the `execution_dir` of the log's first line. That directory must pass
+the `repo` line's grammar, not be a symlink, and be inside a git work tree.
+The branch is read live there with `git -C <dir> symbolic-ref --short HEAD`.
+The pointer claims a compaction note only when `koto context list` lists
+`compaction/note.md` for the run; the freshness read runs only then. Where
+`KOTO_SESSION` is set, the run must be that session. `pre-compact` then says
+no ledger entry is recorded and names the koto session, its worktree, the
+branch, no pull request, and the note key or that none is recorded, with the
+freshness line when there is a note. `re-anchor` names the run and its
+worktree, gives the verdict (or says the run has no note), and tells the
+session to run `koto status` on the run, work out its skill from the
+directive and the session name's prefix, and read the note when there is
+one, with the rewrite step for a note that is stale or may be. Anything that
+can't be read, or fails a check, gives the outputs below instead.
+
+Without a run, `pre-compact` prints a summary instruction that
 says no compaction note is recorded and names the branch `git` reads in the
 hook's working directory (`git symbolic-ref --short HEAD`), or says the branch
 could not be read there. `re-anchor` prints a generic line: work out the skill
@@ -341,9 +374,10 @@ session's id:
 | Session id holding a newline | exit 0, no output | exit 0, no output |
 
 These runs predate the no-entry outputs. Today a deleted entry still exits 0
-but prints the no-entry summary instruction and the generic re-anchor line
-described under [No usable entry](#no-usable-entry); the other rows are
-unchanged.
+but prints the no-entry outputs described under
+[No usable entry](#no-usable-entry): the pointer to the one run the session's
+anchor holds, or else the no-entry summary instruction and the generic
+re-anchor line; the other rows are unchanged.
 
 ### Second read: liveness while the compaction runs
 
@@ -839,7 +873,7 @@ The identity read for a worker launch, on Claude Code 2.1.332:
   nothing, read files whole until one compaction, printed the window and its
   session id after it, then paused 120 seconds in a background command so it
   stayed live through the last read.
-- It wrote no compaction note, since no shipped skill writes one yet, so the
+- It wrote no compaction note and held no koto run, so the
   hooks took their no-entry paths. That is what a worker launched this way
   gets today.
 - A poller outside the session read the job state file's `sessionId`,

@@ -1512,6 +1512,78 @@ EOF
     cd "$SCRIPT_DIR"
 }
 
+# ── A node the retirement guard blocked is a failed step, not an ok one ──────
+scenario_blocked_node_recorded_failed() {
+    local scenario="#355: a blocked finalize-chain node is recorded as failed"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    # Two PLANs name one DESIGN. Cascading the first leaves the sibling still
+    # naming the DESIGN, so finalize-chain's retirement guard blocks the node:
+    # it comes back as transition_design with blocked true, blocked_by naming
+    # the sibling PLAN, and no new_path. Nothing was applied to it, so the
+    # step must not say ok.
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-sibling.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+
+    commit_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md")
+
+    local ok=true
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_design")] | length == 1' \
+        "one transition_design step" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_design" and .status == "ok")] | length == 0' \
+        "a blocked node does not produce a step with status ok" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_design")][0].status == "failed"' \
+        "the blocked node's step is failed" || ok=false
+
+    # The detail names the blocker from blocked_by: the sibling PLAN and the
+    # status it was read at. The engine's note says "still named as upstream
+    # by", so "blocked by" pins the detail to the blocked_by list.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_design")][0].detail | test("blocked by docs/plans/PLAN-cascade-test-sibling\\.md \\(status: [A-Za-z]+\\)")' \
+        "the failed step's detail names the blocking document and its status" || ok=false
+
+    # The block is the only failure, and a failed step makes the run partial
+    # (DESIGN-completion-cascade.md): the chain did not finalize, so the
+    # verdict must not read completed.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.status == "failed")] | length == 1' \
+        "the blocked node is the only failed step" || ok=false
+    assert_json "$scenario" "$output" '.cascade_status == "partial"' \
+        "cascade_status is partial, consistent with a failed step" || ok=false
+
+    # Filesystem: the blocked DESIGN really did not move or change status.
+    if [[ -d "$repo/docs/designs/current" ]]; then
+        fail "$scenario: docs/designs/current/ exists but the DESIGN was blocked"
+        ok=false
+    fi
+    if ! grep -q "^status: Planned" "$repo/docs/designs/DESIGN-cascade-test-short.md" 2>/dev/null; then
+        fail "$scenario: blocked DESIGN is not still at status Planned"
+        ok=false
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
 scenario_check_issue_closed_sibling_repo() {
     local scenario="Scenario 14: check_issue_closed — sibling repo accepted, bad charset rejected"
     echo "Running $scenario..."
@@ -1935,8 +2007,8 @@ scenario_push_blocked_design() {
     # Two single-pr PLANs naming one DESIGN. Cascading the first leaves the
     # second still pointing at the DESIGN, so finalize-chain's retirement guard
     # blocks the node: it comes back action transition_design with blocked true
-    # and no new_path, the script records the step as "ok" because it reads
-    # neither field, and the DESIGN stays at Planned in docs/designs/.
+    # and no new_path, the script records the step as "failed" (see the #355
+    # scenario), and the DESIGN stays at Planned in docs/designs/.
     #
     # This is the case the guard exists for, and the case a post-verify seeded
     # on the deleted PLAN could never catch: the un-moved DESIGN survives, so an
@@ -4159,6 +4231,9 @@ scenario_check_issue_closed_sibling_repo
 cd "$ORIG_DIR"
 
 scenario_fail_open_note_surfaced
+
+scenario_blocked_node_recorded_failed
+cd "$ORIG_DIR"
 
 scenario_plan_roadmap_no_design
 cd "$ORIG_DIR"
