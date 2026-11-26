@@ -2173,6 +2173,11 @@ rrun >/dev/null 2>"$T/err"; eq "profile named: a lane exits 0" 0 "$?"
 LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
 has "profile named: the lane asks for the named one" "$LAUNCHED" "[--profile] [coordinator-window]"
 lacks "profile named: ... not the default" "$LAUNCHED" "[--profile] [coordinator]"
+# niwa's profile grammar has no length cap, so a name over 64 characters is taken.
+LONG=coordinator-$(printf 'a%.0s' $(seq 1 70))
+reset "$(jq -c --arg p "$LONG" '.launch = {"profile": $p}' <<<"$INPUT_LANE")"; export RECORD_ROLE=manager NIWA_HELP=profile
+rrun >/dev/null 2>"$T/err"; eq "profile over 64 characters: a lane exits 0" 0 "$?"
+has "profile over 64 characters: the lane asks for it" "$(grep '^niwa dispatch' "$ST/calls.log")" "[--profile] [$LONG]"
 reset "$(jq -c '.launch = {"profile": "worker"}' <<<"$INPUT_DELIVER")"; export NIWA_HELP=profile
 run >/dev/null 2>&1; eq "profile named: a worker exits 0" 0 "$?"
 has "profile named: the worker asks for it" "$(grep '^niwa dispatch' "$ST/calls.log")" "[--profile] [worker]"
@@ -2200,7 +2205,7 @@ eq  "profile named and refused: the row dispatch-failed" dispatch-failed "$(row 
 unset NIWA_MODE
 
 # A malformed launch.profile: refused before anything is written or launched.
-for l in '{"profile": "Coordinator"}' '{"profile": "-x"}' '{"profile": "a b"}' '{"profile": 7}' '{"profile": ""}'; do
+for l in '{"profile": "Coordinator"}' '{"profile": "-x"}' '{"profile": "a b"}' '{"profile": 7}' '{"profile": ""}' '{"profile": "lean\n"}'; do
     reset "$(jq -c --argjson l "$l" '.launch = $l' <<<"$INPUT_LANE")"; export RECORD_ROLE=manager NIWA_HELP=profile
     rrun >/dev/null 2>"$T/err"; eq "profile refused $l: exit 1" 1 "$?"
     eq  "profile refused $l: nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|request create' "$ST/calls.log")"

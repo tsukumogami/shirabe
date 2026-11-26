@@ -160,7 +160,7 @@
 #                                 and profile, a [session.dispatch_profiles]
 #                                 name in niwa's grammar (lowercase letters,
 #                                 digits and hyphens, starting with a letter
-#                                 or digit, at most 64 characters).
+#                                 or digit, with no length cap).
 #                                 Any other key or value is refused, so
 #                                 nothing but these reaches the launch.
 #                                 dispatch-worker.sh turns each into its
@@ -364,8 +364,8 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
         else
           ( ($l | keys[]) | select(IN("model","permission_mode","accept_session_messages","profile") | not)
             | "launch: unknown key \(.); only model, permission_mode, accept_session_messages and profile" ),
-          ( if $l | has("profile") and ((.profile | type) != "string" or (.profile | test("^[a-z0-9][a-z0-9-]{0,63}$") | not))
-            then "launch: profile must be a dispatch profile name: lowercase letters, digits and hyphens, starting with a letter or digit, at most 64 characters" else empty end ),
+          ( if $l | has("profile") and ((.profile | type) != "string" or (.profile | test("\\A[a-z0-9][a-z0-9-]*\\z") | not))
+            then "launch: profile must be a dispatch profile name: lowercase letters, digits and hyphens, starting with a letter or digit" else empty end ),
           ( if $l | has("model") and (.model | IN("balanced","fast","powerful","fable","opus","sonnet","haiku") | not)
             then "launch: model must be balanced, fast, powerful, fable, opus, sonnet or haiku" else empty end ),
           ( if $l | has("permission_mode") and (.permission_mode | IN("default","acceptEdits","plan","auto","dontAsk","bypassPermissions") | not)
