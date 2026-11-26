@@ -459,6 +459,22 @@ REGISTRY="$PLUGIN_ROOT_PS/scripts/rule-registry.sh"
 # shellcheck source=../../../scripts/lib/default-merge.sh
 . "$PLUGIN_ROOT_PS/scripts/lib/default-merge.sh" || refuse 64 "cannot load scripts/lib/default-merge.sh"
 
+# range_same <commit> <path> <lines>: whether lines <lines> (n or a-b) of
+# <path> read the same at <commit> and at HEAD. Anything it can't read, or a
+# range it can't parse, is not the same.
+range_same() {
+    local a b
+    case "$3" in
+        ""|*[!0-9-]*|-*|*-|*-*-*) return 1 ;;
+    esac
+    a=$((10#${3%-*})) b=$((10#${3#*-}))
+    [ "$a" -ge 1 ] && [ "$a" -le "$b" ] || return 1
+    git show "$1:$2" > "$WORK/range_a" 2>>"$WORK/range.err" || return 1
+    git show "HEAD:$2" > "$WORK/range_b" 2>>"$WORK/range.err" || return 1
+    [ "$(wc -l < "$WORK/range_a")" -ge "$b" ] && [ "$(wc -l < "$WORK/range_b")" -ge "$b" ] || return 1
+    [ "$(sed -n "${a},${b}p" "$WORK/range_a")" = "$(sed -n "${a},${b}p" "$WORK/range_b")" ]
+}
+
 # The jq every mode that reads or writes findings shares: the shapes --record
 # accepts, a finding's id string, its status, whether it is closed, and the
 # panel's unclosed blocking findings. Prepended to each program that needs it.
@@ -1122,13 +1138,28 @@ if [ "$MODE" = "--record" ]; then
     # A seat's earlier citations carry forward, but their line ranges are in
     # the numbering of the commit it judged then. Where the file has changed
     # since, the range no longer names the same code, so only the path is
-    # carried: coarser, never wrong.
+    # carried: coarser, never wrong. A merge of the default branch made since
+    # is folded into that commit first, as changed_lines does, so the files
+    # only the merge changed don't count as moved for that alone. A range in
+    # one of them is still coarsened unless its lines read the same at both
+    # commits: main may have shifted the numbering above it.
     : > "$WORK/moved"
     for s in $(jq -r '.[] | .seat? // empty' "$ROUND_FILE"); do
         old=$(printf '%s' "$LEDGER_JSON" | jq -r --arg k "$PANEL/$s" '.seats[$k].judged_at // empty')
         [ -n "$old" ] || continue
         if git rev-parse --verify -q "${old}^{commit}" >/dev/null; then
-            git diff --no-renames --name-only "$old" HEAD | jq -R --arg s "$s" '{seat: $s, path: .}'
+            fold_default_merge "$old"
+            git diff --no-renames --name-only "$FOLDED_BASE" HEAD > "$WORK/own_moved"
+            jq -R --arg s "$s" '{seat: $s, path: .}' "$WORK/own_moved"
+            if [ "$FOLDED_BASE" != "$old" ]; then
+                git diff --no-renames --name-only "$old" HEAD | grep -vxF -f "$WORK/own_moved" > "$WORK/merge_moved"
+                printf '%s' "$LEDGER_JSON" | jq -r --arg k "$PANEL/$s" \
+                    '(.seats[$k].cited // [])[] | select((.path | type) == "string" and .lines != null) | [.path, (.lines | tostring)] | @tsv' \
+                | while IFS=$'\t' read -r p l; do
+                    grep -qxF -- "$p" "$WORK/merge_moved" || continue
+                    range_same "$old" "$p" "$l" || jq -n --arg s "$s" --arg p "$p" '{seat: $s, path: $p}'
+                done
+            fi
         else
             jq -n --arg s "$s" '{seat: $s, path: "*"}'
         fi >> "$WORK/moved"
@@ -1466,7 +1497,10 @@ if [ -z "$FULL_REASON" ]; then
     if [ -z "$FIXBASE" ]; then
         FULL_REASON="no commit the ledger recorded is an ancestor of HEAD"
     else
-        git diff --no-renames --quiet "$FIXBASE" HEAD
+        # Decided on the folded base, as changed_lines measures the round's
+        # size: a merge of the default branch alone wrote no fix diff.
+        fold_default_merge "$FIXBASE"
+        git diff --no-renames --quiet "$FOLDED_BASE" HEAD
         case $? in
             0) ;;
             1) FIX_REVIEW=1 ;;
