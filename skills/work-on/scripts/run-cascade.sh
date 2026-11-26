@@ -165,12 +165,22 @@ validate_upstream_path() {
 # issue state. The owner/repo is NOT required to match the origin remote: a
 # coordinated multi-repo effort references sibling-repo issues, and the read-only
 # `gh issue view --repo <owner>/<repo>` below queries the named repo directly.
-# Returns 0 if closed, 1 if open, if the URL cannot be parsed, or if the
-# owner/repo fails the charset validation.
+#
+# Three answers, kept apart because a caller that records the result must not
+# report "we could not ask" as "we asked and it is open":
+#   0  the issue is CLOSED
+#   1  the issue is OPEN
+#   2  its state could not be determined: the URL does not parse, the
+#      owner/repo fails the charset validation, `gh issue view` fails
+#      (unauthenticated, rate-limited, offline, an API error), or gh answers
+#      with a state that is neither OPEN nor CLOSED
+# On 2, CHECK_ISSUE_ERROR holds a one-line reason (gh's own first stderr line
+# when the query failed); on 0 and 1 it is empty.
 # Usage: check_issue_closed <github-issue-url>
 
 check_issue_closed() {
     local url="$1"
+    CHECK_ISSUE_ERROR=""
 
     # Extract owner, repo, and issue number from URL
     # Expected format: https://github.com/<owner>/<repo>/issues/<number>
@@ -181,7 +191,8 @@ check_issue_closed() {
 
     if [[ -z "$owner" || -z "$repo" || -z "$number" ]]; then
         log_warn "check_issue_closed: could not parse URL: $url"
-        return 1
+        CHECK_ISSUE_ERROR="could not parse the issue URL"
+        return 2
     fi
 
     # Validate the owner/repo charset before interpolating it into the gh argv.
@@ -193,21 +204,36 @@ check_issue_closed() {
     local ghname_re='^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$'
     if [[ ! "$owner" =~ $ghname_re ]]; then
         log_warn "check_issue_closed: invalid owner component: $owner"
-        return 1
+        CHECK_ISSUE_ERROR="invalid owner in the issue URL"
+        return 2
     fi
     if [[ ! "$repo" =~ $ghname_re ]]; then
         log_warn "check_issue_closed: invalid repo component: $repo"
-        return 1
+        CHECK_ISSUE_ERROR="invalid repository in the issue URL"
+        return 2
     fi
 
-    # Query issue state
-    local state
-    state=$(gh issue view "$number" --repo "$owner/$repo" --json state --jq '.state' 2>/dev/null) || {
-        log_warn "check_issue_closed: gh issue view failed for $owner/$repo#$number"
-        return 1
-    }
+    # Query issue state. gh's stderr goes to a file rather than /dev/null so a
+    # failure's reason reaches the caller's record, not only this run's stderr.
+    local state errfile gh_rc=0
+    errfile=$(mktemp)
+    state=$(gh issue view "$number" --repo "$owner/$repo" --json state --jq '.state' 2>"$errfile") || gh_rc=$?
+    if [[ "$gh_rc" -ne 0 ]]; then
+        CHECK_ISSUE_ERROR=$(grep -m1 -v '^[[:space:]]*$' "$errfile" | tr -d '\r' | cut -c1-200) || true
+        rm -f "$errfile"
+        [[ -n "$CHECK_ISSUE_ERROR" ]] || CHECK_ISSUE_ERROR="gh issue view exited $gh_rc with no message"
+        log_warn "check_issue_closed: gh issue view failed for $owner/$repo#$number: $CHECK_ISSUE_ERROR"
+        return 2
+    fi
+    rm -f "$errfile"
 
-    [[ "$state" == "CLOSED" ]]
+    case "$state" in
+        CLOSED) return 0 ;;
+        OPEN) return 1 ;;
+    esac
+    CHECK_ISSUE_ERROR="gh issue view returned an unexpected state: '$(printf '%s' "$state" | head -1 | cut -c1-40)'"
+    log_warn "check_issue_closed: $CHECK_ISSUE_ERROR for $owner/$repo#$number"
+    return 2
 }
 
 # ── Inline utility: log_lifecycle_findings ───────────────────────────────────
@@ -640,8 +666,14 @@ multi_pr_cascade_owed() {
             log_info "Pre-cascade probe: issue row without a GitHub issue link for its number; not finalizing: $cell"
             return 1
         fi
-        if ! check_issue_closed "$url"; then
-            log_info "Pre-cascade probe: $url is not confirmed closed; the PLAN's work is still in flight"
+        local closed_rc=0
+        check_issue_closed "$url" && closed_rc=0 || closed_rc=$?
+        if [[ "$closed_rc" -eq 1 ]]; then
+            log_info "Pre-cascade probe: $url is open; the PLAN's work is still in flight"
+            return 1
+        fi
+        if [[ "$closed_rc" -ne 0 ]]; then
+            log_info "Pre-cascade probe: $url could not be confirmed closed ($CHECK_ISSUE_ERROR); not finalizing"
             return 1
         fi
     done <<< "$cells"
@@ -842,6 +874,8 @@ handle_roadmap() {
 #   - Missing file returns 0 with no side effects (already deleted).
 #   - Any non-Done feature returns 0 with no side effects.
 #   - Any open issue records a "delete_roadmap" "skipped" step naming the URL.
+#     An issue whose state could not be read records a "skipped" step too,
+#     with a detail that says so and carries the reason, never "still open".
 #
 # On success: records "delete_roadmap" "ok", appends path to STAGED_FILES.
 # On git rm failure: sets ANY_FAILED=true and records the step as "failed".
@@ -879,23 +913,37 @@ handle_roadmap_deletion() {
     # Confirm all referenced GitHub issues are CLOSED. Reuses check_issue_closed,
     # which validates the owner/repo charset but does NOT enforce origin-equality
     # (sibling-repo issue URLs in a coordinated effort are valid read-only targets).
-    local all_closed=true
+    #
+    # An issue that is open and an issue whose state could not be read are
+    # recorded apart (check_issue_closed's 1 and 2). Both are skips, not
+    # failures: the rest of the cascade is done, and a `partial` verdict would
+    # hold the caller at a recovery that cannot start. That is also why neither
+    # detail asks for a re-run: this same run goes on to remove the PLAN, and
+    # run-cascade.sh refuses to start without it. The remedy each one names is
+    # the manual delete, which works from the state the run leaves behind.
+    local issue_rc=0
     local open_issue_url=""
     local issue_urls
     issue_urls=$(grep -oE \
         'https://github\.com/[^/]+/[^/]+/issues/[0-9]+' "$path" || true)
     while IFS= read -r issue_url; do
         [[ -z "$issue_url" ]] && continue
-        if ! check_issue_closed "$issue_url"; then
-            all_closed=false
+        check_issue_closed "$issue_url" && issue_rc=0 || issue_rc=$?
+        if [[ "$issue_rc" -ne 0 ]]; then
             open_issue_url="$issue_url"
             break
         fi
     done <<< "$issue_urls"
 
-    if [[ "$all_closed" != "true" ]]; then
+    local no_rerun="Re-running the cascade is not the recovery: this run goes on to delete the PLAN, and a second run stops at 'PLAN doc not found'."
+    if [[ "$issue_rc" -eq 1 ]]; then
         add_step "delete_roadmap" "$path" "$found_in" "skipped" \
-            "$path references issue $open_issue_url which is still open — not deleting $path; close the issue first or run the cascade again after it closes"
+            "$path references issue $open_issue_url which is still open, so $path is not deleted. $no_rerun Once the issue closes, delete the ROADMAP by hand: git rm $path, then commit."
+        return 0
+    fi
+    if [[ "$issue_rc" -ne 0 ]]; then
+        add_step "delete_roadmap" "$path" "$found_in" "skipped" \
+            "could not read the state of issue $open_issue_url ($CHECK_ISSUE_ERROR), so $path is not deleted; this is not a finding that the issue is open. $no_rerun Check the issue; if it is closed, delete the ROADMAP by hand: git rm $path, then commit."
         return 0
     fi
 
@@ -1474,7 +1522,7 @@ fi
 #   completed -- nothing failed and the chain held more than the PLAN. A
 #               completed run can still carry `skipped` steps: a ROADMAP
 #               whose schema isn't roadmap/v1 left as it was, a ROADMAP deletion
-#               deferred on an open issue, or a verification with no
+#               deferred on an open or unreadable issue, or a verification with no
 #               surviving document to anchor on.
 # The script exits 0 whenever the cascade ran; exit 1 is reserved for the
 # setup/precondition failures handled above (before this point).
