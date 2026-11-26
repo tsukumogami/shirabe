@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   Worker workflows let an agent stop at about a dozen points with a free-text
   reason, the decision skills can only choose or assume, and the workflow
@@ -35,7 +35,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
