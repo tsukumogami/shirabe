@@ -1753,7 +1753,7 @@ stranded_row() {
         dispatch_status: "stranded", return_path: "message", worker: "plugin-api", repo: "acme/widgets", branch: "feat/plugin-api",
         verified_head: "", dispatched: "2026-10-01", pull_request: "", pushed_head: $h}' >"$ST/rows/plugin-api.json"
 }
-reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "relaunch"')" relaunch
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "relaunch" | .continues = "plugin-api"')" relaunch
 stranded_row
 export NIWA_NAME=relaunch-1a2b3c4d
 OUT=$(run 2>"$T/st.err"); RC=$?
@@ -1773,6 +1773,47 @@ stranded_row
 run >/dev/null 2>&1
 has "stranded: another unit's stranded row isn't named" "$(cat "$W/.niwa/dispatch-briefs/relaunch.md")" "None beyond what the documents you read record."
 [ -f "$ST/rows/plugin-api.json" ] && ok "  ... or retired" || bad "  ... or retired" ""
+
+# Two topics stranded on one unit (shirabe#1588): the dispatch names the one it
+# continues, and only that one is rendered and retired.
+second_stranded_row() {
+    jq -c '.worker = "plugin-docs" | .branch = "docs/plugin-api" | .pushed_head = "dddddddddddddddddddddddddddddddddddddddd"' \
+        "$ST/rows/plugin-api.json" >"$ST/rows/plugin-docs.json"
+}
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "relaunch" | .continues = "plugin-api"')" relaunch
+stranded_row
+second_stranded_row
+export NIWA_NAME=relaunch-1a2b3c4d
+run >/dev/null 2>"$T/st2.err"
+eq  "stranded two topics: the dispatch that continues one goes out" 0 "$?"
+BR=$(cat "$W/.niwa/dispatch-briefs/relaunch.md")
+has "stranded two topics: the brief names the topic it continues" "$BR" "This unit was held by worker plugin-api, which was stranded"
+lacks "stranded two topics: the brief names no other topic's stranded row on the same unit" "$BR" "worker plugin-docs"
+[ -f "$ST/rows/plugin-api.json" ] && bad "stranded two topics: the continued row is retired" "" || ok "stranded two topics: the continued row is retired"
+[ -f "$ST/rows/plugin-docs.json" ] && ok "stranded two topics: a dispatch retires only the stranded row of the topic it continues, never another topic's row on the same unit" ||
+    bad "stranded two topics: a dispatch retires only the stranded row of the topic it continues, never another topic's row on the same unit" "$(calls)"
+
+# A dispatch of another topic on the unit that continues nothing takes no
+# stranded row.
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "followup"')" followup
+stranded_row
+export NIWA_NAME=followup-1a2b3c4d
+run >/dev/null 2>"$T/st3.err"
+eq  "stranded, continuing nothing: the other topic goes out" 0 "$?"
+lacks "stranded, continuing nothing: the brief names no stranded predecessor" "$(cat "$W/.niwa/dispatch-briefs/followup.md")" "which was stranded"
+[ -f "$ST/rows/plugin-api.json" ] && ok "stranded, continuing nothing: a dispatch never retires another topic's row on the same unit" ||
+    bad "stranded, continuing nothing: a dispatch never retires another topic's row on the same unit" "$(calls)"
+
+# continues naming no stranded holding of the unit is refused before anything is written.
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "relaunch" | .continues = "no-such-topic"')" relaunch
+stranded_row
+export NIWA_NAME=relaunch-1a2b3c4d
+run >/dev/null 2>"$T/st4.err"
+eq  "stranded: continues naming no stranded holding of the unit is exit 1" 1 "$?"
+has "  ... naming it" "$(cat "$T/st4.err")" "no-such-topic"
+eq  "  ... and launches nothing" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+[ -f "$ST/rows/relaunch.json" ] && bad "  ... and writes no row" "$(cat "$ST/rows/relaunch.json")" || ok "  ... and writes no row"
+[ -f "$ST/rows/plugin-api.json" ] && ok "  ... and retires nothing" || bad "  ... and retires nothing" ""
 fi
 
 # --- --releg-imported: a worker that moved here with the session (PRD R15) ------------------------------------

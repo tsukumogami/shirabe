@@ -371,6 +371,33 @@ bash "$RS" "${W[@]}" --standing assignment --on "#12" --until lifted --what x --
 bash "$RS" "${W[@]}" --standing assignment --on "Feature 2" --what x --owner y >/dev/null 2>"$T/err"; eq "a roadmap feature isn't assigned work: refused by state-schema.jq" 65 $?
 bash "$RS" "${W[@]}" --standing assignment --on "acme/secret#4" --what x --owner y >/dev/null 2>"$T/err"; eq "an assignment naming a private repository is refused" 65 $?
 
+echo "== Work: two live holdings on one unit (shirabe#1588) =="
+SHARED=$(record_json roadmap plugin-system | jq -c --argjson a "$(holding worker-f2)" \
+    --argjson b "$(holding worker-f2b '{"unit": "Feature 2", "pull_request": ""}')" '.holdings = [$a, $b]')
+seed "$SHARED"
+bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next "build: waiting on the panel" >/dev/null 2>"$T/err"
+eq "the first holding's next step is recorded" 0 $?
+bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2b --next "design: amend the design" >/dev/null 2>"$T/err"
+eq "the second holding's next step is recorded" 0 $?
+eq "Work rows for two live holdings on one unit don't overwrite each other" \
+    "worker-f2=build: waiting on the panel|worker-f2b=design: amend the design" \
+    "$(live | jq -r '[.work[] | select(.item == "Feature 2" and .kind == "holding") | "\(.who)=\(.next)"] | sort | join("|")')"
+bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next "build: fix round" >/dev/null 2>"$T/err"
+eq "  ... a holding's later write replaces only its own row" \
+    "worker-f2=build: fix round|worker-f2b=design: amend the design" \
+    "$(live | jq -r '[.work[] | select(.item == "Feature 2" and .kind == "holding") | "\(.who)=\(.next)"] | sort | join("|")')"
+H=$(bash "$RH" "${RM[@]}" 2>"$T/err")
+eq "  ... and the handover read gives each holding its own next step" "worker-f2=build: fix round|worker-f2b=design: amend the design" \
+    "$(printf '%s' "$H" | jq -r '[.workers[] | select(.unit == "Feature 2") | "\(.worker)=\(.next)"] | sort | join("|")')"
+printf '%s' "$H" | jq -e '[.gaps[].gap] | all(startswith("no-next-step") | not)' >/dev/null \
+    && ok "  ... with no next-step gap" || bad "  ... with no next-step gap" "$(printf '%s' "$H" | jq -c '.gaps')"
+bash "$RS" "${W[@]}" --done "Feature 2" --kind holding --who worker-f2b >/dev/null 2>"$T/err"
+eq "--done --kind holding --who is taken" 0 $?
+eq "  ... and removes only that holding's row" "worker-f2=build: fix round" \
+    "$(live | jq -r '[.work[] | select(.item == "Feature 2" and .kind == "holding") | "\(.who)=\(.next)"] | join("|")')"
+bash "$RS" "${W[@]}" --done "Feature 2" --kind holding --who worker-f2b >/dev/null 2>"$T/err"
+eq "  ... a second time is refused, no row" 65 $?
+
 echo "== the handover read =="
 seed "$TWO"
 H=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "the read prints" 0 $?

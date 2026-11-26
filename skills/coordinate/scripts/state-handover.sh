@@ -88,6 +88,10 @@
 #                                            key whose file can't be read
 #                                            raises no gap
 #   no-next-step <unit>                      a live holding has no Work row
+#                                            of its own (its Unit and
+#                                            Worker); when another live
+#                                            holding shares the unit, the
+#                                            name is `<unit> (<worker>)`
 #   leg-unclassified <worker>                a live holding's leg names a
 #                                            request this host's store
 #                                            doesn't hold (the run was
@@ -308,12 +312,15 @@ jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile host "$WD/host.
     | ([$run[] | select(.key == "told") | .value]) as $told
     | ([$run[] | select(.key == "pending") | .value]) as $pending
     | ([$run[] | select(.key == "missing") | .value]) as $missing
-    | ((.work // []) | map(select(.kind == "holding") | {(.item): .}) | add // {}) as $work
+    # The Work row of a holding is keyed by its Unit and Worker: a unit can
+    # hold two live topics at once, each with its own next step
+    # (shirabe#1588).
+    | ((.work // []) | map(select(.kind == "holding") | {("\(.item)\u0000\(.who)"): .}) | add // {}) as $work
     | [.holdings[] | select(.dispatch_status == "dispatched")
         | select(.worker as $w | $fin[0] | index($w) | not)] as $live
     | {arguments: runval("arguments"), cap: runval("cap"), coordinator: runval("coordinator"), told: $told,
        workers: [$live[] | {unit, worker, phase, told: (.worker as $w | $told | index($w) != null),
-                            next: ($work[.unit].next // null)}
+                            next: ($work["\(.unit)\u0000\(.worker)"].next // null)}
                          # Only a record holding a pending or missing row says
                          # so: one written before those rows existed reads as
                          # it did.
@@ -354,7 +361,10 @@ jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile host "$WD/host.
          | {gap: "brief-unread \($b.label)",
             fix: ("state-stored-set.sh --intake \($b.label) --by <you>"
                   + (if $plan.untaken > 0 then "; \($plan.untaken) of its lines can'"'"'t be taken under the caps (\(inferred_cap) inferred rule rows, \(rule_cap) rule rows): when they aren'"'"'t standing rules, have the brief rewritten with its rules under ## Standing rules and record it under the same label (state-stored-set.sh --host briefs:\($b.label) <absolute path>); otherwise ask a person which rule rows to confirm or end; then run it again, and it goes on after the lines it already took" else "" end))}),
-        (.workers[] | select(.next == null) | {gap: "no-next-step \(.unit)", fix: "state-stored-set.sh --work \"\(.unit)\" --kind holding --who \(.worker) --next \"<what happens next>\""}),
+        # The gap names the unit; when two live holdings share it, the
+        # worker too, so no two gaps share a name.
+        (.workers as $ws | .workers[] | select(.next == null) | .unit as $u
+         | {gap: ("no-next-step \(.unit)" + (if ([$ws[] | select(.unit == $u)] | length) > 1 then " (\(.worker))" else "" end)), fix: "state-stored-set.sh --work \"\(.unit)\" --kind holding --who \(.worker) --next \"<what happens next>\""}),
         ($unc[0][] | {gap: "leg-unclassified \(.worker)", fix: "reconcile-legs.sh --session <this run> --topic \(.worker) --return-path \"leg \(.leg)\" (the reconcile pass runs it; run it by hand when the pass reported it not verified)"}),
         (if .coordinator != null then (.workers[] | select((.told or .pending or .missing) | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then state-stored-set.sh --told \(.worker) --by <you>; when its session is gone and its instance still exists, state-stored-set.sh --pending \(.worker) --by <you>; when niwa lists no instance for it, state-stored-set.sh --missing \(.worker) --by <you> (handover-classify.sh records pending and missing workers)"}) else empty end)
       ])

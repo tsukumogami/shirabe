@@ -133,8 +133,10 @@ A Holdings row outlives its pull request's merge: a confirmed merge empties
 its `pull_request` and keeps its `verified_head`, and the row goes when the
 worker is torn down. A message-path worker whose unit you dispatch again
 after it went quiet is `stranded` (`state-holding.sh --strand`); its row
-goes once the unit's new worker is dispatched (`--retire`, which
-dispatch-worker.sh runs). A merged row also goes with `--retire`, at
+goes once the dispatch whose brief input names its topic in `continues` is
+dispatched (`--retire`, which dispatch-worker.sh runs). A dispatch with no
+`continues` takes no stranded row, so another topic's stranded row on the
+same unit stays until a dispatch names it. A merged row also goes with `--retire`, at
 destroy, once its teardown pass is done: one the pass tore down itself, or
 one torn down outside the pass (a removed pass), including one closed with no
 handoff comment, where the pass's entry stands in for the link. A
@@ -453,6 +455,7 @@ state-stored-set.sh --session S --end <s<n>> --by <who>
 state-stored-set.sh --session S --intake <label> --by <who>
 state-stored-set.sh --session S --work <item> --kind holding|local-agent|decision|follow-up --who <who> --next <text>
 state-stored-set.sh --session S --done <item> [--kind <kind>]
+state-stored-set.sh --session S --done <item> --kind holding --who <topic>
 state-stored-set.sh --session S --list
 state-stored-set.sh --session S --rules [--id <s<n>>]...
 state-stored-set.sh --session S --rules --counts
@@ -471,8 +474,11 @@ Write each when it happens: the arguments, the cap and your address at your
 first start; a Standing row or a cap when a person's word arrives, wherever it
 arrives (you write it, the person as owner and yourself as relayer); a holding's Work row once its dispatch is sent, which the record step
 waits for and which also records its worker as told your address; a
-local-agent row before the agent starts, `--done` when it lands. A Work row
-whose holding is gone is dropped at the next write. A holding's Wakes are
+local-agent row before the agent starts, `--done` when it lands. A holding's
+Work row is its own, keyed by its unit and worker: two live holdings on one
+unit each keep a row, a `--work` write replaces only the row of its `--who`,
+and `--done <item> --kind holding --who <topic>` removes only that worker's.
+A Work row whose holding is gone is dropped at the next write. A holding's Wakes are
 brought up to date from this run's session log at each write, and its final
 count is appended as an entry when its row leaves Work; the count is a floor,
 since a wake inside the minute after a write, or one a crashed run logged
