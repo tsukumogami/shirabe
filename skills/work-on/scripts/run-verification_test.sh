@@ -681,13 +681,40 @@ expect_rc "only ended records (a dead pid, a pid running another program)" 0
 kill -KILL "$OTHER" 2>/dev/null
 
 echo "--- a removal that outlasts the run's budget"
+# file_mtime <path>: the file's modification time in epoch seconds.
+file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }
+# budget_wait_ok <run epoch> <finished epoch> <budget>: whether a wait bounded
+# by the budget ended where it should, read from the supervisor's own times
+# rather than the harness's clock. The run epoch is run.json's mtime: --start
+# writes run.json before it releases the supervisor, which only then reads the
+# clock it counts the budget from. The finished epoch is the result's
+# finished_at. Both are whole seconds from the same clock, so a wait that
+# honours the budget reads at least <budget>, and one that runs a full wait
+# past it, ending no earlier than twice the budget, reads at least twice the
+# budget.
+budget_wait_ok() {
+    case "$1$2$3" in ''|*[!0-9]*) return 1 ;; esac
+    [ $(($2 - $1)) -ge "$3" ] && [ $(($2 - $1)) -lt $(($3 * 2)) ]
+}
+budget_wait_ok 1000 1005 5 && pass "budget_wait_ok: a wait ending at the budget is in bounds" \
+    || fail "budget_wait_ok: a wait ending at the budget read as out of bounds"
+budget_wait_ok 1000 1009 5 && pass "budget_wait_ok: a slow but correct wait, under twice the budget, is in bounds" \
+    || fail "budget_wait_ok: a slow but correct wait read as out of bounds"
+budget_wait_ok 1000 1010 5 && fail "budget_wait_ok: a full wait past the budget read as in bounds" \
+    || pass "budget_wait_ok: a full wait past the budget is out of bounds"
+budget_wait_ok 1000 1030 5 && fail "budget_wait_ok: a wait far past the budget read as in bounds" \
+    || pass "budget_wait_ok: a wait far past the budget is out of bounds"
+budget_wait_ok 1000 1004 5 && fail "budget_wait_ok: a wait that ended before the budget read as in bounds" \
+    || pass "budget_wait_ok: a wait that ended before the budget is out of bounds"
+budget_wait_ok '' 1005 5 && fail "budget_wait_ok: an unreadable time read as in bounds" \
+    || pass "budget_wait_ok: an unreadable time is out of bounds"
 mkrepo rmbudget "$(map "{\"st\": $(STAMP_CMD "$WORKDIR/rmbudget.start")}" '[]' '["st"]')"
 stamp_script
 git add -A && git commit -q -m stamp
 change top.txt
 live_record
 BEFORE=$(snapshot "$RM_DIR")
-RB_BUDGET=3
+RB_BUDGET=5
 T0=$(now_ms)
 SHIRABE_VERIFICATION_BUDGET_SECS=$RB_BUDGET start s-rmbudget
 settle s-rmbudget
@@ -699,11 +726,14 @@ if jq -e --arg rec "$RM_REC" '.status == "removal-running" and .commands == [] a
 else
     fail "the out-of-budget result: $(head -c 400 "$RBRES" 2>&1); started [$(cat "$WORKDIR/rmbudget.start" 2>&1)]"
 fi
-# The wait runs inside the budget: the result lands within the budget plus a
-# poll and the harness's own settling, never a full wait past it.
-[ $((T1 - T0)) -lt $(( (RB_BUDGET + 4) * 1000 )) ] \
-    && pass "the wait ended inside the run's budget ($((T1 - T0))ms for a ${RB_BUDGET}s budget)" \
-    || fail "the wait took $((T1 - T0))ms under a ${RB_BUDGET}s budget"
+# The wait stops at the budget, never a full wait past it, read from the
+# supervisor's own times (see budget_wait_ok). The harness's wall clock, which
+# also counts --start and settle's polling, is reported only.
+RB_RUN_AT=$(file_mtime "$(dirname "$RBRES")/run.json")
+RB_FIN_AT=$(jq -r '.finished_at | fromdateiso8601' "$RBRES" 2>/dev/null)
+budget_wait_ok "$RB_RUN_AT" "$RB_FIN_AT" "$RB_BUDGET" \
+    && pass "the wait ended at the run's budget ($((RB_FIN_AT - RB_RUN_AT))s by the supervisor for a ${RB_BUDGET}s budget; $((T1 - T0))ms by the harness)" \
+    || fail "the wait ended outside the run's budget: run.json at [$RB_RUN_AT], finished at [$RB_FIN_AT], for a ${RB_BUDGET}s budget; $((T1 - T0))ms by the harness"
 expect_rc "a removal-running result" 2
 expect_no_finding "a removal-running result"
 [ ! -e "$KOTO_STUB_STORE/s-rmbudget/verification_results.json" ] \
