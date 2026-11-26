@@ -77,7 +77,7 @@ It is recorded only when every one of these holds; otherwise it prints a
 
 The red's command has to exit 0 once the test passes, because the green runs
 the same command unchanged. So run the test itself, not its output piped
-through a filter. In `bash -o pipefail -c 'bash some_test.sh 2>&1 | grep FAIL'`
+through a filter. In `bash -o pipefail -c 'make test 2>&1 | grep FAIL'`
 the exit comes from `grep`: it fails at the base, but once the test passes
 there's no `FAIL` line, `grep` exits 1, and no green can ever pass. The marker
 is already matched against the command's output, so the filter adds nothing.
