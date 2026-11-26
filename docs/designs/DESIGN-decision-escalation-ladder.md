@@ -523,8 +523,9 @@ Key assumptions:
   not a documented contract.
 - Nothing but the owner can answer a question prompt in an attended session.
   Not tested.
-- koto's existing evidence field can carry the pointer, so koto needs no
-  change for this decision.
+- koto can read the harness's record of a question-tool call for the session
+  an answer is recorded in, as it already takes the harness session and
+  whether a person is attending as observed facts.
 - The standing-rule classifier is still unbuilt for decision citations when
   this lands, so replacing its root test reworks no code.
 
@@ -543,9 +544,19 @@ recording command refuses otherwise, at a root coordinator as much as in a
 worker: being the root says nothing about whether the owner spoke. The
 command copies the question, the option labels and the answer from the
 recorded question and the prompt's result, so what is recorded is the owner's
-choice and not a session's paraphrase. A reader on the same machine can open
-the transcript entry the pointer names; a reader that cannot treats the
-decision as the owner's and says the evidence was not checked there.
+choice and not a session's paraphrase.
+
+The author set the principle for how that evidence is trusted: koto verifies
+it once, on the spot, and from then on every reader trusts that it was
+verified. The session hands koto the pointer; koto checks it deterministically
+when the answer is recorded and records nothing if the check fails; the entry
+then carries koto's own mark that the evidence was verified. No session and no
+later reader opens a transcript, on the machine where the answer was given or
+on any other. What is left to agents is what koto cannot do: reading what the
+owner said and judging whether an action fits it. If the owner said patches
+may be released and a session later wants to release a major version, the
+push-back rests on the content of that answer, never on whether the owner
+gave it.
 
 Everything else is a relayed claim. A decision naming the owner without that
 pointer, and anything the owner typed that was not put back to them through a
@@ -564,9 +575,10 @@ back to the owner in a marked prompt in the same turn, and records the rule
 on a yes.
 
 The standing-rule classifier's root test is replaced: a rule row reads
-owner-said when it cites a `person:owner` decision that carries the prompt
-pointer and the standing mark, wherever it was entered. One without them
-reads inferred and grants nothing, as a bound session's did. This amends
+owner-said when it cites a `person:owner` decision whose evidence koto
+verified and whose question carried the standing mark, wherever it was
+entered. One without them reads inferred and grants nothing, as a bound
+session's did. The classifier reads koto's mark and checks nothing itself. This amends
 `DESIGN-coordinator-standing-rule-provenance.md` and its plan.
 
 A coordinator can list the owner's answers given at and below it that it has
@@ -604,8 +616,9 @@ injected relays.
 the mark from the first release and switch the classifier later. Two
 reviewers ended here, because loosening later downgrades nothing and a
 pointer cannot be opened from another machine. The author chose to replace
-the test now, accepting that on another machine a rule reads owner-said with
-its evidence unchecked.
+the test now, and settled the other-machine concern by having koto verify the
+evidence once when the answer is recorded, so no reader ever needs to open
+it.
 
 **The workspace manager's principal setting as the handle.** Rejected by all
 four reviewers: it is unset on the measured machine, declared per machine,
@@ -709,8 +722,15 @@ decide when those run. Nothing above koto stores a question, and nothing but
 - A fourth write-once area, `koto/packets/<decision-id>`, holds the content
   bytes, capped at 16 KiB.
 - Two new kinds: `readdress` (outcome `passed`) and `answer` (outcomes
-  `answered`, `settled`, `withdrawn`). koto refuses an `answer` by a person
-  decider that carries no evidence entry. Both are stored under
+  `answered`, `settled`, `withdrawn`).
+- Verification of a person's answer. An `answer` by a person decider names
+  the question-tool call the person answered. koto reads the harness's record
+  of that call for the session the answer is recorded in and refuses the entry
+  unless the call exists, is the question tool, carries the question's
+  identity, holds a result from the user, and has not been cited by an earlier
+  answer. An accepted entry carries the evidence with koto's observed mark
+  that it was verified, and every read returns that mark. koto refuses an
+  `answer` by a person with no such evidence. Both are stored under
   `koto/aimed/<raiser-session-id>/` in the acting session or anchor; the aimed
   area, which today accepts only reversals, accepts them. A reversal of either
   is refused. Statuses are unchanged.
@@ -743,7 +763,7 @@ decide when those run. Nothing above koto stores a question, and nothing but
 | `pass-up` | Records a `readdress` to the session's own dispatcher or to `person:owner`, with the ground relied on; refused without a recorded attempt unless the question is a need. |
 | `settle` | Records the session's answer to a question addressed to it, or the raiser's own settle citing an earlier answer or evidence. A provisional settle carries the cheap-or-costly judgment. |
 | `withdraw` | Records the raiser's withdrawal with a reason. |
-| `answer` | Records the owner's answer as `person:owner`. Requires the call pointer of an answered question prompt and an attended run, and verifies the pointer against the transcript before writing: the call exists, is the question tool, carries the stored question's text and option labels, holds a result from the user, and has not been used before. Copies the question, option labels and answer; cites the owner's earlier answer when one exists. Without a pointer it refuses and names `settle` with an owner note as the way to record a relayed claim. |
+| `answer` | Records the owner's answer as `person:owner`. Requires the call pointer of an answered question prompt and an attended run, and hands the pointer to koto, which verifies it before writing (see the koto components). Copies the question, option labels and answer; cites the owner's earlier answer when one exists. Without a pointer it refuses and names `settle` with an owner note as the way to record a relayed claim. |
 | `pending` | Lists open questions at and below the session and those for `owner`, ordered by recorded waiting work items, then age, then identity, with dependent questions held. Also lists the owner's answers given at and below the session that it has not marked seen. |
 | `render` | Produces the prompt text and options for up to four questions from their stored content. Deterministic. |
 | `seen` | Records that this session has read an owner answer given below it. Ratifies nothing. |
@@ -808,9 +828,10 @@ is `shirabe hook question-guard`.
 compares bytes.
 
 **The prompt pointer**: the harness session id and the question tool's call
-id, carried in koto's evidence field on the `answer` entry. A reader on the
-same machine resolves it to the transcript entry holding the question, the
-options and the answer.
+id, handed to koto with the `answer`. koto resolves it to the harness's record
+of the call, verifies it, and stores it with its verified mark. `render` puts
+the question's identity into the prompt so koto can match the call to the
+question. Nothing else resolves the pointer afterward.
 
 **Gate contract** for `decide_first`: exit 0 when the outcome submitted
 matches the record (a chosen option for `decided`; an undecided attempt plus
@@ -875,6 +896,10 @@ reads it as unreadable.
 
 Deliverables:
 - decision body, store and guard changes, with unit tests
+- verification of a person's answer against the harness's record of the
+  question-tool call, with the verified mark, tested with recorded fixtures
+  for a matching call, a missing one, a call for another question, a result
+  not from the user and a reused pointer
 - refusal of a reversal aimed at an `answer` or `readdress`
 
 ### Phase 3: koto reads
@@ -984,19 +1009,21 @@ prompt or an agent, secrets in shared records, and sessions kept alive by
 questions nobody answers.
 
 **Impersonating the owner.** koto accepts any person handle from any caller,
-so the control is the evidence, checked twice. When an answer is recorded,
-`shirabe question answer` opens the transcript entry its pointer names and
-refuses unless the call exists, is the question tool, carries the same
-question text and option labels as the stored question, holds a result that
-came from the user, and has not been used for an earlier answer. koto refuses
-a person answer that carries no evidence at all, so a caller that bypasses
-`shirabe` still has to fabricate a pointer. A reader on the same machine can
-repeat the check, and the standing-rule classifier does so before a rule
-grants. Residual risk: anyone able to act as the owner on the machine can
-answer a prompt, and a reader on another machine cannot open the transcript.
-There a rule reads as the owner's with its evidence unchecked, which the
-author accepted; a fabricated pointer could grant on such a machine, and the
-reader says the evidence was not checked so the claim is visible.
+so the control is the evidence, and koto is the one that checks it. When an
+`answer` by a person is recorded, koto reads the harness's record of the call
+the pointer names and writes nothing unless the call exists in that session,
+is the question tool, carries the identity of the question being answered,
+holds a result that came from the user, and has not been used for an earlier
+answer. The entry then carries koto's mark that its evidence was verified,
+labelled as observed by koto and not handed in by the caller. Because the
+check is in koto, a caller that bypasses `shirabe` meets it too, and because
+the mark travels with the record, readers on any machine rely on it and none
+re-opens the evidence. Residual risk, which is the trust root the author
+named: koto verifies that the user answered that prompt with that content in
+that session, not which person did; anyone able to act as the owner on the
+machine can answer a prompt; and something that writes koto's files without
+going through koto, or alters the harness's record before koto reads it, is
+not caught.
 
 **Acting on another session's question.** Rules are enforced by koto when it
 resolves a question, not only by the command that writes. A pass-up counts
@@ -1089,8 +1116,10 @@ runs with the session's own.
 - Coordinators that run in no workflow session are not prompted; they get the
   procedure only when the command is run.
 - A planned design and its plan are amended by this work.
-- Reads, the prompt pointer and answer discovery all stop at the machine
-  boundary.
+- Reads and answer discovery stop at the machine boundary.
+- koto gains a dependency on the shape of the harness's record of a
+  question-tool call, which is observed behaviour and not a documented
+  contract.
 
 ### Mitigations
 
@@ -1109,6 +1138,7 @@ runs with the session's own.
   owns that.
 - The amended standing-rule design changes no merged code, because the test
   being replaced was never built.
-- The machine boundary is stated as a limit: a reader that cannot open the
-  evidence says so, and an answer given on one machine is found on another
-  only after its session is pulled there.
+- The machine boundary is stated as a limit for reads and discovery: an
+  answer given on one machine is found on another only after its session is
+  pulled there. Trust does not stop at the boundary, because koto's mark that
+  the evidence was verified travels with the record.

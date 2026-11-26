@@ -359,7 +359,10 @@ person or records the person's decision.
 **R21b. The owner's decision needs the answered prompt behind it.** A
 decision is recorded as the owner's only when it carries a pointer to the
 question prompt the owner answered, and only in an attended session, in a
-worker as much as at the top coordinator. What is recorded is the question,
+worker as much as at the top coordinator. The workflow engine verifies the
+pointer when the answer is recorded and refuses the record if it does not
+hold; a record it accepts is marked as verified, and no session or later
+reader verifies it again, on that machine or another. What is recorded is the question,
 the option labels and the owner's answer as the prompt gave them, never a
 session's wording of them.
 
@@ -375,8 +378,10 @@ standing when it is raised, and the owner sees the mark when choosing. An
 answer without the mark reaches only the work items recorded as waiting on
 its question. When the owner types a rule, the hearing session puts its exact
 text and scope back to the owner in a marked prompt in the same turn. A rule
-counts as the owner's for other sessions when it cites an answer that carries
-both the prompt pointer and the mark, wherever it was given.
+counts as the owner's for other sessions when it cites an answer the engine
+verified whose question carried the mark, wherever it was given. Whether an
+action fits what the owner said is judged from the content of the answer, not
+by checking again that the owner gave it.
 
 **R22. The asker finds the answer.** A session whose question was answered
 elsewhere learns of the answer at its next workflow step, without relying on a
@@ -607,7 +612,13 @@ that record or list must show.
   (R21a)
 - [ ] (checked) Recording the owner's answer with no prompt pointer is
   refused; recording it in an unattended session is refused; both refusals
-  hold for a session with no dispatcher. A recorded answer holds the
+  hold for a session with no dispatcher. The engine refuses a pointer that
+  names no question-prompt call in that session, one whose call was for a
+  different question, one whose result did not come from the user, and one
+  already used for an earlier answer, whether the request comes through the
+  skills' command or directly. An accepted record reads as verified, and a
+  copy of it read in a store with no access to the original session's
+  transcript still reads as verified. A recorded answer holds the
   question, the option labels and the answer exactly as the prompt gave them.
   (R21b)
 - [ ] (checked) A record naming the owner with no prompt pointer is stored as
@@ -693,11 +704,12 @@ that record or list must show.
   made a real attempt to decide, judged cost to reverse well, or was right
   that an earlier answer covers a case cannot be checked automatically. The
   mechanical halves are tested and the rest is observed in dogfooding.
-- **The owner is a name the engine does not verify.** The read for the owner
-  matches `owner` exactly. What ties a record to the owner is the answered
-  prompt it points at, which a reader on the same machine can open and a
-  reader elsewhere cannot. Anyone able to act as the owner on the machine can
-  forge an answer.
+- **The owner is a name; the answered prompt is what is verified.** The read
+  for the owner matches `owner` exactly. What ties a record to the owner is
+  the answered prompt, which the engine verifies when the answer is recorded.
+  It verifies that the user answered that prompt in that session, not which
+  person did, and anyone able to act as the owner on the machine can answer
+  one.
 - **The prompt record is observed, not promised.** The harness keeps an
   answered prompt's question, options and answer today; that is not a
   documented contract. Whether anything but the owner can answer a prompt has
@@ -792,7 +804,9 @@ asked. Alternatives were letting any session record the owner with no
 evidence, and letting only the top coordinator record the owner, which made
 the owner answer twice. The standing mark exists because a session writes a
 prompt's wording: a rule exists only where the owner chose an option that
-says it is one. This replaces, with the author's ruling, the rule in a
+says it is one. The author set how the evidence is trusted: the engine
+verifies it once when the answer is recorded, everything afterward trusts
+that, and what agents judge is the content of what the owner said. This replaces, with the author's ruling, the rule in a
 planned design that a rule is the owner's only when entered at the top
 coordinator.
 
