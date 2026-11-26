@@ -196,7 +196,7 @@ echo "== a Done write-back drops the feature's Progress field =="
 # PS1's Progress field (two lines) goes; PS2's own Progress field and the
 # roadmap's `## Progress` section stay byte-identical.
 progress_roadmap() {
-    printf -- '---\nschema: roadmap/v1\nstatus: Active\n---\n\n# ROADMAP: plugins\n\n## Features\n\n### PS1: the loader\n**Outcome:** A plugin loads by name.\n**Dependencies:** None\n**Status:** In progress\n%s**Left open:** remote plugins\n\nThe loader.\n\n### PS2: the registry\n**Outcome:** A plugin is found by name.\n**Dependencies:** PS1\n**Status:** Not started\n**Progress:** nothing merged yet\n\n## Progress\n\n- PS1: issues 1 to 3 merged.\n' "$1"
+    printf -- '---\nschema: roadmap/v1\nstatus: Active\n---\n\n# ROADMAP: plugins\n\n## Features\n\n### PS1: the loader\n**Outcome:** A plugin loads by name.\n**Dependencies:** None\n**Status:** In progress\n%b**Left open:** remote plugins\n\nThe loader.\n\n### PS2: the registry\n**Outcome:** A plugin is found by name.\n**Dependencies:** PS1\n**Status:** Not started\n**Progress:** nothing merged yet\n\n## Progress\n\n- PS1: issues 1 to 3 merged.\n' "$1"
 }
 V3=$(progress_roadmap '**Progress:** PLAN-loader issues 1 to 3 merged;\n  issues 4 to 7 remain.\n')
 db_init
