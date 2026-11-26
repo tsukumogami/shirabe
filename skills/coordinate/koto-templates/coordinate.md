@@ -4322,7 +4322,7 @@ offered only as a verdict to give.
 
 On a feature roadmap the script opens a pull request on the roadmap's repository that sets the
 feature's Status to Done, writes the text on its `**Delivered:**` line and
-removes its Needs line, regenerates the generated sections, and changes
+removes its Needs line and its own Progress field, regenerates the generated sections, and changes
 nothing else (its `**Outcome:**` line is the promise and is never touched);
 then it writes
 a Side effects in flight row, Action `roadmap-status`, that the record step

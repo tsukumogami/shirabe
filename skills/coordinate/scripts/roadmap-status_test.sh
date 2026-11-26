@@ -5,9 +5,9 @@
 #
 # Covers: --unit opens a pull request from a new branch whose only change to
 # the roadmap is the feature's Status (Done), its Delivered line (added after
-# it, or replacing one) and its Needs line (gone), with the populate run on
-# it, every Outcome line in the file left as it was; on an item with
-# milestone fields, a two-line Outcome kept byte for byte while a wrapped
+# it, or replacing one), its Needs line and its own Progress field (gone),
+# with the populate run on it, every Outcome line in the file left as it
+# was; on an item with milestone fields, a two-line Outcome kept byte for byte while a wrapped
 # Needs and an earlier Delivered go with their wrapped lines; the Side effects row it writes and
 # the entry that tells it; --list; a second --unit refused while one is
 # pending; --confirm refused (1) while the roadmap on the default branch
