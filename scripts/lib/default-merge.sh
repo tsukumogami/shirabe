@@ -12,9 +12,9 @@
 # or "". The default branch is what origin/HEAD names, else origin/main; with
 # neither, or no shared history with it, local main. When that branch's
 # merge-base with HEAD is already in <base>, or there is none, nothing of the
-# default branch came in after <base> and FOLDED_BASE is <base> itself. So it
-# is when HEAD is itself in the default branch (the merge-base is HEAD): the
-# work was committed there, and folding it in would hide it. Otherwise
+# default branch came in after <base> and FOLDED_BASE is <base> itself. The
+# same holds when HEAD is itself in the default branch (the merge-base is
+# HEAD): the work was committed there, and folding it in would hide it. Otherwise
 # FOLDED_BASE is a commit whose tree is the clean merge of the two (parents
 # <base> and the merge-base, a fixed author and date, so the same inputs give
 # the same commit). A merge that conflicts, or that git can't build
@@ -22,9 +22,9 @@
 # which counts what the merge brought in: never less than the branch's own
 # change.
 #
-# review-level.sh and record-changed-paths.sh fold the same merge the same
-# way, so the facts, the changed-paths record, the panel round's size and the
-# review packet all measure one change.
+# review-level.sh, record-changed-paths.sh, panel-scope.sh and review-packet.sh
+# source this library and fold with it, so the facts, the changed-paths record,
+# the panel round's size and the review packet all measure one change.
 #
 # Callers run under `set -u`; the function never exits the shell and always
 # returns 0.
