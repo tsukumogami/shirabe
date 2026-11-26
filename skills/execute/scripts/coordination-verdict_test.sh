@@ -206,6 +206,31 @@ run_verdict "$PLANDIR" --merge true --attempts "$CT_CORE:merge-not-observed"
 check "a root whose merge was not observed (with --merge: resume carries it)" paused \
     "$U11:human,$COORD_URL:predecessor" "/execute docs/plans/PLAN-t.md --merge" "merge-not-observed" ""
 
+# The PLAN's absolute path under a niwa instance directory holds a `+`.
+ct_case plan-path-plus
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
+ct_write_db
+PLUSDIR="$CT_WORK/ws+inst/plan"
+ct_plan "$PLUSDIR"
+: > "$CASE/koto-calls.log"
+OUT=$(cd "$GONEDIR" && bash "$VERDICT" --session "$S" --plan "$PLUSDIR/docs/plans/PLAN-t.md" --slug "$CT_SLUG" \
+    --repos "acme/repo-a,acme/repo-b" --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge false 2>"$CASE/stderr")
+RC=$?
+check "an absolute --plan under a directory whose name holds a +" paused \
+    "$U11:human,$COORD_URL:predecessor" "/execute $PLUSDIR/docs/plans/PLAN-t.md" "merge-not-requested" ""
+for bad in 'docs/plans/PLAN-t.md;x' 'docs/plans/$(x).md' 'docs/plans/PLAN t.md' 'docs/plans/`x`.md' \
+    'docs/../plans/PLAN-t.md' "$PLUSDIR/../plan/docs/plans/PLAN-t.md" "$PLUSDIR/docs/plans/PLAN-t.md;x"; do
+    OUT=$(cd "$PLANDIR" && bash "$VERDICT" --session "$S" --plan "$bad" --slug "$CT_SLUG" \
+        --repos "acme/repo-a,acme/repo-b" --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge false 2>/dev/null); RC=$?
+    if [ "$RC" -eq 64 ] && [ -z "$OUT" ]; then
+        pass "--plan [$bad] is a usage error"
+    else
+        fail "--plan [$bad]: rc=$RC out=[$OUT]"
+    fi
+done
+
 ct_case head-moved
 ct_record_setup
 ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_OTHER"

@@ -15,7 +15,7 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use assert_cmd::Command;
@@ -47,6 +47,23 @@ esac
 echo unsupported >&2; exit 1
 "#;
 
+/// Write `contents` to `path` as an executable script. A child shell writes
+/// the file, so this process never holds it open for writing: a parallel
+/// test that forked to spawn while it did would keep a copy of that handle
+/// until its child's exec, and running the script in that window fails with
+/// ETXTBSY, which `track` reports as a PR not found (#2158, as in #1213).
+/// The mode is set by path, which opens nothing.
+fn write_script(path: &Path, contents: &str) {
+    let status = std::process::Command::new("/bin/sh")
+        .args(["-c", "printf '%s' \"$2\" > \"$1\"", "sh"])
+        .arg(path)
+        .arg(contents)
+        .status()
+        .unwrap();
+    assert!(status.success(), "writing {}: {status}", path.display());
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
 struct Fx {
     dir: PathBuf,
 }
@@ -59,9 +76,7 @@ impl Fx {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("store")).unwrap();
         fs::create_dir_all(dir.join("ghstate")).unwrap();
-        let stub = dir.join("gh-stub.sh");
-        fs::write(&stub, GH_STUB).unwrap();
-        fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+        write_script(&dir.join("gh-stub.sh"), GH_STUB);
         Fx { dir }
     }
 
@@ -918,8 +933,7 @@ impl Fx {
     fn pr_checks_stub(&self, rel: &str) -> PathBuf {
         let p = self.dir.join(rel);
         fs::create_dir_all(p.parent().unwrap()).unwrap();
-        fs::write(&p, PR_CHECKS_STUB).unwrap();
-        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+        write_script(&p, PR_CHECKS_STUB);
         p
     }
 
@@ -1244,3 +1258,63 @@ fn spec_names_ci_unknown() {
         "spec names ci:unknown: {stdout}"
     );
 }
+
+// --- fixture isolation under parallel forks (#2158) -------------------------
+
+/// `track_dedups_by_url`, run on fresh fixtures while other threads fork.
+/// A stub written while a sibling forks leaks its write handle into the
+/// sibling's child until that child execs; running the stub in that window
+/// fails with ETXTBSY, `track` rejects a PR the stub serves, and the second
+/// submit isn't deduped. The forkers' children sleep before exec, which
+/// widens the window a busy `cargo test --workspace` host opens by chance.
+#[test]
+fn fresh_fixture_stub_runs_while_other_threads_fork() {
+    use std::os::unix::process::CommandExt;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+    let stop = Arc::new(AtomicBool::new(false));
+    let forkers: Vec<_> = (0..16)
+        .map(|_| {
+            let stop = Arc::clone(&stop);
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    let mut c = std::process::Command::new("/bin/true");
+                    unsafe {
+                        c.pre_exec(|| {
+                            std::thread::sleep(std::time::Duration::from_millis(30));
+                            Ok(())
+                        });
+                    }
+                    let _ = c.status();
+                }
+            })
+        })
+        .collect();
+    let threads: Vec<_> = (0..8)
+        .map(|t| {
+            std::thread::spawn(move || {
+                for i in 0..25 {
+                    let fx = Fx::new();
+                    fx.set_pr(5, &open_pr("par", true));
+                    let sid = format!("sess-par-{t}-{i}");
+                    fx.track(Some(&sid), &[PR5], &[("WS_NOW", "1000")]);
+                    let out = fx.track(Some(&sid), &[PR5], &[("WS_NOW", "1010")]);
+                    assert!(
+                        out.contains("already tracked"),
+                        "second submit deduped: {out}"
+                    );
+                }
+            })
+        })
+        .collect();
+    let results: Vec<_> = threads.into_iter().map(|h| h.join()).collect();
+    stop.store(true, Ordering::SeqCst);
+    for f in forkers {
+        f.join().unwrap();
+    }
+    for r in results {
+        r.unwrap();
+    }
+}
+
+const PR5: &str = "https://github.com/o/r/pull/5";

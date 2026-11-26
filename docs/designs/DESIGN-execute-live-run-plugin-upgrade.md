@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   A live coordinated /shirabe:execute run keeps its recorded PLUGIN_ROOT and
   compiled template until it finishes, so a script fix in a newer installed
@@ -39,7 +39,7 @@ upstream: docs/briefs/BRIEF-execute-live-run-plugin-upgrade.md
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 

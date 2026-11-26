@@ -92,6 +92,17 @@ read -r fb fd <<<"$(fold "$BASE")"
 [ "${fd:-}" = "$(git -C "$R" rev-parse origin/main)" ] && [ "$(cd "$R" && own_paths "$fb")" = "own.txt " ] \
     && ok "origin/main is read before local main" || bad "origin: [$fb] [${fd:-}]"
 
+# An origin/main that shares no history with HEAD: local main is read instead,
+# and its merge is folded (#1715).
+repo orphan
+main_moves docs.md
+(cd "$R" && git merge -q --no-ff --no-edit main \
+    && git update-ref refs/remotes/origin/main \
+        "$(git commit-tree -m orphan "$(git hash-object -t tree -w /dev/null)")") >/dev/null 2>&1
+read -r fb fd <<<"$(fold "$BASE")"
+[ "${fd:-}" = "$(git -C "$R" rev-parse main)" ] && [ "$(cd "$R" && own_paths "$fb")" = "own.txt " ] \
+    && ok "an origin/main with no shared history falls back to local main" || bad "orphan origin: [$fb] [${fd:-}]"
+
 # HEAD on the default branch itself: folding would hide the work.
 repo onmain
 (cd "$R" && git checkout -q main && git merge -q --ff-only work) >/dev/null 2>&1

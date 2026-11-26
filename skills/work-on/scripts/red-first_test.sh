@@ -208,6 +208,7 @@ eq "the passage, marker and report source" "$MARKER|issue" "$(printf '%s' "$REC"
 has "the passage is recorded" "instead of" "$(printf '%s' "$REC" | jq -r .red.passage)"
 eq "the tail is at most 4096 bytes" true "$(printf '%s' "$REC" | jq '.red.output_tail | length <= 4096')"
 eq "the temporary worktree is gone" 1 "$(git worktree list | grep -c .)"
+hasnt "a red that runs the test directly: no warning" "warning:" "$OUT"
 
 run red "$S" --marker "$MARKER" --passage-file "$W/passage" -- sh -c 'env; echo "error: name required"; exit 1'
 hasnt "GH_TOKEN doesn't reach the command" "sekrit" "$(record "$S" | jq -r .red.output_tail)"
@@ -305,6 +306,37 @@ run green d1
 eq "a green with dash-leading words: exit 0" 0 "$RC"
 eq "a green with dash-leading words: the argv is stored as given" "$DASH_ARGV" "$(record d1 | jq -c .green.command)"
 git checkout -q main
+
+# A red whose exit comes from an output filter can't flip: once the test
+# passes, grep finds nothing and exits 1, so every green fails and fix_green
+# holds on a passing test (#2017). The red still records, with a warning. A
+# red whose exit tracks the test records with none, and goes green after the
+# fix.
+new_session p1
+git checkout -q -b pipe-test "$BASE"
+git checkout -q main -- tests/empty_name_test.sh
+git commit -q -m "test: reproduce"
+run red p1 --marker "$MARKER" --passage-file "$W/passage" -- bash -o pipefail -c 'sh tests/run.sh 2>&1 | grep -A1 "name required"'
+eq "a red piped through grep: still recorded" 0 "$RC"
+has "a red piped through grep under pipefail: warns the command can't flip" "warning: the command pipes its output through grep" "$OUT"
+has "the grep warning: says the command has to exit 0 once the test passes" "has to exit 0 once the test passes" "$OUT"
+run red p1 --marker "$MARKER" --passage-file "$W/passage" -- bash -o pipefail -c 'sh tests/run.sh 2>&1|egrep "name required"'
+eq "a red piped through egrep with no space: still recorded" 0 "$RC"
+has "a red piped through egrep with no space: warns the command can't flip" "warning: the command pipes its output through egrep" "$OUT"
+run red p1 --marker "$MARKER" --passage-file "$W/passage" -- sh -c 'sh tests/run.sh || grep -q nothing /dev/null'
+eq "a red with || before grep: recorded" 0 "$RC"
+hasnt "a red with || before grep: no warning, || is not a pipe" "warning:" "$OUT"
+run red p1 --marker "$MARKER" --passage-file "$W/passage" -- bash -o pipefail -c 'sh tests/run.sh 2>&1 | tail -n 20'
+eq "a red piped through tail: recorded" 0 "$RC"
+hasnt "a red piped through tail: no warning" "warning:" "$OUT"
+git checkout -q main -- greet.sh
+git commit -q -m "fix: refuse an empty name"
+run green p1
+eq "a red piped through tail flips: its green passes after the fix" 0 "$RC"
+git checkout -q main
+
+DOC="$HERE/../references/red-first.md"
+eq "red-first.md: the red's command has to exit 0 once the test passes" 1 "$(tr '\n' ' ' < "$DOC" | grep -c "has to exit 0 once the test passes")"
 
 new_session c1 change
 run check-green c1
