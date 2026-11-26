@@ -913,6 +913,21 @@ jq -e '.seats["scrutiny/completeness"].cited == [{path: "src/b.sh", lines: "1-5"
     && pass "a merge of main keeps a seat's cited line range in a file main changed" \
     || fail "after a merge of main the seat lost its cited line ranges: $(jq -c '.seats["scrutiny/completeness"].cited' "$SHIM_STORE/$SESSION/verdict_ledger.json")"
 
+# The fold doesn't carry a range main shifted: main prepends lines above a
+# cited range and the branch merges main, so the range's lines no longer read
+# the same at HEAD and the citation is coarsened to its path.
+fixture tr-merged-shifted
+plan_record scrutiny '[{"seat":"completeness","blocking_count":0,"cited":[{"path":"src/b.sh","lines":"1-5"}]},
+                       {"seat":"justification","blocking_count":0},{"seat":"intent","blocking_count":0}]'
+(cd "$FX/repo" && git checkout -q main && { seq 101 110; cat src/b.sh; } > src/b.sh.new && mv src/b.sh.new src/b.sh \
+    && git add -A && git commit -q -m main-shifts \
+    && git checkout -q "impl/$SESSION" && git merge -q --no-ff --no-edit main) >/dev/null 2>&1
+printf 'AC: the issue body, amended\n' > "$SHIM_STORE/$SESSION/context.md"
+plan_record scrutiny '[{"seat":"completeness","blocking_count":0},{"seat":"justification","blocking_count":0},{"seat":"intent","blocking_count":0}]'
+jq -e '.seats["scrutiny/completeness"].cited == [{path: "src/b.sh"}]' "$SHIM_STORE/$SESSION/verdict_ledger.json" >/dev/null 2>&1 \
+    && pass "a merge of main that shifts a cited range coarsens it to its path" \
+    || fail "a range main shifted was carried: $(jq -c '.seats["scrutiny/completeness"].cited' "$SHIM_STORE/$SESSION/verdict_ledger.json")"
+
 # A full round hands each seat its own unclosed findings, and the findings no
 # seat raised to a re-verifier.
 fixture tr-handoff
