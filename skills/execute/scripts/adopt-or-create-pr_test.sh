@@ -198,7 +198,7 @@ fi
 # path under one holds a +. --plan-doc takes it; shell metacharacters and a ..
 # segment are still refused, each beside a + so the refusal isn't the + itself.
 
-PLUS_DOC=/home/u/ws/tsuku+inst-1a2b3c4d/public/shirabe/docs/plans/PLAN-topic.md
+PLUS_DOC=/srv/ws/tsuku+inst/public/shirabe/docs/plans/PLAN-topic.md
 new_case create-plus-path
 echo '[]' > "$CASE/list.out.1"
 echo "[$(owned 7)]" > "$CASE/list.out.2"
@@ -213,10 +213,10 @@ else
 fi
 
 for doc in \
-    '/home/u/ws/tsuku+inst/docs/plans/PLAN-a;b.md' \
-    '/home/u/ws/tsuku+inst/docs/plans/PLAN-$(id).md' \
-    '/home/u/ws/tsuku+inst/docs/plans/PLAN-`id`.md' \
-    '/home/u/ws/tsuku+inst/../plans/PLAN-topic.md'; do
+    '/srv/ws/tsuku+inst/docs/plans/PLAN-a;b.md' \
+    '/srv/ws/tsuku+inst/docs/plans/PLAN-$(id).md' \
+    '/srv/ws/tsuku+inst/docs/plans/PLAN-`id`.md' \
+    '/srv/ws/tsuku+inst/../plans/PLAN-topic.md'; do
     new_case plus-refused
     run_adopt --session "$S" --repo o/r --head impl/topic --create --plan-slug topic --plan-doc "$doc"
     if [ "$RC" -eq 64 ] && [ ! -s "$CASE/gh.log" ] && [ ! -s "$CASE/koto.log" ] \
