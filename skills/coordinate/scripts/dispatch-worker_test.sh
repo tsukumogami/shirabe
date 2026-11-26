@@ -2174,7 +2174,7 @@ LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
 has "profile named: the lane asks for the named one" "$LAUNCHED" "[--profile] [coordinator-window]"
 lacks "profile named: ... not the default" "$LAUNCHED" "[--profile] [coordinator]"
 # niwa's profile grammar has no length cap, so a name over 64 characters is taken.
-LONG=coordinator-$(printf 'a%.0s' $(seq 1 70))
+printf -v LONG '%070d' 0; LONG=coordinator-${LONG//0/a}
 reset "$(jq -c --arg p "$LONG" '.launch = {"profile": $p}' <<<"$INPUT_LANE")"; export RECORD_ROLE=manager NIWA_HELP=profile
 rrun >/dev/null 2>"$T/err"; eq "profile over 64 characters: a lane exits 0" 0 "$?"
 has "profile over 64 characters: the lane asks for it" "$(grep '^niwa dispatch' "$ST/calls.log")" "[--profile] [$LONG]"
