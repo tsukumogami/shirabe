@@ -379,30 +379,53 @@ no person typed waits for an answer nobody is there to give, so the guard
 denies it there. A prompt opened in a turn a person typed is left alone,
 including one a skill the person invoked opens later in that turn, after any
 number of tool calls: a skill's confirmation or approval prompt behaves as it
-always has.
+always has. The exceptions are a background session's first turn, which the
+record can't tell from a dispatched brief, and a turn a Stop hook has
+continued; both are described below.
 
 The guard reads where the turn came from in the session record the harness
 names in the hook's input, and only from its structured fields, never from
 message text. It denies:
 
 - a turn started by a background task's completion notice, a scheduled
-  wake-up, or a message from another session;
+  wake-up, a message from another session, or a notice the harness itself
+  sends;
 - a turn a Stop hook continued after the person's prompt;
 - a call made by a subagent.
 
-A turn labelled as typed is allowed in an attended session. A session started
-with a dispatched brief carries the same label as one a person typed, so the
-record can't tell the two apart; that start, and any turn whose origin can't
-be read, falls back to the session's run mode: denied when the session is
-unattended, allowed otherwise. A turn's origin can't be read when the record
-is missing, lies outside the harness's own directory once symbolic links are
-resolved (the guard never opens such a path), holds no entry for the turn, or
+A turn a person typed after the session's first is allowed in any session,
+including a background or dispatched one a person has attached to. That
+matters because Claude Code reports a background session as unattended for
+its whole life, even while someone is typing into it. A session's first turn
+is different: a dispatched brief carries the same label as a prompt a person
+typed, and the record can't tell the two apart. That first turn, the prompt
+that opened a copy of another session, a print-mode (`-p`) turn, and any turn
+whose origin can't be read fall back to the session's run mode: denied when
+the session is unattended, allowed otherwise. A turn's origin can't be read
+when the record is missing, isn't a `.jsonl` file under the harness's session
+records once symbolic links are resolved (the guard never opens such a path),
+holds no entry for the turn, has a line naming the turn longer than 4 MiB, or
 labels it in a way the guard doesn't know. The run mode is
 `CLAUDE_CODE_SESSION_ATTENDED`, which Claude Code sets for every hook (`0`
 unattended, `1` attended); with any other value, or none, the session isn't
-known to be unattended. `docs/spikes/SPIKE-question-guard-turn-origin.md`
-records what the harness reported for each start of a turn and the cases the
-guard can't tell apart.
+known to be unattended.
+
+There are three cases the guard gets wrong on purpose, because the record
+can't tell them apart from the case next to them:
+
+- A dispatched brief in a session marked attended is allowed, as a person's
+  first prompt would be.
+- A prompt given on the command line to an existing background session
+  (`claude --bg --resume <id> "<prompt>"`) carries the same fields as a turn
+  a person typed after attaching, so it is allowed, even though nobody may be
+  watching.
+- Once a Stop hook has blocked a stop and continued a person's turn, a prompt
+  later in that turn is denied, even though the person typed the turn: the
+  continuation shares the person's turn and is marked as hook text, and the
+  guard denies any turn holding one.
+
+`docs/spikes/SPIKE-question-guard-turn-origin.md` records what the harness
+reported for each start of a turn.
 
 The deciding is done by the `shirabe` binary (`shirabe hook question-guard`),
 found the way the pre-action hook finds it. Without the binary, or with one

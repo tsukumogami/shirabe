@@ -192,6 +192,10 @@ prefix_of() {
         typed-skill-command) echo SKILL ;;
         typed-skill-command-agent) echo SKILLAGENT ;;
         subagent) echo SUBAGENT ;;
+        typed-later-turn) echo LATER ;;
+        resume-prompt) echo RESUME ;;
+        resume-copy) echo COPY ;;
+        sdk-print) echo SDK ;;
     esac
 }
 
@@ -214,7 +218,7 @@ expect_deny_constant() {
     fi
 }
 
-# -- the eight starts of a turn ------------------------------------------------
+# -- the eight starts of a turn the spike first captured --------------------------
 
 for case in background-notification peer-message hook-continuation subagent; do
     place "$case" "$T/$case.in"
@@ -256,6 +260,47 @@ if grep -q '"name":"Agent"' "$FIX/typed-skill-command-agent.record.jsonl" &&
 else
     fail "typed-skill-command-agent: fixture" "no Agent call or queued completion"
 fi
+
+# -- turns in a background session ---------------------------------------------
+
+# A background session reports itself unattended for its whole life, even
+# while a person is attached and typing, so these run with the run mode it
+# reported. The record places a person's turn after the first.
+place typed-later-turn "$T/typed-later-turn.in"
+run_hook "$T/typed-later-turn.in" "$P_REPO" "$UNATT"
+expect_none "typed-later-turn (a person attached to a dispatched session and typed), unattended: allowed"
+run_hook "$T/typed-later-turn.in" "$P_REPO" "$ATT"
+expect_none "typed-later-turn, attended: allowed"
+
+THREE_REC="$RECORDS/later-skill-three-prompts.jsonl"
+cp "$FIX/later-skill-three-prompts.record.jsonl" "$THREE_REC"
+for i in 1 2 3; do
+    sed "s|\"transcript_path\":\"PATH-1\"|\"transcript_path\":\"$THREE_REC\"|" \
+        "$FIX/later-skill-three-prompts-$i.json" > "$T/three-$i.in"
+    run_hook "$T/three-$i.in" "$P_REPO" "$UNATT"
+    expect_none "later-skill-three-prompts: question $i of 3 from a command the person typed in a later turn, unattended: allowed"
+done
+q=$(grep -o '"name":"AskUserQuestion"' "$FIX/later-skill-three-prompts.record.jsonl" | wc -l | tr -d ' ')
+b=$(grep -o '"name":"Bash"' "$FIX/later-skill-three-prompts.record.jsonl" | wc -l | tr -d ' ')
+[ "$q" -ge 2 ] && [ "$b" -ge 2 ] \
+    && pass "later-skill-three-prompts: the third question follows two earlier questions and two shell calls in the turn" \
+    || fail "later-skill-three-prompts: fixture" "questions=$q shell=$b"
+
+# A prompt given on the command line to a background session that exists
+# carries the same fields as a person's later turn, so it is allowed too.
+place resume-prompt "$T/resume-prompt.in"
+run_hook "$T/resume-prompt.in" "$P_REPO" "$UNATT"
+expect_none "resume-prompt (a command-line prompt to an existing background session), unattended: allowed, since the record can't tell it from a person's later turn"
+
+# The prompt that opened a copy of a session, and a print-mode turn, fall
+# back to the run mode like a dispatch brief.
+for case in resume-copy sdk-print; do
+    place "$case" "$T/$case.in"
+    run_hook "$T/$case.in" "$P_REPO" "$UNATT"
+    expect_deny_constant "$case, unattended session: denied" "$case"
+    run_hook "$T/$case.in" "$P_REPO" "$ATT"
+    expect_none "$case, attended session: allowed"
+done
 
 # -- an origin that can't be read ----------------------------------------------
 
@@ -347,6 +392,17 @@ if is_deny && [ "$ELAPSED" -le 2 ]; then
 else
     fail "link to a named pipe outside, unattended" "exit=$STATUS elapsed=$ELAPSED out=[$OUT]"
 fi
+
+# Only the harness's session records are read: a record elsewhere under its
+# directory, or under projects/ without the .jsonl extension, is not.
+cp "$FIX/background-notification.record.jsonl" "$HOME_DIR/.claude/stray.jsonl"
+place background-notification "$T/stray.in" "$HOME_DIR/.claude/stray.jsonl"
+run_hook "$T/stray.in" "$P_REPO" "$ATT"
+expect_none "record under the harness directory but outside its session records, attended: not read, no decision"
+cp "$FIX/background-notification.record.jsonl" "$RECORDS/notify.txt"
+place background-notification "$T/txt.in" "$RECORDS/notify.txt"
+run_hook "$T/txt.in" "$P_REPO" "$ATT"
+expect_none "record without the .jsonl extension, attended: not read, no decision"
 
 # The binary: missing, failing, printing something else, hanging. Each case
 # uses an input the real binary denies.
@@ -481,6 +537,15 @@ case "$LAST_REASON" in
     *"$REASON_FIRST"*) pass "searchable: every deny carries the reason's first sentence" ;;
     *) fail "searchable" "[$LAST_REASON]" ;;
 esac
+
+# -- the fixtures hold structure only ------------------------------------------
+
+# No tool-call or session identifier, path, address or timestamp survives the
+# scrub, and every number but a turn's position is 0.
+n=$(cat "$FIX"/* | grep -cE 'toolu_|[0-9a-f]{8}-[0-9a-f]{4}-|/home/|/Users/|/tmp/|@[a-z0-9-]+\.[a-z]|[0-9]{10,}')
+[ "$n" = 0 ] && pass "fixtures: no identifier, path, address or timestamp" || fail "fixtures: leak" "$n lines"
+n=$(cat "$FIX"/* | grep -oE '"[A-Za-z_]+":-?[1-9][0-9.]*' | grep -cvE '^"(promptIndex|turnIndex)"')
+[ "$n" = 0 ] && pass "fixtures: every number but promptIndex and turnIndex is 0" || fail "fixtures: numbers" "$n"
 
 # -- output shape over every run -----------------------------------------------
 

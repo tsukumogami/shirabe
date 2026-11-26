@@ -4,9 +4,11 @@
 #
 # Claude Code runs this before every AskUserQuestion call (hooks/hooks.json),
 # with the PreToolUse JSON on stdin. It denies a question prompt opened in a
-# turn no person typed, and leaves alone one opened in a turn a person typed,
-# including one a skill the person invoked opens later in that turn
-# (PRD-decision-escalation-ladder R27). The deciding lives in the shirabe
+# turn no person typed, and leaves alone one opened in a turn a person typed
+# after the session's first, in any session, including one a skill the person
+# invoked opens later in that turn (PRD-decision-escalation-ladder R27). A
+# session's first turn can't be told from a dispatched brief, so it follows
+# the run mode. The deciding lives in the shirabe
 # binary's `hook question-guard` subcommand, which reads the turn's origin
 # from the session record the input names and the run mode from
 # CLAUDE_CODE_SESSION_ATTENDED (docs/spikes/SPIKE-question-guard-turn-origin.md).

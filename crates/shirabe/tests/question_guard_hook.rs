@@ -33,7 +33,7 @@ impl Host {
             N.fetch_add(1, Ordering::SeqCst)
         ));
         let _ = std::fs::remove_dir_all(&root);
-        for d in ["home/.claude/projects/p", "outside", "config"] {
+        for d in ["home/.claude/projects/p", "outside", "config/projects/p"] {
             std::fs::create_dir_all(root.join(d)).unwrap();
         }
         Host { root }
@@ -121,13 +121,43 @@ fn typed_starts_are_allowed_when_attended() {
 }
 
 #[test]
-fn dispatch_brief_follows_the_run_mode() {
+fn opening_turns_follow_the_run_mode() {
     let h = Host::new();
-    let input = h.input("dispatch-brief");
-    assert_deny(&h.run(&input, &[UNATT]), "dispatch-brief unattended");
-    // The record labels a dispatch brief as typed, so attended it is allowed.
-    assert_eq!(h.run(&input, &[ATT]), "");
-    assert_eq!(h.run(&input, &[]), "");
+    // A dispatch brief is labelled as typed and sits at the session's first
+    // turn; the prompt that opened a copy and a print-mode turn can't be
+    // placed either. Unattended they are denied, attended allowed.
+    for case in ["dispatch-brief", "resume-copy", "sdk-print"] {
+        let input = h.input(case);
+        assert_deny(&h.run(&input, &[UNATT]), &format!("{case} unattended"));
+        assert_eq!(h.run(&input, &[ATT]), "", "{case} attended");
+        assert_eq!(h.run(&input, &[]), "", "{case} no run mode");
+    }
+}
+
+#[test]
+fn a_persons_later_turn_is_allowed_in_an_unattended_session() {
+    let h = Host::new();
+    // A background session reports itself unattended for its whole life,
+    // even while a person is attached and typing.
+    assert_eq!(h.run(&h.input("typed-later-turn"), &[UNATT]), "");
+    // A command-line prompt to an existing background session carries the
+    // same fields, so it is allowed too.
+    assert_eq!(h.run(&h.input("resume-prompt"), &[UNATT]), "");
+}
+
+#[test]
+fn a_command_typed_in_a_later_turn_opens_all_three_prompts() {
+    let h = Host::new();
+    let rec = h.path("home/.claude/projects/p/three.jsonl");
+    std::fs::copy(
+        fixtures().join("later-skill-three-prompts.record.jsonl"),
+        &rec,
+    )
+    .unwrap();
+    for i in 1..=3 {
+        let input = h.input_pointing(&format!("later-skill-three-prompts-{i}"), &rec);
+        assert_eq!(h.run(&input, &[UNATT]), "", "question {i}");
+    }
 }
 
 #[test]
@@ -148,6 +178,10 @@ fn record_outside_the_harness_directory_is_not_read() {
     assert_eq!(h.run(&input, &[ATT]), "");
     assert_deny(&h.run(&input, &[UNATT]), "outside, unattended");
 
+    // Under the harness directory but outside its session records: not read.
+    let input = h.input_at("background-notification", "home/.claude/r.jsonl");
+    assert_eq!(h.run(&input, &[ATT]), "");
+
     // A link inside the harness directory that leaves it is not followed.
     let link = h.path("home/.claude/projects/p/link.jsonl");
     std::os::unix::fs::symlink(h.path("outside/r.jsonl"), &link).unwrap();
@@ -158,7 +192,7 @@ fn record_outside_the_harness_directory_is_not_read() {
 #[test]
 fn claude_config_dir_names_the_harness_directory() {
     let h = Host::new();
-    let input = h.input_at("background-notification", "config/r.jsonl");
+    let input = h.input_at("background-notification", "config/projects/p/r.jsonl");
     let config = h.path("config");
     let config = config.to_str().unwrap();
     assert_deny(
