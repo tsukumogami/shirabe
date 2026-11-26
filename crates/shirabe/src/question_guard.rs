@@ -134,8 +134,8 @@ pub enum Origin {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Turn {
     pub origin: Origin,
-    /// The turn may be the first the session was given: its entry sits at
-    /// `turnIndex` 1, it opened a copy of another session, or its position
+    /// The turn may be the first the session was given: its entry sits at a
+    /// `turnIndex` below 2, it opened a copy of another session, or its position
     /// isn't recorded. A dispatch brief is always such a turn; a person's
     /// later turn never is.
     pub opening: bool,
@@ -252,9 +252,12 @@ fn scan_lines<R: BufRead>(mut reader: R, needle: &[u8], mut each: impl FnMut(&[u
 /// entry and is skipped. Any entry labelled as not typed wins, then any
 /// label the capture never showed for a person; otherwise a typed label, and
 /// with no labelled entry at all, unknown. The turn is the session's opening
-/// one when an entry of it sits at `turnIndex` 1, when its position isn't
-/// recorded, or when earlier turns' entries carry its `promptId`, which a
-/// copy of another session writes for the prompt that started the copy.
+/// one when an entry of it sits at a `turnIndex` below 2, when its position
+/// isn't recorded, or when earlier turns' entries carry its `promptId`, which
+/// a copy of another session writes for the prompt that started the copy.
+/// When a line naming the turn is too long to read, a not-typed label or a
+/// typed label placed after the first turn, read from its other entries,
+/// still stands; otherwise the origin is unknown.
 pub fn turn_from_record<R: BufRead>(reader: R, prompt_id: &str) -> Turn {
     let unknown = Turn {
         origin: Origin::Unknown,
@@ -294,12 +297,28 @@ pub fn turn_from_record<R: BufRead>(reader: R, prompt_id: &str) -> Turn {
             .and_then(|p| p.get("turnIndex"))
             .and_then(Value::as_u64)
         {
-            Some(1) => first = true,
+            Some(i) if i < 2 => first = true,
             Some(_) => later = true,
             None => {}
         }
     });
     if !complete {
+        // An entry of the turn was too long to read. Keep what the entries
+        // already read settled: a not-typed label still denies, and a typed
+        // label placed after the first turn still stands. Anything else is
+        // unknown.
+        if not_typed {
+            return Turn {
+                origin: Origin::NotTyped,
+                opening: first || copy || !later,
+            };
+        }
+        if typed && !odd && later && !first && !copy {
+            return Turn {
+                origin: Origin::TypedLabel,
+                opening: false,
+            };
+        }
         return unknown;
     }
     let origin = if not_typed {
@@ -536,18 +555,22 @@ mod tests {
         assert_eq!(turn_of(&[first], "c").origin, Origin::Unknown);
     }
 
+    fn long_row(id: &str) -> String {
+        let pad = "x".repeat(MAX_LINE + 10);
+        format!("{{\"type\":\"user\",\"promptId\":\"{id}\",\"pad\":\"{pad}\"}}\n")
+    }
+
     #[test]
     fn an_over_long_line_naming_the_turn_leaves_it_unknown() {
-        let mut text = format!("{}\n", typed("turn-7f3a", 2));
-        let pad = "x".repeat(MAX_LINE + 10);
-        let long = format!("{{\"type\":\"user\",\"promptId\":\"turn-7f3a\",\"pad\":\"{pad}\"}}\n");
-        let mut with_long = text.clone();
-        with_long.push_str(&long);
-        let t = turn_from_record(with_long.as_bytes(), "turn-7f3a");
+        // Nothing settled before it: a typed first turn stays unknown.
+        let mut first = format!("{}\n", typed("turn-7f3a", 1));
+        first.push_str(&long_row("turn-7f3a"));
+        let t = turn_from_record(first.as_bytes(), "turn-7f3a");
         assert_eq!(t.origin, Origin::Unknown);
         assert!(t.opening);
-        // One that names another turn is skipped without being buffered.
-        text.push_str(&long.replace("turn-7f3a", "turn-0c9e"));
+        // A line naming another turn is skipped without being buffered.
+        let mut text = format!("{}\n", typed("turn-7f3a", 2));
+        text.push_str(&long_row("turn-0c9e"));
         let t = turn_from_record(text.as_bytes(), "turn-7f3a");
         assert_eq!(t.origin, Origin::TypedLabel);
         assert!(!t.opening);
@@ -556,12 +579,40 @@ mod tests {
             "{{\"pad\":\"{}\",\"promptId\":\"turn-7f3a\"}}\n",
             "y".repeat(MAX_LINE + (1 << 16) - 3)
         );
-        let mut s = format!("{}\n", typed("turn-7f3a", 2));
+        let mut s = format!("{}\n", typed("turn-7f3a", 1));
         s.push_str(&split);
         assert_eq!(
             turn_from_record(s.as_bytes(), "turn-7f3a").origin,
             Origin::Unknown
         );
+    }
+
+    #[test]
+    fn an_over_long_line_keeps_a_typed_later_turn() {
+        // A person's later turn holding a large tool result is still theirs.
+        let mut text = format!("{}\n{}\n", typed("turn-d0", 1), typed("turn-7f3a", 2));
+        text.push_str(&long_row("turn-7f3a"));
+        let t = turn_from_record(text.as_bytes(), "turn-7f3a");
+        assert_eq!(t.origin, Origin::TypedLabel);
+        assert!(!t.opening);
+    }
+
+    #[test]
+    fn an_over_long_line_keeps_a_not_typed_label() {
+        let notice = json!({"type":"user","promptId":"turn-7f3a","turnOrigin":"task_notification",
+                            "origin":{"kind":"task-notification"},"promptSource":"system",
+                            "turnPosition":{"promptIndex":1,"turnIndex":2}});
+        let mut text = format!("{notice}\n");
+        text.push_str(&long_row("turn-7f3a"));
+        let t = turn_from_record(text.as_bytes(), "turn-7f3a");
+        assert_eq!(t.origin, Origin::NotTyped);
+    }
+
+    #[test]
+    fn a_position_below_two_is_an_opening_turn() {
+        let t = turn_of(&[typed("p", 0)], "p");
+        assert_eq!(t.origin, Origin::TypedLabel);
+        assert!(t.opening);
     }
 
     fn env(m: RunMode) -> Env {

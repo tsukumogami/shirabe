@@ -175,9 +175,8 @@ records already on the capture host. Only field values were counted, no
 message text:
 
 - **`turnOrigin: system`.** It carries `promptSource: system` and
-  `isMeta: true` and no `origin`. Every such turn was a notice the harness
-  itself delivered, such as a notice that another session went idle. No test
-  session produced one on demand, so there is no fixture for it.
+  `isMeta: true` and no `origin`. No test session produced one on demand,
+  so there is no fixture for it.
 - **More typed sources.** A `human` turn also carries `promptSource: queued`
   (typed while a turn was running) or `promptSource: suggestion_accepted` (a
   suggested prompt the person accepted).
@@ -249,8 +248,10 @@ input that isn't JSON, gets no decision.
    `$HOME/.claude`. A path that fails the check is never opened, and the
    origin is unknown.
 3. **Read the turn's entries.** Read the record line by line, buffering no
-   line longer than 4 MiB. A longer line that names the turn leaves the
-   origin unknown. Take each `user` entry that belongs to the turn, skipping
+   line longer than 4 MiB. When a longer line names the turn, the entries
+   already read still decide it if one is not typed, or if they carry a
+   typed label placed after the first turn; otherwise the origin is unknown.
+   Take each `user` entry that belongs to the turn, skipping
    compaction summaries, and classify it:
    - `rowSource: hook` or `hookText: true` means not typed.
    - `turnOrigin` of `task_notification`, `scheduled`, `peer` or `system`,
@@ -267,7 +268,7 @@ input that isn't JSON, gets no decision.
    typed. Otherwise any "unknown" entry makes the turn unknown. Otherwise a
    typed label stands. A turn with no counting entry is unknown.
 5. **Place the turn.** The turn is an opening turn when any of these holds:
-   - one of its entries has `turnIndex` 1;
+   - one of its entries has a `turnIndex` below 2;
    - none of them records a position;
    - an entry of another turn carries the turn's `promptId`, which is how a
      copy restates its history for the prompt that started it.

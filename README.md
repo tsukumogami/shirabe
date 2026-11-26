@@ -380,8 +380,10 @@ denies it there. A prompt opened in a turn a person typed is left alone,
 including one a skill the person invoked opens later in that turn, after any
 number of tool calls: a skill's confirmation or approval prompt behaves as it
 always has. The exceptions are a background session's first turn, which the
-record can't tell from a dispatched brief, and a turn a Stop hook has
-continued; both are described below.
+record can't tell from a dispatched brief, so a person who starts a
+background session with their own typed prompt is denied a prompt in that
+first turn (later turns are allowed), and a turn a Stop hook has continued;
+both are described below.
 
 The guard reads where the turn came from in the session record the harness
 names in the hook's input, and only from its structured fields, never from
@@ -404,17 +406,23 @@ whose origin can't be read fall back to the session's run mode: denied when
 the session is unattended, allowed otherwise. A turn's origin can't be read
 when the record is missing, isn't a `.jsonl` file under the harness's session
 records once symbolic links are resolved (the guard never opens such a path),
-holds no entry for the turn, has a line naming the turn longer than 4 MiB, or
-labels it in a way the guard doesn't know. The run mode is
+holds no entry for the turn, labels it in a way the guard doesn't know, or
+has a line naming the turn longer than 4 MiB when the turn's other entries
+haven't already shown it to be not typed, or typed and after the first
+turn. The run mode is
 `CLAUDE_CODE_SESSION_ATTENDED`, which Claude Code sets for every hook (`0`
 unattended, `1` attended); with any other value, or none, the session isn't
 known to be unattended.
 
-There are three cases the guard gets wrong on purpose, because the record
+There are four cases the guard gets wrong on purpose, because the record
 can't tell them apart from the case next to them:
 
 - A dispatched brief in a session marked attended is allowed, as a person's
   first prompt would be.
+- A person who starts a background session by hand with their own typed
+  prompt (`claude --bg "<prompt>"`) is denied a question prompt in that first
+  turn, as a dispatched brief would be. Every later turn they type into the
+  session is allowed.
 - A prompt given on the command line to an existing background session
   (`claude --bg --resume <id> "<prompt>"`) carries the same fields as a turn
   a person typed after attaching, so it is allowed, even though nobody may be
