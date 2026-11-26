@@ -41,6 +41,7 @@ case "$1:${2-}" in
     context:list) f="$KOTO_STUB/list" ;;
     status:*) f="$KOTO_STUB/status" ;;
     session:dir) f="$KOTO_STUB/session-dir" ;;
+    session:hierarchy) f="$KOTO_STUB/hierarchy" ;;
 esac
 [ -n "$f" ] && [ -f "$f" ] || exit 2
 printf '%s\n' "$(<"$f")"
@@ -1281,6 +1282,36 @@ fn no_entry_names_the_branch_and_prints_the_generic_line() {
     fs::remove_dir_all(fx.p("state/shirabe")).unwrap();
     assert!(fx.run("pre-compact", "other").contains(OTHER_BRANCH));
     assert!(context_of(&fx.run("re-anchor", "other")).contains("read --note"));
+}
+
+/// What the koto stub prints for `koto session hierarchy anchor-<SID> --json`:
+/// the anchor, and each named koto session alive and held by it.
+fn hierarchy_holding(runs: &[&str]) -> String {
+    let anchor = format!("anchor-{SID}");
+    let mut members = vec![serde_json::json!({
+        "kind": "anchor", "name": anchor, "alive": true, "joined_by": []
+    })];
+    for ks in runs {
+        members.push(serde_json::json!({
+            "kind": "koto_session", "name": ks, "alive": true,
+            "joined_by": [{"holder": ks, "named": anchor, "target": anchor,
+                "via": "held-by link"}]
+        }));
+    }
+    serde_json::json!({"session": anchor, "members": members}).to_string()
+}
+
+#[test]
+fn no_entry_finds_the_run_held_by_the_sessions_anchor() {
+    let fx = Fx::new();
+    fs::remove_file(fx.entry_path()).unwrap();
+    fs::write(fx.p("stub/hierarchy"), hierarchy_holding(&[KS])).unwrap();
+    let why = "When no ledger entry is recorded, the hooks find the koto run whose \
+held-by link names the session's anchor";
+    let pc = fx.run("pre-compact", "repo");
+    assert!(pc.contains(&format!("koto session: {KS}")), "{why}: {pc}");
+    let ctx = context_of(&fx.run("re-anchor", "repo"));
+    assert!(ctx.contains(&format!("koto status {KS}")), "{why}: {ctx}");
 }
 
 #[test]
