@@ -86,7 +86,9 @@
 # roadmap pull request is pending in the record, since the generated
 # sections of two such pull requests would conflict. It sets the feature's
 # **Status:** to Done, writes **Delivered:** TEXT right after it (replacing one
-# that is there), removes its **Needs:** line, each with its wrapped lines,
+# that is there), removes its **Needs:** line and its own **Progress:** field
+# (Delivered replaces it; the `## Progress` section is not touched), each with
+# its wrapped lines,
 # runs `shirabe roadmap populate` so the generated sections agree, and changes
 # nothing else: an **Outcome:** line is the promise and is never touched. One
 # exception: on a roadmap/v1 roadmap whose Dependencies name prefixed tags, or
@@ -1991,8 +1993,10 @@ feature_read "$WD/roadmap.md"
 TITLE=$(printf '%s' "$FEATURE" | jq -r .title)
 words_read "$WD/roadmap.md"
 
-# TAG's Status, Needs and Delivered fields, and nothing else before the
-# populate. A Needs or Delivered field goes with its wrapped lines, the lines
+# TAG's Status, Needs, Progress and Delivered fields, and nothing else before
+# the populate. A Needs, Progress or Delivered field of TAG's block goes with
+# its wrapped lines (the `## Progress` section and other features' fields are
+# outside the block and stay as they are), the lines
 # below it up to a blank line, the next field line or a heading, as the
 # reader bounds a field. The text reaches awk through the environment, which
 # takes it as written (`-v` would read its backslashes as escapes). A roadmap
@@ -2008,13 +2012,14 @@ tr -d '\r' < "$WD/roadmap.md" | RS_TAG="$HEAD_TAG" RS_SECTION="## $RM_SECTION" R
     /^## / { h = $0; sub(/[ \t]+$/, "", h); infeat = (h == sect); inblock = 0; print; next }
     infeat && /^### / { inblock = (index($0, "### " tag ": ") == 1); print; next }
     inblock && /^\*\*Needs:\*\*/ { dropping = 1; next }
+    inblock && /^\*\*Progress:\*\*/ { dropping = 1; next }
     inblock && /^\*\*Delivered:\*\*/ { dropping = 1; next }
     inblock && /^\*\*Status:\*\*/ { print "**Status:** Done"; print "**Delivered:** " delivered; next }
     { print }' > "$DOC" || lib_die2 "awk failed"
 grep -qxF "**Delivered:** $OUTCOME" "$DOC" || refuse "the Delivered line could not be written into $TAG's block (it has no **Status:** line, or the text didn't survive as written)"
 populate_and_commit "$DOC" "$CRLF" coordinate/roadmap-status "docs(roadmap): record $TAG, $TITLE, as done"
 {
-    printf 'Records %s of the roadmap, %s, as done: its Status is Done and its Delivered line reads "%s"; its Outcome, the promise, is unchanged. Its Needs line goes, as the roadmap'"'"'s rule for done features asks, and the generated sections are regenerated. Nothing else in the roadmap changes.\n\n---\n\n' "$TAG" "$TITLE" "$OUTCOME"
+    printf 'Records %s of the roadmap, %s, as done: its Status is Done and its Delivered line reads "%s"; its Outcome, the promise, is unchanged. Its Needs line goes, as the roadmap'"'"'s rule for done features asks, and so does a Progress field of its own, which the Delivered line replaces; the generated sections are regenerated. Nothing else in the roadmap changes.\n\n---\n\n' "$TAG" "$TITLE" "$OUTCOME"
     printf 'Opened by the coordinator for %s, after it judged the feature'"'"'s last pull request landed. Review it against the roadmap'"'"'s own rules for an Active document before merging; the coordinator never merges it.\n' "$NAME"
 } > "$WD/prbody.md"
 open_pr "docs(roadmap): record $TAG, $TITLE, as done"
