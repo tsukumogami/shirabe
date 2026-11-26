@@ -348,6 +348,33 @@ its current addressee. The answer takes effect when it is recorded: no other
 session approves, forwards or re-asks it. It is recorded with the person as
 decider and the session it was given in.
 
+**R21a. The owner is `owner`.** A workspace has one owner, the person
+running it. Every session names that person with the same fixed identifier,
+`owner`, which carries no personal name, when it addresses a question to the
+person or records the person's decision.
+
+**R21b. The owner's decision needs the answered prompt behind it.** A
+decision is recorded as the owner's only when it carries a pointer to the
+question prompt the owner answered, and only in an attended session, in a
+worker as much as at the top coordinator. What is recorded is the question,
+the option labels and the owner's answer as the prompt gave them, never a
+session's wording of them.
+
+**R21c. Anything else is a relayed claim.** A record that names the owner
+without that pointer, including words the owner typed that were not put back
+to them through a prompt, is the hearing session's own decision with the
+owner noted. The hearing session may act on it; for any other session it can
+restrict and never grant.
+
+**R21d. A standing rule is marked when it is asked.** A question, or one of
+its options, that would set a rule binding other sessions is marked as
+standing when it is raised, and the owner sees the mark when choosing. An
+answer without the mark reaches only the work items recorded as waiting on
+its question. When the owner types a rule, the hearing session puts its exact
+text and scope back to the owner in a marked prompt in the same turn. A rule
+counts as the owner's for other sessions when it cites an answer that carries
+both the prompt pointer and the mark, wherever it was given.
+
 **R22. The asker finds the answer.** A session whose question was answered
 elsewhere learns of the answer at its next workflow step, without relying on a
 relayed message. For a session that has ended, the answer is available to
@@ -360,7 +387,9 @@ cannot put its own back.
 
 **R24. Answers reach the coordinators above.** An answer the person gave in a
 worker is readable by every coordinator above that worker as an answer from
-the person, by the same read R9 uses.
+the person, by the same read R9 uses. A coordinator can list the owner's
+answers given at and below it that it has not yet marked as seen; marking one
+seen approves nothing, and a handover reports any still unseen.
 
 **R25. Exact restore.** A waiting question can be presented again, in the
 session that raised it or in another, after that session has lost and rebuilt
@@ -567,6 +596,27 @@ that record or list must show.
   any open read, with no further write from any other session. (R21)
 - [ ] (checked) The answer records the person as decider and the session it
   was given in. (R21)
+- [ ] (checked) Every question addressed to the person and every decision
+  recorded as the person's names `owner`, and the read of what is open for
+  `owner` returns questions raised by two sessions with no link between them.
+  (R21a)
+- [ ] (checked) Recording the owner's answer with no prompt pointer is
+  refused; recording it in an unattended session is refused; both refusals
+  hold for a session with no dispatcher. A recorded answer holds the
+  question, the option labels and the answer exactly as the prompt gave them.
+  (R21b)
+- [ ] (checked) A record naming the owner with no prompt pointer is stored as
+  the hearing session's decision, is not returned as the owner's answer by
+  the precedent read, and a rule citing it does not read as the owner's.
+  (R21c)
+- [ ] (checked) An answer to a question raised without the standing mark is
+  not accepted as the source of a rule that reads as the owner's; an answer
+  to one raised with the mark is, when it also carries the prompt pointer,
+  whether it was given in a worker or at the top coordinator. The rendered
+  prompt shows the mark. (R21d)
+- [ ] (checked) A coordinator's listing returns an owner answer given in a
+  worker below it until that coordinator marks it seen, and marking it seen
+  changes nothing about the answer. (R24)
 - [ ] (checked) After a question is answered in another session, the raising
   session's next workflow step reports the answer; for a raising session that
   had ended, the first workflow step after it is resumed reports the answer.
@@ -638,9 +688,15 @@ that record or list must show.
   made a real attempt to decide, judged cost to reverse well, or was right
   that an earlier answer covers a case cannot be checked automatically. The
   mechanical halves are tested and the rest is observed in dogfooding.
-- **The person is a name the engine does not verify.** The read for a person
-  matches a handle exactly, and an agent could claim to be the person. The
-  audit trail is the control.
+- **The owner is a name the engine does not verify.** The read for the owner
+  matches `owner` exactly. What ties a record to the owner is the answered
+  prompt it points at, which a reader on the same machine can open and a
+  reader elsewhere cannot. Anyone able to act as the owner on the machine can
+  forge an answer.
+- **The prompt record is observed, not promised.** The harness keeps an
+  answered prompt's question, options and answer today; that is not a
+  documented contract. Whether anything but the owner can answer a prompt has
+  not been tested.
 - **Position reads follow recorded links.** A session started in a way the
   engine does not link sits in nobody's subtree. R15 means its questions for
   the person are still found, but a coordinator asking what is pending below
@@ -720,6 +776,20 @@ session.
 **A need goes straight to whoever can meet it.** Routing a credential request
 through coordinators that cannot supply it is a relay with no purpose. The
 coordinators still see it when they read what is open below them.
+
+**The owner is named `owner`, and only an answered prompt makes a record
+theirs.** Records named the owner in four free-text spellings, and nothing
+had ever recorded the owner as a decider. A full structured decision, with
+research into transcripts and live coordinators, found that every false
+attribution of the owner's word was typed text or a relay turned into a rule
+for other sessions, and none was an answer to a question the owner had been
+asked. Alternatives were letting any session record the owner with no
+evidence, and letting only the top coordinator record the owner, which made
+the owner answer twice. The standing mark exists because a session writes a
+prompt's wording: a rule exists only where the owner chose an option that
+says it is one. This replaces, with the author's ruling, the rule in a
+planned design that a rule is the owner's only when entered at the top
+coordinator.
 
 **Solicited prompts stay as they are.** A skill asking its author to confirm
 a step in a turn the author started is not a question under this record, and
