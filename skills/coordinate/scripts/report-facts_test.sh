@@ -76,10 +76,14 @@ seed
 found_session "$S" "$(roadmap_vars plugin-system)"
 log_to "$S" reconcile wait
 report() { # report <fields-json>: the coordinator ticks wait with a report
+    # TOOK is how long the script ran, apart from the log writes around it.
+    local t
     log_evidence "$S" wait "$1"
     log_to "$S" wait report_facts
+    t=$SECONDS
     OUT=$(bash "$RF" --session "$S" 2>"$T/err")
     RC=$?
+    TOOK=$((SECONDS - t))
     log_to "$S" report_facts wait
 }
 facts() { cat "$KOTO_STORE/context/$S/coord/report.json"; }
@@ -305,23 +309,35 @@ eq "  ... and no record/holdings write" 0 "$(holdings_adds)"
 report '{"event":"progress","unit":"alpha","report":"checkpoint"}'
 eq "  ... progress the same" "progress 12 alpha 0" "${OUT% sealed:*} $(holdings_adds)"
 
+# Each timed case allows MARGIN seconds past its deadline for the stop, the
+# TERM/KILL grace and the exit, which a loaded host can stretch past 2 s
+# (shirabe#1724). FIRST_DEADLINE is for a case whose first call is the slow
+# one. A case that reaches its slow call after other reads, which a loaded host
+# can take 3 s over, gets LATE_DEADLINE (shirabe#1705, shirabe#1872).
+MARGIN=5 FIRST_DEADLINE=3 LATE_DEADLINE=10
 seed
 BEFORE=$(cat "$KOTO_STORE/context/$S/record/holdings")
 rm -f "$KOTO_STORE/context/$S/coord/report.json"
+# SLOW stays past LATE_DEADLINE + MARGIN, so a write left running fails the case.
 SLOW=20
 rm -f "$KOTO_STORE/add-delay.pid"
+# The reads before the write take time on a loaded host: the coord/report.json
+# add, written before the pushed-head write, is held until 3 s after the case
+# starts, so the write is reached a few seconds into the script's clock.
+HOLD_UNTIL=$(($(date +%s) + 3))
 START=$SECONDS
-KOTO_ADD_DELAY="record/holdings:$SLOW" REPORT_FACTS_DEADLINE=3 report '{"event":"report","unit":"alpha"}'
+KOTO_ADD_UNTIL="coord/report.json:$HOLD_UNTIL" KOTO_ADD_DELAY="record/holdings:$SLOW" REPORT_FACTS_DEADLINE=$LATE_DEADLINE \
+    report '{"event":"report","unit":"alpha"}'
 TOOK=$((SECONDS - START))
 eq "a slow write: the same verdict and exit code" "holding 12 alpha 0" "${OUT% sealed:*} $RC"
-[ "$TOOK" -le 5 ] && ok "  ... the action returns within the deadline and a small margin (${TOOK} s)" \
-    || bad "  ... the action returns within the deadline and a small margin" "${TOOK} s"
+[ "$TOOK" -le $((LATE_DEADLINE + MARGIN)) ] && ok "  ... the action returns within its deadline plus a small margin (${TOOK} s)" \
+    || bad "  ... the action returns within its deadline plus a small margin" "${TOOK} s"
 log_to "$S" wait report_facts
 bash "$CL" check --session "$S" --state report_facts --sealed "$OUT" --any-visit && ok "  ... the token is sealed" || bad "  ... the token is sealed"
 log_to "$S" report_facts wait
 [ -s "$KOTO_STORE/context/$S/coord/report.json" ] && ok "  ... coord/report.json is written" || bad "  ... coord/report.json is written"
 eq "  ... record/holdings is unchanged" "$BEFORE" "$(cat "$KOTO_STORE/context/$S/record/holdings")"
-grep -qF "alpha's pushed head $SHA_HEAD wasn't kept: the write took longer than the 3 s the action allows; it's tried again on the holding's next visit" "$T/err" \
+grep -qF "alpha's pushed head $SHA_HEAD wasn't kept: the write took longer than the $LATE_DEADLINE s the action allows; it's tried again on the holding's next visit" "$T/err" \
     && ok "  ... and stderr names the head the stopped write didn't keep" \
     || bad "  ... and stderr names the head the stopped write didn't keep" "$(cat "$T/err")"
 eq "  ... with nothing else on stderr" 1 "$(wc -l < "$T/err" | tr -d ' ')"
@@ -363,25 +379,34 @@ eq "no time left: a failed read, no verdict and no write tried" "2 [] none" "$RC
 grep -qF "the holding's read (state-holding.sh --read) didn't finish within the action's 0 s deadline" "$T/err" \
     && ok "  ... and stderr names the read" || bad "  ... and stderr names the read" "$(cat "$T/err")"
 # A second or less left once the verdict is sealed: the write is skipped.
-# With a 1 s deadline the reads, the add and the seal have to finish before
-# the script's whole-second clock first ticks, so each try starts just after
-# a wall-clock second begins; a try a loaded host slows past that tick fails
-# its first late call, and is tried again.
+# The script's clock counts whole seconds from its start, every call before
+# the write is refused once the clock reaches the deadline, and the write is
+# skipped from a second before it, so the add and the seal have to end in the
+# deadline's last whole second. Each try starts just after a wall-clock second
+# begins, so the script's clock counts from that second, and the
+# coord/report.json add waits for the start of the last one (KOTO_ADD_UNTIL).
+# The reads before the add have the rest of the deadline whatever the host
+# load (shirabe#1724); only the end of the add and the seal fall in that last
+# second. A try that misses it, with the seal stopped or a start a second late
+# that leaves time for the write, is tried again on a fresh record.
+SKIP_DEADLINE=10
 skipped_write() {
     local s
+    seed
     log_evidence "$S" wait '{"event":"report","unit":"alpha"}'
     log_to "$S" wait report_facts
     : > "$KOTO_STORE/calls"
     s=$(date +%s)
     while [ "$(date +%s)" = "$s" ]; do sleep 0.01; done
-    OUT=$(REPORT_FACTS_DEADLINE=1 bash "$RF" --session "$S" 2> "$T/err")
+    OUT=$(KOTO_ADD_UNTIL="coord/report.json:$((s + SKIP_DEADLINE))" REPORT_FACTS_DEADLINE=$SKIP_DEADLINE \
+        bash "$RF" --session "$S" 2> "$T/err")
     RC=$?
     log_to "$S" report_facts wait
 }
-seed
 for try in 1 2 3; do
     skipped_write
-    [ "$RC" = 2 ] && grep -q "within the action's 1 s deadline" "$T/err" || break
+    { [ "$RC" = 2 ] && grep -q "within the action's $SKIP_DEADLINE s deadline" "$T/err"; } \
+        || [ "$(holdings_adds)" != 0 ] || break
 done
 eq "no time left for the write: the same verdict and exit code" "holding 12 alpha 0" "${OUT% sealed:*} $RC"
 eq "  ... no write tried and no head kept" "0 none" "$(holdings_adds) $(kept alpha)"
@@ -391,29 +416,32 @@ eq "a deadline that isn't whole seconds is a usage error" 64 "$RC"
 
 echo "== the reads and the coord/report.json add bounded by the deadline (shirabe#1531) =="
 # Every backend call before the verdict is stopped at the deadline, so the
-# action exits 2 (a failed read, never a verdict) before koto's kill.
+# action exits 2 (a failed read, never a verdict) before koto's kill. Each
+# case times the script alone and allows MARGIN seconds past the deadline, as
+# the slow write does (MARGIN, FIRST_DEADLINE and LATE_DEADLINE are set there);
+# SLOW stays past the bound, so a call left running still fails it. With
+# KOTO_CALL_DELAY every call is slow from the first, and a deadline the earlier
+# work spent refuses the read with the same text, so FIRST_DEADLINE can be
+# short. A slowed call after other reads needs those reads done first, so
+# those cases give them LATE_DEADLINE, as the slow write does.
 seed
 rm -f "$KOTO_STORE/context/$S/coord/report.json"
-START=$SECONDS
-KOTO_CALL_DELAY=$SLOW REPORT_FACTS_DEADLINE=3 report '{"event":"report","unit":"alpha"}'
-TOOK=$((SECONDS - START))
+KOTO_CALL_DELAY=$SLOW REPORT_FACTS_DEADLINE=$FIRST_DEADLINE report '{"event":"report","unit":"alpha"}'
 eq "a slow record read: a failed read with no verdict" "2 []" "$RC [$OUT]"
-[ "$TOOK" -le 5 ] && ok "  ... the action returns within its deadline plus a small margin (${TOOK} s)" \
+[ "$TOOK" -le $((FIRST_DEADLINE + MARGIN)) ] && ok "  ... the action returns within its deadline plus a small margin (${TOOK} s)" \
     || bad "  ... the action returns within its deadline plus a small margin" "${TOOK} s"
-grep -qF "report-facts: the holding's read (state-holding.sh --read) didn't finish within the action's 3 s deadline" "$T/err" \
+grep -qF "report-facts: the holding's read (state-holding.sh --read) didn't finish within the action's $FIRST_DEADLINE s deadline" "$T/err" \
     && ok "  ... and stderr names the read" || bad "  ... and stderr names the read" "$(cat "$T/err")"
 [ -e "$KOTO_STORE/context/$S/coord/report.json" ] && bad "  ... and coord/report.json is not written" \
     || ok "  ... and coord/report.json is not written"
 
 seed
 rm -f "$KOTO_STORE/context/$S/coord/report.json" "$KOTO_STORE/add-delay.pid"
-START=$SECONDS
-KOTO_ADD_DELAY="coord/report.json:$SLOW" REPORT_FACTS_DEADLINE=3 report '{"event":"report","unit":"alpha"}'
-TOOK=$((SECONDS - START))
+KOTO_ADD_DELAY="coord/report.json:$SLOW" REPORT_FACTS_DEADLINE=$LATE_DEADLINE report '{"event":"report","unit":"alpha"}'
 eq "a slow coord/report.json add: a failed read with no verdict" "2 []" "$RC [$OUT]"
-[ "$TOOK" -le 5 ] && ok "  ... the action returns within its deadline plus a small margin (${TOOK} s)" \
+[ "$TOOK" -le $((LATE_DEADLINE + MARGIN)) ] && ok "  ... the action returns within its deadline plus a small margin (${TOOK} s)" \
     || bad "  ... the action returns within its deadline plus a small margin" "${TOOK} s"
-grep -qF "report-facts: the coord/report.json add didn't finish within the action's 3 s deadline" "$T/err" \
+grep -qF "report-facts: the coord/report.json add didn't finish within the action's $LATE_DEADLINE s deadline" "$T/err" \
     && ok "  ... and stderr names the add" || bad "  ... and stderr names the add" "$(cat "$T/err")"
 [ -s "$KOTO_STORE/add-delay.pid" ] && ok "  ... the slow add started" || bad "  ... the slow add started" "no pid recorded"
 slow_running && bad "  ... no add is left running" "pid $(cat "$KOTO_STORE/add-delay.pid")" || ok "  ... no add is left running"
@@ -431,13 +459,11 @@ cat > "$T/gslow/gh" <<EOF
 exec "$HERE/testdata/gh" "\$@"
 EOF
 chmod +x "$T/gslow/gh"
-START=$SECONDS
-PATH="$T/gslow:$PATH" REPORT_FACTS_DEADLINE=3 report '{"event":"report","unit":"alpha"}'
-TOOK=$((SECONDS - START))
+PATH="$T/gslow:$PATH" REPORT_FACTS_DEADLINE=$LATE_DEADLINE report '{"event":"report","unit":"alpha"}'
 eq "a slow pull request read: a failed read with no verdict" "2 []" "$RC [$OUT]"
-[ "$TOOK" -le 5 ] && ok "  ... the action returns within its deadline plus a small margin (${TOOK} s)" \
+[ "$TOOK" -le $((LATE_DEADLINE + MARGIN)) ] && ok "  ... the action returns within its deadline plus a small margin (${TOOK} s)" \
     || bad "  ... the action returns within its deadline plus a small margin" "${TOOK} s"
-grep -qF "report-facts: the pull request read (gh pr view 12 --repo acme/widgets) didn't finish within the action's 3 s deadline" "$T/err" \
+grep -qF "report-facts: the pull request read (gh pr view 12 --repo acme/widgets) didn't finish within the action's $LATE_DEADLINE s deadline" "$T/err" \
     && ok "  ... and stderr names the read" || bad "  ... and stderr names the read" "$(cat "$T/err")"
 [ -e "$KOTO_STORE/context/$S/coord/report.json" ] && bad "  ... and coord/report.json is not written" \
     || ok "  ... and coord/report.json is not written"
@@ -451,14 +477,14 @@ log_capture "$S" WAIT_LEG execute
 log_to "$S" wait_leg take_report
 log_to "$S" take_report report_facts
 START=$SECONDS
-OUT=$(KOTO_CALL_DELAY=$SLOW REPORT_FACTS_DEADLINE=3 bash "$RF" --session "$S" 2> "$T/err")
+OUT=$(KOTO_CALL_DELAY=$SLOW REPORT_FACTS_DEADLINE=$FIRST_DEADLINE bash "$RF" --session "$S" 2> "$T/err")
 RC=$?
 TOOK=$((SECONDS - START))
 log_to "$S" report_facts wait
 eq "a slow holdings list on the leg path: a failed read with no verdict" "2 []" "$RC [$OUT]"
-[ "$TOOK" -le 5 ] && ok "  ... within its deadline plus a small margin (${TOOK} s)" \
+[ "$TOOK" -le $((FIRST_DEADLINE + MARGIN)) ] && ok "  ... within its deadline plus a small margin (${TOOK} s)" \
     || bad "  ... within its deadline plus a small margin" "${TOOK} s"
-grep -qF "report-facts: the holdings read (state-holding.sh --list) didn't finish within the action's 3 s deadline" "$T/err" \
+grep -qF "report-facts: the holdings read (state-holding.sh --list) didn't finish within the action's $FIRST_DEADLINE s deadline" "$T/err" \
     && ok "  ... and stderr names the read" || bad "  ... and stderr names the read" "$(cat "$T/err")"
 
 done_tests report-facts

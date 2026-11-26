@@ -22,6 +22,9 @@
 #              gates pass --session so the script can read the session's id
 #   rewrites   execute.md's pr_finalization runs `run-id.sh carry` before its
 #              full-body `gh pr edit`, so the finalized body keeps the marker
+#   empty      every gate and script that hands owned-pr.sh's output to gh or
+#              pr-checks.sh refuses an empty one first (build-output-end.sh's
+#              CI read among them)
 #   takeover   --take-over appears in no script or template call except the
 #              exit-6 re-entry instruction and adopt-or-create-pr.sh's
 #              pass-through (check-pr-output.sh names it only to refuse it)
@@ -172,6 +175,15 @@ grep -qF '[ -n "$PR" ] && gh pr ready "$PR"' "$E" \
 grep -qF '[ -n "$PR_NUMBER" ] \' "$E" \
     && pass "pr_finalization's chain starts with an empty-lookup guard" \
     || fail "pr_finalization's chain has no empty-lookup guard"
+# build-output-end.sh reads each worktree's checks through pr-checks.sh from
+# its own owned-pr.sh lookup, and refuses an empty one before it.
+BOE=skills/execute/scripts/build-output-end.sh
+if grep -qF 'if [ -n "$pr" ] && "$BASH" "$PR_CHECKS" "$pr"' "$BOE" \
+    && [ "$(grep -c '"\$PR_CHECKS"' "$BOE")" -eq 1 ]; then
+    pass "build-output-end.sh's one pr-checks.sh call is guarded against an empty lookup"
+else
+    fail "build-output-end.sh reads checks without an empty-lookup guard"
+fi
 
 # --- ownership is checked before the shared branch is pushed ------------------
 
@@ -183,6 +195,15 @@ if [ -n "$LOOK" ] && [ -n "$PUSH" ] && [ "$LOOK" -lt "$PUSH" ]; then
     pass "orchestrator_setup looks up impl/<slug>'s PR before pushing it"
 else
     fail "orchestrator_setup: lookup at [$LOOK], push at [$PUSH]"
+fi
+# The start commit comes after that lookup, so a branch whose PR another run
+# opened is never committed on, and before the push, so the push records it as
+# expected_head.
+START=$(awk '/\*\*2\. The shared branch/{f=1} f && /start-commit\.sh --plan-slug \{\{PLAN_SLUG\}\}/{print NR; exit}' "$E")
+if [ -n "$LOOK" ] && [ -n "$START" ] && [ -n "$PUSH" ] && [ "$LOOK" -lt "$START" ] && [ "$START" -lt "$PUSH" ]; then
+    pass "orchestrator_setup makes the start commit after the lookup and before the push"
+else
+    fail "orchestrator_setup: lookup at [$LOOK], start commit at [$START], push at [$PUSH]"
 fi
 NP=skills/execute/scripts/node-push.sh
 OWN=$(grep -n '^    OWNED_NOW=$(coord_owned "$REPO" "$BRANCH" open)' "$NP" | head -1 | cut -d: -f1)

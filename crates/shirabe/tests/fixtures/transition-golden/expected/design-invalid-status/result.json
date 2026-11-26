@@ -1,5 +1,5 @@
 {
   "code": 2,
-  "error": "Invalid status: Bogus. Must be one of: Proposed Accepted Planned Current Superseded",
+  "error": "Invalid status: Bogus. Must be one of: Draft Proposed Accepted Planned Current Superseded",
   "success": false
 }

@@ -107,7 +107,8 @@ sequencing.
 
 From `$ARGUMENTS`:
 
-1. **Empty** — ask the user what bet they want to articulate.
+1. **Empty** — when the conversation already describes the bet, derive the
+   topic from it; otherwise ask the user what bet they want to articulate.
 2. **Path to existing STRATEGY** with lifecycle verb (`accept`,
    `activate`, `sunset`) — execute the lifecycle transition via
    `shirabe transition <strategy-path> <status>`. Sunset requires a
@@ -120,7 +121,10 @@ From `$ARGUMENTS`:
    grounding for the bet during Phase 1. The PRD is not recorded as the
    STRATEGY's `upstream`, per the read-vs-record rule above; if no
    VISION sits above the strategy, the draft omits the field.
-5. **Anything else** — use as the starting topic for Phase 1 scoping.
+5. **Anything else** — the author's topic: a slug used as given, or a
+   description of the bet the agent derives a slug from, as
+   `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` says. The description is the starting
+   point for Phase 1 scoping.
 
 Any of the modes above may carry `--upstream <path>`, naming the
 upstream VISION separately from the topic. `/strategy <topic-slug>

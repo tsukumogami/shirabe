@@ -13,7 +13,7 @@
 #       (niwa cuts the session slug at 40 anyway).
 #
 #   dc_invocation <brief-input-file> [<return-path>]
-#       Prints the worker's invocation: `/shirabe:<entry> <positional>
+#       Prints the worker's invocation: `/shirabe:<entry> <scope>
 #       [--role <role>] [--role-change-by <role_change_by>
 #       --role-change-source dispatcher] <run_mode flags> <entry_args
 #       flags>`, then `--review-floor=<x>` and
@@ -27,7 +27,10 @@
 #       on a coordinate brief (docs/designs/DESIGN-coordinator-named-roles.md,
 #       Decision 2), so the invocation line is a coordinator brief's one role
 #       line and the dispatch prompt carries the same setting. Neither is in
-#       the holding's mode.
+#       the holding's mode. <scope> is the positional, or on a discipline
+#       run's successor brief its four scope tokens, `--discipline <name>
+#       --host <owner/repo>` (DC_JQ_SCOPE_N), so `--role` follows the whole
+#       scope group.
 #
 #   dc_opener <brief-input-file>
 #       Prints, tab-separated, how a message-path worker records the
@@ -39,13 +42,20 @@
 #                it), `skill-session.sh open <entry> <topic>` for /explore,
 #                /decision and /release (`<topic>` the one the entry point
 #                derives)
-#         link   link-dispatcher.sh `<session>`, run once the entry point has
-#                opened its session (`<session>` that session), for /scope,
-#                /deliver, /execute and /work-on, whose openers take a
-#                dispatcher only through a request leg
+#       Every other entry point (/scope, /deliver, /execute, /work-on and
+#       the planning skills) prints nothing and returns 0: koto records the
+#       dispatcher on the session's anchor when it opens, from the name the
+#       koto-skills start hook exports, so the worker records nothing. Their
+#       briefs once carried a link-dispatcher.sh step; the script stays for
+#       briefs already in flight.
 #       The commands start from "${CLAUDE_PLUGIN_ROOT}", as the skills' own
-#       commands do. Returns 1 when dispatcher_session isn't a koto session
-#       name, which render-brief.sh refuses first.
+#       commands do. Returns 1 when an open entry point's dispatcher_session
+#       isn't a koto session name, which render-brief.sh refuses first.
+#
+#   dc_opener_takes_dispatcher <entry_point>
+#       0 for an entry point whose own opener takes --dispatched-by
+#       (/coordinate, /explore, /decision, /release), the ones dc_opener
+#       prints an open row for; 1 otherwise.
 #
 #   dc_mode <brief-input-file>
 #       Prints the flags part of the invocation (run_mode, then entry_args
@@ -162,17 +172,33 @@
 #   A leg key is {request, leg, topic, state, templates, inputs}, and as they
 #   become known child (the bound session's name as koto reported it), result
 #   (koto's result for the leg, once read), new_request (a re-leg's new
-#   request) and from (the request a re-legged key replaced). templates and
+#   request), from (the request a re-legged key replaced) and rebriefed (the
+#   UTC time a --rebrief moved its holding to the message path; the land
+#   step then reads the round in child, board-lib.sh bl_rebriefed_round),
+#   and opened (the UTC time dispatch-worker.sh opened the leg).
+#   templates and
 #   inputs are the leg's declaration at dispatch. state is one of:
 #     open           dispatched on this leg; no result read yet
 #     taken          wait-target.sh read its result, kept beside it
-#     spent          it ended with no result its worker promoted
+#     spent          it ended with no result its worker promoted, or no
+#                    holding was ever written naming it
 #     replaced       a new leg replaced it on this host (--releg, an
-#                    execution sent)
+#                    execution sent, a re-dispatch of its topic once its
+#                    request is no longer open)
 #     releg-pending  an import's re-leg opened new_request and hasn't finished
 #     relegged       the re-leg finished: the holding names new_request
 #     unwatchable    after an import its worker can't be watched from this
 #                    host, and the holding reports by message
+#
+#   dc_leg_field <key-json> child|rebriefed|opened [<value>]
+#       The one accessor for those three fields of a leg key: every script
+#       that reads or writes them goes through it, so a field renamed here
+#       is renamed for its writers and readers at once, and a caller that
+#       names a field this doesn't know is refused on stderr (return 2)
+#       rather than reading an empty value. With no value it prints the
+#       field, or nothing when it isn't set; with one it prints the key with
+#       the field set. Returns 0, or 2 for an unknown field, a key that
+#       isn't a JSON object, or a field that isn't a string.
 #
 #   dc_record_list <session>
 #       Prints every holding row as one JSON array, in record order. Returns
@@ -248,6 +274,17 @@
 #       JSON, reads `working` or reads anything else. A caller about to
 #       remove a job refuses on 1; a wrong answer here only refuses.
 #
+#   DC_JQ_IN_DIR
+#       A jq definition, `in_dir($p)`: true when the input, a job's `cwd`
+#       from `claude agents --json --all`, is the directory $p or lies below
+#       it ($p followed by `/`), so a sibling that only shares $p as a string
+#       prefix (`<p>-other`) is not in it. A cwd that is missing or not a
+#       string is in no directory. Prepend it to a filter:
+#       `jq --arg p "$IPATH" "$DC_JQ_IN_DIR"'[.[] | select(.cwd | in_dir($p))]'`.
+#       The teardown seal and pass both find a worker's job with it, so a job
+#       resumed from one of its instance's worktrees is the instance's job
+#       (shirabe#1243), and the two can't disagree about which job that is.
+#
 #   dc_claude_job <claude-home> <claude-session-id> [<session-name>]
 #       Prints the id of the Claude Code job on this host whose
 #       <claude-home>/jobs/<id>/state.json names the Claude session by its
@@ -260,13 +297,36 @@
 #       messaging address. Returns 0; 1 when no job names the session or its
 #       name isn't a session name.
 #
+#   dc_topic_stopped <claude-home> <topic>
+#       0 when the topic's worker is stopped on this host: at least one
+#       Claude job under <claude-home>/jobs carries the topic's session (its
+#       state file's `name` passes dc_session_matches) and every such job is
+#       finished (dc_job_finished, given the job's dc_job_row: the same
+#       listing-row pid check dc_session_live applies, so a worker whose state
+#       file reads done while its listing row shows its live pid is not
+#       stopped, shirabe#1594). 1 otherwise: no job for the topic is seen
+#       here (a worker on another host, or none yet), one of them is
+#       unfinished, or a state file that names the topic's slug can't be
+#       read. Only a positive answer frees anything, so every doubt reads as
+#       not stopped. state-common.sh lib_parked counts a stopped holding as
+#       neither active nor parked (shirabe#1419).
+#
+#   dc_job_row <job-id>
+#       Prints the job's row from `claude agents --json --all` as compact
+#       JSON, for dc_job_finished, or `{}` when the listing can't be read
+#       within 10 seconds, isn't a JSON array, or has no row for the job.
+#       Returns 0. DC_CLAUDE_CLI (else CLAUDE_CLI, else `claude`) names the
+#       CLI.
+#
 #   dc_session_live <koto-session> <claude-session-id> <session-name>
 #       The liveness probe: 0 when the koto session is live by the
 #       coordinator's definition, 1 when it isn't, printing why either way; 2
 #       when its log can't be read. Live is: not finished or cancelled in
 #       koto, and either a running Claude job on this host for the Claude
 #       session that drives it (its job found by dc_claude_job, by id or by
-#       name, and dc_job_finished saying it isn't finished), or, when no job
+#       name, and dc_job_finished, given the job's dc_job_row, saying it isn't
+#       finished: a worker that ended its turn has a state file reading done
+#       while its listing row shows its live pid, shirabe#1594), or, when no job
 #       for it can be seen from here, a koto event in its log within the last
 #       10 minutes (600 seconds), koto's own session_imported aside (an
 #       import's copy gets one that no driver wrote). Either argument after the koto session may
@@ -386,14 +446,24 @@ dc_session_matches() {
 DC_JQ_TOKENS='
     ([.entry_args[0]] + ((.run_mode // "") | split(" ") | map(select(. != ""))) + (.entry_args[1:]))'
 
+# DC_JQ_SCOPE_N binds $n, how many leading entry_args tokens are the scope:
+# four for a discipline run's successor (`successor` set, entry point
+# coordinate, first token --discipline: --discipline <name> --host
+# <owner/repo>, the shape render-brief.sh admits), one, the positional,
+# otherwise. A holding's mode (dc_mode) never sees four: no holding is
+# written for a successor.
+DC_JQ_SCOPE_N='
+    (if .successor == true and .entry_point == "coordinate" and ((.entry_args | type) == "array")
+        and ((.entry_args[0] // "") == "--discipline") then 4 else 1 end) as $n'
+
 dc_mode() {
     jq -r "$DC_JQ_TOKENS"' | .[1:] | join(" ")' "$1"
 }
 
 dc_invocation() {
     local inv
-    inv=$(jq -r "$DC_JQ_TOKENS"' as $t
-        | ($t[0] | if test("\\s") then "\"" + . + "\"" else . end) as $pos
+    inv=$(jq -r "$DC_JQ_SCOPE_N"' | (.entry_args[0:$n] | map(if test("\\s") then "\"" + . + "\"" else . end)) as $scope
+        | (((.run_mode // "") | split(" ") | map(select(. != ""))) + .entry_args[$n:]) as $flags
         | (if (.review_level | type) == "object" then
              ([ (.review_level.floor // empty | strings | "--review-floor=" + .),
                 (.review_level.ceiling // empty | strings | "--review-ceiling=" + .) ])
@@ -401,7 +471,7 @@ dc_invocation() {
         | (if (.role | type) == "string" and .role != "" then ["--role", .role] else [] end) as $role
         | (if (.role_change_by | type) == "string" and .role_change_by != ""
              then ["--role-change-by", .role_change_by, "--role-change-source", "dispatcher"] else [] end) as $change
-        | "/shirabe:" + .entry_point + " " + ([$pos] + $role + $change + $t[1:] + $bound | join(" "))' "$1") || return 2
+        | "/shirabe:" + .entry_point + " " + ($scope + $role + $change + $flags + $bound | join(" "))' "$1") || return 2
     case "${2:-message}" in
         message) ;;
         *) inv="$inv --koto-leg=$2" ;;
@@ -412,15 +482,22 @@ dc_invocation() {
 dc_opener() {
     local entry d root='${CLAUDE_PLUGIN_ROOT}'
     entry=$(jq -r '.entry_point // "" | strings' "$1") || return 2
+    dc_opener_takes_dispatcher "$entry" || return 0
     d=$(jq -r '.dispatcher_session // "" | strings' "$1") || return 2
     { [ "${#d}" -le 200 ] && [[ $d =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; } || return 1
     case "$entry" in
         coordinate)
             printf 'open\t"%s/skills/coordinate/scripts/coordinate-open.sh" --plugin-root "%s" --dispatched-by %s "$ARGS_DIR/args.json"\n' "$root" "$root" "$d" ;;
-        explore | decision | release)
-            printf 'open\t"%s/scripts/skill-session.sh" open %s <topic> --dispatched-by %s\n' "$root" "$entry" "$d" ;;
         *)
-            printf 'link\t"%s/skills/coordinate/scripts/link-dispatcher.sh" <session> --dispatched-by %s\n' "$root" "$d" ;;
+            printf 'open\t"%s/scripts/skill-session.sh" open %s <topic> --dispatched-by %s\n' "$root" "$entry" "$d" ;;
+    esac
+}
+
+# render-brief.sh requires dispatcher_session for these entry points alone.
+dc_opener_takes_dispatcher() {
+    case "$1" in
+        coordinate | explore | decision | release) return 0 ;;
+        *) return 1 ;;
     esac
 }
 
@@ -575,6 +652,22 @@ dc_leg_put() {
     jq -e --arg r "$2" --arg l "$3" --arg re "$DC_RE_LEG_STATE" \
         'type == "object" and .request == $r and .leg == $l and ((.state // "") | test($re))' <<<"$4" >/dev/null || return 2
     jq -c . <<<"$4" | "${KOTO:-koto}" context add "$1" "$key" >/dev/null || return 2
+}
+
+dc_leg_field() {
+    case "$2" in
+        child | rebriefed | opened) ;;
+        *)
+            printf 'dispatch-common: dc_leg_field: %s is not a leg key field (child, rebriefed, opened)\n' "$2" >&2
+            return 2
+            ;;
+    esac
+    if [ $# -ge 3 ]; then
+        jq -c --arg f "$2" --arg v "$3" 'if type == "object" then .[$f] = $v else error("the leg key is not a JSON object") end' <<<"$1" || return 2
+    else
+        jq -r --arg f "$2" 'if type != "object" then error("the leg key is not a JSON object")
+            else .[$f] // "" | if type == "string" then . else error("the leg key'"'"'s \($f) is not a string") end end' <<<"$1" || return 2
+    fi
 }
 
 dc_record_present() {
@@ -793,6 +886,44 @@ dc_tree() {
     wait "$p"
 }
 
+# dc_valid_branch <name>: 0 when a branch name is one dc_branch_ahead puts in
+# an API path as it is: [A-Za-z0-9._/-] only, with no empty, `.` or `..`
+# component.
+dc_valid_branch() {
+    grep -Eq '^[A-Za-z0-9._/-]{1,255}$' <<<"$1" || return 1
+    case "/$1/" in *//* | */./* | */../*) return 1 ;; esac
+    return 0
+}
+
+# dc_branch_ahead <secs> <owner/repo> <branch>: how far a branch on GitHub
+# runs ahead of its repository's default branch, for a unit that ends with no
+# pull request merged (shirabe#1075). Prints `absent` when GitHub has no such
+# branch (it was never pushed, or was deleted), else the number of commits it
+# holds that the default branch doesn't (`ahead_by` of the compare). Each read
+# runs under <secs> through dc_with_deadline, with GH naming gh. Returns 2,
+# with gh's last line on stderr, when a read fails or answers something else;
+# the branch is checked with dc_valid_branch first.
+dc_branch_ahead() {
+    local secs=$1 repo=$2 br=$3 gh=${GH:-gh} err def out
+    dc_valid_branch "$br" || { echo "the branch name is not one this check reads" >&2; return 2; }
+    err=$(mktemp "${TMPDIR:-/tmp}/dc-branch.XXXXXX") || return 2
+    # The exact ref, not refs/heads/<prefix>: `git/ref/` answers one ref or 404.
+    if ! dc_with_deadline "$secs" "$gh" api "repos/$repo/git/ref/heads/$br" --jq .ref >/dev/null 2>"$err"; then
+        if grep -q 'HTTP 404' "$err"; then rm -f "$err"; echo absent; return 0; fi
+        tail -1 "$err" >&2; rm -f "$err"; return 2
+    fi
+    def=$(dc_with_deadline "$secs" "$gh" api "repos/$repo" --jq .default_branch 2>"$err") \
+        && dc_valid_branch "$def" \
+        && out=$(dc_with_deadline "$secs" "$gh" api "repos/$repo/compare/$def...$br" --jq .ahead_by 2>"$err") \
+        && grep -Eq '^[0-9]+$' <<<"$out" \
+        || { tail -1 "$err" >&2; rm -f "$err"; return 2; }
+    rm -f "$err"
+    printf '%s\n' "$out"
+}
+
+# shellcheck disable=SC2034,SC2016  # read by the scripts that source this file; $p is jq's
+DC_JQ_IN_DIR='def in_dir($p): type == "string" and (. == $p or startswith($p + "/")); '
+
 dc_job_finished() {
     local home="$1" job="$2" row="$3" pid f st
     if ! grep -Eq '^[0-9a-f]{6,64}$' <<<"$job"; then
@@ -860,12 +991,40 @@ dc_claude_name() {
     printf '%s\n' "$name"
 }
 
+dc_topic_stopped() {
+    local home="$1" topic="$2" slug f name job seen=0
+    slug=$(dc_niwa_slug "$topic")
+    [ -n "$slug" ] && [ -d "$home/jobs" ] || return 1
+    # A grep for the slug picks the few state files worth parsing, so a large
+    # jobs directory costs one grep per holding rather than one jq per job.
+    while IFS= read -r f; do
+        name=$(jq -r '.name // "" | strings' "$f" 2>/dev/null) || return 1
+        dc_session_matches "$topic" "$name" || continue
+        job=${f%/state.json}
+        job=${job##*/}
+        dc_job_finished "$home" "$job" "$(dc_job_row "$job")" > /dev/null || return 1
+        seen=1
+    done < <(grep -lF -- "$slug-" "$home"/jobs/*/state.json 2>/dev/null)
+    [ "$seen" = 1 ]
+}
+
+dc_job_row() {
+    local job="$1" ag row
+    ag=$(dc_with_deadline 10 "${DC_CLAUDE_CLI:-${CLAUDE_CLI:-claude}}" agents --json --all </dev/null 2>/dev/null) \
+        || { printf '{}\n'; return 0; }
+    row=$(printf '%s' "$ag" | jq -c --arg j "$job" \
+        'if type == "array" then (first(.[] | select(type == "object" and .id == $j)) // {}) else {} end' 2>/dev/null) \
+        || row='{}'
+    [ -n "$row" ] || row='{}'
+    printf '%s\n' "$row"
+}
+
 dc_session_live() {
     local s="$1" sid="$2" name="$3" home="${DC_CLAUDE_HOME:-$HOME/.claude}" now="${DC_NOW:-$(date +%s)}" st log job why last at
     if [ -z "$s" ]; then
         job=$(dc_claude_job "$home" "$sid" "$name") \
             || { printf 'no koto session and no Claude job for %s is seen here\n' "${name:-$sid}"; return 1; }
-        if why=$(dc_job_finished "$home" "$job" '{}'); then
+        if why=$(dc_job_finished "$home" "$job" "$(dc_job_row "$job")"); then
             printf "%s's Claude job %s has finished\n" "${name:-$sid}" "$job"; return 1
         fi
         printf '%s is a running Claude job: %s\n' "${name:-$sid}" "$why"; return 0
@@ -880,9 +1039,9 @@ dc_session_live() {
         printf '%s is cancelled\n' "$s"; return 1
     fi
     if job=$(dc_claude_job "$home" "$sid" "$name"); then
-        # A job seen from here decides: only its own state file and pid say
-        # whether it is still running.
-        if why=$(dc_job_finished "$home" "$job" '{}'); then
+        # A job seen from here decides: only its own state file and the pid
+        # its listing row shows say whether it is still running.
+        if why=$(dc_job_finished "$home" "$job" "$(dc_job_row "$job")"); then
             printf "%s's Claude job %s has finished\n" "$s" "$job"; return 1
         fi
         printf '%s is driven by a running Claude job: %s\n' "$s" "$why"; return 0

@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   An author running /design in a repository that validates design documents
   on commit can't save the run's in-progress document: the hook refuses every
@@ -17,7 +17,7 @@ outcome: |
 
 ## Status
 
-Accepted
+Done
 
 ## Problem Statement
 
@@ -130,7 +130,7 @@ an unfinished design pass review.
 
 ## Downstream Artifacts
 
-- `docs/designs/DESIGN-skeleton-commit.md`, the design that picks this framing
+- `docs/designs/current/DESIGN-skeleton-commit.md`, the design that picks this framing
   up and chooses how `/design` commits its partial document.
 
 ## References

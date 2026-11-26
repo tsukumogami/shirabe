@@ -32,10 +32,39 @@
 # for is sealed absent and comes back to teardown with its topic kept, and a
 # listed instance with no directory is an error that goes to surface.
 #
+# Each section names the hand-offs it walks: `deliver`, `execute`, `scope` or
+# `work-on`. A refused or opened dispatch walks the entry point its brief
+# names. The wait, wait_leg, take_report and leg_spent states read a leg as
+# the templated {{WAIT_LEG}}, the same states for every leg-bound worker's
+# result, so the sections that drive a leg back through them walk all four on
+# purpose, whichever entry point their stand-in worker is; the --releg
+# replacement runs dispatch-worker.sh on a /scope holding and walks scope.
+# The dispatch gate, a message-path worker's report and teardown walk no
+# hand-off and run only with HANDOFF_ROUTE unset. HANDOFF_ROUTE=<route> runs
+# only the sections on the hand-off to that entry point; with it unset every
+# section runs. scripts/check-handoff.sh sets it for its routes check.
+#
 # Needs koto, git and jq; SKIPs (exit 0) without koto.
-# Usage: bash skills/coordinate/scripts/dispatch-path_engine_test.sh
+# Usage: [HANDOFF_ROUTE=deliver|execute|scope|work-on] bash skills/coordinate/scripts/dispatch-path_engine_test.sh
+# Exit codes: 0 all pass (SKIP when a tool is absent); 1 a failure, or a
+# HANDOFF_ROUTE this suite has no sections for.
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
+
+ROUTE=${HANDOFF_ROUTE:-}
+case "$ROUTE" in
+    ''|deliver|execute|scope|work-on) ;;
+    *) echo "FAIL HANDOFF_ROUTE=$ROUTE: this suite's routes are deliver, execute, scope and work-on"; exit 1 ;;
+esac
+# section <routes> <title>: print the section's header and succeed when it
+# runs under HANDOFF_ROUTE, or fail so the caller skips it. An empty <routes>
+# runs only with HANDOFF_ROUTE unset.
+section() {
+    if [ -n "$ROUTE" ]; then
+        case " $1 " in *" $ROUTE "*) ;; *) return 1 ;; esac
+    fi
+    echo "== $2 =="
+}
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 for bin in koto jq git; do
@@ -222,6 +251,7 @@ requests() { (cd "$W" && koto request list --coordinator-of-record "coordinate-$
 
 # --- dispatch ------------------------------------------------------------------------------------
 
+if section "" "dispatch"; then
 start
 put dispatch_topic w1
 rows '[]'
@@ -243,6 +273,7 @@ put dispatch_topic w1
 tick --with-data '{"go":"dispatch"}'
 tick --with-data '{"dispatched":"failed","topic":"w1"}'
 eq  "dispatch: failed goes to failure" failure "$(at)"
+fi
 
 # --- a unit whose target an entry point can't take ------------------------------------------------
 #
@@ -262,6 +293,7 @@ cat >"$T/brief-private.json" <<'EOF'
  "checkpoints": ["The PR is ready with every CI job green."], "acceptance": ["CI is green per job."],
  "dispatcher_session": "coord-dp", "reports_to": "coord-engine"}
 EOF
+if section "deliver" "a unit whose target an entry point can't take"; then
 start
 put dispatch_topic w9
 koto context add "$SESS" brief_input.json --from-file "$T/brief-private.json" >/dev/null
@@ -289,8 +321,11 @@ eq  "private target: sent can't leave dispatch without the holding" dispatch "$(
 # The shipped table: the same unit passes the check.
 (cd "$W" && bash "$S/render-brief.sh" --input "$T/brief-private.json" --stdout >/dev/null)
 eq  "private target: the shipped table's /deliver takes it" 0 "$?"
+fi
 
 # --- the request query's control ------------------------------------------------------------------
+
+if section "deliver" "the request query's control"; then
 #
 # A unit no form of which pick listed, or a dispatch with no coord/pick.json,
 # is refused before any leg, holding or launch: dispatch-worker_test.sh's
@@ -320,6 +355,7 @@ put coord/pick.json '{"scope":"roadmap","name":"vault","host":"acme/widgets","un
 W13REQ=$( (cd "$W" && koto request list --coordinator-of-record coordinate-w13) | jq -r '.requests[0].request_id')
 eq  "control: the dispatch wrote the leg's key, with its worker, marked spent by the failed launch" "w13 spent deliver.md" \
     "$(ctx "legs/$W13REQ/deliver" | jq -r '"\(.topic) \(.state) \(.templates | join(","))"')"
+fi
 
 # --- the leg path ----------------------------------------------------------------------------------
 
@@ -356,6 +392,7 @@ Stand-in.
 ## done
 Done.
 EOF
+if section "deliver execute scope work-on" "the leg path"; then
 REQ=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w1"}' \
     --requested-by coord --coordinator-of-record coordinate-w1 | jq -r .request_id)
 REQ2=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w2"}' \
@@ -487,6 +524,7 @@ case "$(ctx taken_legs)" in
     *"$REQ5:scope"*) pass "leg: the next pick marks it taken" ;;
     *) fail "leg: the next pick marks it taken" "$(ctx taken_legs)" ;;
 esac
+fi
 
 # --- a leg spent before the worker reported, replaced -----------------------------------------------
 #
@@ -496,6 +534,14 @@ esac
 # submits replaced, which goes to record. The holding is on a new leg; the
 # next wait picks it, and the worker's later result on it reaches
 # report_facts.
+cat >"$T/brief-w20.json" <<'EOF'
+{"topic": "w20", "repo": "acme/widgets", "unit": "Feature 9",
+ "entry_point": "scope", "entry_args": ["w20"], "run_mode": "--auto --intent=continue", "phase": "scoping-ahead",
+ "authority": "You are working for the owner on acme/widgets.", "goal": "Feature 9 is scoped.",
+ "checkpoints": ["The scoping PR is open."], "acceptance": ["A PLAN exists."],
+ "dispatcher_session": "coord-dp"}
+EOF
+if section "scope" "a leg spent before the worker reported, replaced"; then
 REQ20=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w20"}' \
     --requested-by coord --coordinator-of-record coordinate-w20 | jq -r .request_id)
 # Cancelled by hand: an explicit result, which no session of the worker's
@@ -506,13 +552,6 @@ rows "[{\"worker\":\"w20\",\"unit\":\"Feature 9\",\"entry_point\":\"scope\",\"mo
        \"verified_head\":\"\",\"dispatched\":\"2026-09-26\",\"pull_request\":\"\"}]"
 printf '[{"name":"x","path":"/p","session_name":"w20-0123abcd"}]\n' >"$ST/sessions.json"
 : >"$ST/niwa.log"
-cat >"$T/brief-w20.json" <<'EOF'
-{"topic": "w20", "repo": "acme/widgets", "unit": "Feature 9",
- "entry_point": "scope", "entry_args": ["w20"], "run_mode": "--auto --intent=continue", "phase": "scoping-ahead",
- "authority": "You are working for the owner on acme/widgets.", "goal": "Feature 9 is scoped.",
- "checkpoints": ["The scoping PR is open."], "acceptance": ["A PLAN exists."],
- "dispatcher_session": "coord-dp"}
-EOF
 start
 tick --with-data '{"go":"wait"}'
 tick --with-data '{"event":"leg"}'
@@ -543,6 +582,9 @@ eq  "releg: the next wait reads the new leg" "$NEWREQ" "$(ctx wait_target | jq -
 tick --with-data '{"watch":"rescan"}'
 eq  "releg: the worker's later result arrives on the new leg" report_facts "$(at)"
 eq  "releg: the report is w20's" w20 "$(ctx report_topic)"
+fi
+
+if section "deliver execute scope work-on" "leg_spent: surface"; then
 REQ21=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w21"}' \
     --requested-by coord --coordinator-of-record coordinate-w21 | jq -r .request_id)
 koto request abandon-request "$REQ21" --rationale "the worker is gone" >/dev/null 2>&1
@@ -552,8 +594,11 @@ tick --with-data '{"go":"wait"}'
 tick --with-data '{"event":"leg"}'
 tick --with-data '{"move":"surface"}'
 eq  "leg_spent: surface goes to the human" surface "$(at)"
+fi
 
 # --- progress from a leg-bound worker ----------------------------------------------------------------
+
+if section "deliver execute scope work-on" "progress from a leg-bound worker"; then
 REQ30=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w30"}' \
     --requested-by coord --coordinator-of-record coordinate-w30 | jq -r .request_id)
 rows "[{\"worker\":\"w30\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ30:scope\"}]"
@@ -575,17 +620,24 @@ rows '[]'
 tick --with-data '{"go":"wait"}'
 tick --with-data '{"event":"progress","unit":"nobody","report":"Checkpoint 1 reached."}'
 eq  "progress: from a topic with no holding goes back to wait" wait "$(at)"
+fi
 
 # --- the message path ---------------------------------------------------------------------------------
 
+# w1 is the leg path's worker, whose leg holds the result it promoted
+# there; the leg path runs under every route, so REQ is set here.
+
 rows "[{\"worker\":\"w1\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ:scope\"},
        {\"worker\":\"w3\",\"dispatch_status\":\"dispatched\",\"return_path\":\"message\"}]"
+if section "" "the message path: a message-path worker's report"; then
 start
 tick --with-data '{"go":"wait"}'
 tick --with-data '{"event":"report","unit":"w3","report":"PR #9 is ready; CI is green."}'
 eq  "message: a message-path worker's report reaches report_facts" report_facts "$(at)"
 eq  "message: its text is the report" "PR #9 is ready; CI is green." "$(ctx worker_report)"
+fi
 
+if section "deliver execute scope work-on" "the message path: a message from a leg-bound worker"; then
 # A leg-bound worker whose leg is still open here reports through it, so its
 # message goes back to the hub; one whose leg already holds its promoted
 # result (w1's, read above) can only report by message now, and it stands
@@ -604,7 +656,9 @@ tick --with-data '{"event":"report","unit":"w1","report":"one more thing.\n\nQue
 eq  "message: a message for a worker whose leg holds its result reaches report_facts" report_facts "$(at)"
 eq  "  ... as a message report" message "$(ctx report_source)"
 rows "$SAVED_ROWS"
+fi
 
+if section "" "the message path: a report with no text or no topic"; then
 start
 tick --with-data '{"go":"wait"}'
 tick --with-data '{"event":"report","unit":"w3"}'
@@ -639,7 +693,9 @@ tick --with-data '{"go":"wait"}'
 tick --with-data '{"event":"report","report":"done"}'
 tick --with-data '{"withdrawn":"unreadable"}'
 eq  "message: a report that can never be checked goes to the human" surface "$(at)"
+fi
 
+if section "deliver execute scope work-on" "the message path: a leg report rewritten in context"; then
 # The context keys a leg report rests on can be rewritten in the session; a
 # report rewritten that way is refused because it isn't what koto holds for
 # the leg.
@@ -656,9 +712,11 @@ tick
 eq  "message: a leg report rewritten in context is refused, and goes to the human" surface "$(at)"
 eq  "message: that surface step still names the worker" w1 "$(ctx report_topic)"
 eq  "message: and the rewritten report is cleared" "" "$(ctx worker_report)"
+fi
 
 # --- teardown ------------------------------------------------------------------------------------------
 
+if section "" "teardown"; then
 export O="$T/origin.git"
 git init -q --bare "$O"
 # Clones name a github.com origin, as a worker's do; git rewrites it to the
@@ -738,6 +796,7 @@ case "$(ctx teardown_verdict)" in
     error*) pass "teardown: that verdict is sealed as an error" ;;
     *) fail "teardown: that verdict is sealed as an error" "$(ctx teardown_verdict)" ;;
 esac
+fi
 
 echo
 echo "dispatch-path engine: $PASS passed, $FAIL failed"

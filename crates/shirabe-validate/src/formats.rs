@@ -117,8 +117,8 @@ pub struct FormatSpec {
 impl FormatSpec {
     /// True when a document whose frontmatter `schema` is `schema` is checked
     /// against this spec. Every format accepts its own `schema_version`; the
-    /// Roadmap format also accepts `roadmap/v2` and `roadmap/v3`, the
-    /// milestone roadmaps, which run every roadmap check plus FC21
+    /// Roadmap format also accepts `roadmap/v2`, `roadmap/v3` and
+    /// `roadmap/v4`, the milestone roadmaps, which run every roadmap check plus FC21
     /// (`check_fc21_milestones`). One spec for all three keeps prefix routing
     /// and the `roadmap/v1` gates unchanged.
     ///
@@ -130,15 +130,16 @@ impl FormatSpec {
         schema == self.schema_version
             || (self.id == FormatId::Roadmap
                 && (schema == crate::features::ROADMAP_V2_SCHEMA
-                    || schema == crate::features::ROADMAP_V3_SCHEMA))
+                    || schema == crate::features::ROADMAP_V3_SCHEMA
+                    || schema == crate::statuses::ROADMAP_V4_SCHEMA))
             || (self.id == FormatId::Plan && schema == PLAN_V2_SCHEMA)
     }
 
-    /// True for the Roadmap spec reading a `roadmap/v3` document: the one
-    /// schema whose required sections and table columns differ from the
-    /// spec's own lists, which carry the v1 and v2 words.
+    /// True for the Roadmap spec reading a `roadmap/v3` or `roadmap/v4`
+    /// document: the schemas whose required sections and table columns differ
+    /// from the spec's own lists, which carry the v1 and v2 words.
     fn is_roadmap_v3(&self, schema: &str) -> bool {
-        self.id == FormatId::Roadmap && RoadmapVersion::of(schema) == RoadmapVersion::V3
+        self.id == FormatId::Roadmap && RoadmapVersion::of(schema).uses_milestone_words()
     }
 
     /// `list` with the v1/v2 word `from` read as v3's `to` when the Roadmap
@@ -222,6 +223,14 @@ pub const PLAN_V2_SCHEMA: &str = "plan/v2";
 /// takes the place `issue_count` has in `plan/v1`.
 pub fn plan_v2_required_fields() -> Vec<String> {
     s(&["status", "execution_mode", "milestone", "step_count"])
+}
+
+/// The required frontmatter fields of a design at status `Draft`. A design is
+/// written at `Draft` before its decision is made, so only `status` and
+/// `problem` are required; `decision` and `rationale` join the list once the
+/// design moves to `Proposed`.
+pub fn design_draft_required_fields() -> Vec<String> {
+    s(&["status", "problem"])
 }
 
 /// The required sections of a `plan/v2` document, in order. One list for
@@ -385,7 +394,14 @@ pub fn formats() -> Vec<FormatSpec> {
             prefix: "DESIGN-".to_string(),
             schema_version: "design/v1".to_string(),
             required_fields: s(&["status", "problem", "decision", "rationale"]),
-            valid_statuses: s(&["Proposed", "Accepted", "Planned", "Current", "Superseded"]),
+            valid_statuses: s(&[
+                "Draft",
+                "Proposed",
+                "Accepted",
+                "Planned",
+                "Current",
+                "Superseded",
+            ]),
             required_sections: s(&[
                 "Status",
                 "Context and Problem Statement",

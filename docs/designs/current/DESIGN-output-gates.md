@@ -370,11 +370,12 @@ stderr.
 
 | Script | Shipped or new | Calls |
 |---|---|---|
-| `check-pr-output.sh` | new, wrapper | `--pr-body`: `shirabe validate --pr-body <tmp> --pr-title <title> --format json`, unchanged, mapping its 0 to 0, 2 to 1, and 1, 3, 4 to 2. `--owned-pr`: `owned-pr.sh`, unchanged, mapping one URL to 0, empty output or 3, 4, 5 to 3, and 2, 64 or a timeout to 2 |
+| `check-pr-output.sh` | new, wrapper | `--pr-body`: `shirabe validate --pr-body <tmp> --pr-title <title> --format json`, unchanged, mapping its 0 to 0, 2 to 1, and 1, 3, 4 to 2. `--owned-pr`: `owned-pr.sh`, unchanged, mapping one URL to 0, empty output or 3, 4, 5 to 3, and 2, 64 or a timeout to 2. `--rerun-record --session <s> [--session <s>]... [--owned ...]`: each session's `verification_attempts` ledger through `koto context exists` and `get` first (none: 0 with no GitHub read; a failed read: 2), then `gh pr view --json body`, mapping one re-run line per archived attempt in the Verification section to 0, a missing or malformed line to 1 (stderr only, no finding), and anything it can't read to 2 |
 | `check-branch-output.sh` | new | `--commits`: the shipped `commit_convention` regex over every non-merge commit in a range, plus a new AI-trailer check; `--wip`: the shipped `git ls-tree -r --name-only HEAD -- wip/`; `--docs-visibility`: `shirabe validate --visibility=<declared> --format json` over changed `docs/**/*.md`, unchanged, counting only R7, R8 and R9; `--synced`: the ancestry test `worktree_sync` already runs |
 | `panel-scope.sh` | shipped, extended | `--record` derives blocking from finding severity; new `--verdict` mode is the panel gate |
 | `run-verification.sh` | new | the committed map's commands, in a bounded detached runner |
 | `check-verification.sh` | new | reads the runner's on-disk result for the current head |
+| `shared-rerun-record.sh` (`skills/execute/scripts/`) | new | finds an /execute run's children as `shared-deferral-record.sh` does, and runs `check-pr-output.sh --rerun-record --owned` with one `--session` per child whose ledger has a line |
 
 `session-role.sh`, `check-staleness.sh`, `owned-pr.sh`, `run-cascade.sh` and
 `shirabe validate` ship today and are called exactly as they ship, with one
@@ -402,6 +403,7 @@ marks a gate whose non-zero exit is an answer (Decision 9).
 | 2 | work-on `pr_precheck` | `branch_wip_clean` | `test -n "{{SHARED_BRANCH}}" \|\| check-branch-output.sh --wip` | hold on 1 or 2 |
 | 3 | work-on `pr_precheck` | `branch_docs_visibility` | `test -n "{{SHARED_BRANCH}}" \|\| check-branch-output.sh --docs-visibility --session {{SESSION_NAME}}` | hold on 1 or 2 |
 | 4 | work-on `pr_creation` | `pr_body_conformant` | `check-pr-output.sh --pr-body` (the branch's PR) | hold on 1 or 2 |
+| 4b | work-on `pr_creation` | `verification_rerun_recorded` | `check-pr-output.sh --rerun-record --session {{SESSION_NAME}}` (the branch's PR) | on the created edges only: hold on 1 or 2; the shared edge stays ungated |
 | 5 | work-on `verification` | `verification_verdict` (`poll:`) | `check-verification.sh --verdict --session {{SESSION_NAME}}` | 0 `finalization`, 1 `implementation`, 3 and 4 `done_blocked`, 75 waits, 2 holds |
 | 6 | work-on `scrutiny`, `review`, `qa_validation`, `light_review` | `<panel>_verdict` | `panel-scope.sh --verdict <panel> {{SESSION_NAME}}` | 0 advances with no evidence (with the state's existing `recorded`, `has_commits` and level gates), 1 the agent decides retry or escalate, 2 holds |
 | 7 | work-on `ci_monitor` | `is_root` (routing) | `test "$(session-role.sh {{SESSION_NAME}})" = root` | with green CI: 0 `cascade_entry`, 1 `done` |
@@ -412,7 +414,8 @@ marks a gate whose non-zero exit is an answer (Decision 9).
 | 12 | execute `pr_finalization` | `settled_commits` | `check-branch-output.sh --commits --base-ref origin/<default>` | hold on 1 or 2 |
 | 13 | execute `pr_finalization` | `settled_wip_clean` | `check-branch-output.sh --wip` | hold on 1 or 2 |
 | 14 | execute `pr_finalization` | `settled_docs_visibility` | `check-branch-output.sh --docs-visibility --base-ref origin/<default>` | hold on 1 or 2 |
-| 15 | execute `pr_finalization` | none: routes on `vars.PAUSE_BEFORE_FINALIZE` | variable routing (koto#296) | with `finalization_status: updated` and gates 10 to 14 at 0: `true` to `paused_for_review`, `false` to `plan_completion`, replacing `pause_decision` |
+| 14b | execute `pr_finalization` | `rerun_recorded` | `shared-rerun-record.sh --session execute-{{PLAN_SLUG}} -- <owned-pr.sh arguments>` (the owned PR, each child's ledger) | hold on 1 or 2; overridable only by a person, and no pass under `omit` |
+| 15 | execute `pr_finalization` | none: routes on `vars.PAUSE_BEFORE_FINALIZE` | variable routing (koto#296) | with `finalization_status: updated` and gates 10 to 14b at 0: `true` to `paused_for_review`, `false` to `plan_completion`, replacing `pause_decision` |
 | 16 | execute `plan_completion` | `cascade_completed`, `cascade_skipped`, `cascade_partial` (routing) | context matches on `cascade_result.json`'s `cascade_status` | completed or skipped to `ci_monitor`; partial holds, as the directive already halts it (the two `partial` edges to `ci_monitor` the state has today are removed) |
 | 17 | execute `plan_completion` | `ready_owned_pr` (routing) | `check-pr-output.sh --owned-pr ...` | 3 and 2 to the terminals |
 | 18 | execute `ci_monitor` | `owned_ci_passing`, `owned_merge_state_clean` (existing), `monitor_owned_pr` (new, routing) | unchanged, plus the lookup | green: `merge_readiness` with no evidence; DIRTY: `escalate_dirty_merge_state`; lookup 3 or 2: terminals |
@@ -560,12 +563,30 @@ trail (a gate command may write context):
 | 1 | a command failed | `implementation` |
 | 3 | no verification map, a map that does not parse, or a map that selects nothing | `done_blocked`: "no verification map" (or "the verification map does not parse") |
 | 4 | a command needs a person, timed out, was killed for runaway growth, could not start, or the tree was dirty | `done_blocked`, naming which |
-| 2 | the result could not be read | hold |
+| 2 | the result could not be read, the supervisor stopped before every command ran (`supervisor-error`), or a build-output removal was still running when the run's budget ran out and no command started (`removal-running`) | hold |
 
 A repository without the file is refused, never passed, which means every
 repository that adopts this release stops at verification until it commits a
 map. That is the intended reading of R8; the plan lands shirabe's own map with
 the gate, and shirabe's runs keep working once that merge is the merge-base.
+
+A failed command judged a flake can be re-run at the same head, and each
+archived attempt is a line in the `verification_attempts` ledger
+(`skills/work-on/references/verification-map.md`). The PR body's Verification
+section carries one re-run line per attempt, whatever the workflow-content
+setting:
+
+```text
+Re-run attempt <n> at `<head>`: `<id>` failed[, `<id>` timed out]; reason `<reason>`; attempt <n+1> passed.
+```
+
+The failed or timed-out command ids and the reason sit in code spans, the head
+is 7 or more hex characters, and the last part is the next attempt's result
+(`passed`, `failed` or `timed out`) when the ledger or `verification_results.json`
+gives one. `check-pr-output.sh --rerun-record` refuses a body that leaves a line
+out, or whose line holds an absolute path or puts an id or the reason outside a
+code span: gate 4b at work-on's `pr_creation`, and gate 14b, through
+`shared-rerun-record.sh`, at /execute's `pr_finalization` for a shared PR.
 
 ### Panels
 

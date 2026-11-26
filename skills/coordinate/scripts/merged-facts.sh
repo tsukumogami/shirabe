@@ -19,7 +19,10 @@
 # its row on GitHub, whose Pull request cell gives the number and the
 # repository. The head comes from the unit's own verify capture in this run
 # (VERIFIED naming #<pr>, sealed at verify_board at any visit, reading
-# `verified <pr> <sha>`), never from the record or the coordinator. Then the
+# `verified <pr> <sha>`) or, when this run holds none, in the newest run of
+# its takeover chain that does (the runs it took over, through koto's
+# continues relation, each capture checked against its own run's log;
+# shirabe#1824), never from the record or the coordinator. Then the
 # same check as merge-confirm.sh, from GitHub's record of the merge: the pull
 # request's state and, when MERGED, that the head it merged is <sha> and its
 # merge commit is on the default branch (board-lib.sh's bl_merge_compare).
@@ -67,18 +70,20 @@ bl_session_ok "$SESSION" || usage
 # context key coord/merged_facts.json. Exits 2 when the holdings can't be
 # listed, so the tick is retried rather than refused on a guess.
 refuse_unit() {
-    local known
-    known=$(bash "$HERE/state-holding.sh" --session "$SESSION" --list 2>/dev/null \
-        | jq -c -L "$HERE" 'include "state-schema"; [.[]? | select([(.pull_request // "") | pr_link] | length > 0) | .worker]') || {
-        echo "$PROG: the record's holdings could not be read" >&2; exit 2; }
     DETAIL=$(mktemp "${TMPDIR:-/tmp}/merged-facts.XXXXXX") || exit 2
     # lib_emit exits through this trap. no_verified_head sets the only other
     # one; both functions end the script, so one invocation reaches at most
     # one of the two and neither trap replaces the other's file.
-    trap 'rm -rf "$DETAIL" "${ONCE:-}"' EXIT
-    jq -n --arg u "${UNIT:0:80}" --arg why "$1" --argjson known "$known" \
+    trap 'rm -rf "$DETAIL" "$DETAIL.known" "${ONCE:-}"' EXIT
+    # The accepted topics go to jq from a file, not argv: a long-lived
+    # record's holdings outgrow the 128 KiB one argument may hold on Linux.
+    bash "$HERE/state-holding.sh" --session "$SESSION" --list 2>/dev/null \
+        | jq -c -L "$HERE" 'include "state-schema"; [.[]? | select([(.pull_request // "") | pr_link] | length > 0) | .worker]' \
+        > "$DETAIL.known" && [ -s "$DETAIL.known" ] || {
+        echo "$PROG: the record's holdings could not be read" >&2; exit 2; }
+    jq -n --arg u "${UNIT:0:80}" --arg why "$1" --slurpfile k "$DETAIL.known" \
         --arg lead "the merged event's unit" --arg want "unit takes the dispatch topic of a holding with a pull request (its Worker), one of" \
-        '{verdict: "unknown-topic", field: "unit", value: $u, accepted: $known,
+        '$k[0] as $known | {verdict: "unknown-topic", field: "unit", value: $u, accepted: $known,
           reason: ($lead + " [" + $u + "] " + $why + "; " + $want + ": "
                    + (if ($known | length) == 0 then "none (no holding has a pull request yet)" else ($known | join(", ")) end))}' > "$DETAIL"
     echo "$PROG: refused: $(jq -r .reason "$DETAIL")" >&2
@@ -124,8 +129,9 @@ fi
 # MERGED is `unconfirmed <pr> <the head GitHub merged>`: a merge this run
 # can't confirm, written down as the Side effects row any unconfirmed merge
 # gets, at the head GitHub merged so a later reconcile's merge check can
-# confirm that row. A head an earlier run verified isn't compared: the head
-# comes from this run's capture, never from the record. Open or closed is
+# confirm that row. A head an earlier run verified isn't compared unless this
+# run took that run over: the head comes from a sealed capture in this run's
+# takeover chain, never from the record. Open or closed is
 # `not-merged <pr>`, back to wait: an open one is verified before the merged
 # event is submitted again, a closed one has no merge to record. A failed
 # read exits 2, since it may succeed on the next tick. It never returns: every
@@ -159,12 +165,33 @@ no_verified_head() {
     lib_emit merged_facts "$token" coord/merged_facts.json "$d/detail"
 }
 
-CAP=$(bl_capture "$SESSION" VERIFIED verify_board --any-visit --for "$PR")
-case $? in
-    0) ;;
-    1) no_verified_head "no verify capture for #$PR in this run" ;;
-    *) echo "$PROG: the verify capture for #$PR could not be read" >&2; exit 2 ;;
-esac
+# The head from this run's own verify capture or, when it holds none, from the
+# newest run of its takeover chain that does (shirabe#1824). A takeover (koto
+# init --continues --supersede) carries the record but not the log, so a
+# merge the predecessor verified would otherwise read as never verified here.
+# The walk follows only the continues relation (coord-log.sh predecessor),
+# never a restart's dispatched-by link, and each capture is checked against
+# its own run's log, so the head is still sealed engine evidence, never the
+# record. A run met twice ends the walk, as does a 1024th hop.
+CUR=$SESSION SEEN=" $SESSION " HOPS=0
+while :; do
+    CAP=$(bl_capture "$CUR" VERIFIED verify_board --any-visit --for "$PR")
+    case $? in
+        0) break ;;
+        1) ;;
+        *) echo "$PROG: the verify capture for #$PR in $CUR could not be read" >&2; exit 2 ;;
+    esac
+    PREV=$(bash "$HERE/coord-log.sh" predecessor --session "$CUR")
+    case $? in
+        0) ;;
+        1) no_verified_head "no verify capture for #$PR in this run" ;;
+        *) echo "$PROG: the run $CUR took over could not be read" >&2; exit 2 ;;
+    esac
+    case "$SEEN" in *" $PREV "*) no_verified_head "no verify capture for #$PR in this run" ;; esac
+    HOPS=$((HOPS + 1))
+    [ "$HOPS" -lt 1024 ] || no_verified_head "no verify capture for #$PR in this run"
+    CUR=$PREV SEEN="$SEEN$PREV "
+done
 set -f; set -- $CAP; set +f
 if [ $# -ne 3 ] || [ "$1" != verified ] || [ "$2" != "$PR" ] || ! bl_sha_ok "$3"; then
     no_verified_head "the verify capture for #$PR reads [$CAP], not a verified head"

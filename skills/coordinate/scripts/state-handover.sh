@@ -14,9 +14,11 @@
 # Prints, as one JSON object: arguments and cap (Run's rows, or null),
 # coordinator (the current address, or null), told (who has been told it),
 # workers (one per live holding: unit, worker, phase, told, next, and
-# `pending: true` for a worker recorded pending), pending (the workers that
-# can't be told it yet, only when there is one, so a record with no pending
-# row reads as it did before the row existed), work (every
+# `pending: true` for a worker recorded pending, `missing: true` for one
+# recorded missing), pending (the workers that can't be told it yet) and
+# missing (the workers niwa listed no instance for), each only when there is
+# one, so a record with no such row reads as it did before the row existed),
+# work (every
 # Work row, local agents included), standing (every Standing row but a `rule`
 # row, so a record holding rules hands over the same events it did before it
 # held any; the rules are read through state-stored-set.sh --rules), holds
@@ -77,8 +79,14 @@
 #                                            rows) would leave any of the
 #                                            brief's lines out, it names how
 #                                            many (the design's Decision
-#                                            10). A key whose file can't be
-#                                            read raises no gap
+#                                            10), counted from where the
+#                                            intake will start (a Run
+#                                            `briefs-read` row for that
+#                                            digest), and asks first for the
+#                                            brief rewritten with its rules
+#                                            under `## Standing rules`. A
+#                                            key whose file can't be read
+#                                            raises no gap
 #   no-next-step <unit>                      a live holding has no Work row
 #   leg-unclassified <worker>                a live holding's leg names a
 #                                            request this host's store
@@ -86,11 +94,14 @@
 #                                            imported here), and the leg has
 #                                            no end yet (PRD R15)
 #   not-told <worker>                        a live holding's Worker has
-#                                            neither a `told` nor a `pending`
-#                                            row for the current address (a
-#                                            pending worker, whose session is
-#                                            gone while its instance still
-#                                            exists, doesn't hold the gate)
+#                                            no `told`, `pending` or
+#                                            `missing` row for the current
+#                                            address (a pending worker, whose
+#                                            session is gone while its
+#                                            instance still exists, and a
+#                                            missing one, whose instance niwa
+#                                            no longer lists, don't hold the
+#                                            gate)
 #   carry-unacknowledged                     a discipline rotation carried
 #                                            its predecessor's state, and no
 #                                            Standing go-ahead set since this
@@ -98,10 +109,16 @@
 #                                            brought) acknowledges it; printed
 #                                            as carry: {carried, start,
 #                                            acknowledged}
-# A live holding is one dispatched and not merged: a row whose Dispatch status
-# is `dispatched` and that doesn't carry a Verified head with a blank Pull
-# request (merged, waiting for its teardown, so its worker has nothing left to
-# report). A `dispatching` row is left out: its worker may not have started,
+# A live holding is one dispatched and not merged and waiting for its
+# teardown: a row whose Dispatch status is `dispatched`, unless it carries a
+# Verified head with a blank Pull request (state-common.sh lib_row_merged)
+# and its worker has finished (lib_worker_finished: its leg resolved or
+# abandoned, or, on the message path, every Claude job of it on this host
+# finished), so it has nothing left to report. The pair alone doesn't leave
+# the live set: a worker that goes on to its unit's next pull request carries
+# it while it is live (shirabe#2080), and a worker not seen to have finished
+# is treated as live; handover-classify.sh records one that isn't as pending
+# or missing. A `dispatching` row is left out: its worker may not have started,
 # and the reconcile pass settles it to `dispatched` when the listing finds
 # its worker, before this gate runs, so a launched worker is checked from the
 # next start on. Each fix is the state-stored-set.sh call that closes the gap.
@@ -113,11 +130,14 @@
 # canonical record of this scope; 64 usage.
 #
 # koto reads: the record through state-read.sh, koto request get <request>
-# for each live holding on a leg, and, when the reports-to row names a
+# for each live holding on a leg and for each merged one on a leg (whether
+# its leg is still open), and, when the reports-to row names a
 # session, koto context list <session> --prefix koto/links/dispatched-by/ on
 # the run's own session (RS_SESSION under the test flags). Off koto, it reads
 # each brief file record/host names (briefs:<label>) for its digest and its
-# text, and never edits one. It reads nothing on GitHub.
+# text, and never edits one, and the Claude job directory (DC_CLAUDE_HOME,
+# default $HOME/.claude) for a merged holding on the message path. It reads
+# nothing on GitHub.
 set -uo pipefail
 
 PROG=state-handover
@@ -180,6 +200,21 @@ if [ -n "$RT_ADDR" ]; then
         || lib_die2 "cannot list the run's dispatched-by links: $(lib_scrub < "$WD/dispatched-by.json.err")"
 fi
 
+# The holdings merged and waiting only for their teardown: the pair
+# lib_row_merged reads, and a worker that has finished (lib_worker_finished).
+# Every other dispatched holding is live, the pair with a live worker included
+# (shirabe#2080).
+: > "$WD/finished.lines"
+while IFS= read -r HROW; do
+    [ -n "$HROW" ] || continue
+    if lib_row_merged "$HROW" && lib_worker_finished "$HROW"; then
+        printf '%s' "$HROW" | jq -c '.worker' >> "$WD/finished.lines" || lib_die2 "jq failed"
+    fi
+done <<EOF
+$(jq -c '.holdings[] | select(.dispatch_status == "dispatched")' "$WD/parsed.json")
+EOF
+jq -s -c . "$WD/finished.lines" > "$WD/finished.json" || lib_die2 "jq failed"
+
 # A live holding on a leg whose request this host's store doesn't hold (the run
 # was imported here) has no end yet: the gap holds until reconcile-legs.sh
 # re-legs it or moves it to the message path (PRD R15). koto exits 2 for a
@@ -194,8 +229,8 @@ while IFS='	' read -r w rp; do
         *) lib_die2 "cannot read request ${rp%%:*} of $w's leg" ;;
     esac
 done <<EOF
-$(jq -r '.holdings[] | select(.dispatch_status == "dispatched")
-    | select(((.verified_head // "") != "" and (.pull_request // "") == "") | not)
+$(jq -r --slurpfile fin "$WD/finished.json" '.holdings[] | select(.dispatch_status == "dispatched")
+    | select(.worker as $w | $fin[0] | index($w) | not)
     | select((.return_path // "") | startswith("leg ")) | [.worker, (.return_path | ltrimstr("leg "))] | @tsv' "$WD/parsed.json")
 EOF
 jq -R -s 'split("\n") | map(select(. != "") | split("\t") | {worker: .[0], leg: .[1]})' "$WD/unclassified" > "$WD/unclassified.json" \
@@ -232,7 +267,7 @@ if [ -n "$SESSION" ] && [ "$SCOPE" = discipline ]; then
     fi
 fi
 
-jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
+jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
     --slurpfile carry "$WD/carry.json" --slurpfile dby "$WD/dispatched-by.json" --slurpfile briefs "$WD/briefs.json" '
     include "state-schema";
     def runval($k): [(.run // [])[] | select(.key == $k) | .value][0];
@@ -272,17 +307,21 @@ jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed
     | (.run // []) as $run
     | ([$run[] | select(.key == "told") | .value]) as $told
     | ([$run[] | select(.key == "pending") | .value]) as $pending
+    | ([$run[] | select(.key == "missing") | .value]) as $missing
     | ((.work // []) | map(select(.kind == "holding") | {(.item): .}) | add // {}) as $work
     | [.holdings[] | select(.dispatch_status == "dispatched")
-        | select(((.verified_head // "") != "" and (.pull_request // "") == "") | not)] as $live
+        | select(.worker as $w | $fin[0] | index($w) | not)] as $live
     | {arguments: runval("arguments"), cap: runval("cap"), coordinator: runval("coordinator"), told: $told,
        workers: [$live[] | {unit, worker, phase, told: (.worker as $w | $told | index($w) != null),
                             next: ($work[.unit].next // null)}
-                         # Only a record holding a pending row says so: one
-                         # written before pending rows existed reads as it did.
-                         | .worker as $w | if ($pending | index($w)) != null then .pending = true else . end],
+                         # Only a record holding a pending or missing row says
+                         # so: one written before those rows existed reads as
+                         # it did.
+                         | .worker as $w | if ($pending | index($w)) != null then .pending = true else . end
+                         | if ($missing | index($w)) != null then .missing = true else . end],
        work: (.work // []), standing: [(.standing // [])[] | select(.kind != "rule")], holds: (.holds // [])}
     | if ($pending | length) > 0 then .pending = $pending else . end
+    | if ($missing | length) > 0 then .missing = $missing else . end
     | .workers |= map(.worker as $w | if $pushed[0][$w] then . + {pushed_head: $pushed[0][$w]} else . end)
     | . + {reports_to: ([$run[] | select(.key == "reports-to") | .value][0]), role: ([$run[] | select(.key == "role") | .value][0]), rules: [$run[] | select(.key == "rules") | .value],
          briefs: [$run[] | select(.key == "briefs") | .value], friction: ([$run[] | select(.key == "friction") | .value][0]),
@@ -306,16 +345,18 @@ jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed
            else {gap: "reports-to-unsourced", fix: "state-stored-set.sh --run reports-to \"\(.reports_to)\" --inferred \"Report to \($a): worked out from <where>, not given in the brief\" --by <you>; or, when \($a) dispatched this run, koto session link <this run> --dispatched-by \($a)"} end),
         (if .role == null then {gap: "no-role", fix: "state-stored-set.sh --run role <manager|director> --by <who named it>"} else empty end),
         # A brief record/host names whose digest no Run briefs row carries;
-        # the fix names how many of its lines the caps would leave out.
+        # the fix names how many of its lines the caps would leave out,
+        # counted from where the intake starts (its briefs-read row).
         ($briefs[0][] | "sha256:\(.digest)" as $d | . as $b
          | select(any($run[]; .key == "briefs" and .value == "\($b.label) \($d)") | not)
-         | ($rows | brief_intake_plan($b.label; $d; $b.text | brief_candidates)) as $plan
+         | ($b.text | brief_candidates) as $cands
+         | ($rows | brief_intake_plan($b.label; $d; $cands; $run | briefs_read_start($b.label; $d; $cands | length))) as $plan
          | {gap: "brief-unread \($b.label)",
             fix: ("state-stored-set.sh --intake \($b.label) --by <you>"
-                  + (if $plan.untaken > 0 then "; \($plan.untaken) of its lines can'"'"'t be taken under the caps (\(inferred_cap) inferred rule rows, \(rule_cap) rule rows): ask a person which rule rows to confirm or end, then run it again" else "" end))}),
+                  + (if $plan.untaken > 0 then "; \($plan.untaken) of its lines can'"'"'t be taken under the caps (\(inferred_cap) inferred rule rows, \(rule_cap) rule rows): when they aren'"'"'t standing rules, have the brief rewritten with its rules under ## Standing rules and record it under the same label (state-stored-set.sh --host briefs:\($b.label) <absolute path>); otherwise ask a person which rule rows to confirm or end; then run it again, and it goes on after the lines it already took" else "" end))}),
         (.workers[] | select(.next == null) | {gap: "no-next-step \(.unit)", fix: "state-stored-set.sh --work \"\(.unit)\" --kind holding --who \(.worker) --next \"<what happens next>\""}),
         ($unc[0][] | {gap: "leg-unclassified \(.worker)", fix: "reconcile-legs.sh --session <this run> --topic \(.worker) --return-path \"leg \(.leg)\" (the reconcile pass runs it; run it by hand when the pass reported it not verified)"}),
-        (if .coordinator != null then (.workers[] | select((.told or .pending) | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then state-stored-set.sh --told \(.worker) --by <you>; when its session is gone and its instance still exists, state-stored-set.sh --pending \(.worker) --by <you>"}) else empty end)
+        (if .coordinator != null then (.workers[] | select((.told or .pending or .missing) | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then state-stored-set.sh --told \(.worker) --by <you>; when its session is gone and its instance still exists, state-stored-set.sh --pending \(.worker) --by <you>; when niwa lists no instance for it, state-stored-set.sh --missing \(.worker) --by <you> (handover-classify.sh records pending and missing workers)"}) else empty end)
       ])
     | if any($rows[]; .kind == "rule") then .rule_lists = rule_lists($rows) else . end' "$WD/parsed.json" > "$WD/out.json" || lib_die2 "jq failed"
 

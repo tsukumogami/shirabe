@@ -58,5 +58,26 @@ jobs:
       - name: Pre-action hook suite
         run: PATH="$PWD/target/release:$PATH" bash hooks/pre-action-deny_test.sh
 
+      # The compaction note writer, scripts/handoff-brief.sh note, against a
+      # stub koto, and the two `shirabe compaction` hooks reading back what it
+      # wrote, against the binary just built; then the brief a run hands
+      # forward, handoff-brief.sh write and read, against a file-backed koto
+      # stand-in and a gh stand-in.
+      - name: Compaction note and hooks suite
+        run: PATH="$PWD/target/release:$PATH" bash scripts/handoff-brief_test.sh
+
+      # The closing step a run takes before its brief, scripts/closing-step.sh,
+      # against a throwaway clone pushed to a local bare remote.
+      - name: Closing step suite
+        run: bash scripts/closing-step_test.sh
+
+      # The context reader, scripts/context-size.sh, against synthetic
+      # transcripts, and the thrash check, scripts/thrash-check.sh, against
+      # the reports it prints.
+      - name: Context reader and thrash check suites
+        run: |
+          bash scripts/context-size_test.sh
+          bash scripts/thrash-check_test.sh
+
       - name: Cargo test (workspace)
         run: cargo test --workspace

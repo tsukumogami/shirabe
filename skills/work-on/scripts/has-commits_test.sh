@@ -269,9 +269,8 @@ to_routing() {
     # The review level, chosen before implementation; full keeps scrutiny on
     # the code route.
     (cd "$RUN" && "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$1" full) >/dev/null 2>&1
-    # Into fix_determination, whose action binds UNIT_KIND; koto routes on it
-    # from the next tick, to implementation.
-    tick "$1"
+    # Into fix_determination, whose action records the kind and whose
+    # kind_route gate routes on it in the same tick, to implementation.
     tick "$1"
 }
 

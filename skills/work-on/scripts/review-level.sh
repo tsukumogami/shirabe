@@ -73,7 +73,10 @@
 #           the red's `red_first.json` for a fix; a classification that fails
 #           counts every changed test as edited), writes `review_facts.json`
 #           (`base_source` names the base that won, `shared_branch` the
-#           branch or ""), and appends a `check` line when the head, level or
+#           branch or ""), appends the same object as one line to
+#           `review_facts.jsonl` (every gather, so the size at each visit
+#           survives the run; nothing reads it back), and appends a `check`
+#           line when the head, level or
 #           floor differs from the last one, or an `unset` line when the level
 #           is empty.
 #   check   the level-check gate. Read-only.
@@ -154,6 +157,10 @@ BOUND_KEY=review_level_bound.json
 CRITERIA_KEY=review_level_criteria.txt
 RULES_KEY=review_level_rules.tsv
 FACTS_KEY=review_facts.json
+# A fix round's record of the run it fixes, and the rule naming that run's floor.
+FIX_ROUND_KEY=fix_round.json
+FIX_ROUND_RULE=fix_round_parent
+FACTS_HISTORY_KEY=review_facts.jsonl
 RED_KEY=red_first.json
 REASON_MAX=200
 
@@ -859,6 +866,31 @@ cmd_facts() {
         i=$((i + 1))
     done
 
+    # A fix round (fix-round.sh records fix_round.json) never sits below the
+    # floor of the run it fixes. Off a shared branch the merge-base diff
+    # already holds that run's change, but on one impl_base is the only base
+    # and the round's diff is the fix alone. A run with no facts recorded
+    # adds nothing.
+    local from pfloor
+    ctx_get "$s" "$FIX_ROUND_KEY" "$WORK/fix_round" || die 66 "could not read $FIX_ROUND_KEY"
+    if [ -s "$WORK/fix_round" ]; then
+        from=$(jq -r '.from // "" | strings' "$WORK/fix_round") || from=""
+        valid_session "$from" || die 66 "$FIX_ROUND_KEY names no run to take a floor from"
+        ctx_get "$from" "$FACTS_KEY" "$WORK/parent_facts" || die 66 "could not read $FACTS_KEY from $from"
+        if [ -s "$WORK/parent_facts" ]; then
+            pfloor=$(jq -r '.floor // "" | strings' "$WORK/parent_facts") || pfloor=""
+            if valid_level "$pfloor"; then
+                echo "$pfloor:$FIX_ROUND_RULE" >> "$WORK/fired"
+                r=$(rank "$pfloor")
+                if [ "$r" -gt "$frank" ]; then
+                    frank="$r"
+                    floor="$pfloor"
+                    rule="$FIX_ROUND_RULE"
+                fi
+            fi
+        fi
+    fi
+
     jq -n \
         --argjson lines "$lines" --argjson files "$files" \
         --argjson tests_changed "$tests_changed" --argjson tests_edited "$tests_edited" \
@@ -882,6 +914,16 @@ cmd_facts() {
                  merged_default: (if $merged_default == "" then null else $merged_default end)}}
     ' > "$WORK/facts.json" || die 66 "could not build $FACTS_KEY"
     ctx_put "$s" "$FACTS_KEY" "$WORK/facts.json" || die 66 "could not write $FACTS_KEY"
+
+    # Every gather also lands as one line of the history, so the size of the
+    # change at each visit can be read after the run; review_facts.json keeps
+    # only the latest. Nothing in the workflow reads the history.
+    ctx_get "$s" "$FACTS_HISTORY_KEY" "$WORK/facts_history" \
+        || die 66 "could not read $FACTS_HISTORY_KEY"
+    jq -c . "$WORK/facts.json" >> "$WORK/facts_history" \
+        || die 66 "could not build $FACTS_HISTORY_KEY"
+    ctx_put "$s" "$FACTS_HISTORY_KEY" "$WORK/facts_history" \
+        || die 66 "could not write $FACTS_HISTORY_KEY"
 
     ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"
     local last

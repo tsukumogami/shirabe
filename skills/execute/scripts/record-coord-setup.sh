@@ -32,20 +32,27 @@
 #                 HEAD and the remote's default branch are refused.
 #   plan_abs      the PLAN's absolute path in this checkout, which outline
 #                 children receive as PLAN_DOC (node branches don't carry it).
+#                 work-on's fix-round.sh reads it too, as a round's PLAN_DOC.
 #
 # All four are fixed for the run: a re-run that computes the same values is a
 # no-op, and one that computes a different value refuses rather than moving
 # the write set mid-run. The one exception is plan_abs on a moved attach:
-# when the run's checkout moved (re-cloned elsewhere, the old directory
-# removed, the session rebound to the new one), execute-open.sh runs
-# --reroot-plan on attaching the coordinated session, and plan_abs is
-# re-rooted to the PLAN in this checkout. That happens only when the recorded
-# file doesn't exist, this checkout is on the recorded coord_branch, its
-# origin (read as record-write-set.sh reads it) is the recorded home_repo, and
-# --plan names an existing file. It then writes plan_abs and nothing else,
-# prints `plan_abs=rerooted`, and names both paths in one stderr line; in any
-# other case it writes nothing and prints `plan_abs=kept`. It makes no GitHub
-# read and no isolation check, and takes no other flag.
+# when the run's checkout moved (re-cloned elsewhere, the session rebound to
+# the new one), execute-open.sh runs --reroot-plan on attaching the
+# coordinated session, and plan_abs is re-rooted to the PLAN in this
+# checkout. That happens only when this checkout is on the recorded
+# coord_branch, its origin (read as record-write-set.sh reads it) is the
+# recorded home_repo, --plan names an existing file at another path than the
+# recorded one, and either the recorded file doesn't exist (the old directory
+# removed) or the old checkout was kept and the run really moved: the
+# session's execution_dir in `koto session list` is in this checkout, and the
+# recorded PLAN is in another checkout, at the same path in it, at the same
+# HEAD commit as this one, with the same bytes. It then writes plan_abs and
+# nothing else, prints `plan_abs=rerooted`, and names both paths in one stderr
+# line; in any other case it writes nothing and prints `plan_abs=kept`, with
+# one stderr line saying why when the session is bound here but the kept
+# checkout's PLAN doesn't match. It makes no GitHub read and no isolation
+# check, and takes no other flag.
 #
 # Besides them: the run's identity, `run_id` (run-id.sh mint on a new run,
 # and seed, adopt or mint on a recovery); the run record's `run/` keys, only
@@ -268,6 +275,53 @@ case "$PLAN" in *"
 # rely on it.
 [ -n "$REMOVE" ] && [ -z "$FOLLOW_UP" ] && usage_error "--follow-up-remove true needs --follow-up \"<node> <url>\""
 
+# reroot_kept_checkout -- whether a recorded PLAN that still exists, OLD_ABS,
+# may be re-rooted to PLAN_ABS: the session's execution_dir (koto session list)
+# is in this checkout, so the run was rebound here, and OLD_ABS is in another
+# checkout, at the same path in it, at the same HEAD commit, and holds the same
+# bytes. Returns 1 to keep. Once the run is known to be bound here, each keep
+# prints one stderr line saying why; before that it keeps quietly, except for a
+# session listing that fails.
+reroot_kept_checkout() {
+    local here exec_dir listing old_top here_oid old_oid keep
+    here=$(git rev-parse --show-toplevel) || return 1
+    here=$(CDPATH='' cd "$here" && pwd -P) || return 1
+    listing=$(koto session list </dev/null) || {
+        echo "$PROG: koto session list failed, so whether $SESSION was rebound here can't be read; plan_abs [$OLD_ABS] kept" >&2
+        return 1
+    }
+    exec_dir=$(printf '%s' "$listing" | jq -r --arg s "$SESSION" \
+        'if type == "array" then [.[] | select(type == "object" and .id == $s) | .execution_dir | strings][0] // "" else "" end' \
+        2>/dev/null) || return 1
+    [ -n "$exec_dir" ] && [ -d "$exec_dir" ] || return 1
+    exec_dir=$(git -C "$exec_dir" rev-parse --show-toplevel 2>/dev/null) || return 1
+    exec_dir=$(CDPATH='' cd "$exec_dir" && pwd -P) || return 1
+    [ "$exec_dir" = "$here" ] || return 1
+    keep="$PROG: plan_abs [$OLD_ABS] still exists"
+    case "$PLAN_ABS" in
+        "$here"/*) ;;
+        *) echo "$keep and --plan [$PLAN_ABS] is outside this checkout; kept" >&2; return 1 ;;
+    esac
+    old_top=$(git -C "$(dirname -- "$OLD_ABS")" rev-parse --show-toplevel) \
+        && old_top=$(CDPATH='' cd "$old_top" && pwd -P) || {
+        echo "$keep outside a git checkout; kept" >&2
+        return 1
+    }
+    [ "$old_top" != "$here" ] || { echo "$keep in this checkout; kept" >&2; return 1; }
+    [ "${OLD_ABS#"$old_top"/}" = "${PLAN_ABS#"$here"/}" ] || {
+        echo "$keep at another path in its checkout than [$PLAN_ABS] here; kept" >&2
+        return 1
+    }
+    here_oid=$(git rev-parse --verify --quiet HEAD) || here_oid=""
+    old_oid=$(git -C "$old_top" rev-parse --verify --quiet HEAD) || old_oid=""
+    [ -n "$here_oid" ] && [ "$here_oid" = "$old_oid" ] || {
+        echo "$keep in a checkout at commit [${old_oid:-none}], not this checkout's [${here_oid:-none}]; kept" >&2
+        return 1
+    }
+    cmp -s -- "$OLD_ABS" "$PLAN_ABS" || { echo "$keep and differs from [$PLAN_ABS]; kept" >&2; return 1; }
+    return 0
+}
+
 # --reroot-plan: the one change plan_abs takes once recorded (see the header).
 # Each condition that fails keeps the recorded path; only a failed write is an
 # error.
@@ -278,7 +332,7 @@ if [ "$REROOT" -eq 1 ]; then
     # quietly, so only a read that really fails reaches stderr.
     koto context exists "$SESSION" plan_abs >/dev/null || kept
     OLD_ABS=$(koto context get "$SESSION" plan_abs) || kept
-    [ -n "$OLD_ABS" ] && [ ! -e "$OLD_ABS" ] && [ -f "$PLAN" ] || kept
+    [ -n "$OLD_ABS" ] && [ -f "$PLAN" ] || kept
     # --quiet: a detached HEAD fails with no message.
     CB=$(git symbolic-ref --quiet --short HEAD) || kept
     koto context exists "$SESSION" coord_branch >/dev/null || kept
@@ -291,11 +345,20 @@ if [ "$REROOT" -eq 1 ]; then
     PLAN_DIR=$(CDPATH='' cd "$(dirname -- "$PLAN")" && pwd -P) || kept
     PLAN_ABS="$PLAN_DIR/$(basename -- "$PLAN")"
     [ "$PLAN_ABS" != "$OLD_ABS" ] || kept
+    # The old checkout kept: the recorded PLAN still exists. It moves only
+    # when the session was rebound here and the old PLAN is the same file at
+    # the same commit (reroot_kept_checkout below); otherwise it's kept.
+    if [ -e "$OLD_ABS" ]; then
+        reroot_kept_checkout || kept
+        WHY="is in a kept checkout at the same commit and holds the same PLAN"
+    else
+        WHY="is gone"
+    fi
     printf '%s' "$PLAN_ABS" | koto context add "$SESSION" plan_abs >/dev/null || {
         echo "$PROG: could not write context key plan_abs in session $SESSION" >&2
         exit 70
     }
-    echo "$PROG: plan_abs [$OLD_ABS] is gone; re-rooted to [$PLAN_ABS], the PLAN in this checkout of $HOME_REPO on $CB" >&2
+    echo "$PROG: plan_abs [$OLD_ABS] $WHY; re-rooted to [$PLAN_ABS], the PLAN in this checkout of $HOME_REPO on $CB" >&2
     printf 'plan_abs=rerooted\n'
     exit 0
 fi

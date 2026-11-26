@@ -180,7 +180,7 @@ variables:
     pattern: '^[1-9][0-9]{0,2}$'
     default: "7"
   CAP:
-    description: The cap on active workers; parked workers, merged ones waiting for teardown and local agents don't count.
+    description: The cap on active workers; parked workers, merged ones waiting for teardown, stopped ones and local agents don't count.
     pattern: '^[1-9][0-9]?$'
     default: "5"
   PARKED_BOUND:
@@ -470,9 +470,11 @@ states:
     # choice carries a decider in shadow mode: its answer is recorded beside the
     # coordinator's and never acts. No value targets a terminal or a
     # confirmation, and no arm tests a gate, so every value stays promotable.
-    # Inputs: coord/pick_slice.json, pick-slice.jq's slice of coord/pick.json,
-    # and the PARKED_BOUND variable. The slice carries the cap in force (the
-    # record's Run section's, when it has one, over the CAP variable).
+    # Input: coord/pick_slice.json, pick-slice.jq's slice of coord/pick.json.
+    # The slice carries the cap and the parked bound in force (the record's
+    # Run section's `cap` and `parked-bound` rows, when it has them, over the
+    # CAP and PARKED_BOUND variables), so neither variable is a separate input:
+    # one would show the decider a bound the row has replaced.
     # pick_facts stores the slice and the facts before it seals its verdict, so
     # a sealed verdict means both are this visit's; its pick_slice_input and
     # pick_input gates only say each exists. The directive reads the full
@@ -498,7 +500,6 @@ states:
           escape: {value: unclear, description: "The facts are missing, truncated, or contradictory."}
           inputs:
             - {context: coord/pick_slice.json, label: pick_facts, max_bytes: 12000}
-            - {var: PARKED_BOUND, label: parked_bound}
       unit:
         type: string
         description: 'The dispatch topic of the unit picked, when the choice dispatches (lowercase letters, digits and hyphens, such as plugin-api); never the unit''s tag or title from coord/pick.json, such as "Feature 2" or "#12". dispatch_check refuses any other value as unknown-topic, with the reason in coord/dispatch_check.json, and sends you back here. With await_decision, required: the unit as pick lists it ("Feature 2", "#12"), the one you park.'
@@ -1863,7 +1864,7 @@ states:
         description: stopped after the worker's session was stopped by its id; removed when its instance and job are already gone, torn down outside the teardown pass; kept when the worker stays.
       handoff:
         type: string
-        description: With stopped or removed, the link to the comment on the unit's pull request or issue that holds what existed only in the worker's head (https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>); teardown_handoff refuses a stopped without one. A removed may leave it out when the worker is gone and never wrote one; teardown_handoff then checks that the worker is over and the pass records an entry in place of the link.
+        description: With stopped or removed, the link to the comment on the unit's pull request or issue that holds what existed only in the worker's head (https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>); teardown_handoff refuses a stopped without one. A unit that ended with no pull request puts it on the unit's issue. A removed may leave it out when the worker is gone and never wrote one; teardown_handoff then checks that the worker is over and the pass records an entry in place of the link.
     transitions:
       - target: teardown_inventory
         when:
@@ -2403,9 +2404,10 @@ and `record/reasoning`):
 - found (bare): this run's own session holds the rotation; the run reconciles.
 - first: the discipline has no earlier rotation anywhere: `record_open`.
 - predecessor `<session>`: the latest earlier rotation ended, and its state is
-  carried into this run (`predecessor_carry`).
+  carried into this run (`predecessor_carry`). One opened from another
+  template, an older plugin's, is carried the same way.
 - unreadable `<session>`: the latest earlier rotation fails a rule (its name,
-  provenance, discipline or host, an open window, another rotation already
+  discipline or host, an open window, another rotation already
   carried it, or a record that doesn't read back): `record_conflict`, carrying
   nothing.
 
@@ -2543,8 +2545,9 @@ fills `no-reports-to` with
 never a bare name. A new
 address leaves every live worker untold: run
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/handover-classify.sh" --session {{SESSION_NAME}}`,
-which records a worker whose session isn't live as pending and a pending
-worker whose report reached you as told, then send each worker it prints as
+which records a worker whose session isn't live as pending, one niwa lists
+no instance for as missing, and a pending or missing worker whose report
+reached you as told, then send each worker it prints as
 `live` a line naming the address and record it with `--told`. The workflow
 stays here until the check passes.
 
@@ -2686,12 +2689,16 @@ and drive every worker to landed work.
   (`cap` in `coord/pick.json`: the record's Run cap when it has one, else
   the session's `--cap`) or nothing is left; each pass through pick fills one slot and comes
   back. An active worker is one whose unit isn't merged or abandoned and that
-  isn't parked. Parked workers (a verified, ready pull request waiting only on a
+  isn't parked. Parked workers (a ready pull request whose checks passed, waiting only on a
   merge), merged ones waiting for their teardown, and local agents don't count
-  against the cap.
-- **The parked bound.** When {{PARKED_BOUND}} or more workers are parked, dispatch
-  nothing new until the human has worked through the merge-order table
-  (`hold`).
+  against the cap. Neither does a holding whose `stopped` is true: its
+  worker's Claude jobs on this host have all finished, so nothing runs for it
+  while it waits on its pull request, and a worker continuing its unit takes
+  the same slot without a cap raise.
+- **The parked bound.** When {{PARKED_BOUND}} or more workers are parked, or the
+  number a Run `parked-bound` row sets in its place (`parked_bound` in
+  coord/pick.json is the bound in force), dispatch nothing new until the human
+  has worked through the merge-order table (`hold`).
 - **Order.** Roadmap features in the roadmap's order; a discipline's units in
   issue-number order; unblocked first. A roadmap feature is unblocked when every
   feature it depends on reads Done and no holding covers it.
@@ -2867,7 +2874,9 @@ the repositories its issues land in.
 Its `grant` is what the worker is dispatched holding: the authorities for the
 landing steps the brief hands it to take itself (`merge-pr`, `close-issue`,
 `cut-release`), left out for a worker you hand none, and `own` for your
-successor (entry point `coordinate`), which passes your own grant. A manager
+successor (entry point `coordinate`), which passes your own grant; the
+`--successor` mode (`dispatch-worker.sh --session <run> --successor`, from
+`wait`) sets `own` itself for the successor it dispatches. A manager
 you dispatch as a lane gets none. The script passes it to `niwa dispatch` as `--grant`,
 with your instance as `--parent-from`, when niwa takes those flags, and the
 brief's authority line names exactly what the launch asked for, or says the
@@ -2973,9 +2982,8 @@ First, every time you are here, check that this run has reconciled on this
 host: `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session {{SESSION_NAME}} --check`.
 Exit 3 means it was imported to this host and hasn't reconciled here since:
 tick `moved` before anything else, and take the event you came with on the
-tick after the reconcile. The check reads what the run holds (its import facts
-against those its sealed report was read under), so it holds after a restart
-and whichever state the import found the run in.
+tick after the reconcile. The check reads what the run holds, so it holds
+after a restart.
 
 Tick on each message or notification and name the `event`, with the `unit` it is
 about; never poll. `progress` for a worker's checkpoint report that only says
@@ -3085,6 +3093,9 @@ worker's message behind it may be that ring: the tick it brings is refused. Stop
 nothing more, write nothing, and don't re-arm the watch or arm a new one. Report
 the newest session's name to whoever launched this session, and end your turn.
 Nothing is lost: the newest session holds the record and the legs.
+
+**Handing over:** `dispatch-worker.sh --session {{SESSION_NAME}} --successor`,
+needing no unit (see Roles).
 
 **A usage-limit stop is not a pause.** Nobody sets it and nobody resumes it:
 the account's reset does, so write no Standing row for one. It shows as a
@@ -3196,7 +3207,10 @@ that worker's leg instead. Once that leg is read (its `legs/` key reads
 or can't be watched from this host (`unwatchable`, or a request this host's
 store doesn't hold), a message is the only way the worker can
 report, so it stands as a message report from `worker <topic>`, questions
-included. A leg report must be exactly the result koto holds
+included. So does a message whose unit's run promoted its result to an
+earlier leg of the same unit (a `legs/` key whose unit is the holding's),
+as a run that moved to a continuation under another topic does: the run stays
+bound to the leg it started on. A leg report must be exactly the result koto holds
 for that leg, promoted by the worker's own session; the gate reads the leg
 from koto rather than trusting the report's text. One that isn't goes to the
 human with the report cleared: name the worker in `report_topic`, and the
@@ -3542,7 +3556,7 @@ Update the brief input with what was learned (`koto context add
 "{{SESSION_NAME}}" --rebrief`, send the worker a message pointing at the brief
 it printed, and submit `sent: sent`; submit `sent: refused` when the message
 was refused, and `sent: worker_gone` when the worker's session no longer
-exists. Don't run `state-stored-set.sh --told` or `--pending` yourself: the
+exists. Don't run `state-stored-set.sh --told`, `--pending` or `--missing` yourself: the
 next step records what the outcome means.
 
 Arriving here from `land` or `land_merge` on `paused`, there is nothing to fix:
@@ -3591,9 +3605,11 @@ instance for it, and nothing when it doesn't, and goes back through pick.
 
 A pending worker is one that can't be told the address yet: its session is
 gone, but its instance is still there to be started again. The handover gate
-(`state-handover.sh --check`) doesn't hold on a pending worker, as it does on a
-live one that is neither told nor pending, and a later `--told` for it turns
-the pending row into a told one. A new coordinator address clears both.
+(`state-handover.sh --check`) doesn't hold on a pending worker, or on one
+reconcile recorded missing, as it does on a live one with no told, pending or
+missing row, and a later `--told` for it turns the pending or missing row into a
+told one. A worker already recorded missing is left missing here, even when niwa
+lists an instance for it again. A new coordinator address clears all three.
 
 ## verify
 
@@ -3728,18 +3744,31 @@ Never ask the human for a step the workspace already permits once its review is 
 
 ## goal_fit
 
-The pull request passed the closed checks. Judge goal fit, your one call at
-this step: read it against the unit's brief and submit `fit: fits` when it
-delivers what the unit asked, in the way intended, without stopping short,
-drifting or deciding what the lane didn't; `fit: fits_with_follow_ups` when it
-does and what it leaves is follow-up work rather than a defect; `fit: gap` when
-the worker must correct it first. Give the `rationale`: each follow-up, or for a
-gap, what to correct.
+The pull request passed the closed checks. Goal fit is your one call at this
+step, and the role your record holds says how you make it (SKILL.md, Roles).
+
+As a manager, on your worker's pull request, judge goal fit: read it against
+the unit's brief and submit `fit: fits` when it delivers what the unit asked, in
+the way intended, without stopping short, drifting or deciding what the lane
+didn't; `fit: fits_with_follow_ups` when it does and what it leaves is
+follow-up work rather than a defect; `fit: gap` when the worker must correct it
+first.
+
+As a director, on a lane's pull request, goal fit is the manager's check, made
+at its land step: confirm from the manager's report that it happened and submit
+the fit it reached, without judging it again. Your own call is the alignment
+reading: whether the work fits the other lanes and the direction of the effort.
+
+Give the `rationale`: each follow-up, or for a gap, what to correct; a director
+also gives its alignment reading there.
 
 <!-- details -->
 
 Read the changed files, Part 1 and the evidence from `coord/land.json`, and the
-brief you dispatched. Code quality is the seats' question, already answered in
+brief you dispatched. A director also reads the manager's report on the pull
+request: that is where the goal fit it confirms, and submits, comes from; the
+changed files and the brief are for its alignment reading, not a second
+judgment. Code quality is the seats' question, already answered in
 the body; don't re-review it and don't launch reviewers. A fit pull request,
 with or without follow-ups, goes on by the land check's own verdict: to
 `land_merge` where the workspace permits the merge, and where it doesn't,
@@ -3763,7 +3792,8 @@ clause 1 first:
    Rationale: <what in the pull request decided it>
    ```
 
-   `Fit` is the judgment you submit as `fit`, written with spaces
+   `Fit` is what you submit as `fit` (a manager's judgment, or the manager's
+   fit a director confirmed), written with spaces
    (`fits_with_follow_ups` is `fits with follow-ups`). `Clauses` names each clause
    the pull request moves toward held, by its number, or `advances none`.
 2. Read the roadmap on the default branch into a file outside any
@@ -3822,7 +3852,9 @@ on the default branch.
 A merge confirmed keeps the holding until teardown and clears its Pull request
 cell: read the row with `state-holding.sh --read`, write it back with
 `pull_request` empty and nothing else changed (`--row-file`), and the record
-step waits for that. The row goes only at the teardown's destroy step. A merge
+step waits for that. That write also drops the pull request's Side effects
+merge row at the verified head, if there is one, and the record step waits
+for it to be gone. The row goes only at the teardown's destroy step. A merge
 not confirmed keeps the holding and its link and adds a Side effects row
 naming the pull request as `owner/repo#<n>` with the verified head, which a
 later reconcile settles.
@@ -3854,17 +3886,22 @@ was recorded after that read.
 
 Confirming a merge the human made. koto runs `merged-facts.sh` itself, against
 the head this run verified for the unit, or GitHub's record when there is
-none.
+none. A run that took another over also finds a head its predecessor verified,
+so a merge made across the takeover is confirmed here.
 
 <!-- details -->
 
 As after a merge you made: a merge confirmed keeps the holding until teardown
 and clears its Pull request cell (`state-holding.sh --read`, then the row
 written back with `pull_request` empty and nothing else changed), which the
-record step waits for; the row goes only at the teardown's destroy step. A
+record step waits for; the row goes only at the teardown's destroy step. That
+write also drops the pull request's Side effects merge row at the verified
+head, one a run this one took over carried included, and the record step
+waits for it to be gone. A
 merge not confirmed keeps the link and adds a Side effects row for it at the
-head its verdict names. When this run never verified the pull request (an
-earlier run did, or a decision accepted it), the check reads GitHub instead,
+head its verdict names. When neither this run nor a run it took over verified
+the pull request (an earlier run did, or a decision accepted it), the check
+reads GitHub instead,
 and `coord/merged_facts.json` says why: merged is unconfirmed at the head
 GitHub merged, which gets that same Side effects row; still open is
 not-merged, so drive it through verify (a report event for its unit,
@@ -3911,7 +3948,7 @@ its instance, and you report up to that coordinator; pass the same dispatcher to
 the progress table as `--dispatcher <instance>` (`-` when the need names none).
 Only a root coordinator's reserved step goes to a person.
 
-A parked worker is one with a verified, ready pull request waiting only on a
+A parked worker is one with a ready pull request whose checks passed, waiting only on a
 merge. After a merge-order table, the holding is already parked: its verified
 head went into the record at verified_confirm, and the record step confirms it
 there without a rewrite. Rewrite it only to set Phase `held`, when you came here
@@ -4048,6 +4085,16 @@ and every koto session that ran in the instance is cancelled or has had no
 event for 10 minutes. A live worker refuses; a session log that can't be read
 seals nothing; tick again. A `stopped` with no link is still refused.
 
+A unit that ended with no pull request (a report-only unit, a worker stopped
+before it pushed, an open that failed), stopped or removed, is sealed ready
+when its handoff link is a comment on the unit's issue and its holding names
+no branch, or one GitHub shows with no commit beyond the default branch. The
+verdict says `pr none` beside the link, with `branch none` or the branch. A
+branch with a commit beyond its base, an unmerged pull request's included,
+is refused, as is a link anywhere but the issue. `--retire` then removes the
+row merged or not, and abandons a leg-bound row's request with the handoff
+link as its rationale.
+
 ## promote
 
 Move everything the inventory listed as unique into an issue comment or a
@@ -4060,10 +4107,10 @@ Hand the teardown to your teardown agent. Read the verdict with
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/teardown-handoff.sh" read
 --session "{{SESSION_NAME}}"` and send its whole output, the `keyseal` line
 included, to the agent as one pass. When the agent reports `done`, remove the
-worker's holding from the record, then submit `destroyed: destroyed`. For a
-verdict that says `removed yes`, remove it with
+worker's holding from the record with
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-holding.sh" --session
-"{{SESSION_NAME}}" --topic <topic> --retire`. Submit
+"{{SESSION_NAME}}" --topic <topic> --retire`, whether or not the verdict says
+`removed yes`, then submit `destroyed: destroyed`. Submit
 `refused` when the reader or the pass refused (nothing was removed),
 `incomplete` when the pass stopped after its destroy began, and `handed_over`
 when the posture reserves the teardown for a person.
@@ -4090,10 +4137,20 @@ unit, archives the surviving transcript and koto sessions, records the cost
 entry, and runs no `niwa destroy` and no `claude rm`. With `job -` there is
 nothing to archive and its last line still says done. A verdict that says
 `handoff none` has no comment to check; the pass appends a record entry in
-its place before it says done, and refuses if it can't. Either way, on
-`done` remove the holding row with `state-holding.sh --retire` (it confirms
-the removed verdict through `teardown-pass.sh check` first) and submit
-`destroyed`.
+its place before it says done, and refuses if it can't. For any pass, removed
+or not, on `done` remove the holding row with `state-holding.sh --retire` (it
+confirms the done pass for the topic through `teardown-pass.sh check` first)
+and submit `destroyed`.
+
+A removed verdict still goes to the teardown agent's pass, even when someone
+already archived the unit as they tore it down. Run `--retire` only after that
+pass reports done: the check reads only the archive this run's own pass made,
+never one someone else left, so skipping the pass leaves the holding in Work
+and teardown_confirm surfaces. `--retire` retires a holding whose removed
+pass is confirmed whether or not its pull request merged: it reads no pull
+request state, so a row a person merged outside the run's land path, never
+marked merged, retires, and so does one whose pull request closed unmerged.
+It records an entry saying the teardown was not the run's own.
 
 The reader refuses (exit 4) when the run was moved by a directed transition
 since the verdict (koto#251), and refuses a verdict edited after sealing or
@@ -4250,6 +4307,17 @@ nothing, so a deferred verdict comes back here. A milestone that reached here
 from `classify_report` with no pull request and whose work should have merged
 one is `failed`: ask its worker for the pull request instead.
 
+On a `roadmap/v4` roadmap the merge does set a status, Completed, and
+`--outcome` is required. The script writes the verdict-owed row as above and
+records Completed, with the outcome on the milestone's Delivered line: in a
+pull request of its own, or folded into the run's pending roadmap edit when
+that one is still open. It prints two lines, `verdict-owed <tag>` and then
+that pull request's URL (or `<tag> already reads Completed on ...` when it
+already does). Submit `status: verdict_owed` with the same `unit`, as on any
+milestone roadmap, and hand the pull request to whoever merges roadmap
+changes. Its dependents read it met from here on; the milestone itself is
+offered only as a verdict to give.
+
 On a feature roadmap the script opens a pull request on the roadmap's repository that sets the
 feature's Status to Done, writes the text on its `**Delivered:**` line and
 removes its Needs line, regenerates the generated sections, and changes
@@ -4375,6 +4443,21 @@ entry already posted is refused.
 The entry changes nothing by itself: Done, the verdict-owed and rework rows
 and every pick follow only the record and the default branch.
 
+On a `roadmap/v4` roadmap the status table, not Done, sets what the edit
+writes. `--verdict` needs no verdict-owed row: give `--worker` the row's Who
+in step 4 when there is a row, and leave it off when there isn't. The
+script consumes the row when it opens the edit. Either verified verdict sets
+the milestone's block Status and its Progress row to Verified, and the
+record step confirms it once the default branch reads Verified. Changes
+needed sets both to In progress and prints `held-dependent <tag> <worker>`
+after the pull request, one line per dependent that read the milestone met:
+one a holding covers, or one reading Completed or Verified (`none` when no
+holding covers it). Tell each worker's owner, as step 6 of `milestone_reopen`
+says. A verdict the table has no move for (another verdict on a Verified
+milestone, any verdict on a Dropped one) is refused with the milestone, its
+status and the trigger named, and nothing is opened: submit `deferred` and
+report the refusal.
+
 ## milestone_reopen
 
 A failure was reported against a milestone that reads Done. Write the failure
@@ -4453,6 +4536,14 @@ before the milestone goes back to work. The steps, with `S` for `"{{PLUGIN_ROOT}
 The failure entry reopens nothing by itself: the Status, the rework row and
 every pick follow only the record and the default branch.
 
+On a `roadmap/v4` roadmap a failure reopens a Completed or a Verified
+milestone: `check-failure` accepts either, and the edit sets the block
+Status and its Progress row to In progress. The held-dependent lines also
+name each dependent that reads Completed or Verified with no holding, as
+`held-dependent <tag> none`. Any other status (Not started, In progress,
+Dropped) is refused before anything is opened, naming the milestone, its
+status and the trigger: submit `failed`.
+
 ## roadmap_close
 
 Checking whether the roadmap is done. koto runs `closeout-read.sh` itself: no
@@ -4487,7 +4578,9 @@ done and the record clear.
 
 The rotation is over, or the human ended it, so it ends here: nothing to commit
 and no pull request. Write the reasoning for the next rotation, then submit
-`reasoning: written`.
+`reasoning: written`. Handing over, run
+`dispatch-worker.sh --session {{SESSION_NAME}} --successor` (see Roles) before
+that submit.
 
 ```bash
 "{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-stored-set.sh" --session "{{SESSION_NAME}}" --reasoning-file <reasoning.md>

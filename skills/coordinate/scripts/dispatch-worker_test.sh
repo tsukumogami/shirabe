@@ -19,7 +19,10 @@
 # scoping-ahead holding with a new leg and the execution's entry point,
 # mode and phase; no session id, instance path or job id in the holding; the
 # leg key written open at dispatch (and a dispatch stopped when it can't be),
-# spent on a failed launch, replaced by --releg; a stranded unit dispatched
+# spent on a failed launch, replaced by --releg; a leg no holding names
+# released when its run stops before the row is written (a failed or refused
+# write, a key that can't be written, a --releg whose write fails), with the
+# exit code kept and stderr saying what was left; a stranded unit dispatched
 # under a new topic whose brief names the old branch and pushed head, the
 # stranded row retired after, and the stranded topic itself refused;
 # --releg-imported re-attaching an imported worker, finishing after a crash at
@@ -28,8 +31,9 @@
 # path that moves a worker to the message path (a re-brief, a leg-bound one
 # included; a re-brief after a leg was found unwatchable, from the importing
 # run; an execution sent to an entry point with no leg) renders a brief whose
-# dispatcher_session is the run that rendered it, with the link command
-# --dispatched-by filled in; an execution sent on a leg carries none.
+# dispatcher_session is the run that rendered it, which its Reporting resolves
+# the coordinator from, and which shows no link step; an execution sent on a
+# leg carries none.
 # A confirmed launch sends one `dispatched` event whose arguments a stand-in
 # for scripts/emit-event.sh records (from niwa's output on a launch, from the
 # listing row on a resumed run, without a leg on the message path); a re-run,
@@ -53,10 +57,36 @@
 # holding and a bad value, and an address over 80 characters at render; and
 # /deliver and /work-on re-briefs render as before.
 #
-# Usage: bash skills/coordinate/scripts/dispatch-worker_test.sh
-# Exit codes: 0 all pass; 1 a failure. Needs jq. bash 3.2.
+# Each section names the hand-offs it walks: `deliver`, `execute`, `scope` or
+# `work-on`, the entry points its cases dispatch to or assert on. A section
+# that walks none of them (a lock file, a missing record script, the holding
+# gate, an entry point with no leg, a coordinator's own role) runs only with
+# HANDOFF_ROUTE unset. HANDOFF_ROUTE=<route> runs only the sections on the
+# hand-off to that entry point; with it unset every section runs.
+# scripts/check-handoff.sh sets it for its routes check. The stand-ins, the
+# workspace and the helpers a later section uses are set up outside every
+# section, so any one route's sections run on their own.
+#
+# Usage: [HANDOFF_ROUTE=deliver|execute|scope|work-on] bash skills/coordinate/scripts/dispatch-worker_test.sh
+# Exit codes: 0 all pass; 1 a failure, or a HANDOFF_ROUTE this suite has no
+# sections for. Needs jq. bash 3.2.
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
+
+ROUTE=${HANDOFF_ROUTE:-}
+case "$ROUTE" in
+    ''|deliver|execute|scope|work-on) ;;
+    *) echo "FAIL HANDOFF_ROUTE=$ROUTE: this suite's routes are deliver, execute, scope and work-on"; exit 1 ;;
+esac
+# section <routes> <title>: print the section's header and succeed when it
+# runs under HANDOFF_ROUTE, or fail so the caller skips it. An empty <routes>
+# runs only with HANDOFF_ROUTE unset.
+section() {
+    if [ -n "$ROUTE" ]; then
+        case " $1 " in *" $ROUTE "*) ;; *) return 1 ;; esac
+    fi
+    echo "== $2 =="
+}
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 
@@ -103,6 +133,9 @@ case "$1 $2" in
         [ -f "$ST/ctx/$4" ] || exit 1
         cat "$ST/ctx/$4"
         ;;
+    "context exists")
+        [ -f "$ST/ctx/$4" ] || exit 1
+        ;;
     "context add")
         case "$4" in legs/*) [ "${KOTO_LEG_PUT_FAIL:-}" = 1 ] && exit 1 ;; esac
         mkdir -p "$(dirname "$ST/ctx/$4")"
@@ -145,6 +178,7 @@ case "$1 $2" in
         ;;
     "request abandon-request")
         echo "koto request abandon-request $3" >>"$ST/calls.log"
+        if [ "${KOTO_ABANDON_FAIL:-}" = 1 ]; then exit 1; fi
         ;;
     "request list")
         if [ -f "$ST/open_requests.json" ]; then cat "$ST/open_requests.json"; else printf '{"requests":[]}\n'; fi
@@ -318,7 +352,7 @@ reset() {
     printf '%s' "$PICK_ROADMAP" >"$ST/ctx/coord/pick.json"
     rm -rf "$W/.niwa/dispatch-briefs"
     export NIWA_MODE=ok NIWA_NAME=plugin_api-1a2b3c4d
-    unset NIWA_LIST_FAIL KOTO_CREATE_FAIL RECORD_READ_MODE RECORD_WRITE_MODE DISPATCH_DEADLINE_SECS NIWA_HELP RECORD_ADDRESS RECORD_ROLE RECORD_STATE_MODE RECORD_WORK RECORD_DONE_MODE KOTO_LEG_PUT_FAIL KOTO_ATTACH_FAIL
+    unset NIWA_LIST_FAIL KOTO_CREATE_FAIL RECORD_READ_MODE RECORD_WRITE_MODE DISPATCH_DEADLINE_SECS NIWA_HELP RECORD_ADDRESS RECORD_ROLE RECORD_STATE_MODE RECORD_WORK RECORD_DONE_MODE KOTO_LEG_PUT_FAIL KOTO_ATTACH_FAIL KOTO_ABANDON_FAIL
 }
 run() { (cd "$W/inst" && bash "$S" --session coord "$@"); }
 row() { jq -r ".$1" "$ST/rows/plugin-api.json"; }
@@ -326,6 +360,7 @@ calls() { cat "$ST/calls.log"; }
 
 # --- a fresh dispatch: /deliver, which answers a leg ---------------------------------------
 
+if section "deliver" "a fresh /deliver dispatch"; then
 reset "$INPUT_DELIVER"
 OUT=$(run 2>/dev/null); RC=$?
 eq  "fresh: exit 0" 0 "$RC"
@@ -362,8 +397,11 @@ has "prompt: stop checkpoint" "$P" "stop at: The PR is ready with CI green."
 has "prompt: brief path" "$P" "$W/.niwa/dispatch-briefs/plugin-api.md"
 [ -f "$W/.niwa/dispatch-briefs/plugin-api.md" ] && ok "brief: written" || bad "brief: written" ""
 lacks "fresh: no rework row, no removal" "$(calls)" "state-stored-set --session"
+fi
 
 # --- a milestone a changes-needed verdict sent back -----------------------------------------
+
+if section "deliver" "a milestone a changes-needed verdict sent back"; then
 # Its rework row is quoted into the brief and removed once the dispatch is
 # confirmed; a failed removal is reported and the dispatch still succeeds.
 REWORK_ROWS='[{"item":"Feature 2","kind":"rework","who":"verdict 1001","next":"Evidence clauses not held: 2. Changes needed: name the skipped plugin","wakes":"0","updated":"2026-09-26T07:00Z"},{"item":"Feature 1","kind":"rework","who":"verdict 1002","next":"Changes needed: other","wakes":"0","updated":"2026-09-26T07:00Z"}]'
@@ -388,20 +426,25 @@ export RECORD_WORK="$REWORK_ROWS"
 NIWA_MODE=fail; export NIWA_MODE
 run >/dev/null 2>&1
 lacks "rework: a failed launch removes nothing" "$(calls)" "state-stored-set --session"
-# The fresh dispatch again, which the re-run below starts from.
-reset "$INPUT_DELIVER"
-run >/dev/null 2>&1
+fi
 
 # --- a re-run on a dispatched topic ---------------------------------------------------------
+
+if section "deliver" "a re-run on a dispatched topic"; then
+# The fresh dispatch the re-run starts from.
+reset "$INPUT_DELIVER"
+run >/dev/null 2>&1
 
 : >"$ST/calls.log"
 OUT=$(run 2>/dev/null); RC=$?
 eq  "re-run: exit 0" 0 "$RC"
 eq  "re-run: already-dispatched" already-dispatched "$OUT"
 eq  "re-run: no launch, no write" "" "$(grep -E '^niwa dispatch|record write' "$ST/calls.log")"
+fi
 
 # --- the leg path ------------------------------------------------------------------------------
 
+if section "scope" "the leg path"; then
 reset "$INPUT_SCOPE"
 OUT=$(run 2>/dev/null); RC=$?
 eq  "leg: exit 0" 0 "$RC"
@@ -413,9 +456,11 @@ has "leg: prompt carries --koto-leg" "$(cat "$ST/prompt")" "--koto-leg=req_1:sco
 has "leg: the brief shows the same invocation" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" '`/shirabe:scope plugin-api --auto --intent=continue --koto-leg=req_1:scope`'
 CREATE=$(grep -n 'koto request create' "$ST/calls.log" | cut -d: -f1)
 if [ "$CREATE" -lt "$(grep -n 'record write' "$ST/calls.log" | head -1 | cut -d: -f1)" ]; then ok "leg: opened before the write-ahead"; else bad "leg: opened before the write-ahead" "$LOG"; fi
+fi
 
 # --- the worker's lineage flags ------------------------------------------------------------
 
+if section "scope" "the worker's lineage flags"; then
 # A niwa that takes them gets the brief and the entry point's skill.
 reset "$INPUT_SCOPE"
 run >/dev/null 2>&1
@@ -439,12 +484,13 @@ for help in old fail; do
         *) bad "lineage ($help help): the launch ends as before" "$LAUNCHED" ;;
     esac
 done
+fi
 
 # --- the worker's grant ------------------------------------------------------------------
 
 BRIEF_FILE="$W/.niwa/dispatch-briefs/plugin-api.md"
 named() { grep '^Named authority:' "$BRIEF_FILE"; }
-
+if section "deliver" "the worker's grant"; then
 # A worker the brief hands a merge: --grant merge-pr and nothing wider, the
 # coordinator's own instance as --parent-from, and a brief that names exactly
 # merge-pr.
@@ -485,7 +531,9 @@ for help in lineage old; do
     has "old niwa ($help): the brief says it holds none" "$(named)" "Named authority: you hold no named authority."
     has "old niwa ($help): says why" "$(cat "$T/err")" "takes no --grant"
 done
+fi
 
+if section "" "the worker's grant: a successor coordinator"; then
 # A successor (entry point coordinate, grant `own`) gets this coordinator's
 # own grant as niwa authority check reported it to posture-read.sh.
 INPUT_SUCCESSOR=$(jq -c '.entry_point = "coordinate" | .entry_args = ["plugin-api"] | .run_mode = "" | .grant = "own"' <<<"$INPUT_DELIVER")
@@ -513,7 +561,9 @@ run >/dev/null 2>"$T/err"; RC=$?
 eq  "successor, no posture: exit 0" 0 "$RC"
 lacks "successor, no posture: no --grant" "$(grep '^niwa dispatch' "$ST/calls.log")" "[--grant]"
 has "successor, no posture: says why" "$(cat "$T/err")" "coord/posture.json can't be read"
+fi
 
+if section "deliver" "the worker's grant: refused and wider grants"; then
 # `own` is for a successor only, and a grant names known authorities once
 # each: anything else is refused with nothing written or launched.
 for bad_grant in '"own"' '["merge"]' '["merge-pr","merge-pr"]' '"merge-pr"'; do
@@ -540,8 +590,11 @@ reset "$(jq -c '.grant = ["merge-pr"]' <<<"$INPUT_DELIVER")"
 export NIWA_HELP=grant NIWA_MODE=fail
 run >/dev/null 2>&1; RC=$?
 eq  "grant, other failure: exit 4" 4 "$RC"
+fi
 
 # --- the worker's launch flags ------------------------------------------------------------
+
+if section "deliver" "the worker's launch flags"; then
 #
 # The input's launch field reaches niwa dispatch as exactly the flags it names,
 # each value one argument, and only the flags niwa's help lists.
@@ -604,26 +657,34 @@ for l in '{"model": "opus --permission-mode bypassPermissions"}' '{"model": "--d
     eq  "launch refused $l: nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|request create' "$ST/calls.log")"
     has "launch refused $l: says why" "$(cat "$T/err")" "launch: "
 done
+fi
 
+if section "scope" "the leg path: a leftover request under the topic"; then
 reset "$INPUT_SCOPE"
 printf '{"requests":[{"request_id":"req_left","coordinator_of_record":"coordinate-plugin-api","request_state":"open"},{"request_id":"req_other","coordinator_of_record":"coordinate-other","request_state":"open"}]}\n' >"$ST/open_requests.json"
 run >/dev/null 2>&1
 LOG=$(calls)
 has "leg: a leftover request under the topic is abandoned first" "$LOG" "koto request abandon-request req_left"
 lacks "leg: another topic's request is left alone" "$LOG" "abandon-request req_other"
+fi
 
+if section "execute" "the leg path: /execute's templates and plan slug"; then
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "execute" | .entry_args = ["docs/plans/PLAN-plugin-api.md"]')"
 run >/dev/null 2>&1
 has "leg: execute admits both templates and pins the plan slug" "$(calls)" '"template":["execute.md","execute-coordinated.md"],"inputs":{"PLAN_SLUG":"plugin-api"}'
+fi
 
+if section "scope" "the leg path: a failed create"; then
 reset "$INPUT_SCOPE"
 export KOTO_CREATE_FAIL=1
 run >/dev/null 2>&1; RC=$?
 eq  "leg: a failed create is exit 2" 2 "$RC"
 eq  "leg: a failed create writes and launches nothing" "" "$(grep -E '^niwa dispatch|record write' "$ST/calls.log")"
+fi
 
 # --- the message path ----------------------------------------------------------------------------
 
+if section "work-on" "the message path: /work-on"; then
 # /work-on answers its leg for an issue, pinning nothing.
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "work-on" | .entry_args = ["123"]')"
 run >/dev/null 2>&1
@@ -636,14 +697,18 @@ run >/dev/null 2>&1
 lacks "work-on: a PLAN path opens no request" "$(calls)" "koto request create"
 eq  "work-on: a PLAN path reports by message" message "$(row return_path)"
 lacks "work-on: a PLAN path's invocation carries no leg" "$(cat "$ST/prompt")" "--koto-leg"
+fi
 
+if section "" "the message path: entry points with no leg"; then
 # An entry point with no leg reports by message.
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "explore" | .entry_args = ["plugin-api"]')"
 run >/dev/null 2>&1
 lacks "explore: no request opened" "$(calls)" "koto request create"
 eq  "explore: return path" message "$(row return_path)"
 
-# So does a charter (shirabe#1290), and its brief records the dispatcher itself.
+# So does a charter (shirabe#1290), and its brief names the run that rendered
+# it as the one Reporting resolves, with no link step: koto records the
+# dispatcher when the worker's session opens.
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "charter" | .entry_args = ["plugin-api"] | .run_mode = "--auto"')"
 OUT=$(run 2>/dev/null); RC=$?
 eq  "charter: dispatched" "0 session=$NIWA_NAME" "$RC $OUT"
@@ -652,12 +717,14 @@ eq  "charter: return path" message "$(row return_path)"
 eq  "charter: one launch" 1 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 lacks "charter: the invocation carries no leg" "$(cat "$ST/prompt")" "--koto-leg"
 has "charter: the prompt runs charter" "$(cat "$ST/prompt")" "/shirabe:charter plugin-api --auto"
-eq  "charter: the brief names the run that rendered it as its dispatcher" "dispatcher_session: coord" \
-    "$(grep '^dispatcher_session:' "$W/.niwa/dispatch-briefs/plugin-api.md")"
-has "charter: the brief records it with link-dispatcher.sh" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "link-dispatcher.sh\" <session> --dispatched-by coord\`"
+has "charter: the brief resolves the run that rendered it" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" 'resolve-coordinator.sh" coord`'
+lacks "charter: the brief shows no link step" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "link-dispatcher.sh"
+lacks "charter: the brief has no dispatcher_session line" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "dispatcher_session:"
+fi
 
 # --- a resumed dispatching row -------------------------------------------------------------------
 
+if section "deliver" "a resumed dispatching row, launched"; then
 reset "$INPUT_DELIVER"
 printf '%s' '{"dispatch_status":"dispatching","return_path":"message","worker":"plugin-api","repo":"acme/widgets","mode":"--auto --no-merge"}' >"$ST/rows/plugin-api.json"
 printf '[{"name":"x","path":"/p","session_name":"plugin_api-1a2b3c4d"}]\n' >"$ST/sessions.json"
@@ -666,7 +733,9 @@ eq  "resume, launched: exit 0" 0 "$RC"
 eq  "resume, launched: confirmed from the listing" "session=plugin_api-1a2b3c4d" "$OUT"
 eq  "resume, launched: no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 eq  "resume, launched: row dispatched" dispatched "$(row dispatch_status)"
+fi
 
+if section "scope" "a resumed dispatching row, not launched"; then
 reset "$INPUT_SCOPE"
 printf '%s' '{"dispatch_status":"dispatching","return_path":"leg req_9:scope","worker":"plugin-api","repo":"acme/widgets","mode":"--auto --intent=continue"}' >"$ST/rows/plugin-api.json"
 OUT=$(run 2>/dev/null); RC=$?
@@ -674,16 +743,20 @@ eq  "resume, not launched: exit 0" 0 "$RC"
 eq  "resume, not launched: one launch" 1 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 lacks "resume, not launched: reuses the recorded request" "$(calls)" "koto request create"
 has "resume, not launched: prompt uses the recorded leg" "$(cat "$ST/prompt")" "--koto-leg=req_9:scope"
+fi
 
 # --- failures --------------------------------------------------------------------------------------
 
+if section "scope" "failures: a failed launch"; then
 reset "$INPUT_SCOPE"
 export NIWA_MODE=fail
 run >/dev/null 2>&1; RC=$?
 eq  "failed launch: exit 4" 4 "$RC"
 eq  "failed launch: row dispatch-failed" dispatch-failed "$(row dispatch_status)"
 has "failed launch: request abandoned" "$(calls)" "koto request abandon-request req_1"
+fi
 
+if section "deliver" "failures: a session that appeared, an unreadable listing, the deadline"; then
 reset "$INPUT_DELIVER"
 export NIWA_MODE=fail-but-launched
 OUT=$(run 2>/dev/null); RC=$?
@@ -705,6 +778,7 @@ run >/dev/null 2>&1; RC=$?
 ELAPSED=$(( $(date +%s) - START ))
 eq  "deadline: a hung launch fails as exit 4" 4 "$RC"
 if [ "$ELAPSED" -lt 15 ]; then ok "deadline: returns promptly"; else bad "deadline: returns promptly" "${ELAPSED}s"; fi
+fi
 
 # --- the unit must be one pick can find ----------------------------------------------------------------
 # A holding whose Unit cell pick can't read leaves its unit dispatchable twice,
@@ -716,6 +790,7 @@ nothing_written() { # nothing_written <label>
     eq  "$1: no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
     [ -e "$W/.niwa/dispatch-briefs/plugin-api.md" ] && bad "$1: no brief" || ok "$1: no brief"
 }
+if section "deliver" "the unit must be one pick can find"; then
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 2 of ROADMAP-plugin-system"')"
 ERR=$(run 2>&1 >/dev/null); RC=$?
 eq  "unit: the old template's example form is refused" 1 "$RC"
@@ -733,6 +808,9 @@ reset "$INPUT_DELIVER"
 rm -f "$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "unit: no coord/pick.json to check against exits 2" 2 "$?"
 nothing_written "unit, no pick facts"
+fi
+
+if section "deliver" "a unit pick marked paused"; then
 # A unit pick marked paused: refused before anything is written.
 reset "$INPUT_DELIVER"
 printf '%s' "$PICK_ROADMAP" | jq -c '(.units[] | select(.unit == "Feature 2")).paused = "s4"' >"$ST/ctx/coord/pick.json"
@@ -766,6 +844,9 @@ run >/dev/null 2>&1; eq "pause: another unit's pause doesn't hold this one" 0 "$
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 1"')"
 printf '%s' "$PICK_ROADMAP" | jq -c '.paused_all = "s5" | .units[0].paused = null | .units[1].paused = "s5"' >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "pause: under a pause on all, the unit a go-ahead let through (paused null) is dispatched" 0 "$?"
+fi
+
+if section "deliver" "a milestone whose verdict is owed"; then
 # A milestone whose verdict is owed is never dispatched, held or not.
 reset "$INPUT_DELIVER"
 printf '%s' "$PICK_ROADMAP" | jq -c '(.units[] | select(.unit == "Feature 2")).verdict_owed = true' >"$ST/ctx/coord/pick.json"
@@ -776,6 +857,24 @@ nothing_written "verdict owed, unit"
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 1"')"
 printf '%s' "$PICK_ROADMAP" | jq -c '(.units[] | select(.unit == "Feature 2")).verdict_owed = true' >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "verdict owed: another unit's owed verdict doesn't hold this one" 0 "$?"
+# On roadmap/v4 pick-facts.sh frees Milestone 2, which depends on Milestone 1,
+# while Milestone 1's verdict is owed (it reads done, takes_work false); the
+# refusal stays Milestone 1's own.
+PICK_V4='{"scope":"roadmap","name":"plugin-system","host":"acme/widgets","units":[
+  {"unit":"Milestone 1","number":1,"title":"Loader","status":"In progress","done":true,"takes_work":false,"blocked":false,"blocked_by":[],"verdict_owed":true},
+  {"unit":"Milestone 2","number":2,"title":"Registry","status":"Not started","done":false,"takes_work":true,"blocked":false,"blocked_by":[],"blocker_landed":true,"verdict_owed":false}]}'
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Milestone 2: Registry"')"
+printf '%s' "$PICK_V4" >"$ST/ctx/coord/pick.json"
+run >/dev/null 2>&1; eq "verdict owed: on v4, a dispatch of Milestone 2 over Milestone 1's owed verdict goes through" 0 "$?"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Milestone 1"')"
+printf '%s' "$PICK_V4" >"$ST/ctx/coord/pick.json"
+ERR=$(run 2>&1 >/dev/null); RC=$?
+eq  "verdict owed: on v4, a dispatch of Milestone 1 itself exits 10" 10 "$RC"
+has "verdict owed: ... naming the owed verdict" "$ERR" "a verdict is owed on this milestone"
+nothing_written "verdict owed, v4 unit"
+fi
+
+if section "deliver" "the brief's reporting address"; then
 # The brief's reporting address is the record's Run coordinator, never the
 # koto session name the input carries (shirabe#610).
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.reports_to = "someone-else"')"
@@ -791,12 +890,15 @@ nothing_written "address, none"
 reset "$INPUT_DELIVER"; export RECORD_STATE_MODE=fail
 run >/dev/null 2>&1; eq "address: a Run section that can't be read exits 2" 2 "$?"
 nothing_written "address, unreadable"
+fi
+
 # A unit a person assigned at roadmap scope (shirabe#607): pick lists it with
 # `assigned`, and its id is a form the brief check takes.
 PICK_ASSIGNED='{"scope":"roadmap","name":"plugin-system","host":"acme/widgets","units":[
   {"unit":"Feature 1","number":1,"title":"the manifest"},
   {"unit":"acme/widgets#591","number":591,"title":"pick the review level up front","assigned":"s3"},
   {"unit":"release acme/widgets v0.25.0","number":null,"title":"","assigned":"s4"}]}'
+if section "work-on" "a unit a person assigned"; then
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "acme/widgets#591" | .entry_point = "work-on" | .entry_args = ["591"]')"
 printf '%s' "$PICK_ASSIGNED" >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "assigned: an issue a person assigned is dispatched at roadmap scope" 0 "$?"
@@ -804,6 +906,9 @@ eq  "assigned: and becomes the Unit cell" "acme/widgets#591" "$(row unit)"
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "acme/widgets#591: pick the review level up front" | .entry_point = "work-on" | .entry_args = ["591"]')"
 printf '%s' "$PICK_ASSIGNED" >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "assigned: its id with a title, a form pick doesn't read for it, is refused" 1 "$?"
+fi
+
+if section "" "an assigned release"; then
 # A release (shirabe#627): no leg, no run mode, the version positional.
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "release acme/widgets v0.25.0" | .entry_point = "release" | .entry_args = ["v0.25.0"] | .run_mode = ""')"
 printf '%s' "$PICK_ASSIGNED" >"$ST/ctx/coord/pick.json"
@@ -812,6 +917,9 @@ eq  "release: on the message path, with no leg" "message 0" "$(row return_path) 
 eq  "release: its holding names /release and no mode" "release|" "$(row entry_point)|$(row mode)"
 eq  "release: the worker is launched" 1 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 has "release: the prompt runs /shirabe:release with the version" "$(cat "$ST/prompt")" 'Run `/shirabe:release v0.25.0` in acme/widgets'
+fi
+
+if section "deliver" "a unit parked on a decision"; then
 # A unit parked on a decision: refused like a pause, nothing written.
 reset "$INPUT_DELIVER"
 printf '%s' "$PICK_ROADMAP" | jq -c '(.units[] | select(.unit == "Feature 2")).awaiting = "4"' >"$ST/ctx/coord/pick.json"
@@ -822,8 +930,11 @@ nothing_written "park"
 reset "$INPUT_DELIVER"
 printf '%s' "$PICK_ROADMAP" | jq -c '(.units[] | select(.unit == "Feature 2")).answered = {decision: "4", outcome: "go"}' >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "park: once answered it is dispatched" 0 "$?"
+fi
+
 # A unit whose scoping alone landed: its scoping isn't dispatched again.
 FUP='(.units[] | select(.unit == "Feature 2")).follow_up = {after: "acme/widgets#41", next: "/shirabe:execute docs/plans/PLAN-plugin-api.md"}'
+if section "deliver scope" "a unit whose scoping landed: its scoping refused"; then
 for ep in deliver scope; do
     if [ "$ep" = deliver ]; then reset "$INPUT_DELIVER"; else reset "$INPUT_SCOPE"; fi
     printf '%s' "$PICK_ROADMAP" | jq -c "$FUP" >"$ST/ctx/coord/pick.json"
@@ -832,14 +943,20 @@ for ep in deliver scope; do
     has "follow-up: naming its scoping and its execution" "$ERR" "scoping landed as acme/widgets#41; brief its execution (/shirabe:execute docs/plans/PLAN-plugin-api.md)"
     nothing_written "follow-up, $ep"
 done
+fi
+
+if section "execute" "a unit whose scoping landed: its execution dispatched"; then
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "execute" | .entry_args = ["docs/plans/PLAN-plugin-api.md"] | .targets = ["acme/widgets"]')"
 printf '%s' "$PICK_ROADMAP" | jq -c "$FUP" >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "follow-up: its execution is dispatched" 0 "$?"
 lacks "follow-up: an execution dispatch removes no follow-up row itself" "$(calls)" "--kind follow-up"
+fi
+
 # A follow-up row that itself names /scope (an explore landed and recommended
 # it): a /shirabe:scope brief is dispatched, by the row's leading word, and the
 # row is removed once the dispatch is confirmed; deliver is still refused.
 fup_rows() { jq -nc --arg n "$1" '[{item: "Feature 2", kind: "follow-up", who: "acme/widgets#40", next: $n, wakes: "0", updated: "2026-09-26T07:00Z"}]'; }
+if section "scope deliver" "a follow-up row naming /scope: scope dispatched, deliver refused"; then
 for nx in "/shirabe:scope plugin-api --intent=continue" "/scope plugin-api"; do
     FUPS="(.units[] | select(.unit == \"Feature 2\")).follow_up = {after: \"acme/widgets#40\", next: \"$nx\"}"
     reset "$INPUT_SCOPE"
@@ -860,6 +977,9 @@ for nx in "/shirabe:scope plugin-api --intent=continue" "/scope plugin-api"; do
     has "follow-up: next [$nx], naming the row's next step" "$ERR" "brief its execution ($nx), not /shirabe:deliver"
     nothing_written "follow-up /scope, deliver"
 done
+fi
+
+if section "scope" "a follow-up row naming /scope: the row and its removal"; then
 # /scope anywhere but the leading word isn't the row naming it.
 FUPS='(.units[] | select(.unit == "Feature 2")).follow_up = {after: "acme/widgets#40", next: "/shirabe:execute docs/plans/PLAN-plugin-api.md, not /shirabe:scope"}'
 reset "$INPUT_SCOPE"
@@ -903,6 +1023,9 @@ RECORD_WORK=$(jq -nc '[{item: "acme/widgets#12", kind: "follow-up", who: "acme/w
 run >/dev/null 2>&1
 eq  "follow-up: a resumed /scope dispatch settles its row" dispatched "$(row dispatch_status)"
 has "follow-up: and removes the host-qualified row" "$(calls)" "state-stored-set --session coord --done acme/widgets#12 --kind follow-up"
+fi
+
+if section "deliver" "discipline scope's issue units"; then
 # Discipline scope: an issue as #n, or as host#n with the host pick recorded.
 PICK_DISCIPLINE='{"scope":"discipline","name":"ci-health","host":"acme/widgets","units":[{"unit":"#12","number":12,"title":"flaky upload"}]}'
 for u in "#12" "acme/widgets#12"; do
@@ -916,6 +1039,9 @@ printf '%s' "$PICK_DISCIPLINE" >"$ST/ctx/coord/pick.json"
 ERR=$(run 2>&1 >/dev/null); RC=$?
 eq  "unit: an issue pick didn't list is refused" 1 "$RC"
 has "unit: naming the issue's forms" "$ERR" '"#12", "acme/widgets#12"'
+fi
+
+if section "scope" "a resumed dispatch's recorded unit"; then
 # A resumed dispatch: its holding already records the unit, so neither the
 # unit nor coord/pick.json is checked again, and the run settles the row.
 reset "$(printf '%s' "$INPUT_SCOPE" | jq -c '.unit = "Feature 2 of ROADMAP-plugin-system"')"
@@ -923,9 +1049,11 @@ rm -f "$ST/ctx/coord/pick.json"
 printf '%s' '{"dispatch_status":"dispatching","return_path":"leg req_9:scope","worker":"plugin-api","repo":"acme/widgets","mode":"--auto --intent=continue","unit":"Feature 2 of ROADMAP-plugin-system"}' >"$ST/rows/plugin-api.json"
 run >/dev/null 2>&1; eq "unit: a resumed dispatch isn't refused on its recorded unit" 0 "$?"
 eq  "unit: and its row is settled" dispatched "$(row dispatch_status)"
+fi
 
 # --- topic checks ------------------------------------------------------------------------------------
 
+if section "deliver" "topic checks"; then
 reset "$INPUT_DELIVER"
 printf '[{"name":"x","path":"/p","session_name":"plugin_api-deadbeef"}]\n' >"$ST/sessions.json"
 run >/dev/null 2>&1; RC=$?
@@ -942,7 +1070,9 @@ reset "$INPUT_DELIVER" other-topic
 run >/dev/null 2>&1; RC=$?
 eq  "mismatched topic: exit 2" 2 "$RC"
 eq  "mismatched topic: nothing done" "" "$(calls)"
+fi
 
+if section "" "topic checks: the dispatch lock"; then
 reset "$INPUT_DELIVER"
 mkdir -p "$W/.niwa/dispatch-briefs/.plugin-api.lock"
 sleep 30 &
@@ -956,7 +1086,9 @@ wait "$HOLDER" >/dev/null 2>&1
 run >/dev/null 2>&1; RC=$?
 eq  "stale lock (owner gone): taken over" 0 "$RC"
 [ -e "$W/.niwa/dispatch-briefs/.plugin-api.lock" ] && bad "lock: released after the run" "" || ok "lock: released after the run"
+fi
 
+if section "deliver" "topic checks: the record's write and a refused brief"; then
 reset "$INPUT_DELIVER"
 export RECORD_WRITE_MODE=refuse
 run >/dev/null 2>&1; RC=$?
@@ -991,9 +1123,11 @@ reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.checkpoints = ["Wait for approva
 run >/dev/null 2>&1; RC=$?
 eq  "refused brief: exit 1" 1 "$RC"
 eq  "refused brief: nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|koto request' "$ST/calls.log")"
+fi
 
 # --- --rebrief -------------------------------------------------------------------------------------------
 
+if section "deliver" "--rebrief"; then
 reset "$INPUT_DELIVER"
 run >/dev/null 2>&1
 jq -c '.dispatched = "2000-01-01"' "$ST/rows/plugin-api.json" >"$ST/r" && mv "$ST/r" "$ST/rows/plugin-api.json"
@@ -1005,12 +1139,13 @@ OUT=$(run --rebrief 2>/dev/null); RC=$?
 eq  "rebrief: exit 0, with no coord/pick.json to read" 0 "$RC"
 has "rebrief: prints the brief" "$OUT" "brief=$W/.niwa/dispatch-briefs/plugin-api.md"
 # The worker is on the message path, so the brief names the run that
-# rendered it as its dispatcher, not the input's value, with the command
-# that records it.
+# rendered it, not the input's value, as the one its Reporting resolves and
+# its report step names, and shows no link step.
 B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
-eq  "rebrief: dispatcher_session is the run that rendered it" 1 "$(grep -cx 'dispatcher_session: coord' <<<"$B")"
+has "rebrief: Reporting resolves the run that rendered it" "$B" 'resolve-coordinator.sh" coord`'
+has "rebrief: the report step names it" "$B" 'render-result.sh" --session <your session> --dispatcher coord`'
 lacks "rebrief: not the input's dispatcher_session" "$B" "coord-alpha"
-has "rebrief: the link command, --dispatched-by filled in" "$B" 'link-dispatcher.sh" <session> --dispatched-by coord`'
+lacks "rebrief: no link step" "$B" "link-dispatcher.sh"
 has "rebrief: render-result.sh is the report step" "$B" "render-result.sh"
 eq  "rebrief: no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
@@ -1024,7 +1159,9 @@ jq -c '.run_mode = "--interactive"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$
 run --rebrief >/dev/null 2>&1; RC=$?
 eq  "rebrief: flags differing in the input: exit 0" 0 "$RC"
 has "rebrief: the flags come from the holding, not the input" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" '`/shirabe:deliver plugin-api --auto --no-merge`'
+fi
 
+if section "scope" "--rebrief of a leg-bound worker"; then
 reset "$INPUT_SCOPE"
 run >/dev/null 2>&1
 printf 'plugin-api' >"$ST/ctx/report_topic"
@@ -1034,9 +1171,88 @@ eq  "rebrief, leg-bound: exit 0" 0 "$RC"
 eq  "rebrief, leg-bound: the holding moves to the message path" message "$(row return_path)"
 has "rebrief, leg-bound: the spent request is abandoned" "$(calls)" "koto request abandon-request req_1"
 lacks "rebrief, leg-bound: the brief no longer names the leg" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "--koto-leg"
-has "rebrief, leg-bound: moved to the message path, it carries the link command" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" \
-    'link-dispatcher.sh" <session> --dispatched-by coord`'
+has "rebrief, leg-bound: moved to the message path, it gets the report step" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" \
+    'render-result.sh" --session <your session> --dispatcher coord`'
+lacks "rebrief, leg-bound: and no link step" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "link-dispatcher.sh"
+fi
 
+if section "scope" "--rebrief of a leg-bound worker, then the land step's round"; then
+# The worker recorded its round in the session bound to its leg; a re-brief
+# moves the holding to the message path, and the land step's evidence read
+# (board-lib.sh bl_review_evidence, run here over this suite's stand-ins)
+# still finds that round in the session, with no result block in a report.
+# A message-path worker no re-brief moved off a leg has no stamped key, so
+# its report stays its only source.
+LANDLIB="$T/landlib"
+rm -rf "$LANDLIB"; mkdir -p "$LANDLIB"
+for f in "$DW/skills/coordinate/scripts/"*; do ln -s "$f" "$LANDLIB/"; done
+rm -f "$LANDLIB/state-holding.sh"; cp "$T/state-holding.sh" "$LANDLIB/state-holding.sh"
+land_round() { (HERE=$LANDLIB PROG=land-round KOTO_BIN=koto; . "$LANDLIB/board-lib.sh"; bl_review_evidence coord acme/widgets 12); }
+ROUND=$(jq -nc --arg h aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa '{reviewed_head: $h, seats: [
+    {seat: "architect", model: "sonnet", run: "agent-r1", verdict: "pass"},
+    {seat: "maintainer", model: "sonnet", run: "agent-r2", verdict: "pass"},
+    {seat: "pragmatic", model: "sonnet", run: "agent-r3", verdict: "pass"}]}')
+for how in key request; do
+    reset "$INPUT_SCOPE"
+    run >/dev/null 2>&1
+    jq -c '.pull_request = "[#12](https://github.com/acme/widgets/pull/12)"' "$ST/rows/plugin-api.json" >"$ST/r" && mv "$ST/r" "$ST/rows/plugin-api.json"
+    # The child's name reached the leg key (wait-target.sh records it), or
+    # only the request still names it.
+    if [ "$how" = key ]; then
+        jq -c '.child = "scope-plugin-api"' "$ST/ctx/legs/req_1/scope" >"$ST/k" && mv "$ST/k" "$ST/ctx/legs/req_1/scope"
+    else
+        jq -nc '{request_id: "req_1", request_state: "open", legs: {scope: {name: "scope", disposition: "open", bound_child: "scope-plugin-api"}}}' >"$ST/request_get.json"
+    fi
+    printf '%s\n' "$ROUND" >"$ST/ctx/review_round.json"
+    printf 'plugin-api' >"$ST/ctx/report_topic"
+    run --rebrief >/dev/null 2>&1; RC=$?
+    eq  "rebrief then land ($how): exit 0" 0 "$RC"
+    eq  "rebrief then land ($how): the holding is on the message path" message "$(row return_path)"
+    eq  "rebrief then land ($how): the leg key keeps the bound session" scope-plugin-api "$(jq -r '.child // ""' "$ST/ctx/legs/req_1/scope")"
+    EV=$(land_round 2>"$T/land.err")
+    eq  "rebrief then land ($how): the round is read from the worker's session" "session scope-plugin-api" \
+        "$(jq -r '"\(.source) \(.session)"' <<<"$EV" 2>/dev/null)"
+    eq  "rebrief then land ($how): and it is a well-formed round" "ok " "$(jq -r '"\(.status) \(.reason // "")"' <<<"$EV")"
+done
+# A message-path worker no re-brief moved off a leg: no stamped key, so the
+# session's round isn't its evidence; its report stays the source.
+reset "$INPUT_SCOPE"
+run >/dev/null 2>&1
+jq -c '.pull_request = "[#12](https://github.com/acme/widgets/pull/12)" | .return_path = "message"' "$ST/rows/plugin-api.json" >"$ST/r" && mv "$ST/r" "$ST/rows/plugin-api.json"
+jq -c '.child = "scope-plugin-api"' "$ST/ctx/legs/req_1/scope" >"$ST/k" && mv "$ST/k" "$ST/ctx/legs/req_1/scope"
+printf '%s\n' "$ROUND" >"$ST/ctx/review_round.json"
+EV=$(land_round 2>"$T/land.err")
+lacks "never re-briefed: the bound session is not read" "$EV" '"source":"session"'
+# Another worker's stamped key is never this worker's evidence.
+jq -c '.topic = "someone-else" | .rebriefed = "2026-01-01T00:00:00Z"' "$ST/ctx/legs/req_1/scope" >"$ST/k" && mv "$ST/k" "$ST/ctx/legs/req_1/scope"
+EV=$(land_round 2>"$T/land.err")
+lacks "another worker's stamped key: not read" "$EV" '"source":"session"'
+# A stamp the store refuses: the re-brief still goes through, stderr names
+# the fallback, and the land step reads the round the worker's report
+# carried, since the leg key holds no stamp.
+reset "$INPUT_SCOPE"
+run >/dev/null 2>&1
+jq -c '.pull_request = "[#12](https://github.com/acme/widgets/pull/12)"' "$ST/rows/plugin-api.json" >"$ST/r" && mv "$ST/r" "$ST/rows/plugin-api.json"
+jq -c '.child = "scope-plugin-api"' "$ST/ctx/legs/req_1/scope" >"$ST/k" && mv "$ST/k" "$ST/ctx/legs/req_1/scope"
+printf '%s\n' "$ROUND" >"$ST/ctx/review_round.json"
+printf 'plugin-api' >"$ST/ctx/report_topic"
+KOTO_LEG_PUT_FAIL=1 run --rebrief >/dev/null 2>"$T/rebrief.err"; RC=$?
+eq  "refused stamp: the re-brief still exits 0" 0 "$RC"
+eq  "refused stamp: the holding is on the message path" message "$(row return_path)"
+has "refused stamp: stderr names the fallback to the report" "$(cat "$T/rebrief.err")" \
+    "could not stamp the leg key for req_1:scope: the land step reads plugin-api's round from its report only"
+eq  "refused stamp: the leg key carries no stamp" "" "$(jq -r '.rebriefed // ""' "$ST/ctx/legs/req_1/scope")"
+mkdir -p "$ST/session"
+{ printf '{"schema_version":1,"workflow":"coord","created_at":"2026-09-26T10:00:00.000Z"}\n'
+  jq -nc --arg r "$(printf 'Ready.\n\n=== RESULT ===\nsession=scope-plugin-api\npr=https://github.com/acme/widgets/pull/12\nreview_round=%s\n=== END RESULT ===\n' "$ROUND")" \
+    '{seq: 1, timestamp: "2026-09-26T10:02:00.000Z", type: "evidence_submitted", payload: {state: "wait", fields: {event: "report", unit: "plugin-api", report: $r}}}'
+} >"$ST/session/koto-coord.state.jsonl"
+EV=$(land_round 2>"$T/land.err")
+eq  "refused stamp: the land step reads the report's result block" "report scope-plugin-api ok" \
+    "$(jq -r '"\(.source) \(.session) \(.status)"' <<<"$EV" 2>/dev/null)"
+fi
+
+if section "deliver" "--rebrief from the importing run"; then
 # A leg reconcile found unwatchable after an import (reconcile-legs.sh): the
 # holding reports by message from then on, and the importing run re-briefs
 # the worker, whose brief names that run as its dispatcher.
@@ -1047,10 +1263,14 @@ printf 'plugin-api' >"$ST/ctx/report_topic"
 (cd "$W/inst" && bash "$S" --session coordinate-roadmap-plugin-system-20261024T090000Z --rebrief) >/dev/null 2>&1
 eq  "unwatchable: the importing run re-briefs the worker" 0 "$?"
 B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
-has "unwatchable: dispatcher_session is the importing run" "$B" "dispatcher_session: coordinate-roadmap-plugin-system-20261024T090000Z"
-has "unwatchable: the link command names it" "$B" '--dispatched-by coordinate-roadmap-plugin-system-20261024T090000Z`'
+has "unwatchable: Reporting resolves the importing run" "$B" 'resolve-coordinator.sh" coordinate-roadmap-plugin-system-20261024T090000Z`'
+has "unwatchable: the report step names it" "$B" '--dispatcher coordinate-roadmap-plugin-system-20261024T090000Z`'
+lacks "unwatchable: no link step" "$B" "link-dispatcher.sh"
+fi
 
 # --- a review-level bound ---------------------------------------------------------------------------------
+
+if section "deliver" "a review-level bound"; then
 #
 # The brief and the dispatch prompt name the same command, the bound's flags
 # before --koto-leg; the holding's mode stays without them, so a re-brief,
@@ -1076,6 +1296,7 @@ reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.review_level = {"floor": "full",
 run >/dev/null 2>&1; RC=$?
 eq  "review level: a floor above the ceiling is refused, exit 1" 1 "$RC"
 eq  "review level: refused, nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|koto request' "$ST/calls.log")"
+fi
 
 # --- --releg: a leg spent before the worker reported -------------------------------------------------------
 
@@ -1086,6 +1307,7 @@ spent() { # spent <disposition> <result_source>: koto's view of req_1
         legs: {scope: {name: "scope", disposition: $d, result: (if $s == "" then null else {status: "failure"} end),
                result_source: (if $s == "" then null else $s end)}}}' >"$ST/request_get.json"
 }
+if section "scope" "--releg: a leg spent before the worker reported"; then
 reset "$INPUT_SCOPE"
 run >/dev/null 2>&1
 printf 'plugin-api' >"$ST/ctx/report_topic"
@@ -1143,6 +1365,7 @@ jq -c '.entry_point = "explore"' "$ST/rows/plugin-api.json" >"$ST/r" && mv "$ST/
 spent resolved explicit; : >"$ST/calls.log"
 run --releg >/dev/null 2>&1; eq "releg: an entry point that takes no leg has none to replace: exit 9" 9 "$?"
 eq  "releg: and nothing written" "" "$(grep -E 'record write|koto request create' "$ST/calls.log")"
+fi
 
 # --- send_execution: a scoping-ahead holding sent its execution ------------------------------------------
 
@@ -1154,6 +1377,7 @@ log_pick() { # log_pick <choice> <unit>: the session log's latest entry into pic
     } >"$ST/session/koto-coord.state.jsonl"
 }
 INPUT_EXEC=$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "execute" | .entry_args = ["docs/plans/PLAN-plugin-api.md"] | .phase = "executing"')
+if section "scope execute" "send_execution: a scoping holding sent its execution"; then
 reset "$(printf '%s' "$INPUT_SCOPE" | jq -c '.phase = "scoping-ahead"')"
 run >/dev/null 2>&1
 eq  "send_execution: the scoping holding starts scoping ahead" scoping-ahead "$(row phase)"
@@ -1173,16 +1397,24 @@ has "send_execution: the leg pins the plan slug" "$(calls)" '"inputs":{"PLAN_SLU
 eq  "send_execution: nothing launched" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 has "send_execution: the brief is the execution's" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "/shirabe:execute docs/plans/PLAN-plugin-api.md"
 lacks "send_execution: on a leg, the brief carries no link command" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "--dispatched-by"
+fi
+
+if section "work-on" "send_execution to the message path"; then
 # An execution whose entry point takes no leg here (/work-on given a PLAN)
-# goes to the message path, and its brief carries the link command.
+# goes to the message path, and its brief names the run for Reporting, with
+# no link step.
 reset "$(printf '%s' "$INPUT_SCOPE" | jq -c '.phase = "scoping-ahead"')"; run >/dev/null 2>&1
 printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "work-on" | .entry_args = ["docs/plans/PLAN-plugin-api.md"] | .phase = "executing"' >"$ST/ctx/brief_input.json"
 log_pick send_execution plugin-api; : >"$ST/calls.log"
 run >/dev/null 2>"$ST/err"; eq "send_execution to the message path: exit 0" 0 "$?"
 eq  "send_execution to the message path: the holding reports by message" message "$(row return_path)"
 B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
-eq  "send_execution to the message path: dispatcher_session is the run" 1 "$(grep -cx 'dispatcher_session: coord' <<<"$B")"
-has "send_execution to the message path: the link command, --dispatched-by filled in" "$B" 'link-dispatcher.sh" <session> --dispatched-by coord`'
+has "send_execution to the message path: Reporting resolves the run" "$B" 'resolve-coordinator.sh" coord`'
+has "send_execution to the message path: the report step names it" "$B" 'render-result.sh" --session <your session> --dispatcher coord`'
+lacks "send_execution to the message path: no link step" "$B" "link-dispatcher.sh"
+fi
+
+if section "scope execute" "send_execution refused"; then
 reset "$(printf '%s' "$INPUT_SCOPE" | jq -c '.phase = "scoping-ahead"')"; run >/dev/null 2>&1
 printf '%s' "$INPUT_EXEC" >"$ST/ctx/brief_input.json"; log_pick dispatch plugin-api; : >"$ST/calls.log"
 eq  "a pick that isn't send_execution: already-dispatched, nothing changed" already-dispatched "$(run 2>/dev/null)"
@@ -1201,9 +1433,11 @@ rm -f "$ST/request_get.rc" "$ST/request_get.json"
 printf '%s' "$INPUT_SCOPE" | jq -c '.phase = "scoping-ahead"' >"$ST/ctx/brief_input.json"; : >"$ST/calls.log"
 run >/dev/null 2>&1; eq "send_execution with the scoping brief again: refused, exit 1" 1 "$?"
 eq  "and nothing written" "" "$(grep -E 'record write|koto request create' "$ST/calls.log")"
+fi
 
 # --- a lock left with no pid ---------------------------------------------------------------------------
 
+if section "" "a lock left with no pid"; then
 reset "$INPUT_DELIVER"
 mkdir -p "$W/.niwa/dispatch-briefs/.plugin-api.lock"
 ERR=$(run 2>&1 >/dev/null); RC=$?
@@ -1212,23 +1446,84 @@ has "pid-less lock, fresh: says no pid" "$ERR" "pid not yet written"
 touch -t 200001010000 "$W/.niwa/dispatch-briefs/.plugin-api.lock"
 run >/dev/null 2>&1; RC=$?
 eq  "pid-less lock, over a minute old: taken over" 0 "$RC"
+fi
+
+# --- the lock file ------------------------------------------------------------------------------
+
+if section "" "the lock file"; then
+reset "$INPUT_DELIVER"
+mkdir -p "$W/.niwa/dispatch-briefs"
+sleep 30 &
+HOLDER=$!
+printf '%s\n' "$HOLDER" >"$W/.niwa/dispatch-briefs/.plugin-api.lock"
+run >/dev/null 2>&1; RC=$?
+eq  "lock file held by a live run: exit 7" 7 "$RC"
+kill "$HOLDER" >/dev/null 2>&1
+wait "$HOLDER" >/dev/null 2>&1
+run >/dev/null 2>&1; RC=$?
+eq  "lock file, its owner gone: taken over" 0 "$RC"
+[ -e "$W/.niwa/dispatch-briefs/.plugin-api.lock" ] && bad "lock file: released after the run" "" || ok "lock file: released after the run"
+fi
+
+# --- racing takers ------------------------------------------------------------------------------
+#
+# Five runs take one topic's lock at once, under a mkdir that reports success
+# for a directory that already exists, the way uutils mkdir (Ubuntu 26.04) did
+# when it lost the race to create one. The run that gets the lock is held at
+# its first record read, so the others all try while it is inside.
+
+if section "" "racing takers"; then
+reset "$INPUT_DELIVER"
+RACE="$T/race"
+rm -rf "$RACE"
+mkdir -p "$RACE/bin"
+printf '#!/bin/sh\nexec %s -p "$@"\n' "$(command -v mkdir)" >"$RACE/bin/mkdir"
+cat >"$RACE/holding.sh" <<EOF
+#!/usr/bin/env bash
+if [ "\${1-}" = --read ]; then
+    : >"$RACE/in.\$\$"
+    n=0
+    until [ -e "$RACE/release" ] || [ "\$n" -ge 150 ]; do sleep 0.1; n=\$((n + 1)); done
+fi
+exec "$T/state-holding.sh" "\$@"
+EOF
+chmod +x "$RACE/bin/mkdir" "$RACE/holding.sh"
+PIDS=""
+for i in 1 2 3 4 5; do
+    (cd "$W/inst" && PATH="$RACE/bin:$PATH" DC_RECORD_HOLDING="$RACE/holding.sh" bash "$S" --session coord >/dev/null 2>&1
+     echo "$?" >"$RACE/rc.$i") &
+    PIDS="$PIDS $!"
+done
+n=0
+until [ "$(ls "$RACE" | grep -c '^rc\.')" -ge 4 ] || [ "$n" -ge 150 ]; do sleep 0.1; n=$((n + 1)); done
+eq  "five runs racing for one topic's lock: exactly one wins" 1 "$(ls "$RACE" | grep -c '^in\.')"
+: >"$RACE/release"
+# shellcheck disable=SC2086
+wait $PIDS
+eq  "  ... and the other four exit 7" 4 "$(cat "$RACE"/rc.* | grep -c '^7$')"
+fi
 
 # --- the record's script missing -------------------------------------------------------------------------
 
+if section "" "the record's script missing"; then
 reset "$INPUT_DELIVER"
 ERR=$(cd "$W/inst" && DC_RECORD_HOLDING="$T/absent.sh" bash "$S" --session coord 2>&1 >/dev/null); RC=$?
 eq  "no record script: exit 2" 2 "$RC"
 has "no record script: says so" "$ERR" "state-holding.sh is not installed"
 eq  "no record script: nothing launched" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+fi
 
 # --- the leg keys (PRD R13) ---------------------------------------------------------------------------------
 
 lkey() { cat "$ST/ctx/legs/$1/$2" 2>/dev/null; }
+if section "deliver" "the leg keys"; then
 reset "$INPUT_DELIVER"
 run >/dev/null 2>&1
 eq  "legkey: a dispatch on a leg writes its key, open, with the worker, the declaration and the unit" \
     '{"request":"req_1","leg":"deliver","topic":"plugin-api","state":"open","templates":["deliver.md"],"inputs":{"TOPIC":"plugin-api"},"unit":"Feature 2: the plugin API"}' \
-    "$(lkey req_1 deliver)"
+    "$(lkey req_1 deliver | jq -c 'del(.opened)')"
+eq  "legkey: and the UTC time the leg was opened" true \
+    "$(lkey req_1 deliver | jq '.opened | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")')"
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature (2): the plugin API"')"
 printf '%s' "$PICK_ROADMAP" | jq -c '.units[1].unit = "Feature (2)"' >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1
@@ -1245,6 +1540,9 @@ reset "$INPUT_DELIVER"
 NIWA_MODE=fail; export NIWA_MODE
 run >/dev/null 2>&1
 eq  "legkey: a failed launch's leg reads spent" spent "$(lkey req_1 deliver | jq -r .state)"
+fi
+
+if section "scope" "the leg keys: --releg"; then
 reset "$INPUT_SCOPE"
 run >/dev/null 2>&1
 printf 'plugin-api' >"$ST/ctx/report_topic"
@@ -1254,9 +1552,201 @@ printf '{"requests":[{"request_id":"req_1","coordinator_of_record":"coordinate-p
 run --releg >/dev/null 2>&1
 eq  "legkey: --releg marks the spent leg's key replaced" replaced "$(lkey req_1 scope | jq -r .state)"
 eq  "  ... and writes the new leg's key open" "open plugin-api" "$(lkey req_2 scope | jq -r '"\(.state) \(.topic)"')"
+fi
+
+# --- a leg no holding names (shirabe#1756) ------------------------------------------------------------------
+#
+# A run that stops after opening its leg and before writing the row that
+# names it releases the leg: the request is abandoned, the key marked spent,
+# and stderr says what was left. The exit code is the one the stop had.
+
+if section "deliver" "a leg no holding names: a failed holding write"; then
+reset "$INPUT_DELIVER"
+export RECORD_WRITE_MODE=full
+run >/dev/null 2>"$T/unclaimed.err"; RC=$?
+ERR=$(cat "$T/unclaimed.err")
+eq  "unclaimed: a failed holding write still exits 2" 2 "$RC"
+has "  ... the request it opened is abandoned" "$(calls)" "koto request abandon-request req_1"
+eq  "  ... and no longer leaves that leg open: its key reads spent" spent "$(lkey req_1 deliver | jq -r .state)"
+eq  "  ... no holding is written" "" "$(ls "$ST/rows")"
+eq  "  ... no worker is launched" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+has "  ... stderr names the released leg" "$ERR" "released the leg req_1:deliver, which no holding names: its request req_1 is abandoned"
+has "  ... and the key it marked" "$ERR" "the leg key for req_1:deliver is marked spent"
+# A re-run starts clean: a new request with its key open, the old key spent.
+unset RECORD_WRITE_MODE
+: >"$ST/calls.log"
+run >/dev/null 2>&1; RC=$?
+eq  "unclaimed: a re-run dispatches" "0 dispatched" "$RC $(row dispatch_status)"
+eq  "  ... on a new leg" "leg req_2:deliver" "$(row return_path)"
+eq  "  ... whose key is open" open "$(lkey req_2 deliver | jq -r .state)"
+eq  "  ... and the released key stays spent" spent "$(lkey req_1 deliver | jq -r .state)"
+
+reset "$INPUT_DELIVER"
+export RECORD_WRITE_MODE=refuse
+run >/dev/null 2>&1; RC=$?
+eq  "unclaimed: a refused holding write still exits 8" 8 "$RC"
+has "  ... and releases the leg" "$(calls)" "koto request abandon-request req_1"
+eq  "  ... its key spent" spent "$(lkey req_1 deliver | jq -r .state)"
+
+reset "$INPUT_DELIVER"
+export RECORD_WRITE_MODE=full KOTO_ABANDON_FAIL=1
+run >/dev/null 2>"$T/unclaimed.err"; RC=$?
+eq  "unclaimed: an abandon that fails leaves the exit as it was" 2 "$RC"
+has "  ... and says the request stays open" "$(cat "$T/unclaimed.err")" \
+    "could not abandon request req_1, which no holding names: it stays open until the next dispatch of plugin-api abandons it"
+eq  "  ... the key is marked spent all the same" spent "$(lkey req_1 deliver | jq -r .state)"
+
+reset "$INPUT_DELIVER"
+export KOTO_LEG_PUT_FAIL=1
+run >/dev/null 2>"$T/unclaimed.err"; RC=$?
+eq  "unclaimed: a leg key that can't be written: exit 2" 2 "$RC"
+has "  ... the request just created is abandoned" "$(calls)" "koto request abandon-request req_1"
+has "  ... and stderr says no key was written" "$(cat "$T/unclaimed.err")" "req_1:deliver has no leg key: none was written"
+fi
+
+if section "" "a leg no holding names: the message path"; then
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "explore" | .entry_args = ["plugin-api"]')"
+export RECORD_WRITE_MODE=full
+run >/dev/null 2>"$T/unclaimed.err"; RC=$?
+eq  "unclaimed: a message-path dispatch whose write fails: exit 2" 2 "$RC"
+lacks "  ... opens and abandons no request" "$(calls)" "koto request"
+lacks "  ... and releases nothing" "$(cat "$T/unclaimed.err")" "released"
+fi
+
+if section "deliver" "a leg no holding names: a written row and a failed launch"; then
+reset "$INPUT_DELIVER"
+run >/dev/null 2>&1
+lacks "unclaimed: a dispatch whose row is written releases nothing" "$(calls)" "abandon-request"
+eq  "  ... its key stays open" open "$(lkey req_1 deliver | jq -r .state)"
+reset "$INPUT_DELIVER"
+export NIWA_MODE=fail
+run >/dev/null 2>&1
+eq  "unclaimed: a failed launch abandons its request once" 1 "$(grep -c 'abandon-request req_1' "$ST/calls.log")"
+fi
+
+# A --releg whose row write fails: the new request is released, and the
+# holding and the old key stay as they were.
+if section "scope" "a leg no holding names: --releg"; then
+reset "$INPUT_SCOPE"
+run >/dev/null 2>&1
+printf 'plugin-api' >"$ST/ctx/report_topic"
+rm -f "$ST/ctx/coord/pick.json"
+spent resolved explicit
+printf '{"requests":[{"request_id":"req_1","coordinator_of_record":"coordinate-plugin-api","request_state":"open"}]}\n' >"$ST/open_requests.json"
+: >"$ST/calls.log"
+export RECORD_WRITE_MODE=full
+run --releg >/dev/null 2>&1; RC=$?
+eq  "unclaimed: a --releg whose row write fails: exit 2" 2 "$RC"
+has "  ... abandons the new request" "$(calls)" "koto request abandon-request req_2"
+eq  "  ... marks its key spent" spent "$(lkey req_2 scope | jq -r .state)"
+eq  "  ... leaves the old key unreplaced" open "$(lkey req_1 scope | jq -r .state)"
+eq  "  ... and the holding on the old leg" "leg req_1:scope" "$(row return_path)"
+fi
+
+# --- a re-dispatch's earlier legs (shirabe#1759) -------------------------------------------------------------
+#
+# A plain dispatch of a topic ends the topic's earlier leg keys still reading
+# open once its row names the new leg, as --releg does: each one whose request
+# is no longer open is marked replaced. That covers the request this dispatch
+# abandons and a key an earlier re-dispatch left open. Another topic's keys,
+# keys in any other state, a request still open and one this host doesn't hold
+# are left as they are, and nothing here stops the dispatch.
+
+# seed_leg <request> <leg> <topic> <state>: a leg key an earlier dispatch wrote.
+seed_leg() {
+    mkdir -p "$ST/ctx/legs/$1"
+    jq -nc --arg r "$1" --arg l "$2" --arg t "$3" --arg s "$4" \
+        '{request: $r, leg: $l, topic: $t, state: $s, templates: ["deliver.md"], inputs: {}}' >"$ST/ctx/legs/$1/$2"
+}
+# req_view <request> <request_state> <leg> <disposition>: koto's view of it.
+req_view() {
+    mkdir -p "$ST/requests"
+    jq -nc --arg r "$1" --arg s "$2" --arg l "$3" --arg d "$4" \
+        '{request_id: $r, request_state: $s, legs: {($l): {name: $l, disposition: $d, bound_child: null}}}' >"$ST/requests/$1.json"
+}
+# left_state <request> <leg>: the key's state, a key still open as the report has it.
+left_state() { lkey "$1" "$2" | jq -r 'if .state == "open" then "still reads open" else .state end'; }
+
+if section "deliver" "a re-dispatch's earlier legs: the request it abandons"; then
+reset "$INPUT_DELIVER"
+seed_leg req_7 deliver plugin-api open
+req_view req_7 closed deliver open
+printf '{"requests":[{"request_id":"req_7","coordinator_of_record":"coordinate-plugin-api","request_state":"open"}]}\n' >"$ST/open_requests.json"
+run >/dev/null 2>"$T/left.err"; RC=$?
+eq  "redispatch: dispatches" "0 dispatched" "$RC $(row dispatch_status)"
+has "  ... abandons the earlier request" "$(calls)" "koto request abandon-request req_7"
+eq  "  ... the holding is on the new leg" "leg req_1:deliver" "$(row return_path)"
+eq  "  ... whose key is open" open "$(lkey req_1 deliver | jq -r .state)"
+eq  "  ... and the earlier leg's key is replaced" replaced "$(left_state req_7 deliver)"
+has "  ... stderr names the key it marked" "$(cat "$T/left.err")" \
+    "the leg key for req_7:deliver, left open by an earlier dispatch of plugin-api, is marked replaced"
+fi
+
+if section "deliver" "a re-dispatch's earlier legs: a key left open before"; then
+reset "$INPUT_DELIVER"
+seed_leg req_7 deliver plugin-api open
+req_view req_7 closed deliver open
+run >/dev/null 2>"$T/left.err"; RC=$?
+eq  "redispatch: a key left open by an earlier re-dispatch: dispatches" "0 dispatched" "$RC $(row dispatch_status)"
+lacks "  ... its request is already closed: nothing to abandon" "$(calls)" "abandon-request req_7"
+eq  "  ... and its key is replaced" replaced "$(left_state req_7 deliver)"
+has "  ... stderr names it" "$(cat "$T/left.err")" "the leg key for req_7:deliver, left open by an earlier dispatch of plugin-api, is marked replaced"
+fi
+
+if section "deliver" "a re-dispatch's earlier legs: what it leaves"; then
+reset "$INPUT_DELIVER"
+seed_leg req_8 deliver other-topic open
+req_view req_8 closed deliver open
+seed_leg req_9 deliver plugin-api open
+req_view req_9 open deliver open
+seed_leg req_10 deliver plugin-api open
+seed_leg req_11 deliver plugin-api spent
+req_view req_11 closed deliver resolved
+seed_leg req_12 deliver plugin-api taken
+req_view req_12 closed deliver resolved
+run >/dev/null 2>"$T/left.err"; RC=$?
+ERR=$(cat "$T/left.err")
+eq  "redispatch: keys it leaves: dispatches" "0 dispatched" "$RC $(row dispatch_status)"
+eq  "  ... another topic's open key stays open" open "$(lkey req_8 deliver | jq -r .state)"
+eq  "  ... a key whose request is still open stays open" open "$(lkey req_9 deliver | jq -r .state)"
+has "  ... and stderr says so" "$ERR" "the leg key for req_9:deliver reads open and its request is still open: left as it is"
+eq  "  ... a key whose request this host doesn't hold stays open" open "$(lkey req_10 deliver | jq -r .state)"
+has "  ... and is left to reconcile-legs.sh" "$ERR" "this host's store doesn't hold request req_10: left for reconcile-legs.sh"
+eq  "  ... a spent key stays spent" spent "$(lkey req_11 deliver | jq -r .state)"
+eq  "  ... a taken key stays taken" taken "$(lkey req_12 deliver | jq -r .state)"
+eq  "  ... the new leg's key is open" open "$(lkey req_1 deliver | jq -r .state)"
+lacks "  ... and nothing else is marked" "$ERR" "is marked replaced"
+
+reset "$INPUT_DELIVER"
+seed_leg req_7 deliver plugin-api open
+printf '1' >"$ST/request_get.rc"
+run >/dev/null 2>"$T/left.err"; RC=$?
+eq  "redispatch: a request read that fails still dispatches" "0 dispatched" "$RC $(row dispatch_status)"
+eq  "  ... and leaves the key open" open "$(lkey req_7 deliver | jq -r .state)"
+has "  ... saying so" "$(cat "$T/left.err")" "could not read request req_7: the leg key for req_7:deliver may still read open"
+
+reset "$INPUT_DELIVER"
+seed_leg req_7 deliver plugin-api open
+req_view req_7 closed deliver open
+chmod 444 "$ST/ctx/legs/req_7/deliver"
+run >/dev/null 2>"$T/left.err"; RC=$?
+chmod 644 "$ST/ctx/legs/req_7/deliver"
+eq  "redispatch: a mark that fails still dispatches" "0 dispatched" "$RC $(row dispatch_status)"
+has "  ... saying the key still reads open" "$(cat "$T/left.err")" "could not mark the leg key for req_7:deliver replaced: it still reads open"
+fi
+
+if section "" "a re-dispatch's earlier legs: the message path"; then
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "explore" | .entry_args = ["plugin-api"]')"
+seed_leg req_7 deliver plugin-api open
+req_view req_7 closed deliver open
+run >/dev/null 2>&1; RC=$?
+eq  "redispatch: a message-path re-dispatch: dispatches" "0 message" "$RC $(row return_path)"
+eq  "  ... and replaces the topic's earlier key" replaced "$(left_state req_7 deliver)"
+fi
 
 # --- a stranded holding (PRD R15; shirabe#732) ---------------------------------------------------------------
 
+if section "deliver" "a stranded holding"; then
 PUSHED=cccccccccccccccccccccccccccccccccccccccc
 stranded_row() {
     jq -nc --arg h "$PUSHED" '{unit: "Feature 2: the plugin API", entry_point: "deliver", mode: "--auto --no-merge", phase: "executing",
@@ -1283,9 +1773,11 @@ stranded_row
 run >/dev/null 2>&1
 has "stranded: another unit's stranded row isn't named" "$(cat "$W/.niwa/dispatch-briefs/relaunch.md")" "None beyond what the documents you read record."
 [ -f "$ST/rows/plugin-api.json" ] && ok "  ... or retired" || bad "  ... or retired" ""
+fi
 
 # --- --releg-imported: a worker that moved here with the session (PRD R15) ------------------------------------
 
+if section "deliver" "--releg-imported"; then
 # The holding plugin-api reports on leg req_9:deliver, which this host's store
 # never held (the stand-in answers 2 for it); the child deliver-plugin-api,
 # bound to it on the old host, came here with the import and is bound to
@@ -1427,6 +1919,7 @@ imp_setup
 jq -c '.unit = "Feature 2: the plugin API"' "$ST/ctx/legs/req_9/deliver" >"$T/k" && mv "$T/k" "$ST/ctx/legs/req_9/deliver"
 run --releg-imported plugin-api >/dev/null 2>&1
 eq  "imported: an old key's unit is carried to the new key" '"Feature 2: the plugin API"' "$(lkey req_1 deliver | jq -c .unit)"
+fi
 
 # --- the dispatched event ----------------------------------------------------------------------------------
 # A confirmed launch sends one `dispatched` event through the stand-in helper,
@@ -1438,7 +1931,7 @@ CS=coordinate-roadmap-plugin-system-20261030T090000Z
 PA_S=plugin_api-""1a2b3c4d
 crun() { (cd "$W/inst" && bash "$S" --session "$CS" "$@"); }
 emits() { cat "$ST/emit.calls" 2>/dev/null; }
-
+if section "deliver scope" "the dispatched event"; then
 reset "$INPUT_DELIVER"
 BEFORE=$(date -u +%s)
 OUT=$(crun 2>/dev/null); RC=$?
@@ -1516,6 +2009,7 @@ OUT=$(crun 2>"$T/emit-missing.err"); RC=$?
 mv "$T/emit-event.aside" "$DW/scripts/emit-event.sh"
 eq  "a missing helper: the same exit, output and stderr" "$WANT" "$RC|$OUT|$(cat "$T/emit-missing.err")"
 eq  "  ... the row still dispatched" dispatched "$(row dispatch_status)"
+fi
 
 # --- the role on a coordinator's brief ---------------------------------------------------------------------
 #
@@ -1533,7 +2027,7 @@ role_line() { grep -F -- '--role' "$CBRIEF"; }
 INPUT_SUCC=$(jq -c '.entry_point = "coordinate" | .entry_args = ["docs/roadmaps/ROADMAP-plugin-system.md"] | .run_mode = "" | .grant = "own"' <<<"$INPUT_DELIVER")
 INPUT_LANE=$(jq -c '.entry_point = "coordinate" | .entry_args = ["docs/roadmaps/ROADMAP-sub.md"] | .run_mode = ""' <<<"$INPUT_DELIVER")
 POSTURE='{"grant_check":{"lookup":"answered","state":"bound","binding":"mapping","level":"autonomous","grant":["merge-pr","close-issue"],"parent":{"instance":"ws+root-coord"}}}'
-
+if section "" "the role on a coordinator's brief"; then
 # A successor, the fixture run recorded director: --role director.
 reset "$INPUT_SUCC"; export RECORD_ROLE=director NIWA_HELP=grant; printf '%s' "$POSTURE" >"$ST/ctx/coord/posture.json"
 rrun >/dev/null 2>"$T/err"; eq "role: a successor dispatch exits 0" 0 "$?"
@@ -1570,13 +2064,18 @@ for rec in manager director; do
     eval "LANE_$rec=\$(grep '^niwa dispatch' \"\$ST/calls.log\")"
 done
 eq  "role: a lane's whole niwa dispatch, prompt and grant, is byte-identical for a run recorded manager or director" "$LANE_manager" "$LANE_director"
+fi
+
+if section "deliver" "the role: a worker's brief has none"; then
 # A worker: no role line, whatever the input gave.
 reset "$INPUT_DELIVER"; run >/dev/null 2>&1; cp "$CBRIEF" "$T/plain.md"; cp "$ST/prompt" "$T/plain.prompt"
 reset "$(jq -c '.role = "manager" | .held_rerender = true | .role_change_by = "lane-coord"' <<<"$INPUT_DELIVER")"; export RECORD_ROLE=director
 run >/dev/null 2>&1; eq "role: a worker dispatch with role fields in its input exits 0" 0 "$?"
 cmp -s "$CBRIEF" "$T/plain.md" && ok "role: ... its brief is byte-identical to one without them" || bad "role: ... its brief is byte-identical to one without them" "$(diff "$T/plain.md" "$CBRIEF")"
 cmp -s "$ST/prompt" "$T/plain.prompt" && ok "role: ... and so is its prompt" || bad "role: ... and so is its prompt"
+fi
 
+if section "" "role_change on a held lane"; then
 # role_change on a --rebrief of a held coordinate lane: --role <new> with this
 # run's own address (its Run coordinator row, the brief's reports_to) as
 # --role-change-by, whatever the input names.
@@ -1626,6 +2125,7 @@ rrun --rebrief >/dev/null 2>"$T/err"; eq "role_change: ... its role_change re-br
 has "role_change: ... naming the limit" "$(cat "$T/err")" "role_change_by: one address of 1 to 80 characters"
 cmp -s "$CBRIEF" "$T/before.md" && cmp -s "$ST/rows/plugin-api.json" "$T/before-row.json" && ok "role_change: ... nothing written" || bad "role_change: ... nothing written"
 eq  "role_change: ... no record write" "" "$(grep 'record write' "$ST/calls.log")"
+fi
 
 # role_change anywhere else: exit 1, the field named, nothing written or launched.
 rc_refused() { # rc_refused <label> <want in stderr> <args...>
@@ -1637,6 +2137,7 @@ rc_refused() { # rc_refused <label> <want in stderr> <args...>
     has "role_change refused, $label: names the field" "$(cat "$T/err")" "$want"
     eq "role_change refused, $label: nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|request create|abandon' "$ST/calls.log")"
 }
+if section "" "role_change refused"; then
 reset "$(jq -c '.role_change = "director"' <<<"$INPUT_LANE")"
 rc_refused "a new dispatch of a lane" "role_change: \"director\" on a new dispatch"
 reset "$INPUT_SUCC"; export RECORD_ROLE=director; rrun >/dev/null 2>&1; printf 'plugin-api' >"$ST/ctx/report_topic"
@@ -1647,10 +2148,15 @@ jq -c '.role_change = "director"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST
 rc_refused "with --releg" "role_change: \"director\" goes only on a --rebrief" --releg
 jq -c '.role_change = "lead"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
 rc_refused "a value other than manager or director" 'role_change: manager or director, not "lead"' --rebrief
+fi
+
+if section "deliver" "role_change refused on a worker holding"; then
 reset "$INPUT_DELIVER"; rrun >/dev/null 2>&1; printf 'plugin-api' >"$ST/ctx/report_topic"
 jq -c '.role_change = "director" | .entry_point = "coordinate"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
 rc_refused "a worker holding" "role_change: only a held coordinate lane takes it, and plugin-api is held on /shirabe:deliver" --rebrief
+fi
 
+if section "deliver work-on" "the role: /deliver and /work-on re-briefs render as before"; then
 # A /deliver re-brief and a /work-on re-brief render as they did before the
 # role fields: byte-identical to the brief the re-brief's input renders with
 # no role field, the input the holding's row builds, and with role fields in
@@ -1668,10 +2174,13 @@ for ep in deliver work-on; do
     run --rebrief >/dev/null 2>&1; eq "role: a /$ep re-brief with role fields in its input exits 0" 0 "$?"
     cmp -s "$CBRIEF" "$T/today.md" && ok "role: ... and renders byte-identical too" || bad "role: ... and renders byte-identical too" "$(diff "$T/today.md" "$CBRIEF")"
 done
+fi
+
 unset RECORD_ROLE RECORD_ADDRESS NIWA_HELP
 
 # --- holding-recorded.sh ----------------------------------------------------------------------------------
 
+if section "" "holding-recorded.sh"; then
 gate() { bash "$G" --session coord >/dev/null 2>&1; echo $?; }
 reset "$INPUT_DELIVER"
 eq  "gate: no holding is 1" 1 "$(gate)"
@@ -1695,6 +2204,235 @@ eq  "gate: a failed read is 2" 2 "$(gate)"
 unset RECORD_READ_MODE
 rm -f "$ST/ctx/dispatch_topic"
 eq  "gate: no dispatch_topic is 2" 2 "$(gate)"
+fi
+
+# --- --successor: the run's own successor ------------------------------------------------------------------
+#
+# docs/designs/DESIGN-coordinate-successor-role.md, Decisions 1, 2 and 4.
+# The mode reads successor_input.json and the run's facts, never pick: its
+# scope from coord-log.sh run-facts and vars (a stand-in here, through
+# DC_COORD_LOG), its role from the record's Run role row, and it writes the
+# Run successor row around the launch. Its own stand-in for the stored set's
+# script (SUCC_ROW, a Run successor row its --list prints) logs each
+# --successor write.
+if section "" "--successor: the run's own successor"; then
+cat >"$T/coord-log-succ.sh" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+    run-facts) [ "${CL_FACTS_RC:-0}" = 0 ] || exit "$CL_FACTS_RC"
+               printf '{"scope":"%s","name":"%s","repo":"%s"}\n' "${CL_SCOPE:-roadmap}" "${CL_NAME-plugin-system}" "${CL_REPO-acme/widgets}" ;;
+    vars) printf '{"SCOPE":"%s","ROADMAP":"%s","HOST_REPO":"acme/widgets"}\n' "${CL_SCOPE:-roadmap}" "${CL_ROADMAP-docs/roadmaps/ROADMAP-plugin-system.md}" ;;
+    *) exit 64 ;;
+esac
+EOF
+cat >"$T/state-stored-set-succ.sh" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1-}" != --list ]; then
+    printf 'state-stored-set %s\n' "$*" >>"$ST/calls.log"
+    exit "${SUCC_WRITE_RC:-0}"
+fi
+jq -nc --arg r "${RECORD_ROLE:-}" --arg s "${SUCC_ROW:-}" '{run: ([{key: "coordinator", value: "lane-coord", set_by: "lane-coord", set: "2026-09-26T08:00Z"}]
+    + (if $r == "" then [] else [{key: "role", value: $r, set_by: "the human", set: "2026-09-26T08:00Z"}] end)
+    + (if $s == "" then [] else [{key: "successor", value: $s, set_by: "coord", set: "2026-09-26T08:00Z"}] end)), standing: [], work: []}'
+EOF
+chmod +x "$T/coord-log-succ.sh" "$T/state-stored-set-succ.sh"
+SUCC_INPUT='{"topic": "plugin-system-successor-1", "authority": "You are working for the owner on acme/widgets.",
+  "goal": "Continue this roadmap from where its record stands.",
+  "checkpoints": ["The run is taken over and its first reconcile is reported."], "acceptance": ["The first report names this run."]}'
+SBRIEF="$W/.niwa/dispatch-briefs/plugin-system-successor-1.md"
+SUCC_GOAL='Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role manager` in acme/widgets.'
+# Split like PA_S, so the public-content check reads no session name here.
+SUCC_S=plugin_system_successor_1-""1a2b3c4d
+# sreset [successor input]: the stand-ins reset, the successor input in
+# context, and every worker input (brief_input.json, dispatch_topic,
+# coord/pick.json) removed, so the mode can't lean on them.
+sreset() {
+    reset "$INPUT_DELIVER"
+    rm -f "$ST/ctx/brief_input.json" "$ST/ctx/dispatch_topic" "$ST/ctx/coord/pick.json"
+    printf '%s' "${1:-$SUCC_INPUT}" >"$ST/ctx/successor_input.json"
+    export NIWA_NAME=$SUCC_S RECORD_ROLE=manager
+    unset CL_FACTS_RC CL_SCOPE CL_ROADMAP CL_NAME CL_REPO SUCC_ROW SUCC_WRITE_RC
+}
+srun() { (cd "$W/inst" && DC_COORD_LOG="$T/coord-log-succ.sh" DC_RECORD_STATE="$T/state-stored-set-succ.sh" bash "$S" --session coord --successor "$@"); }
+nothing_written() { # nothing_written <label>: no row write, launch, leg or brief
+    eq "$1: nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|request create|--successor' "$ST/calls.log")"
+    if [ -e "$SBRIEF" ]; then bad "$1: no brief" "$SBRIEF"; else ok "$1: no brief"; fi
+}
+
+sreset
+OUT=$(srun 2>"$T/err"); RC=$?
+eq  "successor: exit 0" 0 "$RC"
+eq  "successor: prints the session name" "session=$SUCC_S" "$OUT"
+SW1=$(grep -n 'state-stored-set --session coord --successor dispatching plugin-system-successor-1 --by coord$' "$ST/calls.log" | head -1 | cut -d: -f1)
+LAUNCH=$(grep -n '^niwa dispatch' "$ST/calls.log" | head -1 | cut -d: -f1)
+SW2=$(grep -n 'state-stored-set --session coord --successor dispatched plugin-system-successor-1 --by coord$' "$ST/calls.log" | head -1 | cut -d: -f1)
+if [ -n "$SW1" ] && [ -n "$LAUNCH" ] && [ "$SW1" -lt "$LAUNCH" ]; then ok "successor: the row is written dispatching before the launch"; else bad "successor: the row is written dispatching before the launch" "$(calls)"; fi
+if [ -n "$SW2" ] && [ -n "$LAUNCH" ] && [ "$SW2" -gt "$LAUNCH" ]; then ok "successor: ... and dispatched after"; else bad "successor: ... and dispatched after" "$(calls)"; fi
+eq  "successor: one launch" 1 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+eq  "successor: no holding, leg or request" "" "$(grep -E 'record write|request create' "$ST/calls.log")"
+has "successor: --skill shirabe:coordinate" "$(grep '^niwa dispatch' "$ST/calls.log")" "[--skill] [shirabe:coordinate]"
+has "successor: --name the topic" "$(grep '^niwa dispatch' "$ST/calls.log")" "[--name] [plugin-system-successor-1]"
+eq  "successor: the brief's Goal line, built from the run's facts and role row" "$SUCC_GOAL" "$(grep '^Run `/shirabe:coordinate ' "$SBRIEF")"
+has "successor: the prompt carries the same line" "$(cat "$ST/prompt")" "$SUCC_GOAL"
+has "successor: ... and the brief's path" "$(cat "$ST/prompt")" "Read $SBRIEF for your complete task brief"
+eq  "successor: the invocation line is the brief's only line naming a role" "$SUCC_GOAL" "$(grep -iwE 'managers?|directors?' "$SBRIEF")"
+has "successor: the brief reports to the record's address" "$(cat "$SBRIEF")" 'addressed to `lane-coord`'
+has "successor: ... and names this run as its dispatcher" "$(cat "$SBRIEF")" "--dispatched-by coord"
+
+# A director's run renders --role director, whatever the input says.
+sreset "$(jq -c '.role = "manager" | .successor = false' <<<"$SUCC_INPUT")"; export RECORD_ROLE=director
+OUT=$(srun 2>"$T/err"); RC=$?
+eq  "successor: a director's run exits 0" 0 "$RC"
+eq  "successor: ... rendering the record's role" 'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role director` in acme/widgets.' "$(grep '^Run `/shirabe:coordinate ' "$SBRIEF")"
+
+# Pick is never read: a pick.json holding every unit (a pause on all, an
+# owed verdict) changes nothing.
+sreset
+printf '%s' "$PICK_ROADMAP" | jq -c '.paused_all = "s1" | .units |= map(.verdict_owed = true)' >"$ST/ctx/coord/pick.json"
+OUT=$(srun 2>"$T/err"); RC=$?
+eq  "successor: a pick that holds every unit doesn't stop it" "0 session=$SUCC_S" "$RC $OUT"
+
+# The input may give entry_args and repo only as the run's own.
+sreset "$(jq -c '.entry_args = ["docs/roadmaps/ROADMAP-plugin-system.md"] | .repo = "acme/widgets"' <<<"$SUCC_INPUT")"
+OUT=$(srun 2>"$T/err"); eq "successor: entry_args and repo equal to the run's are taken" 0 "$?"
+sreset "$(jq -c '.entry_args = ["docs/roadmaps/ROADMAP-other.md"]' <<<"$SUCC_INPUT")"
+srun >/dev/null 2>"$T/err"; eq "successor: another roadmap in entry_args exits 1" 1 "$?"
+has "successor: ... naming both" "$(cat "$T/err")" 'ROADMAP-other.md'
+has "successor: ... and the run's" "$(cat "$T/err")" '["docs/roadmaps/ROADMAP-plugin-system.md"]'
+nothing_written "successor: another roadmap"
+sreset "$(jq -c '.repo = "acme/other"' <<<"$SUCC_INPUT")"
+srun >/dev/null 2>"$T/err"; eq "successor: another repo exits 1" 1 "$?"
+has "successor: ... naming both" "$(cat "$T/err")" 'the input gives "acme/other", and this run'"'"'s host is acme/widgets'
+nothing_written "successor: another repo"
+
+# Refusals before anything is written: no role row, a role_change, another
+# entry point, facts that can't be read, a discipline run, a roadmap that
+# fails its pattern.
+sreset; export RECORD_ROLE=
+srun >/dev/null 2>"$T/err"; eq "successor: no role row exits 1" 1 "$?"
+has "successor: ... naming the command that sets it" "$(cat "$T/err")" "state-stored-set.sh --session coord --run role"
+nothing_written "successor: no role row"
+sreset "$(jq -c '.role_change = "director"' <<<"$SUCC_INPUT")"
+srun >/dev/null 2>"$T/err"; eq "successor: a role_change exits 1" 1 "$?"
+has "successor: ... naming the field" "$(cat "$T/err")" "role_change:"
+nothing_written "successor: a role_change"
+sreset "$(jq -c '.entry_point = "deliver"' <<<"$SUCC_INPUT")"
+srun >/dev/null 2>"$T/err"; eq "successor: another entry point exits 1" 1 "$?"
+nothing_written "successor: another entry point"
+for rc in 1 2; do
+    sreset; export CL_FACTS_RC=$rc
+    srun >/dev/null 2>"$T/err"; eq "successor: run-facts exiting $rc exits 1" 1 "$?"
+    has "successor: ... saying the facts can't be read" "$(cat "$T/err")" "this run's facts can't be read"
+    nothing_written "successor: run-facts exiting $rc"
+done
+
+# A discipline run: the scope is --discipline <name> --host <owner/repo>,
+# from run-facts, with --role after the four tokens.
+DGOAL='Run `/shirabe:coordinate --discipline ci-health --host acme/widgets --role director` in acme/widgets.'
+dreset() { sreset "${1:-}"; export CL_SCOPE=discipline CL_NAME=ci-health CL_ROADMAP="" RECORD_ROLE=director; }
+dreset
+OUT=$(srun 2>"$T/err"); RC=$?
+eq  "successor: a discipline run exits 0" "0 session=$SUCC_S" "$RC $OUT"
+eq  "successor: ... its Goal line the discipline invocation" "$DGOAL" "$(grep '^Run `/shirabe:coordinate ' "$SBRIEF")"
+has "successor: ... and the prompt the same" "$(cat "$ST/prompt")" '`/shirabe:coordinate --discipline ci-health --host acme/widgets --role director`'
+has "successor: ... the row written dispatched" "$(calls)" "--successor dispatched plugin-system-successor-1 --by coord"
+eq  "successor: ... the invocation line the brief's only line naming a role" "$DGOAL" "$(grep -iwE 'managers?|directors?' "$SBRIEF")"
+dreset "$(jq -c '.entry_args = ["--discipline", "ci-health", "--host", "acme/widgets"] | .repo = "acme/widgets"' <<<"$SUCC_INPUT")"
+OUT=$(srun 2>"$T/err"); eq "successor: a discipline input giving exactly the derived scope and repo is taken" "0 session=$SUCC_S" "$? $OUT"
+for c in 'entry_args:["--discipline", "release", "--host", "acme/widgets"]:release' \
+         'entry_args:["--discipline", "ci-health", "--host", "acme/other"]:acme/other' \
+         'repo:"acme/other":acme/other'; do
+    field=${c%%:*} rest=${c#*:}; val=${rest%:*} want=${rest##*:}
+    dreset "$(jq -c --arg f "$field" --argjson v "$val" '.[$f] = $v' <<<"$SUCC_INPUT")"
+    srun >/dev/null 2>"$T/err"; eq "successor: a discipline input whose $field names $want exits 1" 1 "$?"
+    has "successor: ... naming the input's value" "$(cat "$T/err")" "$want"
+    if [ "$field" = repo ]; then has "successor: ... and the run's" "$(cat "$T/err")" "this run's host is acme/widgets"
+    else has "successor: ... and the run's" "$(cat "$T/err")" '["--discipline","ci-health","--host","acme/widgets"]'; fi
+    nothing_written "successor: a discipline input whose $field names $want"
+done
+# Facts the stand-in reports wrong: a name starting with -, then a host that
+# isn't owner/repo.
+dreset; export CL_NAME=-x
+srun >/dev/null 2>"$T/err"; eq "successor: a discipline named -x exits 1" 1 "$?"
+has "successor: ... naming the token" "$(cat "$T/err")" "[-x]"
+nothing_written "successor: a discipline named -x"
+dreset; export CL_NAME=CI_Health
+srun >/dev/null 2>"$T/err"; eq "successor: a discipline name outside its pattern exits 1" 1 "$?"
+has "successor: ... naming the token" "$(cat "$T/err")" "[CI_Health]"
+nothing_written "successor: a discipline name outside its pattern"
+for h in acme -x/widgets; do
+    dreset; export CL_REPO=$h
+    srun >/dev/null 2>"$T/err"; eq "successor: a discipline host of [$h] exits 1" 1 "$?"
+    has "successor: ... naming the token" "$(cat "$T/err")" "[$h]"
+    nothing_written "successor: a discipline host of [$h]"
+done
+for rc in 1 2; do
+    dreset; export CL_FACTS_RC=$rc
+    srun >/dev/null 2>"$T/err"; eq "successor: a discipline run's run-facts exiting $rc exits 1" 1 "$?"
+    nothing_written "successor: a discipline run's run-facts exiting $rc"
+done
+dreset; export RECORD_ROLE=
+srun >/dev/null 2>"$T/err"; eq "successor: a discipline run with no role row exits 1" 1 "$?"
+has "successor: ... naming the command that sets it" "$(cat "$T/err")" "state-stored-set.sh --session coord --run role"
+nothing_written "successor: a discipline run with no role row"
+for bad_rm in -x docs/roadmaps/plugin-system.md; do
+    sreset; export CL_ROADMAP=$bad_rm
+    srun >/dev/null 2>"$T/err"; eq "successor: a ROADMAP of [$bad_rm] exits 1" 1 "$?"
+    nothing_written "successor: a ROADMAP of [$bad_rm]"
+done
+sreset "$(jq -c 'del(.goal)' <<<"$SUCC_INPUT")"
+srun >/dev/null 2>"$T/err"; eq "successor: an input the renderer refuses exits 1" 1 "$?"
+has "successor: ... with the renderer's reason" "$(cat "$T/err")" "goal: required"
+nothing_written "successor: an input the renderer refuses"
+
+# The row as it stands: a failed or stranded row of this topic exits 3; one
+# of another topic lets a new attempt through.
+for st in dispatch-failed stranded; do
+    sreset; export SUCC_ROW="$st plugin-system-successor-1 2026-09-26"
+    srun >/dev/null 2>"$T/err"; eq "successor: a $st row of this topic exits 3" 3 "$?"
+    nothing_written "successor: a $st row of this topic"
+    sreset; export SUCC_ROW="$st plugin-system-successor-0 2026-09-26"
+    OUT=$(srun 2>"$T/err"); eq "successor: a $st row of another topic takes a new attempt" "0 session=$SUCC_S" "$? $OUT"
+done
+# A live session on the topic exits 5; the writer refusing the row exits 2.
+sreset; printf '[{"name":"x","path":"/p","session_name":"%s"}]\n' "$SUCC_S" >"$ST/sessions.json"
+srun >/dev/null 2>"$T/err"; eq "successor: a live session on the topic exits 5" 5 "$?"
+nothing_written "successor: a live session on the topic"
+sreset; export SUCC_WRITE_RC=65
+srun >/dev/null 2>"$T/err"; eq "successor: a refused row write exits 2" 2 "$?"
+eq  "successor: ... launching nothing" "" "$(grep '^niwa dispatch' "$ST/calls.log")"
+sreset; export SUCC_WRITE_RC=10
+srun >/dev/null 2>"$T/err"; eq "successor: a record that refuses the write exits 8" 8 "$?"
+# A failed launch: the row reads dispatch-failed.
+sreset; export NIWA_MODE=fail
+srun >/dev/null 2>"$T/err"; eq "successor: a failed launch exits 4" 4 "$?"
+has "successor: ... the row rewritten dispatch-failed" "$(calls)" "--successor dispatch-failed plugin-system-successor-1 --by coord"
+lacks "successor: ... and never dispatched" "$(calls)" "--successor dispatched "
+# The run's lock, held by a live process, exits 7.
+sreset
+mkdir -p "$W/.niwa/dispatch-briefs"; printf '%s\n' "$$" >"$W/.niwa/dispatch-briefs/.successor.coord.lock"
+srun >/dev/null 2>"$T/err"; eq "successor: another run holding the run's lock exits 7" 7 "$?"
+rm -f "$W/.niwa/dispatch-briefs/.successor.coord.lock"
+# --successor goes alone.
+for other in --rebrief --releg "--releg-imported plugin-api"; do
+    sreset
+    # shellcheck disable=SC2086
+    (cd "$W/inst" && bash "$S" --session coord --successor $other >/dev/null 2>&1); eq "successor: with $other is a usage error" 2 "$?"
+done
+
+# On the worker path the field is dropped: a worker input naming it
+# dispatches as it would without it.
+reset "$(jq -c '.successor = true' <<<"$INPUT_DELIVER")"
+OUT=$(run 2>"$T/err"); RC=$?
+eq  "successor: a worker input carrying successor still dispatches" "0 session=$PA_S" "$RC $OUT"
+# A coordinate brief_input.json giving the discipline shape and successor
+# itself is a lane's: the field is dropped, so the shape is refused.
+reset "$(jq -c '.entry_point = "coordinate" | .entry_args = ["--discipline", "ci-health", "--host", "acme/widgets"] | .run_mode = "" | .successor = true' <<<"$INPUT_DELIVER")"
+run >/dev/null 2>"$T/err"; eq "successor: a worker-path coordinate input setting successor with the discipline shape exits 1" 1 "$?"
+has "successor: ... with the first-token refusal" "$(cat "$T/err")" "entry_args: the first token must be the positional argument, one line, not a flag"
+eq  "successor: ... nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|request create|--successor' "$ST/calls.log")"
+unset RECORD_ROLE NIWA_MODE
+fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

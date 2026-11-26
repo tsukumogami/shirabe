@@ -44,6 +44,15 @@
 # Reads: coord-log.sh run-facts; the record, its host facts and the
 # predecessor's reasoning through state-read.sh. Nothing on GitHub.
 #
+# Before each part it reads, it prints `reconcile-read: reading <part>` to
+# stderr: the run's facts, the record's sections, the record's host facts,
+# and the rotation and the predecessor's reasoning. reconcile-pass.sh keeps
+# that stderr, so when its own deadline cuts the read its refusal names the
+# part the time ran out in.
+#
+# RECONCILE_READ_DEADLINE (default 8, at most 60) is the deadline for each
+# read; reconcile-pass.sh sets it to its own budget for the whole read.
+#
 # Requires: bash 3.2+, jq, koto.
 set -uo pipefail
 
@@ -78,6 +87,8 @@ refuse() {  # refuse CODE STATUS REASON
     jq -nc --arg s "$2" --arg r "$3" '{status: $s, reason: $r}'
     exit "$1"
 }
+# stage PART -- say which part of the read comes next (stderr only).
+stage() { echo "reconcile-read: reading $1" >&2; }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-read.XXXXXX") || refuse 5 failed "no temporary directory could be made"
 trap 'rm -rf "$T"' EXIT
@@ -93,6 +104,7 @@ if [ -n "$SCOPE$NAME$REPO" ]; then
     RS=${RS_SESSION:-}
 else
     [ -n "$SESSION" ] || usage
+    stage "the run's facts"
     FACTS=$(rd_deadline "$DEADLINE" "$RD_COORD_LOG" run-facts --session "$SESSION" 2>/dev/null)
     case $? in
         0) ;;
@@ -120,6 +132,7 @@ session_view() {
     RS_SESSION=$RS rs_record "$T/rec" "$RD_FIELDS" || return $?
     cat "$T/rec"
 }
+stage "the record's sections"
 rd_deadline "$DEADLINE" session_view > "$T/view.json" 2>/dev/null
 case $? in
     0) ;;
@@ -134,6 +147,7 @@ jq -c '. + {unparseable: []}' "$T/view.json" > "$T/record.json" 2>/dev/null \
 # facts. A run that was never imported has none.
 IMPORT=null
 if [ -n "$SESSION" ]; then
+    stage "the record's host facts"
     rs_host "$SESSION" "$T/host" || refuse 5 failed "the record's host facts could not be read"
     IMPORT=$(jq -c 'if (.source_session // "") == "" then null
         else {source_workspace: (.source_workspace // ""), source_session, template_hash: (.template_hash // "")} end' "$T/host") \
@@ -149,6 +163,7 @@ REASONING=null
 [ -n "$REASONING_OUT" ] && [ -f "$REASONING_OUT" ] && rm -f "$REASONING_OUT"
 if [ "$SCOPE" = discipline ]; then
     REASONING='"absent"'
+    stage "the rotation and the predecessor's reasoning"
     rs_rotation "$RS" "$T/rotation"
     case $? in
         0) PRED=$(jq -r '.predecessor // ""' "$T/rotation") ;;

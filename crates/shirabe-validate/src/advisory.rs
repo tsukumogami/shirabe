@@ -108,6 +108,7 @@ fn remedy_for(code: &str) -> &'static str {
         }
         "L06" => "tick every outline acceptance criterion before ready",
         "L07" => "move the design to its canonical location before ready",
+        "L11" => "write the decision and rationale, then move the design to Proposed with `shirabe transition` before ready",
         _ => "resolve this finding before ready",
     }
 }

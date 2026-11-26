@@ -30,6 +30,7 @@ rationale: |
   as they did. Deriving the kind and deferring the `--chain` flag was weighed
   and rejected because it leaves lane, fix and release waits in Ongoing,
   where they read as active work.
+upstream: docs/briefs/BRIEF-coordinate-blocked-kinds.md
 ---
 
 # DESIGN: Coordinate Blocked Kinds

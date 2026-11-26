@@ -32,6 +32,14 @@
 #   carry               into an empty session (every key, run/setup last);
 #                       over equal keys (an interrupted carry); over a
 #                       differing key (67, nothing written)
+#   cleanup carry       a carry of run/setup, run/node/x and run/cleanup/x
+#                       writes all three; a cleanup key with an unknown field
+#                       refuses
+#   pin                 owns only a cleanup key's fields, which only pin and
+#                       carry may write; a cleanup key's path and pin checked;
+#                       an absent key written with no run/setup; an equal one
+#                       left alone; a different one kept with `kept=<key>`,
+#                       exit 0
 #   reader              rr_cascade not-run / pushed / failed; rr_record `{}`;
 #                       rr_setup absent (1) vs a failing exists (2); rr_keys
 #                       ignoring keys outside the layout; rr_record refusing a
@@ -115,6 +123,7 @@ run/node/pr-repo-a-core|repo|\"acme/repo-a\"|push recover carry
 run/node/pr-repo-a-core|pr|11|push recover carry
 run/node/pr-repo-a-core|head|\"$CT_HEAD\"|push recover carry
 run/node/pr-repo-a-core|deferrals|[]|push recover carry
+run/node/pr-repo-a-core|reruns|[]|push recover carry
 run/node/pr-repo-a-core|public_reason|\"verified by hosted CI\"|push recover carry
 run/node/pr-repo-a-core|merged_head|\"$CT_HEAD\"|observe recover carry
 $FU|repo|\"acme/repo-a\"|follow-up recover carry
@@ -148,6 +157,35 @@ while IFS='|' read -r key field value owners; do
 done <<EOF
 $TABLE
 EOF
+# The cleanup kind's rows, which only pin and carry own, and pin against every
+# row above: pin owns no field of any other kind.
+CLEANUP_TABLE="run/cleanup/single|path|\"/work/tree\"|pin carry
+run/cleanup/single|pin|\"$CT_HEAD\"|pin carry"
+while IFS='|' read -r key field value owners; do
+    [ -n "$key" ] || continue
+    bad=""
+    for verb in $VERBS pin; do
+        case " $owners " in *" $verb "*) continue ;; esac
+        rec "$verb" "{\"$key\":{\"$field\":$value}}"
+        if [ "$RC" -ne 65 ] || [ "$OUT" != "refused=not-owner key=$key field=$field" ]; then
+            bad="$bad $verb(rc=$RC out=[$OUT])"
+        fi
+    done
+    [ -z "$bad" ] && pass "$key.$field: every verb but [$owners] is refused not-owner" || fail "$key.$field:$bad"
+done <<EOF
+$CLEANUP_TABLE
+EOF
+bad=""
+while IFS='|' read -r key field value owners; do
+    [ -n "$key" ] || continue
+    rec pin "{\"$key\":{\"$field\":$value}}"
+    if [ "$RC" -ne 65 ] || [ "$OUT" != "refused=not-owner key=$key field=$field" ]; then
+        bad="$bad $key.$field(rc=$RC out=[$OUT])"
+    fi
+done <<EOF
+$TABLE
+EOF
+[ -z "$bad" ] && pass "pin is refused not-owner on every field of every other kind" || fail "pin:$bad"
 [ "$(adds)" -eq 0 ] && pass "no not-owner refusal made a context add" || fail "a refusal wrote: $(grep '^context add' "$CASE/koto-calls.log" | head -1)"
 [ "$(store_sum)" = "$SUM0" ] && pass "the store's bytes are unchanged after every refusal" || fail "a refusal changed the store"
 
@@ -178,6 +216,10 @@ expect "a pr given as a string" 66 "refused=invalid key=run/node/pr-repo-a-core 
 for d in '"a reason"' '[""]' '["a\nb"]' '["a","a"]' '[1]'; do
     rec push '{"run/node/pr-repo-a-core":{"repo":"acme/repo-a","pr":11,"head":"'"$CT_HEAD"'","deferrals":'"$d"'}}'
     expect "deferrals [$d]: not distinct non-empty one-line strings" 66 "refused=invalid key=run/node/pr-repo-a-core field=deferrals"
+done
+for d in '"a line"' '[""]' '["a\nb"]' '["a\rb"]' '["a","a"]' '[1]' '{}'; do
+    rec push '{"run/node/pr-repo-a-core":{"repo":"acme/repo-a","pr":11,"head":"'"$CT_HEAD"'","reruns":'"$d"'}}'
+    expect "reruns [$d]: not distinct non-empty one-line strings" 66 "refused=invalid key=run/node/pr-repo-a-core field=reruns"
 done
 for p in '""' '"   "' '"a\nb"' '"a\rb"' '["a"]' '1'; do
     rec push '{"run/node/pr-repo-a-core":{"repo":"acme/repo-a","pr":11,"head":"'"$CT_HEAD"'","public_reason":'"$p"'}}'
@@ -257,6 +299,19 @@ expect "a later push without public_reason" 0 "written=run/node/pr-repo-a-core"
 [ "$(val run/node/pr-repo-a-core | jq -c '[.public_reason, .deferrals, .head]')" = "[\"Verified by the hosted CI run.\",[\"host is busy\"],\"$CT_OTHER\"]" ] \
     && pass "a push without public_reason keeps the recorded one" \
     || fail "after the push without public_reason: $(val run/node/pr-repo-a-core)"
+RERUN_L1='Re-run attempt 1 at `111111111111`: `unit` failed; reason `flaky test`; attempt 2 passed.'
+RERUN_L2='Re-run attempt 1 at `222222222222`: `e2e` timed out; reason `slow host`.'
+rec push "$(jq -cn --arg h "$CT_HEAD" --arg a "$RERUN_L1" --arg b "$RERUN_L2" \
+    '{"run/node/pr-repo-a-core": {head: $h, reruns: [$a, $b]}}')"
+expect "a push recording the node's re-run lines" 0 "written=run/node/pr-repo-a-core"
+[ "$(val run/node/pr-repo-a-core | jq -c '[.reruns, .deferrals, .public_reason]')" \
+    = "$(jq -cn --arg a "$RERUN_L1" --arg b "$RERUN_L2" '[[$a, $b], ["host is busy"], "Verified by the hosted CI run."]')" ] \
+    && pass "reruns are stored in order, beside the kept deferrals and public_reason" \
+    || fail "after the reruns push: $(val run/node/pr-repo-a-core)"
+rec push "{\"run/node/pr-repo-a-core\":{\"head\":\"$CT_HEAD\",\"reruns\":[]}}"
+expect "a push recording no re-run line" 0 "written=run/node/pr-repo-a-core"
+[ "$(val run/node/pr-repo-a-core | jq -c .reruns)" = "[]" ] && pass "an empty reruns list replaces the recorded lines" \
+    || fail "after the empty reruns push: $(val run/node/pr-repo-a-core)"
 rec push '{"run/node/pr-repo-a-cli":{"repo":"acme/repo-b","pr":21,"head":"'"$CT_HEAD"'"}}'
 expect "a push to a repository outside run/setup's repos" 66 "refused=repo-outside key=run/node/pr-repo-a-cli field=repo"
 
@@ -326,6 +381,64 @@ SUM0=$(store_sum)
 rec carry "$CARRY"
 expect "a carry over a differing key exits 67" 67 "refused=conflict key=run/node/pr-repo-a-cli"
 [ "$(store_sum)" = "$SUM0" ] && pass "the conflicting carry wrote nothing" || fail "the conflicting carry wrote"
+
+ct_case carry-cleanup
+CARRY3=$(jq -cn --argjson s "$SETUP_V" --arg h "$CT_HEAD" '{
+    "run/setup": $s,
+    "run/node/x": {repo: "acme/repo-a", pr: 11, head: $h},
+    "run/cleanup/x": {path: "/work/x", pin: $h}}')
+rec carry "$CARRY3"
+if [ "$RC" -eq 0 ] && [ "$(rr_record "$S")" = "$(printf '%s' "$CARRY3" | jq -cS .)" ]; then
+    pass "a carry of run/setup, run/node/x and run/cleanup/x writes all three"
+else
+    fail "carry-cleanup: rc=$RC out=[$OUT]"
+fi
+ct_case carry-cleanup-unknown
+rec carry "{\"run/cleanup/x\":{\"path\":\"/work/x\",\"pin\":\"$CT_HEAD\",\"colour\":\"red\"}}"
+expect "a carry of a cleanup key with an unknown field" 66 "refused=unknown-field key=run/cleanup/x field=colour"
+[ -z "$(ls "$CASE/ctx/$S" 2>/dev/null | grep -vx run_id)" ] && pass "the refused cleanup carry wrote nothing" || fail "the refused cleanup carry wrote"
+
+# --- pin: the write-once build-output base ------------------------------------------
+
+ct_case pin
+rec pin "{\"run/cleanup/single\":{\"path\":\"work/tree\",\"pin\":\"$CT_HEAD\"}}"
+expect "a relative cleanup path" 66 "refused=invalid key=run/cleanup/single field=path"
+rec pin "$(jq -cn --arg h "$CT_HEAD" '{"run/cleanup/single": {path: "/work/a\nb", pin: $h}}')"
+expect "a cleanup path of two lines" 66 "refused=invalid key=run/cleanup/single field=path"
+rec pin '{"run/cleanup/single":{"path":"/work/tree","pin":"abc"}}'
+expect "a pin that is not 40 hex" 66 "refused=invalid key=run/cleanup/single field=pin"
+rec pin '{"run/cleanup/single":{"path":"/work/tree"}}'
+expect "a cleanup key without its pin" 66 "refused=incomplete key=run/cleanup/single field=pin"
+rec pin "{\"run/cleanup/single\":{\"pin\":\"$CT_HEAD\"}}"
+expect "a cleanup key without its path" 66 "refused=incomplete key=run/cleanup/single field=path"
+[ -z "$(ls "$CASE/ctx/$S" 2>/dev/null | grep -vx run_id)" ] && pass "no refused pin wrote a key" || fail "a refused pin wrote"
+PIN1="{\"run/cleanup/single\":{\"path\":\"/work/tree\",\"pin\":\"$CT_HEAD\"}}"
+rec pin "$PIN1"
+expect "a pin writes an absent key with no run/setup in the session" 0 "written=run/cleanup/single"
+[ ! -e "$CASE/ctx/$S/run/setup" ] && pass "the pin needed no run/setup and wrote none" || fail "a pin wrote run/setup"
+[ "$(val run/cleanup/single)" = "{\"path\":\"/work/tree\",\"pin\":\"$CT_HEAD\"}" ] \
+    && pass "the pin is stored as canonical JSON" || fail "pin stored as [$(val run/cleanup/single)]"
+SUM0=$(store_sum)
+: > "$CASE/koto-calls.log"
+rec pin "$PIN1"
+if [ "$RC" -eq 0 ] && [ -z "$OUT" ] && [ "$(adds)" -eq 0 ] && [ "$(store_sum)" = "$SUM0" ]; then
+    pass "a pin equal to the recorded one does nothing and prints nothing"
+else
+    fail "equal pin: rc=$RC out=[$OUT] adds=$(adds)"
+fi
+rec pin "{\"run/cleanup/single\":{\"path\":\"/work/tree\",\"pin\":\"$CT_OTHER\"}}"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "kept=run/cleanup/single" ] && [ "$(adds)" -eq 0 ] && [ "$(store_sum)" = "$SUM0" ]; then
+    pass "a different pin keeps the recorded one, prints kept=, and exits 0"
+else
+    fail "different pin: rc=$RC out=[$OUT] adds=$(adds)"
+fi
+rec pin "{\"run/cleanup/n1\":{\"path\":\"/work/n1\",\"pin\":\"$CT_OTHER\"},\"run/cleanup/single\":{\"path\":\"/work/tree\",\"pin\":\"$CT_OTHER\"}}"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "written=run/cleanup/n1
+kept=run/cleanup/single" ] && [ "$(val run/cleanup/single | jq -r .pin)" = "$CT_HEAD" ]; then
+    pass "a pin of two keys writes the absent one and keeps the held one"
+else
+    fail "two-key pin: rc=$RC out=[$OUT]"
+fi
 
 # --- the reader ----------------------------------------------------------------------
 

@@ -278,6 +278,55 @@
         "The architecture review's review-verdicts block has an entry with rule_id rs-009 and section document, verdict FAIL"
       ],
       "id": 21
+    },
+    {
+      "name": "resume-early-proposed-in-attached-session-reverts-and-runs-jury",
+      "prompt": "/design cache-layer --auto -- an interrupted run is resumed on the same host. `skill-session.sh open design cache-layer` prints opened=attached. Key research/phase5_security.md exists in design-cache-layer, no key starts with research/phase6_, and docs/designs/DESIGN-cache-layer.md reads status: Proposed in its frontmatter and Proposed in its body Status, with placeholder decision and rationale fields. Another file, notes.txt, is staged. Describe what the run does before and through Phase 6.",
+      "expected_output": "The Resume Logic reads the committed status first. Proposed with opened=attached and no Phase 6 jury key means the status was written before the review, so with no question asked under --auto the run runs shirabe transition docs/designs/DESIGN-cache-layer.md Draft, takes the placeholder decision and rationale out of the frontmatter, and commits with git commit -- docs/designs/DESIGN-cache-layer.md so only the design file is in the commit and notes.txt stays staged. It prints that it set DESIGN-cache-layer.md back to Draft because it read Proposed with no review on record. It then goes on down the rows to Phase 6, which runs from 6.1: the document check, then the three-seat jury. Only step 6.5 writes decision and rationale again and moves it to Proposed.",
+      "files": [],
+      "expectations": [
+        "Transcript runs shirabe transition docs/designs/DESIGN-cache-layer.md Draft without asking the user",
+        "The revert commit names docs/designs/DESIGN-cache-layer.md as its only pathspec and notes.txt is still staged afterwards",
+        "The run's output says it set the design back to Draft because it read Proposed with no review on record",
+        "Phase 6 runs the jury at 6.1, and Proposed is written again only at 6.5"
+      ],
+      "id": 22
+    },
+    {
+      "name": "resume-draft-design-reaching-phase-6-runs-from-6-1",
+      "prompt": "/design cache-layer -- a run is resumed. docs/designs/DESIGN-cache-layer.md reads status: Draft in its frontmatter and Draft in its body Status, every section is written, and key research/phase5_security.md exists in design-cache-layer. Describe where the run picks up.",
+      "expected_output": "The status row for Draft sends the run on down the key and section rows. Key research/phase5_security.md resumes it at Phase 6, and Phase 6's own resume check runs a Draft design from 6.1: the document check (doc-check.sh --moment pre_jury --phase 6) and then the jury. It doesn't skip to 6.7, because only 6.5 writes Proposed and the document isn't Proposed.",
+      "files": [],
+      "expectations": [
+        "The run resumes at Phase 6 and starts at step 6.1, running the pre-jury document check before the jury",
+        "The run doesn't present the design for approval at 6.7 without a jury round",
+        "The document stays at Draft until step 6.5 moves it to Proposed"
+      ],
+      "id": 23
+    },
+    {
+      "name": "resume-with-stubbed-solution-architecture-resumes-at-phase-4",
+      "prompt": "/design cache-layer -- a run stopped during Phase 4 is resumed. docs/designs/DESIGN-cache-layer.md is at status Draft; Considered Options and Decision Outcome are written, and the whole body of Solution Architecture, Implementation Approach, Security Considerations and Consequences is still the line 'Not written yet: a later /design phase replaces this line.' No research/phase5_security.md key exists. Describe where the run picks up.",
+      "expected_output": "A section whose whole body is the stub marker counts as absent for the section rows. Solution Architecture holds only the marker, so the 'has Solution Architecture' row doesn't match; Considered Options is written, so the run resumes at Phase 4. Phase 4's own resume check also treats the stubbed Solution Architecture as absent and runs the phase, replacing each marker line with the section it writes rather than adding below it.",
+      "files": [],
+      "expectations": [
+        "The run resumes at Phase 4, not Phase 5",
+        "The run treats a section whose only body is the stub marker as absent",
+        "Phase 4 replaces the marker line in Solution Architecture, Implementation Approach and Consequences instead of appending below it"
+      ],
+      "id": 24
+    },
+    {
+      "name": "phase-0-stops-when-shirabe-refuses-draft",
+      "prompt": "/design cache-layer -- a fresh run in a repository with the shirabe pre-commit hook installed. The shirabe on PATH is an older release that refuses a design at status Draft, so skills/design/scripts/draft-probe.sh exits 1. Describe what the run does.",
+      "expected_output": "Right after skill-session.sh open, and before branch setup, any resume row or any Phase 0 step, the run calls draft-probe.sh. It exits 1, so the run stops with the script's message, which says /design needs shirabe v0.47.0 or later. Nothing is written or committed: no DESIGN skeleton, no Phase 0 commit, and git status in the work tree is as clean as before the run.",
+      "files": [],
+      "expectations": [
+        "Transcript runs draft-probe.sh after skill-session.sh open and before any Phase 0 step",
+        "The run stops and names shirabe v0.47.0 or later as the release it needs",
+        "No docs/designs/DESIGN-cache-layer.md is written and no commit is made"
+      ],
+      "id": 25
     }
   ]
 }

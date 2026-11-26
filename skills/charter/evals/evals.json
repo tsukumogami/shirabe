@@ -4,16 +4,16 @@
   "evals": [
     {
       "id": 1,
-      "name": "baseline-slug-rejection",
-      "prompt": "/charter MyTopic",
-      "expected_output": "Phase 0 validates the topic slug 'MyTopic' against the pattern-level regex ^[a-z0-9-]+$ and rejects it because of the uppercase letters, surfacing a clear error message that names the violated pattern. No state is written. Other invocations such as /charter my_topic (underscore), /charter my.topic (dot), and /charter \"Hello World\" (whitespace and uppercase) are rejected the same way. Phase 0 validates $ARGUMENTS as provided byte-for-byte against the regex; there is no normalization, no derivation, and no \"best effort\" massaging.",
+      "name": "baseline-slug-derivation",
+      "prompt": "/charter the plugin cache invalidation work",
+      "expected_output": "Phase 0 treats the words as the author's description of the work, not as a malformed slug. The agent derives a short kebab-case slug naming the work (for example plugin-cache-invalidation), names it on the first line of output so the author can correct it, and validates that slug against the pattern-level regex ^[a-z0-9-]+$ as provided. A single token that already matches, such as /charter plugin-cache, is used verbatim. A path in the positional slot, such as /charter docs/prds/PRD-foo.md, is still rejected with an error naming the violated pattern. The run asks the author what the work is only when the arguments are empty and the conversation describes nothing.",
       "files": [],
       "expectations": [
-        "Plan validates the topic slug 'MyTopic' against the regex ^[a-z0-9-]+$ at Phase 0 and rejects it with a clear error naming the violated pattern",
-        "Plan rejects /charter my_topic at Phase 0 for the underscore violation, /charter my.topic for the dot violation, and /charter \"Hello World\" for the whitespace and uppercase violation",
-        "Plan applies validation byte-for-byte against $ARGUMENTS with no normalization, no derivation, no auto-substitution into a conforming slug",
-        "Plan does NOT write key work/state.md on rejection; Phase 0 stops at the regex check",
-        "Plan names the violation category in the rejection error message (uppercase, underscore, dot, whitespace) so the author knows what to fix before re-invoking /charter"
+        "Plan treats 'the plugin cache invalidation work' as a description and derives a short kebab-case slug from it instead of rejecting the invocation or asking for a slug",
+        "Plan names the derived slug on the first line of output",
+        "Plan validates the derived slug against ^[a-z0-9-]+$ at Phase 0 before key work/state.md is written",
+        "Plan uses a given slug such as plugin-cache verbatim, with no rewording",
+        "Plan still rejects a path in the positional slot with an error naming the violated pattern, and writes no work/state.md key on that rejection"
       ]
     },
     {

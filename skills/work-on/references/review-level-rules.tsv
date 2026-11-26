@@ -118,6 +118,7 @@ class	engine	skills/execute/scripts/record-settled-branch.sh
 class	engine	skills/execute/scripts/record-write-set.sh
 class	engine	skills/execute/scripts/run-id.sh
 class	engine	skills/execute/scripts/shared-deferral-record.sh
+class	engine	skills/execute/scripts/shared-rerun-record.sh
 class	engine	skills/execute/scripts/worktree-isolation.sh
 class	engine	skills/scope/scripts/check-hop-document.sh
 class	engine	skills/scope/scripts/check-plan-filing.sh
@@ -140,6 +141,7 @@ class	engine	skills/work-on/scripts/decision-reasons.sh
 class	engine	skills/work-on/scripts/find-anchor-plan.sh
 class	engine	skills/work-on/scripts/fix-kind.sh
 class	engine	skills/work-on/scripts/has-commits.sh
+class	engine	skills/work-on/scripts/issue-type-route.sh
 class	engine	skills/work-on/scripts/offload-canary.sh
 class	engine	skills/work-on/scripts/panel-retry-budget.sh
 class	engine	skills/work-on/scripts/panel-scope.sh
@@ -152,6 +154,46 @@ class	engine	skills/work-on/scripts/run-verification.sh
 class	engine	skills/work-on/scripts/session-role.sh
 class	engine	skills/work-on/scripts/step-detail-check.sh
 class	engine	skills/work-on/scripts/test-change.sh
+class	engine	skills/work-on/scripts/verification-route.sh
+# Files a template's gate digest covers (its compatibility file's
+# gate_scripts): what the gates and actions reach through $HERE, and the
+# repository-root files those reach through $HERE/../../../.
+# review-level-rules_engine_test.sh fails when one of them is missing here.
+class	engine	scripts/emit-event.sh
+class	engine	scripts/lib/squash-message.sh
+class	engine	scripts/pr-workflow-content.sh
+class	engine	skills/coordinate/scripts/archive-common.sh
+class	engine	skills/coordinate/scripts/board-lib.sh
+class	engine	skills/coordinate/scripts/board-verdict.sh
+class	engine	skills/coordinate/scripts/coord-log.sh
+class	engine	skills/coordinate/scripts/coordinate-report.sh
+class	engine	skills/coordinate/scripts/dispatch-common.sh
+class	engine	skills/coordinate/scripts/dispatch-worker.sh
+class	engine	skills/coordinate/scripts/github-refs.sh
+class	engine	skills/coordinate/scripts/inventory-common.sh
+class	engine	skills/coordinate/scripts/milestone.sh
+class	engine	skills/coordinate/scripts/panel-evidence.sh
+class	engine	skills/coordinate/scripts/pause-read.sh
+class	engine	skills/coordinate/scripts/phrasing-lib.sh
+class	engine	skills/coordinate/scripts/reconcile-check.sh
+class	engine	skills/coordinate/scripts/reconcile-deps.sh
+class	engine	skills/coordinate/scripts/reconcile-legs.sh
+class	engine	skills/coordinate/scripts/reconcile-read.sh
+class	engine	skills/coordinate/scripts/reconcile-report.sh
+class	engine	skills/coordinate/scripts/reconcile-settle.sh
+class	engine	skills/coordinate/scripts/render-brief.sh
+class	engine	skills/coordinate/scripts/state-common.sh
+class	engine	skills/coordinate/scripts/state-decision.sh
+class	engine	skills/coordinate/scripts/state-entry.sh
+class	engine	skills/coordinate/scripts/state-holding.sh
+class	engine	skills/coordinate/scripts/state-read.sh
+class	engine	skills/coordinate/scripts/state-write-core.sh
+class	engine	skills/coordinate/scripts/state-write.sh
+class	engine	skills/coordinate/scripts/template-fingerprint.jq
+class	engine	skills/coordinate/scripts/template-fingerprint.sh
+class	engine	skills/coordinate/scripts/unit-cost.sh
+class	engine	skills/coordinate/scripts/reconcile-owe.sh
+class	engine	skills/coordinate/scripts/roadmap-status.sh
 
 # Text an agent follows as instructions.
 class	instruction	**/SKILL.md

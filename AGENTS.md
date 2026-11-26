@@ -7,21 +7,26 @@ not just code review. These guidelines apply to any agent working on this repo.
 
 When adding or modifying a skill:
 
-1. **Write eval scenarios** in `skills/<name>/evals/evals.json` that cover the
-   skill's key behaviors. Each eval has a prompt (what a real user would say),
-   expected output (what the skill should produce), and assertions (objectively
-   verifiable checks).
+1. **Write eval scenarios** in `skills/<name>/evals/evals.json`. A skill keeps
+   its graded scenarios, which describe its key behaviors and don't run: each
+   has a prompt (what a real user would say), expected output (what the skill
+   should produce), and assertions (objectively verifiable checks). It also
+   keeps a `grader: script` case, with `handoff` naming the target and `run`
+   the command, for each hand-off target the shape check derives from its koto
+   templates.
 
 2. **Pass the skill gate.** A pull request's definition of done for a skill
    change is `scripts/check-skill.sh --changed <skill-name>`: `shirabe
-   validate`, the template compile, the script suites the change touches, and
-   the shape of `evals/evals.json`. The pull request doesn't run the evals.
+   validate`, the template compile, the script suites the change touches, the
+   shape of `evals/evals.json`, and the script cases: the skill's own and
+   every other skill's that target it.
 
-3. **The evals run at release.** `/shirabe:release` runs the evals of every
-   skill changed since the last tag and stops on a pass-rate drop (see
-   `.claude/shirabe-extensions/release.md`). To try a scenario before then,
-   run `scripts/run-evals.sh <skill-name>` locally (see Running Evals below)
-   and iterate on the skill if it fails.
+3. **The release runs the script cases.** `/shirabe:release` runs every
+   skill's script cases and stops on any failing case until the person
+   releasing confirms it (see `.claude/shirabe-extensions/release.md`). No
+   path runs a graded scenario. To run a skill's script cases before then,
+   run `scripts/run-evals.sh <skill-name>` (see Running Evals below) and fix
+   the skill if one fails.
 
 This applies to:
 - New skills (write evals during skill creation)
@@ -65,51 +70,33 @@ agent's account of what it did.
 
 ## Running Evals
 
-Two paths: automated (CLI/CI) and interactive (Claude Code session).
-
-### Automated (CLI / CI)
+`scripts/run-evals.sh` runs script cases only, through
+`scripts/lib/script-cases.py`, which has no code path to a model. Every other
+case, a graded one or one with no or an unknown `grader`, is listed as
+refused, and no flag or environment variable changes that.
+It needs `python3`, `git` and whatever its cases' scripts need (koto, for the
+hand-off cases), and it runs on any host, macOS's `/bin/bash` 3.2 included.
 
 ```bash
 # List skills that have evals
 scripts/run-evals.sh --list
 
-# Run evals end-to-end (prep + execute via claude -p + validate)
-scripts/run-evals.sh decision
+# Run one skill's script cases
+scripts/run-evals.sh <skill-name>
 
-# Run all skills
+# Run every skill's script cases
 scripts/run-evals.sh --all
 
-# Re-validate the latest iteration without re-running
-scripts/run-evals.sh --validate decision
-
-# Run one scenario five times and report how often it passed
-scripts/run-evals.sh --scenario standalone-decision-simple --runs 5 decision
+# Run only the named cases from one skill's suite
+scripts/run-evals.sh --scenario <case-name> <skill-name>
 ```
 
-Exit status: 0 all graded and passing, 1 an assertion failed, 2 something graded
-nothing (no results, a missing grading.json, or a scenario with an empty criteria
-list), 3 a missing prerequisite, 4 the nested claude session stopped in plan
-mode or ran no command and wrote no file, so no scenario ran and the runner or
-the host is at fault rather than the skill.
-
-The runner starts its nested `claude -p` session with
-`--permission-mode acceptEdits --allowedTools Bash`, from the repo root, with a
-scratch directory it creates per run as the session's `TMPDIR` and its one
-`--add-dir`. The host's default permission mode never reaches it. The session's
-transcript is saved as `runner_session.jsonl` in the iteration directory; the
-header of `scripts/run-evals.sh` says why the mode is this one.
-
-### Interactive (Claude Code with /skill-creator)
-
-```bash
-# Prepare workspace only
-scripts/run-evals.sh --prep-only decision
-```
-
-After `--prep-only`, invoke `/skill-creator` in your Claude Code session and
-point it at the prepared workspace. This gives a tighter feedback loop: the
-skill-creator handles agent spawning, grading, and the eval viewer within
-your session. After running, validate with `scripts/run-evals.sh --validate decision`.
+Exit status: 0 every script case passed (0 of 0 included), 1 a script case
+failed or was refused, or a usage error in the arguments `run-evals.sh` reads
+itself, 2 a usage error `script-cases.py` caught or a file it could not read
+or write, 3 a missing prerequisite (`python3`, `git`) or `--prep-only`, which
+prepared a graded run and is refused. The header of `scripts/run-evals.sh`
+lists every option.
 
 ### The preflight check during evals
 

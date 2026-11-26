@@ -32,21 +32,28 @@ and **fails closed** (never reads as "verified").
   `scripts/*_test.sh`, and checks the shape of `evals/evals.json` with
   `scripts/lib/check-evals-shape.py`: valid JSON, and every scenario with a `name`, a
   `prompt`, and a non-empty `expectations` or `assertions` list. A skill that declares
-  `disable-model-invocation: true` may have no `evals.json`. It needs `shirabe`, `koto`,
+  `disable-model-invocation: true` may have no `evals.json`. After the shape check it runs the script cases
+  that check the skill's hand-offs with the tree's `scripts/lib/script-cases.py --for
+  <skill>`: the skill's own `grader: script` cases and every other skill's whose `handoff`
+  names it, so a change to `/execute` fails the cases `/deliver` and `/coordinate` keep on
+  their hand-offs to it. Each failing case is named as `script case: <skill> <id> <name>`.
+  Last, it runs `scripts/check-pipe-readers.sh` and `scripts/check-mktemp-guards.sh` over
+  the skill's directory. It needs `shirabe`, `koto`,
   `python3` and `git`, and fails closed (exit 2) when one is missing. It never starts
   `claude`.
 
   The gate runs it as `scripts/check-skill.sh --changed <skill>`, which runs only the suites
   the branch's changes touch, as described in the next section. Every other check runs in
-  full. Each invocation gets 3600 seconds (`timeout_secs`) instead of the gate's default of
+  full, the script cases included. Each invocation gets 3600 seconds (`timeout_secs`) instead of the gate's default of
   1800: when `--changed` falls back to every suite, `/coordinate`'s script and engine suites
   run back to back in one invocation and take longer than 1800 seconds.
 
-  It does not run the evals. A pull request that changes a skill writes or updates the
-  scenarios in `evals/evals.json`; the scenarios run at release, through the eval check
-  declared in [`release.md`](release.md), which compares each changed skill's pass rate with
-  the previous release's. `scripts/run-evals.sh <skill>` is still there for an author who
-  wants a local run.
+  No model-graded scenario runs, here or anywhere else. A pull request that changes a skill
+  writes or updates the scenarios in `evals/evals.json`; the model-graded ones describe the
+  skill and don't run. At release, the eval check declared in [`release.md`](release.md)
+  runs every skill's script cases and stops the release on any failing case until the
+  maintainer confirms it. `scripts/run-evals.sh <skill>` runs a skill's script cases on an
+  author's host.
 
 - **Default** (no entry matches) — every one of `cargo test --workspace` (with a 1200-second
   deadline), `skills/plan/scripts/plan-to-tasks_test.sh`, and
@@ -60,7 +67,24 @@ every suite under `--changed` too, short of a change only to `evals/` (below).
 default branch, the gate's own base, and classifies each changed path:
 
 - a suite (`scripts/<name>_test.sh`) runs itself;
-- a script under `scripts/` that is neither shared nor deleted runs its own
+- a shared script (below), and the skill's `SKILL.md`, a file under its `references/`
+  or one of its koto templates, runs what it reaches: the suites that name it or one of
+  its callers, the own `<stem>_test.sh` of it and of each caller, and every engine suite
+  when it is the template or the template's front matter names it or a caller. A caller
+  is one of the skill's scripts, or a file under a subdirectory of `scripts/`, whose code
+  names it or another caller (a comment line doesn't count: it reads and runs nothing).
+  Callers are followed all the way up, to the end of every chain, so a suite that reaches
+  the file through any number of scripts runs. A jq module is also named by its
+  quoted stem, the way `include` names it. A file under `references/` is also named by
+  `references`, since suites and scripts build those paths at run time, and by `SKILL.md`
+  when `SKILL.md` lists it, since a script can follow that table. Engine suites come in
+  only through the front matter, where koto's gates and default actions name the scripts
+  it runs; the body's directives tell the agent what to run, which an engine suite
+  doesn't do. A file on an `all` row of `check-skill.tsv`, or one with such a file among
+  its callers, runs every suite, and so does a file nothing names, or a deleted one;
+- a script under `scripts/` that is neither shared nor deleted runs every suite when a
+  script on an `all` row reaches it, directly or through other scripts (its callers
+  followed all the way up, as for a shared script). Otherwise it runs its own
   `<stem>_test.sh` and the unit suites that name it or one of its direct callers, the
   skill's other scripts that name it. Engine suites (`*_engine_test.sh`) run only when no
   unit suite names any of them, so a script that only an engine suite tests still gets
@@ -75,30 +99,79 @@ default branch, the gate's own base, and classifies each changed path:
   `evals/fixtures/` or read `evals.json`. Unlike the rules for scripts, a miss here
   can't fall back to every suite, so a suite that reaches `evals/` another way (a third
   helper in a chain, a path built at run time) isn't run locally; CI still runs it;
-- everything else runs every suite: a shared script, anything under a subdirectory of
-  `scripts/` (testdata and the test libraries), a koto template, the skill's Markdown and
-  data files, `check-skill.tsv` itself, a deleted file, and any other path outside the
-  skill, `scripts/check-skill.sh` included. So do a change with no merge-base and a
-  branch with no changes. Markdown and data files run everything because suites read them
-  by glob as well as by name (`references/`, `SKILL.md`, `requires.tsv`), which name
-  matching can't see.
+- a `koto-templates/<name>.compat.json` runs what a change to a script would: the suites
+  that name it or one of the skill's scripts that names it, unit suites first. The
+  skill's scripts read it, not the template compile;
+- a Markdown file under `docs/` or at the repository root, or a file under
+  `.github/workflows/`, runs the suites that name it, and none when no suite does. The
+  suites that walk the tree aren't added for these paths, since CI runs every suite and
+  adding them would select about half of coordinate's suites again;
+- everything else runs every suite: anything under a subdirectory of `scripts/`
+  (testdata and the test libraries), the skill's other Markdown and data files
+  (`requires.tsv`, say), `check-skill.tsv` itself, a deleted file, and any other path
+  outside the skill (`scripts/`, `references/`, another skill's files),
+  `scripts/check-skill.sh` included. So do a change with no merge-base and a
+  branch with no changes.
 
-Callers are followed one level only. A suite that reaches a changed script only through
-two scripts in a row, or an engine suite that drives the script while a unit suite names
-it, isn't run locally. That's the one place a selection can miss a suite that would fail.
-Followed further, callers reach 45 of coordinate's 77 suites from almost any script, so
-the gate would gain nothing, and CI runs every suite before merge.
+On top of whatever its kind selects, a path under the skill's directory selects every
+suite a `walk` row of `check-skill.tsv` declares as walking to it. Such a suite lists the
+tree (`find`, `git ls-files`) and reads each file it finds, so it reaches a file without
+naming it, and none of the rules above would select it. On coordinate three suites do:
+`skill-hygiene_test.sh`, `state-structure_test.sh` and
+`coordinate-template-structure_engine_test.sh`. The last reads more than scripts: besides
+every `.sh` and `.jq` file, it scans `SKILL.md`, the `references/` documents and the koto
+templates, so its rows cover those too. A suite change is no exception: it runs
+itself, and the suites whose walk reads suites too. A malformed walk row, or one that names
+no suite of the skill, runs every suite, since it would otherwise drop the suite it declares.
+
+For a plain script, the one neither shared nor on an `all` row, callers are followed one
+level only when choosing its suites; only the test for an `all` row follows them all the
+way up. A suite that reaches it only through two scripts in a row, or an engine suite
+that drives it while a unit suite names it, isn't run locally. That's the one place a
+selection can miss a suite that would fail, and CI runs every suite before merge. A
+shared script, the template, `SKILL.md` and the reference documents follow callers to the
+end of every chain instead, since what they reach is wide and a missed chain there would
+drop suites the change does reach.
 
 A script is shared when two or more of the skill's files source it, which the script works
-out on each run, or when `check-skill.tsv` names it on a `shared` row. The rows hold what
-sourcing can't show. For coordinate, that's the template's own scripts (`coord-verdict.sh`,
-`coord-log.sh`, `coordinate-open.sh` and its wording table), which every engine suite drives,
-and the record's schema (`state-schema.jq`).
+out on each run, or when `check-skill.tsv` names it on a `shared` or `all` row. The rows
+hold what sourcing can't show. For coordinate, the `shared` rows are the template's own
+scripts (`coord-verdict.sh`, `coord-log.sh`, `coordinate-open.sh` and its wording table),
+which every engine suite drives, and the record's schema (`state-schema.jq`). Its `all` row
+is `run-tests.sh`, which CI and an author run every suite through, so a change to it, or to
+anything it runs, runs every suite. A shared script used to run every suite; it now runs
+what it reaches (shirabe#1934). Callers are followed all the way up, and on coordinate
+almost every chain reaches `scripts/testdata/test-lib.sh`, which most suites name, so most
+paths still select about 119 to 121 of the 127 suites. A plain script selects far fewer,
+the walking suites among them. Measured with the `cost` rows: the CPU seconds summed, and
+the shortest wall time those rows allow at four suites at a time (the sum over four, or the
+costliest suite when that's longer). A loaded host takes far longer than that.
+
+| Changed path | Suites | CPU seconds | At 4 jobs |
+|--------------|--------|-------------|-----------|
+| `coord-verdict.sh` | 58 | 3,065 | 767 |
+| `coordinate-open.wording.tsv` | 119 | 6,162 | 1,541 |
+| `SKILL.md` | 121 | 6,163 | 1,541 |
+| `references/teardown-agent.md` | 121 | 6,163 | 1,541 |
+| `koto-templates/coordinate.md` | 121 | 6,163 | 1,541 |
+| `state-schema.jq` | 120 | 6,168 | 1,542 |
+| `coord-log.sh` | 119 | 6,162 | 1,541 |
+| `run-tests.sh` (the `all` row) | 127 | 6,194 | 1,549 |
+| `state-common.sh` | 119 | 6,162 | 1,541 |
+| `quiet-check.sh` (a plain script) | 4 | 62 | 46 |
+| `state-holding.sh` (a plain script) | 41 | 2,232 | 558 |
+| #1934's example diff (`state-holding.sh`, `teardown-pass.sh`, the template, `teardown-agent.md`, two suites) | 121 | 6,163 | 1,541 |
 
 `check-skill.tsv`'s `cost` rows give each suite's measured CPU seconds. With or without
 `--changed`, suites launch costliest first, so a long suite doesn't start last and set the
 tail. Results still print in the glob's order. `scripts/check-skill.sh --changed --list
 <skill>` prints what a branch would run, and why, without running it.
+
+`--changed` narrows the suites and nothing else. The script cases run whatever changed: a
+branch whose only change is under an `evals/` selects few suites or none, and the cases
+still run, since a hand-off can break without any of the skill's suites changing.
+`--changed --list` prints them after the suites, one `script case: <skill> <id> <name>`
+line each.
 
 CI never uses `--changed`. Each skill's workflow runs every suite on every pull request
 that touches it, so whatever the selection misses, CI still catches before merge.
@@ -107,7 +180,16 @@ Keeping `check-skill.tsv` current:
 
 - Add a `shared` row when a script becomes one that many others reach without sourcing it:
   a script the template or another skill's code drives directly, or a jq module. A script
-  two files source is shared without a row.
+  two files source is shared without a row. The row makes a change to it run what it
+  reaches, engine suites included, instead of only the unit suites a plain script gets.
+- Add an `all` row for a script that runs every suite, such as a test runner. A change to
+  it, or to any file it runs directly or through other scripts, then runs every suite; a
+  `shared` row would run only the suites that name it.
+- Add `walk` rows for a suite that walks the skill's tree and reads what it finds:
+  `walk<TAB><suite><TAB><glob>[<TAB><skip glob>]`, the globs matched against the path under
+  `skills/<skill>/` as case patterns, where `*` also matches `/`. Declare the whole walk, a
+  row per glob when it covers several; a narrower glob drops the suite for a file it reads,
+  and a wider one only runs it more often. Change the rows when the suite's walk changes.
 - Add a `cost` row for a new suite, and re-measure the rows when a suite's cost changes
   much. A suite with no row launches last, which costs time but never correctness;
   `scripts/check-cost-rows.sh` fails when a skill's rows and suites differ. The
@@ -133,6 +215,6 @@ has the rest; the takeover, outcome, takeover-load, chain and newest-member suit
 
 `release.md` lists the commands `/shirabe:release` runs before it tags (`## Release checks`)
 and after the draft release exists (`## Release assets`). shirabe's check is
-`scripts/release-eval-check.sh`, which runs the evals of every skill changed since the last
-tag and stops the release on a pass-rate drop until the maintainer confirms it. The file
-itself says what the check needs on the release host.
+`scripts/release-eval-check.sh`, which runs every skill's script cases and stops the release
+on any failing case until the maintainer confirms it. No model-graded scenario runs. The
+file itself says what the check needs on the release host.

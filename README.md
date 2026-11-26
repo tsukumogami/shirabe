@@ -223,6 +223,14 @@ Claude Code session:
 /plugin install shirabe@shirabe
 ```
 
+## Extending the skills
+
+To add your project's own rules to a skill without forking shirabe, put them
+in `.claude/shirabe-extensions/<skill>.md` or in a documented CLAUDE.md header.
+[`docs/guides/extending.md`](docs/guides/extending.md) lists which skills take
+an extension file, which headers they read, what counts as a breaking change to
+either, and where such a change is announced.
+
 ## Requirements
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)

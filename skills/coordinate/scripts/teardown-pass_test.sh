@@ -54,10 +54,11 @@
 # and leaves nothing running. A whole pass writes
 # MANIFEST.sha256 with the MANIFEST's digest.
 #
-# And `check`, confirm's reads for one topic's removed verdict: it confirms
-# (exit 0) a removed verdict whose unit both listings no longer show, with a
-# whole archive or with `job -` and none; it doesn't (exit 1, the reason
-# printed) for another topic, a verdict that isn't removed, an instance or a
+# And `check`, confirm's reads for one topic's verdict: it confirms (exit 0)
+# a removed verdict whose unit both listings no longer show, with a whole
+# archive or with `job -` and none, and an ordinary verdict whose instance and
+# job are gone with a whole archive; it doesn't (exit 1, the reason printed)
+# for another topic, an ordinary instance niwa still lists, an instance or a
 # job still listed at the path, the job still listed, a RESULT that isn't
 # done, or a surviving session with no archive; it stores no context key and
 # seals nothing; and it takes no --keyseal and needs a dispatch topic.
@@ -209,6 +210,13 @@ case "$*" in
     "api --method GET repos/acme/widgets/actions/runs?head_sha=0123456789012345678901234567890123456789&per_page=100&page=1")
         echo '{"total_count":1,"workflow_runs":[{"id":7,"head_sha":"0123456789012345678901234567890123456789","run_attempt":1,"status":"completed","conclusion":"success","updated_at":"2026-10-01T11:00:00Z"}]}' ;;
     "api --method GET repos/acme/widgets --jq .private") echo false ;;
+    # A branch read for a unit that ended with no pull request (shirabe#1075):
+    # $ST/branch says `absent` or how far the branch runs ahead.
+    "api repos/acme/widgets/git/ref/heads/feat/w5 --jq .ref")
+        [ "$(cat "$ST/branch" 2>/dev/null)" = absent ] && { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+        echo refs/heads/feat/w5 ;;
+    "api repos/acme/widgets --jq .default_branch") echo main ;;
+    "api repos/acme/widgets/compare/main...feat/w5 --jq .ahead_by") cat "$ST/branch" ;;
     "pr view 601 --repo acme/widgets --json state,createdAt,mergedAt,mergeCommit,headRefName,baseRefName,headRepositoryOwner")
         hang; echo "HTTP 502" >&2; exit 1 ;;
     "pr view 6"[0-9][0-9]" --repo acme/widgets --json state,createdAt,mergedAt,mergeCommit,headRefName,baseRefName,headRepositoryOwner")
@@ -468,6 +476,26 @@ run_pass
 mv "$T/emit-event.aside" "$T/plugin2/scripts/emit-event.sh"
 eq_ "a missing helper: the same exit, output, stderr and RESULT" "$WANT" "$RC|$OUT|$ERR|$RES"
 
+echo "== a job that runs from a directory inside the instance (shirabe#1243) =="
+setup_run
+jq -c --arg c "$IP/wt" '[.[] | .cwd = $c]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
+run_pass
+[ "$RC" = 0 ] && [ "$RES" = done ] && ok "a sealed job whose cwd is a worktree under the instance: the pass is done" \
+    || bad "a sealed job whose cwd is a worktree under the instance: the pass is done" "exit $RC: $OUT $ERR"
+setup_run
+jq -c --arg c "$IP-2" '[.[] | .cwd = $c]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
+run_pass
+[ "$RC" = 1 ] && [ "$LAST" = "teardown-pass: refused: job 4b3597d2 is no longer the job of $IP with session $SID" ] \
+    && ok "a job whose cwd moved to a sibling sharing the path as a prefix: refused" \
+    || bad "a job whose cwd moved to a sibling sharing the path as a prefix: refused" "exit $RC: $LAST"
+setup_run
+removed_verdict
+jq -nc --arg c "$IP/wt" '[{id: "77aa77aa", cwd: $c}]' >"$ST/agents.json"
+run_pass
+[ "$RC" = 1 ] && [ "$LAST" = "teardown-pass: refused: claude agents lists a job for $IP" ] \
+    && ok "removed mode, a job still listed under the instance path: refused" \
+    || bad "removed mode, a job still listed under the instance path: refused" "exit $RC: $LAST"
+
 echo "== a job niwa destroy already removed =="
 setup_run
 : >"$ST/destroy-takes-job"
@@ -722,7 +750,7 @@ done
 [ -z "$left" ] && ok "  ... and leaves no read running" || { bad "  ... and leaves no read running" "$left"; for p in $left; do kill "$p" 2>/dev/null; done; }
 
 # ---------------------------------------------------------------------------
-# check (shirabe#1593): confirm's reads for a removed verdict of one topic,
+# check (shirabe#1593, shirabe#1148): confirm's reads for one topic's verdict,
 # answered by the exit code, with nothing stored and nothing sealed, so
 # state-holding.sh --retire can ask it at destroy, before teardown_confirm.
 echo "== check: a removed teardown, read-only =="
@@ -757,19 +785,39 @@ run_check --session s --topic w5
 [ "$KRC" = 0 ] && ok "a removed verdict, the unit gone, the archive whole: confirmed" \
     || bad "a removed verdict, the unit gone, the archive whole: confirmed" "exit $KRC: $KOUT"
 wrote_nothing "  ... storing nothing and sealing nothing"
+# A confirmed removed verdict's reason starts with the marker state-holding.sh
+# --retire reads (shirabe#1196).
+case "$KOUT" in *"teardown-confirmed: removed outside the run: "*) ok "  ... its reason carries the removed marker" ;;
+    *) bad "  ... its reason carries the removed marker" "$KOUT" ;; esac
 setup_check 'job -'
 rm -rf "$T/carchive"
 run_check --session s --topic w5
 [ "$KRC" = 0 ] && ok "a removed verdict with job -, no archive: confirmed" \
     || bad "a removed verdict with job -, no archive: confirmed" "exit $KRC: $KOUT"
 wrote_nothing "  ... storing nothing and sealing nothing"
+case "$KOUT" in *"teardown-confirmed: removed outside the run: "*) ok "  ... its reason carries the removed marker" ;;
+    *) bad "  ... its reason carries the removed marker" "$KOUT" ;; esac
+# Its pull request merged, so the reason never says nothing did (shirabe#1833).
+case "$KOUT" in *"no pull request of it merged"*) bad "  ... and doesn't say nothing merged" "$KOUT" ;;
+    *) ok "  ... and doesn't say nothing merged" ;; esac
 setup_check
 run_check --session s --topic w6
 [ "$KRC" = 1 ] && ok "another topic's check: not confirmed" || bad "another topic's check: not confirmed" "exit $KRC: $KOUT"
 case "$KOUT" in *"the verdict is for w5, not w6"*) ok "  ... says why" ;; *) bad "  ... says why" "$KOUT" ;; esac
 wrote_nothing "  ... storing nothing and sealing nothing"
+# An ordinary pass, the pass's own destroy, is confirmed the same way
+# (shirabe#1148): --retire asks it at destroy whether or not the verdict says
+# `removed yes`.
 setup_confirm
-unconfirmed "a verdict that isn't removed" "the verdict is not a removed teardown"
+run_check --session s --topic w5
+[ "$KRC" = 0 ] && ok "an ordinary verdict, the unit gone, the archive whole: confirmed" \
+    || bad "an ordinary verdict, the unit gone, the archive whole: confirmed" "exit $KRC: $KOUT"
+wrote_nothing "  ... storing nothing and sealing nothing"
+case "$KOUT" in *"removed outside the run"*) bad "  ... its reason carries no removed marker" "$KOUT" ;;
+    *) ok "  ... its reason carries no removed marker" ;; esac
+setup_confirm
+echo '[{"name":"tsuku+w5","path":"/elsewhere"}]' >"$C3/niwa.json"
+unconfirmed "an ordinary verdict whose instance niwa still lists by name" "niwa still lists tsuku+w5"
 wrote_nothing "  ... storing nothing and sealing nothing"
 setup_check
 echo '[{"name":"tsuku+w5b","path":"/i/w5"}]' >"$C3/niwa.json"
@@ -777,6 +825,14 @@ unconfirmed "niwa lists an instance at the path" "niwa still lists"
 setup_check
 echo '[{"id":"77aa77aa","cwd":"/i/w5"}]' >"$C3/agents.json"
 unconfirmed "claude lists a job at the path" "claude agents lists a job in /i/w5"
+setup_check
+echo '[{"id":"77aa77aa","cwd":"/i/w5/public/repo"}]' >"$C3/agents.json"
+unconfirmed "claude lists a job under the path (shirabe#1243)" "claude agents lists a job in /i/w5"
+setup_check
+echo '[{"id":"77aa77aa","cwd":"/i/w5-other"}]' >"$C3/agents.json"
+run_check --session s --topic w5
+case "$KOUT" in *"lists a job in /i/w5"*) bad "a job in a sibling sharing the path as a prefix is not the unit's" "$KOUT" ;;
+    *) ok "a job in a sibling sharing the path as a prefix is not the unit's" ;; esac
 setup_check
 echo '[{"id":"4b3597d2","cwd":"/elsewhere"}]' >"$C3/agents.json"
 unconfirmed "claude still lists the job" "claude agents still lists job 4b3597d2"
@@ -787,6 +843,8 @@ setup_check
 rm -rf "$T/carchive"
 unconfirmed "a surviving session with no archive" "no single archive for w5"
 wrote_nothing "  ... storing nothing and sealing nothing"
+case "$KOUT" in *"an archive left by a teardown outside the run is not"*) ok "  ... and says an archive left outside the run is not read" ;;
+    *) bad "  ... and says an archive left outside the run is not read" "$KOUT" ;; esac
 setup_check
 run_check --session s
 eq_ "check without --topic is a usage error" 64 "$KRC"
@@ -983,6 +1041,157 @@ run_pass
 eq_ "no handoff comment, the pull request not merged at the verdict's commit: refused" \
     "1|teardown-pass: refused: acme/widgets#600 is not merged at $(printf '%040d' 9)" "$RC|$LAST"
 [ ! -e "$ST/posted.txt" ] && ok "  ... no entry" || bad "  ... no entry" "$(cat "$ST/posted.txt")"
+
+# ---------------------------------------------------------------------------
+# A removed teardown before anything merged (shirabe#1833): the verdict says
+# `pr none` beside `handoff none`. The pass re-reads no pull request, its entry
+# says none merged, and check confirms it with the removed marker.
+echo "== a removed teardown with nothing merged =="
+# prnone_verdict [job-line]: none_verdict's, its pr line `pr none`.
+prnone_verdict() {
+    none_verdict "$@"
+    sed -i.bak 's/^pr .*/pr none/' "$VERDICT_FILE" && rm -f "$VERDICT_FILE.bak"
+}
+setup_run
+prnone_verdict 'job -'
+run_pass
+eq_ "nothing merged, no session survived: done, nothing archived" \
+    "0|teardown-pass: done: the unit was removed outside the pass and no session of it survives; nothing archived" "$RC|$LAST"
+eq_ "  ... the entry says no pull request of it merged" \
+    "Teardown of w5 closed without a handoff comment: the unit was removed outside the pass, niwa lists no instance w5, Claude Code lists no job there, no session of the worker survived, and no pull request of it merged. No handoff comment exists, so this entry stands in for the link." \
+    "$(cat "$ST/posted.txt" 2>&1)"
+eq_ "  ... no pull request is read" "" "$(line_of 'gh pr view')"
+[ -z "$(line_of 'niwa destroy')" ] && [ -z "$(line_of 'claude rm')" ] && ok "  ... nothing destroyed or removed" || bad "  ... nothing destroyed or removed" "$(cat "$ST/log")"
+eq_ "  ... the retired event names no pull request" \
+    "$(printf '%s\n' event --scope unit-cost --kind retired --koto-dir "$T/ws" unit.topic=w5 unit.koto_session=s --)" \
+    "$(emits)"
+confirm_archive
+eq_ "  ... confirm confirms it with no archive" "0 teardown-confirmed" "$CRC $COUT"
+run_check_here
+eq_ "  ... and check confirms it" 0 "$KRC"
+case "$KOUT" in *"teardown-confirmed: removed outside the run: "*) ok "  ... its reason carries the removed marker" ;;
+    *) bad "  ... its reason carries the removed marker" "$KOUT" ;; esac
+case "$KOUT" in *"; no pull request of it merged") ok "  ... and ends saying nothing merged" ;;
+    *) bad "  ... and ends saying nothing merged" "$KOUT" ;; esac
+
+setup_run
+coord_request
+prnone_verdict
+run_pass
+[ "$RC" = 0 ] && [ "$RES" = done ] && [ -z "$(line_of 'niwa destroy')" ] && ok "nothing merged, the worker's session survived: done, archived, nothing destroyed" \
+    || bad "nothing merged, the worker's session survived: done, archived, nothing destroyed" "exit $RC: $OUT $ERR"
+eq_ "  ... the README's Merged pull request line says none" \
+    "- Merged pull request: none" "$(grep '^- Merged pull request:' "$ARCHD/README.md" 2>&1)"
+eq_ "  ... the entry names the worker's session and says nothing merged" \
+    "Teardown of w5 closed without a handoff comment: the unit was removed outside the pass, niwa lists no instance w5, Claude Code lists no job there, the worker's session $SID is not live, and no pull request of it merged. No handoff comment exists, so this entry stands in for the link." \
+    "$(cat "$ST/posted.txt" 2>&1)"
+eq_ "  ... no pull request is read" "" "$(line_of 'gh pr view 600 --repo acme/widgets --json state,mergeCommit')"
+confirm_archive
+eq_ "  ... confirm passes the archive" "0 teardown-confirmed" "$CRC $COUT"
+run_check_here
+eq_ "  ... and check confirms it" 0 "$KRC"
+case "$KOUT" in *"teardown-confirmed: removed outside the run: "*) ok "  ... its reason carries the removed marker" ;;
+    *) bad "  ... its reason carries the removed marker" "$KOUT" ;; esac
+case "$KOUT" in *"; no pull request of it merged") ok "  ... and ends saying nothing merged" ;;
+    *) bad "  ... and ends saying nothing merged" "$KOUT" ;; esac
+
+# `pr none` stands only alone: beside `removed yes` and `handoff none`, or
+# beside a handoff link and a branch line (shirabe#1075).
+setup_run
+removed_verdict 'job -'
+sed -i.bak 's/^pr .*/pr none/' "$VERDICT_FILE" && rm -f "$VERDICT_FILE.bak"
+run_pass
+eq_ "pr none beside a handoff link with no branch line: refused" "1|teardown-pass: refused: a pr none line beside a handoff link needs the verdict's branch line" "$RC|$LAST"
+[ -z "$(line_of 'niwa destroy')" ] && [ ! -e "$ST/posted.txt" ] && ok "  ... nothing destroyed, no entry" || bad "  ... nothing destroyed, no entry" "$(cat "$ST/log")"
+setup_run
+sed -i.bak -e 's/^pr .*/pr none/' -e 's/^handoff .*/handoff none/' "$VERDICT_FILE" && rm -f "$VERDICT_FILE.bak"
+run_pass
+eq_ "pr none and handoff none without removed yes: refused" "1|teardown-pass: refused: a pr none line with handoff none stands only in a removed verdict" "$RC|$LAST"
+[ -z "$(line_of 'niwa destroy')" ] && [ ! -e "$ST/posted.txt" ] && ok "  ... nothing destroyed, no entry" || bad "  ... nothing destroyed, no entry" "$(cat "$ST/log")"
+setup_run
+prnone_verdict 'job -'
+printf 'pr acme/widgets#600 %s\n' "$MSHA" >>"$VERDICT_FILE"
+run_pass
+eq_ "pr none next to another pr line: refused" "1|teardown-pass: refused: a pr none line stands only as the verdict's one pr line" "$RC|$LAST"
+[ ! -e "$ST/posted.txt" ] && ok "  ... no entry" || bad "  ... no entry" "$(cat "$ST/posted.txt")"
+# A verdict with no pr line at all still refuses as before.
+setup_run
+none_verdict 'job -'
+sed -i.bak '/^pr /d' "$VERDICT_FILE" && rm -f "$VERDICT_FILE.bak"
+run_pass
+eq_ "a removed handoff none verdict with no pr line: refused" \
+    "1|teardown-pass: refused: the verdict names no merged pull request" "$RC|$LAST"
+
+
+# ---------------------------------------------------------------------------
+# A stopped unit that ended with no pull request (shirabe#1075): the verdict
+# says `pr none` beside a handoff link on the unit's issue and a branch line.
+# The pass re-reads the comment and the branch, re-inventories, archives and
+# destroys as for any stopped unit; check confirms it with a reason that ends
+# saying nothing merged and naming the handoff, which --retire reads.
+echo "== a stopped unit that ended with no pull request =="
+ILINK="https://github.com/acme/widgets/issues/591#issuecomment-1"
+# nopr_verdict <branch line>: the verdict's pr line becomes the branch line
+# and `pr none`, its handoff the link on the issue.
+nopr_verdict() {
+    awk -v b="$1" -v h="$ILINK" '/^pr /{ print "branch " b; print "pr none"; next } /^handoff /{ print "handoff " h; next } { print }' \
+        "$VERDICT_FILE" >"$VERDICT_FILE.new" && mv "$VERDICT_FILE.new" "$VERDICT_FILE"
+}
+setup_run
+nopr_verdict none
+run_pass
+[ "$RC" = 0 ] && [ "$RES" = done ] && ok "no branch: the pass is done" || bad "no branch: the pass is done" "exit $RC: $OUT $ERR"
+[ -n "$(line_of 'niwa destroy --force tsuku+w5')" ] && [ -n "$(line_of 'claude rm 4b3597d2')" ] && ok "  ... the instance and the job are removed" \
+    || bad "  ... the instance and the job are removed" "$(cat "$ST/log")"
+eq_ "  ... no pull request or branch is read" "" "$(line_of 'gh pr view 600 --repo acme/widgets --json state,mergeCommit')$(line_of 'git/ref')"
+[ -n "$(line_of 'gh api repos/acme/widgets/issues/comments/1')" ] && ok "  ... the handoff comment is read again" || bad "  ... the handoff comment is read again" "$(cat "$ST/log")"
+eq_ "  ... the README's Merged pull request line says none" "- Merged pull request: none" "$(grep '^- Merged pull request:' "$ARCHD/README.md" 2>&1)"
+confirm_archive
+eq_ "  ... confirm passes it" "0 teardown-confirmed" "$CRC $COUT"
+eq_ "  ... its reason says nothing merged and names the handoff" \
+    "the instance and the job are gone and the archive is whole; no pull request of it merged; handoff $ILINK" "$CWHY"
+run_check_here
+eq_ "  ... and check confirms it" 0 "$KRC"
+case "$KOUT" in *"removed outside the run"*) bad "  ... without the removed marker" "$KOUT" ;; *) ok "  ... without the removed marker" ;; esac
+case "$KOUT" in *"; no pull request of it merged; handoff $ILINK") ok "  ... ending with the handoff" ;; *) bad "  ... ending with the handoff" "$KOUT" ;; esac
+
+# An empty branch: read again, still nothing beyond its base.
+setup_run
+nopr_verdict "acme/widgets feat/w5"
+printf '0\n' >"$ST/branch"
+run_pass
+[ "$RC" = 0 ] && [ "$RES" = done ] && ok "an empty branch: the pass is done" || bad "an empty branch: the pass is done" "exit $RC: $OUT $ERR"
+[ -n "$(line_of 'gh api repos/acme/widgets/compare/main...feat/w5 --jq .ahead_by')" ] && ok "  ... the branch is read again" || bad "  ... the branch is read again" "$(cat "$ST/log")"
+setup_run
+nopr_verdict "acme/widgets feat/w5"
+printf 'absent\n' >"$ST/branch"
+run_pass
+[ "$RC" = 0 ] && [ "$RES" = done ] && ok "a branch GitHub doesn't have: the pass is done" || bad "a branch GitHub doesn't have: the pass is done" "exit $RC: $OUT $ERR"
+# A branch that gained a commit since the seal refuses, nothing removed.
+setup_run
+nopr_verdict "acme/widgets feat/w5"
+printf '2\n' >"$ST/branch"
+run_pass
+eq_ "a branch with unique commits: refused" \
+    "1|teardown-pass: refused: the branch feat/w5 in acme/widgets now holds 2 commits beyond its default branch" "$RC|$LAST"
+[ -z "$(line_of 'niwa destroy')" ] && [ -z "$(line_of 'claude rm')" ] && ok "  ... nothing destroyed or removed" || bad "  ... nothing destroyed or removed" "$(cat "$ST/log")"
+# A branch line beside a merged pull request refuses.
+setup_run
+printf 'branch none\n' >>"$VERDICT_FILE"
+run_pass
+eq_ "a branch line beside a merged pull request: refused" "1|teardown-pass: refused: a branch line stands only beside pr none" "$RC|$LAST"
+# A removed unit with a link on its issue and no branch: done, its reason
+# keeps the removed marker and names the handoff.
+setup_run
+removed_verdict 'job -'
+nopr_verdict none
+run_pass
+eq_ "removed, no branch, a handoff on the issue: done, nothing archived" \
+    "0|teardown-pass: done: the unit was removed outside the pass and no session of it survives; nothing archived" "$RC|$LAST"
+[ ! -e "$ST/posted.txt" ] && ok "  ... no entry stands in for the link" || bad "  ... no entry stands in for the link" "$(cat "$ST/posted.txt")"
+run_check_here
+case "$KRC $KOUT" in "0 "*"teardown-confirmed: removed outside the run: "*"; no pull request of it merged; handoff $ILINK") ok "  ... check confirms it, removed, naming the handoff" ;;
+    *) bad "  ... check confirms it, removed, naming the handoff" "$KRC $KOUT" ;; esac
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

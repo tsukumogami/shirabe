@@ -44,8 +44,11 @@ when the branch exists.
 If already on a `docs/<topic>` branch, skip to Step 0.2.
 
 Otherwise:
-- Derive topic from `$ARGUMENTS` (issue title or provided topic string)
-- Convert to kebab-case: `docs/<topic>`
+- Derive topic from `$ARGUMENTS` (issue title, or the author's topic as
+  `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` says: a slug used as given,
+  or a short kebab-case slug the agent picks from the description) and name
+  it on the first line of output
+- The branch is `docs/<topic>`
 - Create from latest main and switch to it
 - Confirm you're on the correct branch
 

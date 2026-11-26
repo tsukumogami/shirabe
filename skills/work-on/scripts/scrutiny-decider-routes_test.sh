@@ -152,9 +152,12 @@ decider_on() {
         KOTO_DECIDER_ENDPOINT="http://127.0.0.1:9/v1/systemone"
 }
 decider_off() { unset KOTO_DECIDER KOTO_DECIDER_API_KEY KOTO_DECIDER_ENDPOINT; }
+# The agent answers under a stand-in session id: from koto 0.37.0 a pass needs
+# a decider, and the guard clears the caller's id (shirabe#1733).
 answer() {
     # $1 session, $2 gate, $3 criterion, $4 answer
-    koto decider answer "$1" --gate "$2" --criterion "$3" --answer "$4" >/dev/null 2>"$WORKDIR/answer.err" \
+    env CLAUDE_CODE_SESSION_ID=scrutiny-routes-test-agent \
+        koto decider answer "$1" --gate "$2" --criterion "$3" --answer "$4" >/dev/null 2>"$WORKDIR/answer.err" \
         || fail "$1: koto decider answer $2 $4 failed: $(cat "$WORKDIR/answer.err")"
 }
 record_round() {
@@ -187,9 +190,8 @@ to_scrutiny() {
     tick "$s" '{"plan_outcome":"plan_ready"}'
     printf '%s\n' "$MAIN" | koto context add "$s" impl_base >/dev/null 2>&1
     "$RL" set "$s" standard >/dev/null 2>"$WORKDIR/set.err" || { fail "$s: set standard: $(cat "$WORKDIR/set.err")"; return 1; }
-    # Into fix_determination, whose action binds UNIT_KIND; koto routes on it
-    # from the next tick, to implementation.
-    tick "$s"
+    # Into fix_determination, whose action records the kind and whose
+    # kind_route gate routes on it in the same tick, to implementation.
     tick "$s"
     [ "$NEXT_STATE" = implementation ] || { fail "$s: at [$NEXT_STATE], not implementation"; return 1; }
     if [ -n "$2" ]; then
@@ -197,7 +199,7 @@ to_scrutiny() {
             || { fail "$s: koto decisions record failed: $(cat "$WORKDIR/dec.err")"; return 1; }
     fi
     tick "$s" '{"implementation_status":"complete"}'
-    tick "$s" '{"issue_type":"code"}'
+    [ "$NEXT_STATE" = issue_type_routing ] && tick "$s" '{"issue_type":"code"}'
     pass_level_check "$s"
     [ "$NEXT_STATE" = scrutiny ] || { fail "$s: at [$NEXT_STATE], not scrutiny"; return 1; }
     return 0
@@ -261,7 +263,7 @@ if to_scrutiny "$S" "$DECISION"; then
     tick "$S" '{"review_outcome":"blocking_retry"}'
     expect_state "a review retry" implementation
     tick "$S" '{"implementation_status":"complete"}'
-    tick "$S" '{"issue_type":"code"}'
+    [ "$NEXT_STATE" = issue_type_routing ] && tick "$S" '{"issue_type":"code"}'
     pass_level_check "$S"
     expect_state "back at scrutiny" scrutiny
     GOT=$(koto context get "$S" scrutiny_scope.json 2>/dev/null \

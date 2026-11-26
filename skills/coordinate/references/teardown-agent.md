@@ -53,12 +53,26 @@ nothing, and its last line still starts `teardown-pass: done`. A removed pass
 changes nothing about what you may run; it only means the script has less to
 do.
 
+Run the pass for a removed verdict even when someone else already archived
+the unit as they tore it down. The coordinator's retire reads only the archive
+this pass makes, so without the pass the holding is never retired.
+
 A removed verdict may say `handoff none`: the worker was gone before it
 wrote a handoff comment, and the seal checked that it is over. The script
 then has no comment to check. Before it says done, it appends one entry to
 the record saying the teardown closed without a handoff comment and why, and
 it refuses if that entry can't be written. Report its last line as for any
 pass.
+
+Such a verdict may also say `pr none`: no pull request of the unit merged
+before its worker was removed. The script then has no pull request to
+check, and its entry says none merged. Run and report it the same way.
+
+A verdict for a unit that ended with no pull request, stopped or removed,
+says `pr none` beside a handoff link on the unit's issue and a `branch`
+line. The script re-reads the comment and, when the line names a branch,
+that it still holds nothing beyond its base, then runs the pass its mode
+runs. Run and report it as for any pass.
 
 ## What you never do
 

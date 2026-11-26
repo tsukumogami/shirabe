@@ -10,6 +10,7 @@
 #   pr_finalization     final_owned_pr          the same lookup (routing)
 #                       owned_pr_body_conformant, settled_commits,
 #                       settled_docs_visibility, deferral_recorded
+#                       rerun_recorded
 #                                               the output the state presents
 #                       finalization_status: updated, vars.PAUSE_BEFORE_FINALIZE
 #                                               the pause, routed by koto once
@@ -222,7 +223,7 @@ REPO="$WORKDIR/repo"
 FAKE_ROOT="$WORKDIR/plugin"
 RC_DIR="$WORKDIR/rc"
 mkdir -p "$FAKE_ROOT/skills/work-on/scripts" "$FAKE_ROOT/skills/execute/scripts" "$RC_DIR"
-for s in check-pr-output.sh check-branch-output.sh; do
+for s in check-pr-output.sh check-branch-output.sh verification-route.sh; do
     cat > "$FAKE_ROOT/skills/work-on/scripts/$s" <<EOF
 #!/usr/bin/env bash
 f="$RC_DIR/$s\$1"
@@ -235,9 +236,21 @@ cat > "$FAKE_ROOT/skills/execute/scripts/run-id.sh" <<'EOF'
 #!/usr/bin/env bash
 echo 00112233445566778899aabbccddeeff
 EOF
+# owned-pr.sh, which the hosted-route gates call for the shared PR's URL.
+cat > "$FAKE_ROOT/skills/execute/scripts/owned-pr.sh" <<'EOF'
+#!/usr/bin/env bash
+echo https://github.com/acme/widgets/pull/12
+EOF
 cat > "$FAKE_ROOT/skills/execute/scripts/shared-deferral-record.sh" <<EOF
 #!/usr/bin/env bash
 f="$RC_DIR/shared-deferral-record.sh\$1"
+rc=0
+[ -f "\$f" ] && rc=\$(cat "\$f")
+exit "\$rc"
+EOF
+cat > "$FAKE_ROOT/skills/execute/scripts/shared-rerun-record.sh" <<EOF
+#!/usr/bin/env bash
+f="$RC_DIR/shared-rerun-record.sh\$1"
 rc=0
 [ -f "\$f" ] && rc=\$(cat "\$f")
 exit "\$rc"
@@ -400,6 +413,7 @@ PAUSE=false drive pr_finalization "$UPDATED"
 expect "updated, every gate passing, PAUSE_BEFORE_FINALIZE false" plan_completion
 for key in check-pr-output.sh--pr-body:owned_pr_body_conformant check-branch-output.sh--commits:settled_commits \
            check-branch-output.sh--docs-visibility:settled_docs_visibility \
+           shared-rerun-record.sh--session:rerun_recorded \
            shared-deferral-record.sh--session:deferral_recorded; do
     for rc in 1 2; do
         for p in true false; do
@@ -447,6 +461,45 @@ for pair in 3:execute:pr-adopt 2:execute:status-read; do
     SEED="cascade_result.json={\"cascade_status\":\"completed\",\"steps\":[]}" drive plan_completion ""
     expect_step "ready_owned_pr exit ${pair%%:*}" "${pair#*:}"
 done
+reset_rc
+
+# plan_completion and the hosted-of-record route: a child that took it left
+# the read to this run. shared_hosted_read is verification-route.sh
+# --parent-read (0 nothing to read or every job succeeded, 1 refused, 3 the
+# wait passed, 75 pending, 2 unreadable), shared_hosted_ready its --ready
+# --absent-ok. The ci_monitor edges need both at 0.
+PC_TRANS=$(section "$(extract_state plan_completion)" transitions)
+n=$(printf '%s\n' "$PC_TRANS" | awk '/^      - target: ci_monitor$/ {c++} END {print c + 0}')
+m=$(printf '%s\n' "$PC_TRANS" | awk '
+    /^      - target:/ { t = $3; r = 0; d = 0 }
+    t == "ci_monitor" && /gates.shared_hosted_read.exit_code: 0$/ { r = 1 }
+    t == "ci_monitor" && /gates.shared_hosted_ready.exit_code: 0$/ { d = 1 }
+    t == "ci_monitor" && r && d { c++; t = "" }
+    END { print c + 0 }')
+[ "$n" -gt 0 ] && [ "$n" -eq "$m" ] && pass "every plan_completion edge to ci_monitor needs both hosted gates at 0 ($m of $n)" \
+    || fail "$m of $n plan_completion edges to ci_monitor need both hosted gates at 0"
+DONE='cascade_result.json={"cascade_status":"completed","steps":[]}'
+reset_rc
+SEED="$DONE expected_head=$HEAD40" drive plan_completion ""
+expect "no child took the route (both hosted gates 0)" ci_monitor
+for rc in 75 2; do
+    reset_rc; set_rc verification-route.sh--parent-read "$rc"
+    SEED="$DONE expected_head=$HEAD40" drive plan_completion '{"cascade_detail":"ran"}'
+    holds "the hosted read at $rc (pending, or unreadable): no edge to ci_monitor" plan_completion shared_hosted_read
+done
+for rc in 1 3; do
+    reset_rc; set_rc verification-route.sh--parent-read "$rc"
+    SEED="$DONE expected_head=$HEAD40" drive plan_completion ""
+    expect_step "the hosted read at $rc (refused, or past 120 minutes)" execute:ci
+done
+reset_rc; set_rc verification-route.sh--ready 1
+SEED="$DONE expected_head=$HEAD40" drive plan_completion ""
+holds "the hosted read settled, the shared PR still a draft or unlinked (ready 1)" plan_completion shared_hosted_ready
+# Before the cascade's verdict nothing is read: the gate holds at 75 before it
+# runs the script, so a refusal the script would give can't end the run then.
+reset_rc; set_rc verification-route.sh--parent-read 1
+drive plan_completion ""
+holds "no cascade verdict yet, a hosted read that would refuse" plan_completion
 reset_rc
 
 # The three cascade gates print no finding: when they fail, the only findings

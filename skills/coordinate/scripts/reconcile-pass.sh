@@ -8,11 +8,20 @@
 # re-checks (reconcile-check.sh), at most four at once, launching none after
 # 20 seconds and giving each a deadline clipped to the time left before the
 # 24-second mark, which leaves the report and its seal the rest of koto's
-# 30-second cap. When every re-check is done it builds the report
-# (reconcile-report.sh), writes it to context, and prints the sealed line.
+# 30-second cap. Inventories hold at most two of the four slots at once. A
+# re-check still running at the end of its budget is stopped and read again in
+# a later pass; one stopped with its whole budget, not a clipped one, in two
+# passes is stored as timed out, not verified, so a re-check that never fits
+# can't hold the visit pending forever. The record read gets the same window: the time left before
+# the 24-second mark, at least 2 s. A read that ends at or past the 20-second
+# cutoff ends the pass pending, with nothing left to re-check if need be, and
+# the next pass seals without reading the record again. When every re-check
+# is done it builds the report (reconcile-report.sh), writes it to context,
+# and prints the sealed line.
 #
 # Output, one line on stdout (every child's stdout goes to stderr):
-#   pending:<seq>:<n>:<sha256 of the work file>   n re-checks left; tick again
+#   pending:<seq>:<n>:<sha256 of the work file>   n re-checks left (0 after a
+#                                                 late record read); tick again
 #   blocked:<case>                                 none | unreadable
 #   reconciled <sha256 of report.json> sealed:<seq>:<sha256>
 # The last is sealed with the record feature's coord-log.sh for this state's
@@ -31,17 +40,40 @@
 # no other context call it can do without: a tick of a pending visit makes
 # two, the sealing tick five at most. reconcile-pass_test.sh pins the counts.
 #
-# The pass writes the record in two cases only. A holding left `dispatching`
+# The pass writes the record in three cases only. A holding left `dispatching`
 # whose worker the listing finds (and whose leg, when it has one, is bound or
 # resolved) is rewritten `dispatched` by reconcile-settle.sh. A dispatched
 # holding whose leg's request this host's store doesn't hold (the run was
 # imported here) gets its leg an end from reconcile-legs.sh: re-legged when
 # the worker's session came along unbound, else moved to the message path
-# (PRD R15). Each is launched like a re-check once the facts it needs are
-# in, and reported under "Changed since then".
+# (PRD R15). Each of those two is launched like a re-check once the facts it
+# needs are in. And once per visit, before the record read, reconcile-owe.sh
+# owes the verdict of every milestone a roadmap/v4 roadmap reads Completed
+# that the record doesn't owe yet (a verdict-owed Work row through
+# roadmap-status.sh --owe-completed; nothing on v1 to v3 or at discipline
+# scope), so a run taking up such a roadmap offers those verdicts at its
+# first pick (docs/designs/DESIGN-completed-verified-states.md, Decision 3).
+# It runs first, with the whole pass ahead of it, so it is never cut short by
+# the pass's own clock; the record read then gets what is left. Every write is
+# reported under "Changed since then".
 # A deferral's carry is judged against the chain start (coord-log.sh
 # chain-start), so a restart or a takeover doesn't re-decide what the run it
-# replaced carried.
+# replaced carried. The walk to it reads every run before this one, and at
+# the end of a long chain it alone took longer than koto's 30 seconds, so a
+# pass killed in it never recorded anything (shirabe#1548). So the record
+# read doesn't walk. A carry dated at or after the run start is never before
+# the chain start, so when no deferral carries a time before the run start
+# the run start is stored as the chain start and nothing is walked. Otherwise
+# the work file keeps the earliest such carry's minute as the walk's bound
+# and a null chain start, and each pass then takes one step of the walk in
+# the time left before the 24-second mark (coord-log.sh's --back-to,
+# --deadline and --from), saving its cursor or, once it ends, the start it
+# reached. No deferral re-check starts before then, and the visit stays
+# pending until they are done. The sealed report keeps what the walk found,
+# chain: {start, back_to}, back_to the minute the start holds for, or null
+# when the start is the run start and nothing was walked, so dispatch_check,
+# which a run reaches only after this state seals, can take the start from
+# the report instead of walking again (deferral-check.sh).
 #
 # The work file, <session-dir>/coordinate-reconcile/visit.json, is trusted
 # only when its sha256 is the one this state's last engine-logged output
@@ -80,7 +112,19 @@ exec 3>&1 1>&2
 STATE=reconcile_pass
 CUTOFF=20
 READS_END=24
+# The owed verdicts' deadline (reconcile-owe.sh: a roadmap read, a record read
+# and, when a row is owed, a record write). It runs first in a visit, so the
+# whole of it fits under koto's 30-second limit; the record read after it gets
+# what is left before READS_END, at least 2 s, and a read that ends late only
+# leaves the pass pending. 16 s matches what a settle may take (its natural
+# budget of 20 s, less the reads it makes that this doesn't).
+OWE_BUDGET=16
 PARALLEL=4
+# Of the PARALLEL slots, inventories hold at most this many at once.
+INV_PARALLEL=2
+# A re-check stopped at its whole budget in this many passes is stored as
+# timed out, not verified.
+TRIES=2
 
 SESSION="" SDIR=""
 while [ $# -gt 0 ]; do
@@ -226,10 +270,28 @@ else
     discard
 fi
 
-# The record, once per visit.
+# The record, once per visit. The read gets the time left before the
+# 24-second mark, at least 2 s, measured on the pass's own clock; its
+# per-read deadlines get the same budget. A read that ends at or past the
+# 20-second cutoff ends the pass pending (READ_LATE), so the report and its
+# seal happen on the next tick, inside that tick's own 30 seconds.
+READ_LATE=0
 if [ -z "$WJ" ]; then
     rm -f "$W/reasoning.md"
-    REC=$(rd_deadline 12 "${RUNBASH[@]}" "$HERE/reconcile-read.sh" --session "$SESSION" --reasoning-out "$W/reasoning.md" 2>/dev/null 3>&-)
+    # The owed verdicts, the visit's first step: its one fact, a not
+    # verified one when it ran past its deadline or printed nothing readable.
+    OWE=$(rd_deadline "$OWE_BUDGET" "${RUNBASH[@]}" "$HERE/reconcile-owe.sh" --session "$SESSION" 2> "$T/owe.err" 3>&-)
+    ORC=$?
+    if [ "$ORC" != 0 ] || ! OWE=$(jq -cen 'input | select((.kind == "owe") and (.status | type) == "string")' <<< "$OWE" 2>/dev/null); then
+        if [ "$ORC" = 124 ]; then WHY="still running at the end of its ${OWE_BUDGET} s budget"
+        else WHY="it printed nothing readable (exit $ORC)"; fi
+        OWE=$(jq -nc --arg r "$WHY" '{kind: "owe", status: "not_verified", reason: $r}') || die "the owed verdicts could not be stored"
+    fi
+    tr=$(now) || exit 1
+    RB=$((READS_END - (tr - T0)))
+    [ "$RB" -lt 2 ] && RB=2
+    echo "reconcile-pass: record read with ${RB}s" >&2
+    REC=$(rd_deadline "$RB" env RECONCILE_READ_DEADLINE="$RB" "${RUNBASH[@]}" "$HERE/reconcile-read.sh" --session "$SESSION" --reasoning-out "$W/reasoning.md" 2> "$T/read.err" 3>&-)
     RC=$?
     if [ "$RC" -ne 0 ]; then
         case "$RC" in
@@ -237,7 +299,13 @@ if [ -z "$WJ" ]; then
             *) CASE=unreadable ;;
         esac
         REASON=$(printf '%s' "$REC" | jq -r '.reason // empty' 2>/dev/null)
-        [ "$RC" = 124 ] && REASON="reading the record timed out"
+        if [ "$RC" = 124 ]; then
+            # The reader names each part before it reads it; the last one
+            # named is where the time ran out.
+            PART=$(sed -n 's/^reconcile-read: reading \(.*\)$/\1/p' "$T/read.err" | tail -n 1 | tr -d '\000-\037' | cut -c1-80)
+            REASON="reading the record timed out after ${RB} s"
+            [ -n "$PART" ] && REASON="$REASON, while reading $PART"
+        fi
         [ -n "$REASON" ] || REASON="the record could not be read"
         printf 'case: %s\nreason: %s\n' "$CASE" "$REASON" > "$T/refusal"
         ctx_put reconcile/refusal "$T/refusal"
@@ -245,8 +313,15 @@ if [ -z "$WJ" ]; then
         say "blocked:$CASE"
     fi
     RUN_START=$("${RUNBASH[@]}" "$RD_COORD_LOG" run-start --session "$SESSION") || die "the run's start can't be read"
-    # A deferral carried by a run this one restarted counts as disposed.
-    CHAIN_START=$("${RUNBASH[@]}" "$RD_COORD_LOG" chain-start --session "$SESSION") || die "the run's chain start can't be read"
+    # A deferral carried by a run this one restarted counts as disposed, so
+    # a carry is judged against the chain start. Only a carry dated before
+    # the run start can be before it; with none, the run start serves for
+    # every row of this record and nothing is walked. Otherwise the chain
+    # start is left null, and the walk below finds it, bounded by the
+    # earliest such carry's minute (state-read.sh's rs_carry_bound, the bound
+    # deferral-check.sh puts on its own walk).
+    BOUND=$(printf '%s' "$REC" | jq -c '[(.deferrals // [])[] | .row]' | rs_carry_bound "${RUN_START:0:16}") \
+        || die "the record's deferrals can't be read"
     # Where the scripts sit relative to the repository being worked on.
     PR_ROOT=$(cd "$HERE/../../.." && pwd -P)
     TOP=$(rd_git rev-parse --show-toplevel 2>/dev/null) && TOP=$(cd "$TOP" && pwd -P) || TOP=""
@@ -254,10 +329,63 @@ if [ -z "$WJ" ]; then
     if [ -n "$TOP" ]; then
         case "$PR_ROOT/" in "$TOP"/*) PLACE='"inside"' ;; *) PLACE='"outside"' ;; esac
     fi
-    NEW=$(jq -c -n --argjson rec "$REC" --arg v "$VISIT" --arg rs "$RUN_START" --arg cs "$CHAIN_START" --argjson place "$PLACE" \
-        '{visit: $v, record: $rec, run_start: $rs, chain_start: $cs, plugin_root: $place, facts: {}, done: false}') \
+    # The record goes to jq from a file, not argv: a long-lived record outgrows
+    # the 128 KiB one argument may hold on Linux (shirabe#2042).
+    printf '%s' "$REC" > "$T/rec.json" || die "the record could not be stored"
+    NEW=$(jq -c -n --slurpfile recs "$T/rec.json" --arg v "$VISIT" --arg rs "$RUN_START" --arg b "$BOUND" --argjson place "$PLACE" --argjson owe "$OWE" \
+        '$recs[0] as $rec | {visit: $v, record: $rec, run_start: $rs, chain_start: (if $b == "" then $rs else null end),
+          plugin_root: $place, facts: {}, owe: $owe, done: false}
+         + (if $b == "" then {} else {chain_back_to: $b, chain_cursor: null} end)') \
         || die "the record could not be stored"
     save "$NEW"
+    te=$(now) || exit 1
+    [ $((te - T0)) -ge "$CUTOFF" ] && READ_LATE=1
+fi
+
+# The chain start, while it is unknown: one step of the walk per pass, in the
+# time left before the 24-second mark, with coord-log.sh's own deadline a few
+# seconds under that so the step ends on its own and leaves a cursor the
+# next pass resumes from. The walk goes back no further than the bound the
+# record read set (--back-to). Under coord-log.sh's precondition for that
+# bound, that no run in the chain started before the run it continues, for
+# every carry in this record, all dated at or after the bound, being before
+# the start the walk prints is being before the chain start. A step cut at
+# the hard deadline changes nothing, and the next pass takes the same step
+# again; the record read stays saved either way.
+CHAIN_KNOWN=1
+if [ "$(wj -r '.chain_start == null')" = true ]; then
+    CHAIN_KNOWN=0
+    tw=$(now) || exit 1
+    CB=$((READS_END - (tw - T0)))
+    if [ "$CB" -ge 2 ]; then
+        SOFT=$((CB - 3)); [ "$SOFT" -lt 0 ] && SOFT=0
+        # The record read set the bound beside the null start, in the work
+        # file whose hash this pass checked.
+        BACK=$(wj -r '.chain_back_to // empty')
+        CURSOR=$(wj -r '.chain_cursor // empty')
+        WALK=(chain-start --session "$SESSION" --back-to "${BACK}Z" --deadline "$SOFT")
+        [ -n "$CURSOR" ] && WALK+=(--from "$CURSOR")
+        echo "reconcile-pass: chain walk to $BACK with ${CB}s${CURSOR:+, resumed}" >&2
+        OUT=$(rd_deadline "$CB" "${RUNBASH[@]}" "$RD_COORD_LOG" "${WALK[@]}" 3>&-)
+        WRC=$?
+        case "$WRC" in
+            0)
+                case "$OUT" in '' | *$'\n'*) die "the run's chain start can't be read" ;; esac
+                NEW=$(wj -c --arg cs "$OUT" '.chain_start = $cs | .chain_cursor = null') || die "the chain start could not be stored"
+                save "$NEW"
+                CHAIN_KNOWN=1
+                ;;
+            3)
+                # The cursor is kept as printed; coord-log.sh checks it when
+                # the next step hands it back.
+                case "$OUT" in "partial "?*) ;; *) die "the chain walk stopped without a cursor" ;; esac
+                NEW=$(wj -c --arg c "${OUT#partial }" '.chain_cursor = $c') || die "the chain walk's cursor could not be stored"
+                save "$NEW"
+                ;;
+            124) ;;
+            *) die "the run's chain start can't be read" ;;
+        esac
+    fi
 fi
 
 # plan NOW -- the re-checks not yet done, one JSON object per line:
@@ -339,12 +467,45 @@ plan() {
         | map(select($f[.id] == null) | .due = (.due // 0))[]'
 }
 
-# The launch loop.
-RUN_IDS=() RUN_PIDS=() RUN_END=() RUN_CLIPPED=()
+# The launch loop. Per running read: its id, pid, the time it is stopped at,
+# whether its budget was clipped below its natural one, its sub and budget.
+RUN_IDS=() RUN_PIDS=() RUN_END=() RUN_CLIPPED=() RUN_SUB=() RUN_BUDGET=()
+
+# stopped I -- the pass stopped running read I at its budget. A read stopped
+# with its budget clipped is read again in a later pass, which may give it its
+# whole budget. One stopped with its whole budget counts a try in the work
+# file; at the TRIES-th it is stored as not verified, so a read that never
+# fits its budget can't hold the visit pending forever (shirabe#1166). Each
+# stop is named on stderr as it happens, so a tick that koto kills later still
+# shows which re-check was slow (shirabe#1548).
+stopped() {
+    local i=$1 id=${RUN_IDS[$1]} n t new
+    local what="reconcile-pass: stopped $id (${RUN_SUB[$i]}) at its ${RUN_BUDGET[$i]}s budget"
+    if [ "${RUN_CLIPPED[$i]}" = 1 ]; then
+        echo "$what, clipped: read again in a later pass" >&2
+        return 0
+    fi
+    n=$(wj -r --arg id "$id" '(.tries[$id] // 0) + 1') || die "the tries for $id could not be read"
+    if [ "$n" -lt "$TRIES" ]; then
+        echo "$what: try $n of $TRIES" >&2
+        new=$(wj -c --arg id "$id" --argjson n "$n" '.tries[$id] = $n') || die "the tries for $id could not be written"
+    else
+        echo "$what: try $n of $TRIES, stored as timed out" >&2
+        t=$(now) || exit 1
+        new=$(wj -c --arg id "$id" --arg sub "${RUN_SUB[$i]}" --arg b "${RUN_BUDGET[$i]}" --argjson n "$n" --argjson t "$t" '
+            .tries[$id] = $n
+            | .facts[$id] = ({kind: $sub, status: "not_verified",
+                              reason: ("timed out: still running at the end of its " + $b + " s budget in " + ($n | tostring) + " passes"),
+                              t: $t}
+                             + (if $sub == "inventory" then {taken: false} else {} end))') \
+            || die "the fact for $id could not be written"
+    fi
+    save "$new"
+}
 
 # collect -- fold every finished read into the work file.
 collect() {
-    local i id keep_ids=() keep_pids=() keep_end=() keep_clip=() fact clipped t new why
+    local i id keep_ids=() keep_pids=() keep_end=() keep_clip=() keep_sub=() keep_budget=() fact clipped t new why
     i=0
     while [ "$i" -lt "${#RUN_IDS[@]}" ]; do
         id=${RUN_IDS[$i]}
@@ -376,19 +537,24 @@ collect() {
             rm -f "$R/$id".*
         elif [ "$t" -ge "${RUN_END[$i]}" ]; then
             # Past its budget and still running: stop it; it is read again
-            # in a later pass.
+            # in a later pass, or stored as timed out (stopped).
             pkill -TERM -P "${RUN_PIDS[$i]}" 2>/dev/null; kill -TERM "${RUN_PIDS[$i]}" 2>/dev/null
             rm -f "$R/$id".*
+            stopped "$i"
         else
             keep_ids+=("$id"); keep_pids+=("${RUN_PIDS[$i]}"); keep_end+=("${RUN_END[$i]}"); keep_clip+=("${RUN_CLIPPED[$i]}")
+            keep_sub+=("${RUN_SUB[$i]}"); keep_budget+=("${RUN_BUDGET[$i]}")
         fi
         i=$((i + 1))
     done
     RUN_IDS=(${keep_ids[@]+"${keep_ids[@]}"}); RUN_PIDS=(${keep_pids[@]+"${keep_pids[@]}"})
     RUN_END=(${keep_end[@]+"${keep_end[@]}"}); RUN_CLIPPED=(${keep_clip[@]+"${keep_clip[@]}"})
+    RUN_SUB=(${keep_sub[@]+"${keep_sub[@]}"}); RUN_BUDGET=(${keep_budget[@]+"${keep_budget[@]}"})
 }
 
 running() { local x; for x in ${RUN_IDS[@]+"${RUN_IDS[@]}"}; do [ "$x" = "$1" ] && return 0; done; return 1; }
+# inventories: how many inventories are running.
+inventories() { local x n=0; for x in ${RUN_SUB[@]+"${RUN_SUB[@]}"}; do [ "$x" = inventory ] && n=$((n + 1)); done; echo "$n"; }
 # writing: a settle or a legs classification, one of the pass's writes, is running.
 writing() { local x; for x in ${RUN_IDS[@]+"${RUN_IDS[@]}"}; do case "$x" in *.settle | *.legs) return 0 ;; esac; done; return 1; }
 
@@ -430,6 +596,7 @@ launch() {
     pid=$!
     tl=$(now) || exit 1
     RUN_IDS+=("$id"); RUN_PIDS+=("$pid"); RUN_END+=($((tl + budget + 2))); RUN_CLIPPED+=("$clipped")
+    RUN_SUB+=("$sub"); RUN_BUDGET+=("$budget")
 }
 
 while :; do
@@ -442,6 +609,10 @@ while :; do
         [ -n "$spec" ] || continue
         id=$(printf '%s' "$spec" | jq -r .id)
         running "$id" && continue
+        # A deferral is judged against the chain start, so none starts while
+        # the walk is unfinished. It stays in the plan, which keeps the visit
+        # pending, and so never sealed without it.
+        case "$id" in d[0-9]*) [ "$CHAIN_KNOWN" = 1 ] || continue ;; esac
         due=$(printf '%s' "$spec" | jq -r .due)
         if [ "$due" -gt "$t" ]; then
             { [ "$wait_until" = 0 ] || [ "$due" -lt "$wait_until" ]; } && wait_until=$due
@@ -455,11 +626,16 @@ while :; do
         # start only when their whole budget fits, else in a later pass,
         # which starts with them. And one write runs at a time: two would
         # each rewrite the record, and the second would find it changed.
+        # Inventories hold at most INV_PARALLEL of the slots, so the reads of
+        # GitHub and the other re-checks always have one (shirabe#1202).
         whole=1
         case "$(printf '%s' "$spec" | jq -r .sub)" in
             settle | legs)
                 [ "$left" -lt "$(printf '%s' "$spec" | jq -r .natural)" ] && whole=0
                 writing && whole=0
+                ;;
+            inventory)
+                [ "$(inventories)" -ge "$INV_PARALLEL" ] && whole=0
                 ;;
         esac
         if [ "$el" -lt "$CUTOFF" ] && [ "${#RUN_IDS[@]}" -lt "$PARALLEL" ] && [ "$left" -ge 2 ] && [ "$whole" = 1 ]; then
@@ -478,14 +654,30 @@ while :; do
 done
 
 # Anything left is read in a later pass. A plan that can't be read must not
-# count as nothing left, or the pass would seal with re-checks unread.
+# count as nothing left, or the pass would seal with re-checks unread. A
+# record read that ended late leaves the report to the next pass even with
+# nothing left to re-check.
 t=$(now) || exit 1
 plan "$t" > "$T/plan" || die "the plan could not be read"
 LEFT=$(grep -c . "$T/plan" || true)
-if [ "$LEFT" -gt 0 ]; then
+if [ "$LEFT" -gt 0 ] || [ "$READ_LATE" = 1 ]; then
     H=$(printf '%s\n' "$WJ" | rd_sha256)
-    printf '%s re-checks left in this visit; tick again with no evidence.\n' "$LEFT" > "$T/progress"
+    if [ "$CHAIN_KNOWN" != 1 ]; then
+        printf 'The chain start, which the deferrals are judged against, is still being read; %s re-checks left in this visit; tick again with no evidence.\n' "$LEFT" > "$T/progress"
+    elif [ "$LEFT" -gt 0 ]; then
+        printf '%s re-checks left in this visit; tick again with no evidence.\n' "$LEFT" > "$T/progress"
+    else
+        printf 'The record was read late in this pass; the report is built on the next tick. Tick again with no evidence.\n' > "$T/progress"
+    fi
     ctx_put reconcile/progress "$T/progress"
+    # Name what is left, so a reader of the tick's stderr sees which re-checks
+    # the next pass picks up. Nothing is running here: the loop ends only with
+    # every launched read collected or stopped.
+    if [ "$LEFT" -gt 0 ]; then
+        echo "reconcile-pass: pending with $LEFT re-checks left: $(jq -rs 'map("\(.id) (\(.sub))") | join(", ")' "$T/plan")" >&2
+    else
+        echo "reconcile-pass: pending with 0 re-checks left: the record was read late" >&2
+    fi
     say "pending:$VISIT:$LEFT:$H"
 fi
 
@@ -496,6 +688,7 @@ jq -c --arg at "$(iso)" '
       def get($id): if $f[$id] == null then empty else $f[$id] | strip end;
     {schema: "coordinate-reconcile-facts/v1",
      scope: $rec.scope, record: $rec.record, reconciled_at: $at, plugin_root: .plugin_root,
+     chain: {start: .chain_start, back_to: (.chain_back_to // null)},
      decisions: ($rec.decisions // []),
      holdings: [$rec.holdings | to_entries[] | .key as $i | "h\($i)" as $p
        | (if $f["\($p).host2"] != null then ($f["\($p).host2"] | strip | .reads = 2)
@@ -520,7 +713,8 @@ jq -c --arg at "$(iso)" '
                  else {kind: "other", status: "ok", verdict: "not_rechecked", reason: ""} end)}],
      deferrals: [$rec.deferrals | to_entries[] | "d\(.key)" as $p
        | {row: .value.row} + (if $f[$p] != null then (get($p) | {disposed, how, status, reason}) else {status: "not_verified", reason: "not read"} end)],
-     reasoning: $rec.reasoning, unparseable: $rec.unparseable}' > "$T/facts.json" <<< "$WJ" \
+     reasoning: $rec.reasoning, unparseable: $rec.unparseable}
+    + (if (.owe // null) == null then {} else {owe: .owe} end)' > "$T/facts.json" <<< "$WJ" \
     || die "the facts could not be assembled"
 "${RUNBASH[@]}" "$HERE/reconcile-report.sh" json < "$T/facts.json" > "$W/report.json" || die "the report could not be built"
 "${RUNBASH[@]}" "$HERE/reconcile-report.sh" md < "$W/report.json" > "$W/report.md" || die "the report could not be rendered"

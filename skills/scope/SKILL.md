@@ -59,20 +59,33 @@ the tokens reach `koto init` through `scripts/scope-open.sh`, and a
 value the template's variables do not admit is refused there, with
 exit 2 and no session or state key.
 
-1. **Empty** — surface a cold-start prompt asking the author what
-   feature scope they want to settle. The cold-start prompt says
-   what reaches this entry point, in the terms CLAUDE.md uses — a
-   feature to be built, added, or redesigned whose requirements are
-   not already written down — and asks the author
-   to re-invoke `/scope <topic-slug>` with a slug that matches the
-   topic-slug regex. Phase 0 then stops, before `koto init`; there
-   is no auto-retry loop.
-2. **Non-empty `$ARGUMENTS`** — a freeform topic string that must
-   already conform to the topic-slug regex (see Topic-Slug
-   Validation in `skills/scope/references/phases/phase-0-setup.md`
-   for the regex source-of-truth and validation discipline). On match, the value becomes the topic slug verbatim;
-   on mismatch, koto refuses it at `koto init` and `scope-open.sh`
-   prints the slug-refusal text; the run stops.
+The topic slug comes from
+`${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md`: the agent
+derives it, and the author never has to type one.
+
+1. **Empty, and nothing in the conversation describes the work** —
+   surface a cold-start prompt asking the author what feature scope
+   they want to settle. The cold-start prompt says what reaches this
+   entry point, in the terms CLAUDE.md uses — a feature to be built,
+   added, or redesigned whose requirements are not already written
+   down — and asks what the work is. Phase 0 then stops, before
+   `koto init`; there is no auto-retry loop. When the conversation
+   does describe the work, derive the slug from it instead.
+2. **A slug given as the first token** — the value becomes the topic
+   slug verbatim. Words after it are the author's description of the
+   work.
+3. **A description of the work** — derive a short kebab-case slug
+   from it (and from the conversation, when it points back there)
+   and use that as the topic slug. The description informs Phase 1;
+   it is not passed to `scope-open.sh` as tokens.
+
+In every mode the first line of output names the slug. The slug
+handed to `scope-open.sh` is then checked against the topic-slug
+regex (see Topic-Slug Validation in
+`skills/scope/references/phases/phase-0-setup.md` for the regex
+source-of-truth and validation discipline): on mismatch, koto
+refuses it at `koto init` and `scope-open.sh` prints the
+slug-refusal text; the run stops.
 
 Paths to durable artifacts (e.g., `/scope docs/prds/PRD-foo.md`)
 fail the regex on slashes / dots / uppercase and are rejected at
@@ -570,6 +583,7 @@ front. The second column says where each one is cited.
 | File | Cited from |
 |------|-------------|
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` | When a phase file cites it — contract surface, invariants, exit paths, Gate Vocabulary (Mandatory-with-auto-skip), L13 `chain/dispatch` convention, substitution surfaces |
+| `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` | Phase 0 (how the topic slug is obtained: given as-is or derived from the prompt) |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md` | Phase 0 (slug regex), Phase 2 (state writes including `boundary:` and `plan_execution_mode:`), Phase 3 (R9 check, multi-discriminator Part 2, chain-membership-gated Part 3) |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md` | Resume (`resume_route`) — meta-ladder rows 1-4 and 8-9, refuse-and-redirect Slot 5 paragraph |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-child-inspection.md` | Phase 2 — child-doc inspection (R14 widened rule, dual-check drift detection) |

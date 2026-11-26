@@ -152,6 +152,10 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/push-and-record_test.sh
 
+      - name: Run start-commit tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/start-commit_test.sh
+
       - name: Run record-merge-verdict tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/record-merge-verdict_test.sh
@@ -177,6 +181,7 @@ jobs:
         run: bash skills/execute/scripts/eval-koto-shim_test.sh
 
       # The coordinated loop's scripts: the run record's writer and reader,
+      # the build-output pin and the end that cleans against it,
       # the next action, the verdict and its record, the setup record, the
       # worktree-isolation check, node branches, node pushes and their head
       # records, and the merge. Each
@@ -186,6 +191,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           bash skills/execute/scripts/run-record_test.sh
+          bash skills/execute/scripts/build-output-end_test.sh
           bash skills/execute/scripts/coordinated-next_test.sh
           bash skills/execute/scripts/coordination-verdict_test.sh
           bash skills/execute/scripts/record-coordination-verdict_test.sh
@@ -194,6 +200,7 @@ jobs:
           bash skills/execute/scripts/worktree-isolation_test.sh
           bash skills/execute/scripts/node-cut_test.sh
           bash skills/execute/scripts/node-push_test.sh
+          bash skills/execute/scripts/node-push-rerun-adopt_test.sh
           bash skills/execute/scripts/child-read_test.sh
           bash skills/execute/scripts/repo-visibility_test.sh
           bash skills/execute/scripts/coordinated-visibility_test.sh
@@ -254,6 +261,13 @@ jobs:
       - name: Run shared deferral record tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/shared-deferral-record_test.sh
+
+      # pr_finalization's rerun_recorded gate: its script through koto, gh
+      # and owned-pr.sh stubs with the real check-pr-output.sh, then over real
+      # child sessions, one holding a verification_attempts ledger.
+      - name: Run shared re-run record tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/shared-rerun-record_test.sh
 
       # The coordinated envelope's shape, read from the compiled
       # execute-coordinated.md: every edge into `merged` from

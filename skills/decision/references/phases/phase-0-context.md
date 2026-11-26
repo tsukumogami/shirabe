@@ -14,7 +14,8 @@ Session and Keys defines), skip to Phase 1. A direct run opens its session in
 
 **Standalone invocation** (`/decision <question>`):
 - Parse `$ARGUMENTS` as the decision question
-- If empty and interactive: ask what needs to be decided
+- If empty and interactive: take the question from the conversation when it
+  already describes the choice; otherwise ask what needs to be decided
 - If empty and --auto: infer from branch name, recent issues, or error
 - Derive `<topic>` from the question and open the session, as SKILL.md's
   Session and Keys says (`skill-session.sh open decision <topic>`, then

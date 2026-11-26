@@ -21,11 +21,19 @@
 # read (2); the sealed token and its detail; every token in koto's capture
 # alphabet; verdict-owed for a topic whose holding covers a milestone with a
 # verdict-owed row, or that the row names as its Who, and ok for another topic.
+# A holding whose worker's Claude jobs here are all finished holds no slot at
+# the cap, draft or not, while a live one does.
 # The record read once per check (one assembly, record/meta got and never
 # listed), with decision-next judging that read and not a later one. The
 # check's koto calls the same with 3 entries and with 300, no entry read and
 # record/ never listed: the sections the verdicts read are got directly, an
 # absent one listed by its own key, and a listed one that can't be got exits 2.
+# At the end of a 107-run chain, at a second of the clock a hop: no walk with
+# no carry dated before the run start; a walk bounded to such a carry's
+# minute; and a carry from before the whole chain judged with no hop from the
+# sealed reconcile report's chain start, which is trusted only with its
+# sealed digest, a seal for the latest visit to reconcile_pass and a bound at
+# or before the carry's minute, the check walking otherwise.
 #
 # Usage: bash skills/coordinate/scripts/deferral-check_test.sh
 set -uo pipefail
@@ -34,6 +42,18 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
+# deferral-check.sh reads Claude jobs under DC_CLAUDE_HOME (default $HOME/.claude)
+# to mark a stopped worker. Point it at an empty fixture home so no block reads
+# the host's real jobs; the stopped-worker block swaps in its own jobs.
+EMPTY_CLAUDE_HOME="$T/claude-empty"
+mkdir -p "$EMPTY_CLAUDE_HOME/jobs"
+export DC_CLAUDE_HOME="$EMPTY_CLAUDE_HOME"
+# A seeded job's listing row (dispatch-common.sh dc_job_row) comes from a
+# stub `claude agents --json --all` that lists nothing, never the host's real
+# CLI.
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$T/claude-cli"
+chmod +x "$T/claude-cli"
+export DC_CLAUDE_CLI="$T/claude-cli"
 DC="$HERE/deferral-check.sh"
 CL="$HERE/coord-log.sh"
 tok_shape() {
@@ -118,6 +138,17 @@ OUT=$(check); eq "filed #<n> naming no issue is open" "deferral-open 1" "$OUT"
 tok_shape "deferral-open is in koto's capture alphabet" "$OUT"
 seed "$(with_deferrals "$(def 'filed #13')")"
 eq "filed #<n> naming a pull request is open" "deferral-open 1" "$(check)"
+# The open rows reach jq through a file, not an argument: Linux caps one
+# argument at 131072 bytes, and a long-running record's open deferrals grow
+# past that. Each row's text is 200 three-byte characters after its cut.
+jq -nc '[range(240) | {deferral: ("d\(.)-" + ("漢" * 200)), reason: "r", raised: "2026-09-25T10:00Z", disposition: ""}]' > "$T/many.json"
+record_json roadmap plugin-system | jq -c --slurpfile d "$T/many.json" '.deferrals = $d[0]' > "$T/many-rec.json"
+seed "$(cat "$T/many-rec.json")"
+eq "240 open deferrals, over 131072 bytes, are open" "deferral-open 240" "$(check)"
+D="$KOTO_STORE/context/$S/coord/dispatch_check.json"
+jq -c .open_deferrals "$D" > "$T/many-open.json"
+[ "$(wc -c < "$T/many-open.json")" -gt 131072 ] && ok "  ... the open rows are over 131072 bytes" || bad "  ... the open rows are over 131072 bytes" "$(wc -c < "$T/many-open.json") bytes; $(head -3 "$T/err")"
+eq "  ... and the detail lists every one" 240 "$(jq length "$T/many-open.json")"
 seed "$(with_deferrals "$(def 'filed #0')")"
 eq "filed #0 is open" "deferral-open 1" "$(check)"
 seed "$(with_deferrals "$(def 'carried 2026-09-25T08:30Z: last run')" "$(def '')")"
@@ -289,6 +320,24 @@ eq "dispatching the topic a verdict-owed row names, its holding gone, is refused
 session "$(roadmap_vars plugin-system)" dispatch gamma
 eq "another topic is clear" "ok gamma" "$(check)"
 
+echo "== check mode: roadmap/v4, a dependent of a milestone owed its verdict =="
+# On a roadmap/v4 roadmap a milestone owed its verdict frees its dependents
+# (pick-facts.sh), so a brief for Milestone 2, which depends on Milestone 1,
+# goes through while Milestone 1's own topic is still refused. The check reads
+# no roadmap: the refusal is the owed milestone's alone, whatever the schema.
+# exit_of <output>: coord-verdict.sh's exit for that sealed token.
+exit_of() { bash "$HERE/coord-verdict.sh" --session "$S" --state dispatch_check --capture "$1" >/dev/null 2>&1; echo $?; }
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding m1 '{"unit": "Milestone 1: Loader", "phase": "executing", "pull_request": ""}')" \
+    --argjson o "$(OWEDROW "Milestone 1" m1)" '.holdings = [$h] | .work = [$o]')"
+db '.files["acme/widgets"][$k] = $t' --arg k "main:docs/roadmaps/ROADMAP-plugin-system.md" \
+    --arg t "$(printf -- '---\nschema: roadmap/v4\nstatus: Active\n---\n\n# ROADMAP\n\n## Milestones\n\n### Milestone 1: Loader\n**Dependencies:** None\n**Status:** In progress\n\n### Milestone 2: Registry\n**Dependencies:** Milestone 1\n**Status:** Not started\n')"
+session "$(roadmap_vars plugin-system)" dispatch m2
+OUT=$(bash "$DC" --session "$S" 2>"$T/err")
+eq "v4: a brief for Milestone 2 is clear" "ok m2 40" "${OUT% sealed:*} $(exit_of "$OUT")"
+session "$(roadmap_vars plugin-system)" send_execution m1
+OUT=$(bash "$DC" --session "$S" 2>"$T/err")
+eq "v4: a brief for Milestone 1, its verdict owed, is refused" "verdict-owed Milestone 1 49" "${OUT% sealed:*} $(exit_of "$OUT")"
+
 echo "== check mode: the topic is the one this visit's path chose =="
 # A pick from an earlier visit of pick is not the one checked: a later visit
 # whose evidence names another unit is.
@@ -400,6 +449,24 @@ seed "$(with_holdings "$(parked p1 31)" "$(parked p2 32)" "$(parked p3 33)")"
 for n in 31 32 33; do pr $n OPEN false; done
 session "$(roadmap_vars plugin-system)"
 eq "three parked workers is at the parked bound" "at-cap 0/5 3/3" "$(check)"
+# A Run parked-bound row a person set wins over PARKED_BOUND (shirabe#2106):
+# raised to 5 the same dispatch passes, and set back to 3 it is refused again.
+# The rows go in through state-stored-set.sh, on this run's record by name,
+# since the earlier cases left other live sessions of the same roadmap.
+set_pb() {
+    RS_SESSION="$S" bash "$HERE/state-stored-set.sh" --session "$S" --scope roadmap --name plugin-system \
+        --repo acme/widgets --skip-session-checks --run parked-bound "$@" >/dev/null 2>"$T/err"
+}
+set_pb 5 --by "the human"
+eq "a parked-bound row raising the bound to 5 is written" 0 $?
+eq "  ... and the dispatch refused at the variable's bound passes" "ok beta" "$(check)"
+eq "  ... with the row's bound in the detail" "3 5" "$(jq -r '"\(.parked) \(.parked_bound)"' "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
+set_pb 3 --by "the human"
+eq "the row set back to 3 is written" 0 $?
+eq "  ... and the dispatch is refused again" "at-cap 0/5 3/3" "$(check)"
+set_pb 4 --inferred "The reviewer's answer raises the parked bound to 4." --by "the coordinator"
+eq "a parked-bound worked out by the coordinator is written with --inferred" 0 $?
+eq "  ... and it binds as well" "ok beta" "$(check)"
 seed "$(with_holdings "$(parked p1 31)" "$(parked p2 32)" "$(parked p3 33)" "$(scoping s1 34)")"
 for n in 31 32 33; do pr $n OPEN false; done; pr 34 OPEN true
 session "$(roadmap_vars plugin-system)" send_execution s1
@@ -447,6 +514,30 @@ seed "$(with_holdings "$(active a1 21)" "$(active a2 22)" "$(active a3 23)" "$(a
 for n in 21 22 23 24; do pr $n OPEN true; done; pr 44 MERGED false
 session "$(roadmap_vars plugin-system)"
 eq "a row send_execution moved on keeps its slot after its scoping pull request merged" "at-cap 5/5 0/3" "$(check)"
+# A holding whose worker's Claude job on this host is finished holds no slot,
+# draft pull request or not, so a same-slot continuation dispatches at the
+# cap (shirabe#1419). A live job still holds its slot.
+export DC_CLAUDE_HOME="$T/claude-1419"
+job() { # job <id> <session name> <state>
+    mkdir -p "$DC_CLAUDE_HOME/jobs/$1"
+    jq -nc --arg n "$2" --arg s "$3" '{name: $n, state: $s}' > "$DC_CLAUDE_HOME/jobs/$1/state.json"
+}
+job d1d1d1d1 l1-0000ddd1 working
+job d2d2d2d2 l2-0000ddd2 working
+job e1e1e1e1 s1-0000eee1 done
+job e2e2e2e2 s2-0000eee2 done
+job e3e3e3e3 s3-0000eee3 stopped
+seed "$(with_holdings "$(workon l1 61)" "$(workon l2 62)" "$(workon s1 63)" "$(workon s2 64)" "$(workon s3 65)")"
+for n in 61 62 63 64; do pr $n OPEN true; done; pr 65 OPEN false
+session "$(roadmap_vars plugin-system)"
+eq "a full cap of draft holdings, three of them stopped, lets a dispatch through" "ok beta" "$(check)"
+eq "  ... the dispatch check no longer counts the stopped holding as active" "2 0" "$(jq -r '"\(.active) \(.parked)"' "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
+job e1e1e1e1 s1-0000eee1 working
+job e2e2e2e2 s2-0000eee2 working
+job e3e3e3e3 s3-0000eee3 working
+session "$(roadmap_vars plugin-system)"
+eq "the same holdings with live workers are at-cap" "at-cap 5/5 0/3" "$(check)"
+export DC_CLAUDE_HOME="$EMPTY_CLAUDE_HOME"
 
 echo "== check mode: a discipline rotation =="
 # A rotation's predecessor's deferrals are rows of its own record from its
@@ -592,8 +683,8 @@ koto_calls "$FULL" 300 > /dev/null
 eq "FULL: it reads only the sections and keys its checks need, each got once" \
     "decisions deferrals holdings run standing work" \
     "$(sed -n "s|^context get $S record/\([a-z-]*\)\$|\1|p" "$T/kc.calls" | grep -vx meta | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
-# The chain start (coord-log.sh chain-start) lists the run's koto/links/
-# relations, a fixed few keys; no record/ key is listed.
+# The chain start (coord-log.sh chain-start), when a carry needs it, lists
+# the run's koto/links/ relations, a fixed few keys; no record/ key is listed.
 eq "  ... and no record key is listed, since every one it reads is there" 0 "$(grep -c "^context list $S --prefix record/" "$T/kc.calls")"
 # A section that isn't there is told apart from a failed get by a listing of
 # that one key, which names no entry.
@@ -656,9 +747,175 @@ mkdir -p "$PT"
 pid=$!
 i=0
 while [ -z "$(ls -A "$PT")" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
-sleep 1
+# TERM goes once every read is out: the seven jobs' .out files exist (no
+# override is passed, so the run-facts read starts too), not after a fixed
+# second that a loaded runner can outlast (shirabe#1695).
+i=0
+while [ "$(ls "$PT"/deferral-check.*/*.out 2> /dev/null | wc -l | tr -d ' ')" -lt 7 ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
 kill -TERM "$pid" 2> /dev/null
 wait "$pid" 2> /dev/null
 if [ -z "$(ls -A "$PT")" ]; then ok "a check killed mid-read leaves no temporary directory"; else bad "a check killed mid-read leaves no temporary directory" "$(ls -A "$PT")"; fi
+
+# A check killed while it makes its temporary directory (shirabe#1695): a
+# mktemp in front of the real one that, for the check's own template, makes
+# the directory and then sends TERM to the check before handing back its name.
+# The check's pid comes from a file the test writes once the check has
+# started, so the shim never guesses which process to signal. Every other
+# template (state-common.sh's state-driver. directories) passes straight
+# through.
+mkdir -p "$T/mk"
+cat > "$T/mk/mktemp" <<EOF
+#!/usr/bin/env bash
+out=\$("$(command -v mktemp)" "\$@") || exit \$?
+case "\$*" in *"\$MKTEMP_TERM_PREFIX"*)
+    i=0
+    while [ ! -s "\$MKTEMP_TERM_PIDFILE" ] && [ "\$i" -lt 50 ]; do sleep 0.1; i=\$((i + 1)); done
+    kill -TERM "\$(cat "\$MKTEMP_TERM_PIDFILE")" 2> /dev/null ;;
+esac
+printf '%s\n' "\$out"
+EOF
+chmod +x "$T/mk/mktemp"
+MT="$T/mk-tmp"
+mkdir -p "$MT"
+rm -f "$T/mk.pid"
+(MKTEMP_TERM_PREFIX=deferral-check. MKTEMP_TERM_PIDFILE="$T/mk.pid" PATH="$T/mk:$PATH" TMPDIR="$MT" exec bash "$DC" --session "$S" > /dev/null 2>&1) &
+pid=$!
+echo "$pid" > "$T/mk.pid.new" && mv "$T/mk.pid.new" "$T/mk.pid"
+wait "$pid" 2> /dev/null
+if [ -z "$(ls -A "$MT")" ]; then ok "a check killed while it makes its temporary directory leaves none"; else bad "a check killed while it makes its temporary directory leaves none" "$(ls -A "$MT")"; fi
+
+# lib_jobs_stop stops every background job the check started, not only the
+# ones lib_job_start recorded: a job forked by lib_job_start but not yet
+# recorded when a signal ran the EXIT trap would otherwise outlive the stop
+# and write into the directory being removed.
+SP=$( . "$HERE/state-common.sh"; sleep 30 > /dev/null 2>&1 & echo $!; lib_jobs_stop )
+if kill -0 "$SP" 2> /dev/null; then
+    kill "$SP" 2> /dev/null
+    bad "lib_jobs_stop stops a background job it has no record of" "pid $SP still running"
+else
+    ok "lib_jobs_stop stops a background job it has no record of"
+fi
+
+echo "== check mode: a run at the end of a long chain, under koto's 30-second limit (shirabe#1548) =="
+# The run checked continues lc-1, which continues lc-2, and so on to lc-106,
+# each an hour older. A koto in front of the stand-in charges HOP_COST seconds
+# of a clock file for each member's log the walk looks up (one a hop) and,
+# once the clock passes its start plus 30, kills the check, as koto kills an
+# action at its limit, and fails every later lookup so the walk left behind
+# ends. What passes is what the check printed, never how long it took.
+LC=$T/long-chain
+mkdir -p "$LC/bin"
+cat > "$LC/bin/koto" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-} \${2:-}" = "session dir" ]; then
+    case "\${3:-}" in lc-*)
+        [ -f "$LC/killed" ] && exit 1
+        echo "\$3" >> "$LC/hops"
+        c=\$(( \$(cat "$LC/clock") + \${HOP_COST:-0} ))
+        echo "\$c" > "$LC/clock"
+        if [ "\$c" -gt "\$(cat "$LC/limit")" ]; then
+            : > "$LC/killed"
+            kill -KILL "\$(cat "$LC/pid")" 2> /dev/null
+            exit 1
+        fi ;;
+    esac
+fi
+exec "$HERE/testdata/koto" "\$@"
+EOF
+chmod +x "$LC/bin/koto"
+# limited <hop cost>: the check on S under the stand-in limit; OUT its verdict
+# (empty when it printed none), KILLED 1 when the limit ended it, HOPS the
+# hops its walk made.
+limited() {
+    echo 1000 > "$LC/clock"; echo 1030 > "$LC/limit"; : > "$LC/hops"; rm -f "$LC/killed"
+    HOP_COST=$1 PATH="$LC/bin:$PATH" bash -c 'echo $$ > "$0" && exec "$@"' "$LC/pid" bash "$DC" --session "$S" > "$LC/out" 2> "$T/err" &
+    wait $! 2> /dev/null
+    OUT=$(sed 's/ sealed:.*//' "$LC/out")
+    KILLED=0; [ -f "$LC/killed" ] && KILLED=1
+    HOPS=$(wc -l < "$LC/hops" | tr -d ' ')
+}
+seed "$(record_json roadmap plugin-system)"; session "$(roadmap_vars plugin-system)"
+prev=$S k=1
+while [ "$k" -le 106 ]; do
+    m=lc-$k
+    mkdir -p "$KOTO_STORE/sessions/$m" "$KOTO_STORE/context/$prev/koto/links/continues"
+    : > "$KOTO_STORE/context/$prev/koto/links/continues/$m"
+    printf '{"schema_version":1,"workflow":"%s","template_hash":"feedface","created_at":"%s","template_name":"coordinate"}\n' \
+        "$m" "$(jq -rn --argjson k "$k" '("2026-09-26T08:00:00Z" | fromdateiso8601) - $k * 3600 | todate')" > "$KOTO_STORE/sessions/$m/koto-$m.state.jsonl"
+    prev=$m k=$((k + 1))
+done
+limited 1
+eq "a check at the end of a 107-run chain with no deferral prints its verdict" "ok beta" "$OUT"
+eq "  ... not killed at koto's 30-second limit, and walking no chain" "0 0" "$KILLED $HOPS"
+seed "$(with_deferrals "$(def 'carried 2026-09-26T08:30Z: this run')")"
+limited 1
+eq "a carry dated after the run start walks no chain either" "ok beta 0 0" "$OUT $KILLED $HOPS"
+# lc-3 started at 05:00: a carry at 05:30 is judged against it, as against
+# the chain start, and the walk stops there.
+seed "$(with_deferrals "$(def 'carried 2026-09-26T05:30Z: three runs back')")"
+limited 1
+eq "a predecessor's carry three runs back is disposed" "ok beta" "$OUT"
+eq "  ... the walk bounded by it to three hops, inside the limit" "0 3" "$KILLED $HOPS"
+seed "$(with_deferrals "$(def 'carried 2026-09-26T05:30Z until 2026-09-26T05:45Z: three runs back')")"
+limited 1
+eq "  ... unless its decide-by has passed" "deferral-open 1 3" "$OUT $HOPS"
+# A carry from before the first run can't shorten the walk: only the chain's
+# first run decides it. The run's reconcile_pass, which every run passes
+# before dispatch_check, walked the chain across its ticks and sealed what
+# it found in its report (chain: {start, back_to}); the check takes the start
+# from there, with no hop, at the same second a hop.
+# sealed <chain-json>: the run enters reconcile_pass again, whose pass writes
+# a report holding <chain-json> where reconcile-pass.sh writes it and the
+# engine captures its sealed line, then comes back through pick to
+# dispatch_check.
+RDIR="$KOTO_STORE/sessions/$S/coordinate-reconcile"
+again() { # again: back to dispatch_check through pick, as after the pass
+    log_to "$S" reconcile_pass pick
+    log_evidence "$S" pick '{"choice":"dispatch","unit":"beta"}'
+    log_to "$S" pick dispatch_check
+}
+sealed() {
+    mkdir -p "$RDIR"
+    jq -nc --argjson c "$1" '{schema: "coordinate-reconcile-report/v1", chain: $c}' > "$RDIR/report.json"
+    log_to "$S" dispatch_check reconcile_pass
+    log_capture "$S" RECONCILE_SEAL "$(bash "$CL" seal --session "$S" --state reconcile_pass --token "reconciled $($SHA256 < "$RDIR/report.json" | cut -d' ' -f1)")"
+    again
+}
+EARLIEST=$(jq -rn '("2026-09-26T08:00:00Z" | fromdateiso8601) - 106 * 3600 | todate')
+GOOD=$(jq -nc --arg s "$EARLIEST" '{start: $s, back_to: "2026-09-01T00:00"}')
+seed "$(with_deferrals "$(def 'carried 2026-09-01T00:00Z: before the chain')")"
+sealed "$GOOD"
+limited 1
+eq "a carry from before the whole chain is open, the start taken from the sealed reconcile report" "deferral-open 1 0 0" "$OUT $KILLED $HOPS"
+# The carry three runs back again, where a walk takes three hops: a sealed
+# report good for its minute serves it with none, and a report the check
+# can't trust, or whose start doesn't hold for the carry, leaves it to the
+# walk. A report trusted wrongly would show as no hop.
+seed "$(with_deferrals "$(def 'carried 2026-09-26T05:30Z: three runs back')")"
+sealed "$GOOD"
+limited 1
+eq "a sealed report whose bound is at or before the carry's minute serves it with no hop" "ok beta 0 0" "$OUT $KILLED $HOPS"
+rm -f "$RDIR/report.json"
+limited 1
+eq "  ... with no report file, the check walks" "ok beta 0 3" "$OUT $KILLED $HOPS"
+sealed "$GOOD"
+# Edited after the seal to a start the carry is before: trusted, it would open the carry.
+jq -c '.chain.start = "2026-09-26T06:00:00Z"' "$RDIR/report.json" > "$RDIR/report.new" && mv "$RDIR/report.new" "$RDIR/report.json"
+limited 1
+eq "  ... with a report whose sha256 isn't the sealed digest, the check walks" "ok beta 0 3" "$OUT $KILLED $HOPS"
+sealed "$(jq -nc --arg s "$EARLIEST" '{start: $s, back_to: "2026-09-26T06:00"}')"
+limited 1
+eq "  ... with a report whose bound is after the carry's minute, the check walks" "ok beta 0 3" "$OUT $KILLED $HOPS"
+sealed '{"start":"2026-09-26T08:00:00.000Z","back_to":null}'
+limited 1
+eq "  ... with a report whose start is the run start, no bound, the check walks" "ok beta 0 3" "$OUT $KILLED $HOPS"
+sealed "$GOOD"
+# A later entry into reconcile_pass that hasn't sealed: the seal is an earlier visit's.
+log_to "$S" dispatch_check reconcile_pass
+again
+limited 1
+eq "  ... with a seal from an earlier visit to reconcile_pass, the check walks" "ok beta 0 3" "$OUT $KILLED $HOPS"
+for ((k = 1; k <= 106; k++)); do rm -rf "$KOTO_STORE/sessions/lc-$k"; done
+rm -rf "$KOTO_STORE/context/$S/koto" "$RDIR"
 
 done_tests deferral-check

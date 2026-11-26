@@ -31,7 +31,8 @@ From `$ARGUMENTS`:
    - `coordinated` — run the coordinated execution path below.
    - `multi-pr` — out of scope for `/execute`; multi-pr plans run one issue at a time
      through `/work-on` against the repo-persisted PLAN. Direct the user to `/work-on`.
-2. **Empty** — ask which PLAN to execute.
+2. **Empty** — when the conversation already names the PLAN, use it; otherwise
+   ask which PLAN to execute.
 
 The PLAN's `execution_mode` is an enum-typed input surface; re-validate it against
 `{single-pr, coordinated, multi-pr}` before it selects an execution path or is
@@ -112,6 +113,12 @@ Two more flags, on both paths:
   remaining children unbounded, and children already spawned keep the bound they
   started with. A value outside the three names is koto's `invalid_var`, a
   repeat its `duplicate_var`, each with exit 2 and no session.
+- `--step-drafts=<on|off>` (default `on`; single-pr only) — whether each
+  lead-shape step agent drafts the next step's PLAN entry for the owning session
+  (see "The lead shape"). It becomes the koto variable `STEP_DRAFTS`, passed
+  only when given and only on a single-pr PLAN; a coordinated PLAN has no step
+  agents' drafts, so the flag is ignored there. A value other than `on` or `off`
+  is koto's `invalid_var`.
 - `--verification=<local|hosted-ci>` and `--verification-reason=<text>`
   (default `local`, no reason) — the verification deferral `/work-on` takes
   (`skills/work-on/SKILL.md`), for the whole plan. They become the koto
@@ -125,12 +132,20 @@ Two more flags, on both paths:
   verification did not run, a `Reason: <reason>` line for each reason, and
   that hosted CI is the build of record. On a single-pr PLAN every child task
   gets both through the spawn, and under `include` `pr_finalization` holds
-  until the shared PR's body records it. On a
+  until the shared PR's body records it. Whatever the setting,
+  `pr_finalization` also holds until the shared PR's body carries each
+  child's re-run lines, one per verification attempt the child archived
+  (`rerun_recorded`, through `shared-rerun-record.sh`). On a
   coordinated PLAN, whatever the setting, the dispatch step gives both to every
   work item's child on every node; `node-push.sh` writes the section into each node PR it opens
   and refuses to push to a node PR already open that doesn't carry it (exit
   80), and the loop neither readies nor merges a node PR whose children
-  deferred until its body records it (`error:execute:deferral-record`).
+  deferred until its body records it (`error:execute:deferral-record`). The
+  same holds for re-runs on a coordinated PLAN: `node-push.sh` writes each
+  child's re-run lines into the `## Verification` section of a node PR it
+  opens and records them as the node's `reruns`, refuses to push to an open
+  node PR whose body lacks one (exit 82), and the loop neither readies nor
+  merges such a PR (`error:execute:rerun-record`).
   Unlike the bound, both are fixed
   for a live run, as in `/work-on`: a resume that attaches to it and leaves them
   out keeps them, and one that passes another value is koto's refusal. A
@@ -329,8 +344,8 @@ those answers through gates and routes on them itself: which PR the run owns
 (`orchestrator_setup`, `pr_finalization`, `plan_completion` and `ci_monitor`
 each look it up through `check-pr-output.sh --owned-pr`), whether the PR body,
 the shared branch's commits and its `docs/` visibility pass, and whether the
-body records every verification deferral the run carries
-(`pr_finalization`), the cascade's verdict (`plan_completion`, from the
+body records every verification deferral the run carries and has each
+child's re-run lines (`pr_finalization`), the cascade's verdict (`plan_completion`, from the
 `cascade_result.json` that `run-cascade.sh --session` records), the CI and merge
 state, and whether GitHub reports the PR `MERGED` (`ci_monitor`), and the pause
 (`PAUSE_BEFORE_FINALIZE`). A failing output check holds the run in its state
@@ -371,6 +386,19 @@ match it, commits that one path on the shared branch, and records the entry as
 entry. The `spawn_and_await` directive in `koto-templates/execute.md` carries
 the whole loop: the report's two fixed lines, the one retry for a child left
 non-terminal, the outline case, and what counts as data.
+
+The step agent that just finished does draft the next entry. Once its child
+reaches a terminal, it writes a proposed entry for each outlined step whose
+`waits_on` names only its own step, with `scripts/step-draft.sh write`, as
+`step_draft/<step>.md` in the owning session. The owning session reads that
+draft as untrusted input, checks it against the DESIGN and the PLAN's outline,
+rewrites what doesn't hold, and commits and records the entry as above; the
+`step_refine` record is its text, never the draft's. `scripts/step-draft.sh
+ready` exits 1 until that record exists, so a draft alone never starts a step.
+`scripts/step-draft.sh id` refuses a step id outside `^[a-z0-9][a-z0-9-]{0,62}$`,
+and the owning session starts no step agent for an id it refuses. Drafts are a
+single-pr lead-shape feature; `--step-drafts=off` turns them off for the
+invocation, and the owning session then details every step from scratch.
 
 **Lost context?** After a compaction, run `koto status` on `execute-<topic>`,
 on each child (`koto workflows --children execute-<topic>` names them), and,
@@ -748,6 +776,12 @@ against its chain shape:
      commit), and `scripts/node-push.sh` (each `impl/<slug>-<node-id>` branch, and
      the coordination branch after its cascade). None force-pushes, and none pushes
      the default branch.
+   - **The start commit**, only through `scripts/start-commit.sh`, at
+     `orchestrator_setup` before the shared branch's first push: one empty commit
+     on `impl/<slug>`, and only when that branch has no commit the remote's
+     default branch lacks (an earlier pull request already landed its PLAN
+     there), so the draft PR can be opened. It refuses any other branch and
+     never pushes.
    - **`head=` fields** on the coordination PR's index, rendered only by the
      codec (`scripts/lib/coordination-body.sh`) from the run record: a node's
      pushed head, which only `node-push.sh` records, or its merge commit, which
@@ -776,7 +810,22 @@ against its chain shape:
      directory (`$SHIRABE_STATE_DIR`, else `$XDG_STATE_HOME/shirabe`, whose
      default is `.local/state/shirabe` under the home directory, in
      `execute-carry/`, mode 0700) only until the
-     carry succeeds.
+     carry succeeds. One `run/` key belongs to both modes:
+     `run/cleanup/<id>` (verb `pin`, from `build-output-pin.sh`), a recorded
+     worktree's path and the base pinned for its build-output cleanup, `single`
+     on single-pr (from `drift-facts.sh`, right after its fetch) and the node id
+     on coordinated (from `node-push.sh node`, on every push). `pin` writes a
+     key once and keeps the first value, and `carry` restores it into a
+     replacement session, on single-pr as on coordinated.
+   - **Declared build output**, the paths a repository's verification map
+     lists in `build_output`, removed from each recorded worktree only at the
+     run's successful end, by `build-output-end.sh` from the `merged` and
+     `ready_awaiting_merge` directives, which hands each worktree whose own pull
+     request's CI is green to `clean-build-output.sh` with the base pinned for
+     it, and only when the parent checkout's untracked `CLAUDE.local.md`
+     carries `## Build Output Cleanup: on`. It writes the session's
+     `build_output_cleanup` key once. No other state or script removes build
+     output, and nothing it finds changes the run's result.
    - **Node PR marker edits** (`gh pr edit --body-file`), only from
      `record-coord-setup.sh` on a recovering start given `--adopt-run`, after
      every recovery check passed, and only on node PRs that passed the
@@ -789,8 +838,10 @@ against its chain shape:
      (only `run-cascade.sh --session`'s own verdict), `merge_verdict`,
      `confirm_verdict`, `reason`, and `step`; on coordinated, `home_repo`,
      `coord_branch`, `plan_abs` (fixed at setup, except that the opener
-     re-roots it on a moved attach: when the recorded PLAN is gone and this
-     checkout is on `coord_branch` with `home_repo` as its origin, it becomes
+     re-roots it on a moved attach: when this checkout is on `coord_branch`
+     with `home_repo` as its origin and the recorded PLAN is gone, or the old
+     checkout was kept and the session was rebound here (`koto session
+     rebind`) with the old PLAN the same file at the same commit, it becomes
      the PLAN here, through `record-coord-setup.sh --reroot-plan`),
      `merge_attempts` (`<id>:<result>` entries,
      the id a node, a follow-up's `<node>/follow-up-<n>` or `coordination`:

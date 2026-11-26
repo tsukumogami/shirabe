@@ -52,6 +52,13 @@
 #     isn't one JSON object, print one warning naming the session and
 #     review-round.sh and write nothing; in every case stdout and the exit
 #     match the same open without a round, and no temporary file is left
+#     the build-output pin: a single-pr replacement (resuming
+#     paused_for_review, or re-invoking after ready_awaiting_merge) holds the
+#     first session's run/cleanup/single, written once by the carry, with the
+#     snapshot removed and stdout unchanged; a re-open over a session that
+#     already holds the key carries nothing and removes the snapshot; a
+#     failing carry keeps the snapshot with one stderr line; a coordinated
+#     replacement holds the same run/cleanup/* keys with the same values
 #
 #   engine-backed (the real koto; skipped, loudly, when koto is absent):
 #     a fresh run: MERGE=false, PAUSE_BEFORE_FINALIZE=true (interactive)
@@ -246,6 +253,12 @@ pairs_eq "a repeat is two pairs and a bare flag its literal token, both left to 
     '[["REVIEW_FLOOR","--review-floor"],["REVIEW_CEILING","light"],["REVIEW_CEILING","full"]]' \
     'map(select(.[0] | startswith("REVIEW_")))'
 
+# --step-drafts=off turns the step agent's drafts off; with no flag there is no
+# pair (the no-flag case above pins the list), and the template reads empty as on.
+pairs_of '["docs/plans/PLAN-t.md","--step-drafts=off"]'
+pairs_eq "--step-drafts=off: one STEP_DRAFTS pair" \
+    '[["STEP_DRAFTS","off"]]' 'map(select(.[0] == "STEP_DRAFTS"))'
+
 # The verification deferral (#1017): one pair per flag given, none without
 # them (the no-flag case above already pins the list), and /work-on's own two
 # refusals before any koto call.
@@ -410,6 +423,62 @@ if grep -q '^init' "$WORK/stub.log" && [ ! -e "$SHIRABE_STATE_DIR/execute-carry/
 else
     fail "stale lock: out [$OUT], lock [$(ls "$SHIRABE_STATE_DIR/execute-carry" 2>&1)]"
 fi
+# The lock as this version writes it, a file holding the pid: a live holder
+# makes the opener busy.
+sleep 60 &
+HOLDER=$!
+printf '%s\n' "$HOLDER" > "$SHIRABE_STATE_DIR/execute-carry/execute-cpairs.lock"
+: > "$WORK/stub.log"
+tokens '["docs/plans/PLAN-cpairs.md"]'
+OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" KOTO_STUB_VARS="$WORK/vars.json" \
+    PATH="$PAIRS_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>/dev/null)
+RC=$?
+kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
+rm -f "$SHIRABE_STATE_DIR/execute-carry/execute-cpairs.lock"
+if [ "$RC" -eq 64 ] && [ "$OUT" = "error=session-busy" ] && ! grep -q '^init' "$WORK/stub.log"; then
+    pass "a lock file a live opener holds: error=session-busy, exit 64, no koto init"
+else
+    fail "session-busy, lock file: exit $RC, out [$OUT]"
+fi
+# Five openers race for one session's lock, under a mkdir that reports success
+# for a directory that already exists, the way uutils mkdir (Ubuntu 26.04) did
+# when it lost the race to create one. The opener that gets the lock is held at
+# its koto status read until the others have given up.
+RACE="$WORK/race"
+rm -rf "$RACE"
+mkdir -p "$RACE/bin"
+printf '#!/bin/sh\nexec %s -p "$@"\n' "$(command -v mkdir)" > "$RACE/bin/mkdir"
+cat > "$RACE/bin/koto" <<EOF
+#!/usr/bin/env bash
+if [ "\${1-}" = status ]; then
+    : > "$RACE/in.\$\$"
+    n=0
+    until [ -e "$RACE/release" ] || [ "\$n" -ge 150 ]; do sleep 0.1; n=\$((n + 1)); done
+fi
+exec "$PAIRS_BIN/koto" "\$@"
+EOF
+chmod +x "$RACE/bin/mkdir" "$RACE/bin/koto"
+: > "$WORK/stub.log"
+PIDS=""
+for i in 1 2 3 4 5; do
+    tokens '["docs/plans/PLAN-cpairs.md"]'
+    (cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" KOTO_STUB_VARS="$WORK/vars.json" \
+        PATH="$RACE/bin:$PAIRS_BIN:$PATH" bash "$OPEN" "$TOKENS" > "$RACE/out.$i" 2>/dev/null
+     echo "$?" > "$RACE/rc.$i") &
+    PIDS="$PIDS $!"
+done
+n=0
+until [ "$(ls "$RACE" | grep -c '^rc\.')" -ge 4 ] || [ "$n" -ge 150 ]; do sleep 0.1; n=$((n + 1)); done
+INSIDE=$(ls "$RACE" | grep -c '^in\.')
+: > "$RACE/release"
+# shellcheck disable=SC2086
+wait $PIDS
+BUSY=$(cat "$RACE"/out.* | grep -c '^error=session-busy$')
+if [ "$INSIDE" -eq 1 ] && [ "$BUSY" -eq 4 ] && [ ! -e "$SHIRABE_STATE_DIR/execute-carry/execute-cpairs.lock" ]; then
+    pass "five openers racing for one session's lock: exactly one wins, four are busy, and the lock is released"
+else
+    fail "five openers racing for one session's lock: exactly one wins: $INSIDE inside, $BUSY busy, lock [$(ls "$SHIRABE_STATE_DIR/execute-carry" 2>&1)]"
+fi
 rm -f "$FIXREPO/docs/plans/PLAN-cpairs.md"
 
 # A PLAN the cascade deleted takes its run's mode: the session's run/setup,
@@ -550,6 +619,44 @@ if [ "$RC" -eq 0 ] && [ "$(cat "$RR_STORE/execute-mv/plan_abs")" = "$RR_GONE" ];
 else
     fail "replaced: exit $RC, out [$OUT], plan_abs [$(cat "$RR_STORE/execute-mv/plan_abs")]; $ERR"
 fi
+
+# The old checkout kept: the run's sessions were rebound to a new clone of the
+# same coordination branch while the first checkout stayed on disk, so the
+# recorded PLAN still exists. A second stub answers `session list` with the
+# session's execution_dir from KOTO_STUB_EXEC_DIR and hands every other call to
+# the stub above.
+RRL_BIN="$WORK/reroot-list-bin"
+mkdir -p "$RRL_BIN"
+cat > "$RRL_BIN/koto" <<STUB
+#!/usr/bin/env bash
+if [ "\${1-} \${2-}" = "session list" ]; then
+    jq -cn --arg d "\${KOTO_STUB_EXEC_DIR-}" '[{id: "execute-mv", parent_workflow: null}
+        + (if \$d == "" then {} else {execution_dir: \$d} end)]'
+    exit 0
+fi
+exec "$REROOT_BIN/koto" "\$@"
+STUB
+chmod +x "$RRL_BIN/koto"
+rr_checkout "$WORK/rr-old" coord/mv https://github.com/acme/plans.git
+git clone -q "$WORK/rr-old" "$WORK/rr-new"
+git -C "$WORK/rr-new" remote set-url origin https://github.com/acme/plans.git
+RR_OLD="$(cd "$WORK/rr-old/docs/plans" && pwd -P)/PLAN-mv.md"
+RR_KEPT_NEW="$(cd "$WORK/rr-new/docs/plans" && pwd -P)/PLAN-mv.md"
+RR_ABS="$RR_OLD"
+rr_open "$WORK/rr-new" PATH="$RRL_BIN:$PATH" KOTO_STUB_EXEC_DIR="$(cd "$WORK/rr-old" && pwd -P)"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$RR_WANT" ] && [ "$(cat "$RR_STORE/execute-mv/plan_abs")" = "$RR_OLD" ]; then
+    pass "an attach from a new checkout the session isn't bound to leaves a kept checkout's plan_abs unchanged"
+else
+    fail "kept, not rebound: exit $RC, out [$OUT], plan_abs [$(cat "$RR_STORE/execute-mv/plan_abs")]; $ERR"
+fi
+rr_open "$WORK/rr-new" PATH="$RRL_BIN:$PATH" KOTO_STUB_EXEC_DIR="$(cd "$WORK/rr-new" && pwd -P)"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$RR_WANT" ] && [ "$(cat "$RR_STORE/execute-mv/plan_abs")" = "$RR_KEPT_NEW" ]; then
+    pass "a coordinated attach from the checkout the session was rebound to re-roots plan_abs though the old checkout is kept, stdout and exit unchanged"
+else
+    fail "kept, rebound: --reroot-plan refuses while the old PLAN exists: exit $RC, out [$OUT], plan_abs [$(cat "$RR_STORE/execute-mv/plan_abs")]; $ERR"
+fi
+grep -qF "re-rooted to [$RR_KEPT_NEW]" "$WORK/stderr" \
+    && pass "the kept-checkout re-root names the new path on stderr" || fail "kept attach stderr: [$ERR]"
 
 # --- engine-free: the review round on a replace -------------------------------
 # A re-invocation that replaces a finished run carries the round review-round.sh
@@ -722,6 +829,155 @@ for rs_arm in "rs single-pr execute.md" "rc coordinated execute-coordinated.md";
 done
 rm -f "$FIXREPO/docs/plans/PLAN-rc.md"
 
+# --- engine-free: the build-output pin across a replacement --------------------
+# run/cleanup/<id> is the base a run's end cleans a worktree's declared build
+# output against, pinned once. A replacement session must hold the first
+# session's value, written by the carry and by nothing else. A stub koto keeps
+# context as files under KOTO_STUB_STORE (`context list` answers the run/
+# keys a session holds) and logs every call beside it. KOTO_STUB_OUTCOME is
+# koto init's outcome (replaced empties the session, attached leaves it),
+# KOTO_STUB_STATE the finished session's state, and KOTO_STUB_FAIL=add makes
+# the add of a run/cleanup/ key fail.
+PIN_BIN="$WORK/pin-bin"
+mkdir -p "$PIN_BIN"
+cat > "$PIN_BIN/koto" <<'STUB'
+#!/usr/bin/env bash
+d="${KOTO_STUB_STORE:?}"
+printf '%s\n' "$*" >> "$d.argv"
+outcome="${KOTO_STUB_OUTCOME:-replaced}"
+case "${1-} ${2-}" in
+    "status "*)
+        terminal=true
+        [ "$outcome" = attached ] && terminal=false
+        printf '{"name":"%s","current_state":"%s","is_terminal":%s}\n' "$2" "${KOTO_STUB_STATE:-ready_awaiting_merge}" "$terminal"
+        exit 0
+        ;;
+    "init "*)
+        case "$outcome" in
+            replaced) rm -rf "${d:?}/$2"; mkdir -p "$d/$2"
+                printf '{"outcome":"replaced","replaced_state":"%s","replaced_result":null}\n' "${KOTO_STUB_STATE:-ready_awaiting_merge}" ;;
+            attached) printf '{"outcome":"attached","rebound":{}}\n' ;;
+        esac
+        exit 0
+        ;;
+    "context list")
+        if [ -d "$d/$3/run" ]; then
+            (cd "$d/$3" && find run -type f | LC_ALL=C sort) | jq -R . | jq -cs .
+        else
+            printf '[]\n'
+        fi
+        exit 0
+        ;;
+    "context exists") [ -f "$d/$3/$4" ]; exit ;;
+    "context get") [ -f "$d/$3/$4" ] || exit 1; cat "$d/$3/$4"; exit 0 ;;
+    "context add")
+        case "$4" in run/cleanup/*) [ "${KOTO_STUB_FAIL-}" = add ] && exit 1 ;; esac
+        mkdir -p "$(dirname "$d/$3/$4")"
+        cat > "$d/$3/$4"
+        exit 0
+        ;;
+    "context remove") rm -f "$d/$3/$4"; exit 0 ;;
+esac
+exit 1
+STUB
+chmod +x "$PIN_BIN/koto"
+PIN_STORE="$WORK/pin-store"
+PIN_CR="$SHIRABE_STATE_DIR/execute-carry"
+PIN_V='{"path":"/work/tree","pin":"1111111111111111111111111111111111111111"}'
+PIN_OTHER='{"path":"/work/tree","pin":"2222222222222222222222222222222222222222"}'
+printf -- '---\nschema: plan/v1\nexecution_mode: single-pr\n---\n\n# PLAN: pins\n' > "$FIXREPO/docs/plans/PLAN-pins.md"
+printf -- '---\nschema: plan/v1\nexecution_mode: coordinated\n---\n\n# PLAN: pinc\n' > "$FIXREPO/docs/plans/PLAN-pinc.md"
+# pin_open <slug> <pin value, or ""> [env...]: execute-open.sh on PLAN-<slug>.md
+# over an execute-<slug> holding run/cleanup/single at that value (none for "").
+# The carry directory is left as the caller set it up.
+pin_open() {
+    local slug="$1" v="$2"
+    shift 2
+    rm -rf "$PIN_STORE" "$PIN_STORE.argv"
+    mkdir -p "$PIN_STORE/execute-$slug"
+    if [ -n "$v" ]; then
+        mkdir -p "$PIN_STORE/execute-$slug/run/cleanup"
+        printf '%s' "$v" > "$PIN_STORE/execute-$slug/run/cleanup/single"
+    fi
+    tokens "[\"docs/plans/PLAN-$slug.md\"]"
+    OUT=$(cd "$FIXREPO" && env KOTO_STUB_STORE="$PIN_STORE" PATH="$PIN_BIN:$PATH" "$@" \
+        bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
+    RC=$?
+    ERR=$(cat "$WORK/stderr")
+}
+pin_held() { jq -cS . "$PIN_STORE/execute-$1/run/cleanup/single" 2>/dev/null; }
+pin_adds() { grep -c "^context add execute-$1 run/cleanup/" "$PIN_STORE.argv"; }
+
+for state in paused_for_review ready_awaiting_merge; do
+    rm -rf "$PIN_CR/execute-pins"
+    pin_open pins "" KOTO_STUB_STATE=$state
+    BASE_OUT=$OUT BASE_RC=$RC
+    pin_open pins "$PIN_V" KOTO_STUB_STATE=$state
+    if [ "$RC" -eq 0 ] && [ "$(pin_held pins)" = "$(jq -cS . <<<"$PIN_V")" ] && [ "$(pin_adds pins)" = 1 ] \
+        && [ ! -e "$PIN_CR/execute-pins" ] && [ -z "$ERR" ]; then
+        pass "single-pr, replacing a run at $state: the new session holds the first run/cleanup/single, written once by the carry, snapshot removed"
+    else
+        fail "single-pr $state: held [$(pin_held pins)], adds [$(pin_adds pins)], snapshot [$(ls "$PIN_CR" 2>&1)], exit $RC; $ERR"
+    fi
+    if [ "$OUT" = "$BASE_OUT" ] && [ "$RC" -eq "$BASE_RC" ]; then
+        pass "single-pr $state: stdout and exit match the same open with no pin"
+    else
+        fail "single-pr $state: out [$OUT] (want [$BASE_OUT]), exit $RC"
+    fi
+done
+
+# A re-open over a session that already holds the key: nothing carried, and
+# the snapshot an earlier open left is removed.
+mkdir -p "$PIN_CR/execute-pins"
+jq -cn --argjson v "$PIN_OTHER" '{"run/cleanup/single": $v}' > "$PIN_CR/execute-pins/record.json"
+pin_open pins "$PIN_V" KOTO_STUB_OUTCOME=attached
+if [ "$RC" -eq 0 ] && [ "$(pin_held pins)" = "$(jq -cS . <<<"$PIN_V")" ] && [ "$(pin_adds pins)" = 0 ] \
+    && [ ! -e "$PIN_CR/execute-pins" ]; then
+    pass "single-pr, a session already holding run/cleanup/single: nothing carried, its value kept, the snapshot removed"
+else
+    fail "single-pr held: held [$(pin_held pins)], adds [$(pin_adds pins)], snapshot [$(ls "$PIN_CR" 2>&1)]; $ERR"
+fi
+
+# A carry that fails: the open goes on unchanged, one stderr line, and the
+# snapshot stays for the next open.
+rm -rf "$PIN_CR/execute-pins"
+pin_open pins "" KOTO_STUB_STATE=ready_awaiting_merge
+BASE_OUT=$OUT BASE_RC=$RC
+pin_open pins "$PIN_V" KOTO_STUB_STATE=ready_awaiting_merge KOTO_STUB_FAIL=add
+if [ "$OUT" = "$BASE_OUT" ] && [ "$RC" -eq "$BASE_RC" ] && [ -f "$PIN_CR/execute-pins/record.json" ] \
+    && [ "$(printf '%s\n' "$ERR" | grep -c 'run/cleanup/single')" = 1 ]; then
+    pass "single-pr, a carry that fails: same stdout and exit, one stderr line, the snapshot kept"
+else
+    fail "single-pr failed carry: out [$OUT], exit $RC, snapshot [$(ls "$PIN_CR/execute-pins" 2>&1)]; $ERR"
+fi
+rm -rf "$PIN_CR/execute-pins"
+
+# A coordinated replacement carries every run/cleanup/* key with the rest of
+# the record.
+rm -rf "$PIN_CR/execute-pinc"
+rm -rf "$PIN_STORE" "$PIN_STORE.argv"
+mkdir -p "$PIN_STORE/execute-pinc/run/cleanup" "$PIN_STORE/execute-pinc/run/node"
+printf '%s' '{"coordination_pr":10,"mode":"coordinated","nodes":[{"kind":"pr","name":"a","repo":"acme/r","waits_on":[]},{"kind":"pr","name":"b","repo":"acme/r","waits_on":[]}],"repos":["acme/r"],"store":"github"}' \
+    > "$PIN_STORE/execute-pinc/run/setup"
+printf '%s' '{"head":"1111111111111111111111111111111111111111","pr":11,"repo":"acme/r"}' > "$PIN_STORE/execute-pinc/run/node/a"
+printf '%s' '{"path":"/work/a","pin":"1111111111111111111111111111111111111111"}' > "$PIN_STORE/execute-pinc/run/cleanup/a"
+printf '%s' '{"path":"/work/b","pin":"2222222222222222222222222222222222222222"}' > "$PIN_STORE/execute-pinc/run/cleanup/b"
+cp -R "$PIN_STORE/execute-pinc" "$WORK/pinc-before"
+tokens '["docs/plans/PLAN-pinc.md"]'
+OUT=$(cd "$FIXREPO" && env KOTO_STUB_STORE="$PIN_STORE" PATH="$PIN_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
+RC=$?
+same=1
+for key in run/cleanup/a run/cleanup/b; do
+    [ "$(jq -cS . "$PIN_STORE/execute-pinc/$key" 2>/dev/null)" = "$(jq -cS . "$WORK/pinc-before/$key")" ] || same=0
+done
+if [ "$RC" -eq 0 ] && grep -qx 'carried=4' <<<"$OUT" && [ "$same" -eq 1 ] && [ ! -e "$PIN_CR/execute-pinc" ]; then
+    pass "a coordinated replacement holds the same run/cleanup/* keys with the same values"
+else
+    fail "coordinated pin carry: exit $RC, out [$OUT], same [$same]; $(cat "$WORK/stderr")"
+fi
+rm -rf "$WORK/pinc-before" "$PIN_CR/execute-pinc"
+rm -f "$FIXREPO/docs/plans/PLAN-pins.md" "$FIXREPO/docs/plans/PLAN-pinc.md"
+
 # --- engine-backed ------------------------------------------------------------
 
 if ! command -v koto >/dev/null 2>&1; then
@@ -733,6 +989,10 @@ if ! command -v koto >/dev/null 2>&1; then
 fi
 
 k() { (cd "$FIXREPO" && koto "$@"); }
+# k_agent: k as the agent, under a stand-in session id. From koto 0.37.0 a
+# `koto next --to` past an unmet gate needs a decider, and the guard clears the
+# caller's id (shirabe#1733).
+k_agent() { (cd "$FIXREPO" && env CLAUDE_CODE_SESSION_ID=execute-test-agent koto "$@"); }
 
 # record_write_set <session> — write the `repos` record write_set_record's
 # script would have made, so repos_recorded is satisfied by its real input. The
@@ -962,7 +1222,7 @@ fi
 record_write_set execute-paused
 for t in orchestrator_setup settled_branch_record drift_facts worktree_sync worktree_discipline_check \
          spawn_and_await pr_finalization paused_for_review; do
-    k next execute-paused --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
+    k_agent next execute-paused --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
 done
 if [ "$(k status execute-paused | jq -r .current_state)" = paused_for_review ]; then
     k context add execute-paused review_round.json < "$WORK/round.json" >/dev/null 2>&1
@@ -1029,7 +1289,7 @@ PEER
         record_write_set "execute-$1"
         for t in orchestrator_setup settled_branch_record drift_facts worktree_sync worktree_discipline_check \
                  spawn_and_await pr_finalization paused_for_review; do
-            k next "execute-$1" --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
+            k_agent next "execute-$1" --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
         done
         [ "$(k status "execute-$1" | jq -r .current_state)" = paused_for_review ]
     }
@@ -1197,7 +1457,7 @@ run_open '["docs/plans/PLAN-swap.md"]' CLAUDE_PLUGIN_ROOT="$WALK_ROOT"
 record_write_set execute-swap
 for t in orchestrator_setup settled_branch_record drift_facts worktree_sync worktree_discipline_check \
          spawn_and_await pr_finalization paused_for_review; do
-    k next execute-swap --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
+    k_agent next execute-swap --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
 done
 coord_plan swap
 if [ "$(k status execute-swap | jq -r .current_state)" = paused_for_review ]; then

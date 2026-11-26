@@ -14,7 +14,11 @@
 # clock file: a stand-in re-check adds its cost to the clock, and a wait adds
 # to it instead of sleeping, so the 20-second cutoff and the 30-second re-read
 # are tested without waiting. After each pass the test plays the engine: the
-# printed line becomes the latest RECONCILE_SEAL capture.
+# printed line becomes the latest RECONCILE_SEAL capture. Cases holding an
+# action-limit file run the pass under a stand-in for koto's 30-second action
+# limit, which kills a tick whose clock passes it: a long chain walk, a
+# re-check past its budget and a late record read each have to end pending
+# before it.
 #
 # Usage: bash skills/coordinate/scripts/reconcile-pass_test.sh
 # Exit codes: 0 all pass; 1 a failure.
@@ -47,13 +51,31 @@ G="$SC/reconcile-report-get.sh"
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
 
 # The record reader: serves <case>/read.out with exit <case>/read.rc, and
-# writes <case>/reasoning.src to --reasoning-out when present.
+# writes <case>/reasoning.src to --reasoning-out when present. It logs the
+# per-read deadline it was given to <case>/read.deadline, names the part it
+# reads on stderr the way the real reader does, adds <case>/read.cost seconds
+# to the clock (none when absent) and sleeps <case>/read.sleep real seconds.
 cat > "$SC/reconcile-read.sh" <<'STUB'
 #!/usr/bin/env bash
 echo "read $*" >> "$STUB_DIR/log"
+printf '%s\n' "${RECONCILE_READ_DEADLINE-}" > "$STUB_DIR/read.deadline"
 out=""
 while [ $# -gt 0 ]; do [ "$1" = --reasoning-out ] && out=$2; shift; done
 [ -n "$out" ] && [ -f "$STUB_DIR/reasoning.src" ] && cp "$STUB_DIR/reasoning.src" "$out"
+echo "reconcile-read: reading the record's sections" >&2
+if [ -f "$STUB_DIR/read.cost" ] && [ -n "${CLOCK-}" ]; then
+    # The same lock and whole-file write as the re-check stand-ins below.
+    w=0
+    until ( set -C; : > "$CLOCK.lock" ) 2>/dev/null; do
+        w=$((w + 1)); [ "$w" -gt 200 ] && { echo "stand-in: clock lock held past 10s" >&2; exit 98; }
+        sleep 0.05
+    done
+    now=$(cat "$CLOCK")
+    tmp=$(mktemp "$CLOCK.XXXXXX") || { rm -f "$CLOCK.lock"; echo "stand-in: can't write the clock" >&2; exit 98; }
+    echo $(( now + $(cat "$STUB_DIR/read.cost") )) > "$tmp" && mv "$tmp" "$CLOCK"
+    rm -f "$CLOCK.lock"
+    [ -n "${ACTION_LIMIT-}" ] && { . "$ACTION_LIMIT"; action_limit; }
+fi
 [ -f "$STUB_DIR/read.sleep" ] && sleep "$(cat "$STUB_DIR/read.sleep")"
 cat "$STUB_DIR/read.out" 2>/dev/null
 exit "$(cat "$STUB_DIR/read.rc" 2>/dev/null || echo 0)"
@@ -77,6 +99,10 @@ ident=$(printf '%s' "${2-}" | tr -c 'A-Za-z0-9._-' '_')
 mark="$STUB_DIR/running.$$"; trap 'rm -f "$mark"' EXIT TERM; : > "$mark"
 c=$(ls "$STUB_DIR"/running.* 2>/dev/null | wc -l | tr -d ' ')
 m=$(cat "$STUB_DIR/max" 2>/dev/null || echo 0); [ "$c" -gt "$m" ] && echo "$c" > "$STUB_DIR/max"
+# The same count per sub, in max.<sub>, from a marker of its own.
+smark="$STUB_DIR/sub.$sub.$$"; trap 'rm -f "$mark" "$smark"' EXIT TERM; : > "$smark"
+c=$(ls "$STUB_DIR"/sub."$sub".* 2>/dev/null | wc -l | tr -d ' ')
+m=$(cat "$STUB_DIR/max.$sub" 2>/dev/null || echo 0); [ "$c" -gt "$m" ] && echo "$c" > "$STUB_DIR/max.$sub"
 # Up to four stand-ins run at once, so the clock's read-and-add holds a lock:
 # without it two stand-ins read the same time and one cost is lost.
 # The lock is a file bash itself creates under noclobber (`set -C`), which
@@ -99,9 +125,12 @@ now=$(cat "$CLOCK")
 tmp=$(mktemp "$CLOCK.XXXXXX") || { rm -f "$CLOCK.lock"; echo "stand-in: can't write the clock" >&2; exit 98; }
 echo $(( now + $(cat "$STUB_DIR/cost.$sub" 2>/dev/null || echo 1) )) > "$tmp" && mv "$tmp" "$CLOCK"
 rm -f "$CLOCK.lock"
+[ -n "${ACTION_LIMIT-}" ] && { . "$ACTION_LIMIT"; action_limit; }
 key="$sub.$ident"; nf="$STUB_DIR/.n.$key"; n=$(( $(cat "$nf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$nf"
 echo "$now $sub $* D=${RECONCILE_READ_DEADLINE-} BD=${RECONCILE_BOARD_DEADLINE-}" >> "$STUB_DIR/checks"
 [ -f "$STUB_DIR/hang.$sub" ] && sleep 60
+# Real seconds a re-check of this sub takes, under `wait` so a stop ends it.
+[ -f "$STUB_DIR/sleep.$sub" ] && { sleep "$(cat "$STUB_DIR/sleep.$sub")" & wait $!; }
 if [ "$sub" = deferral ]; then
     rf=""; prev=""; for a in "$@"; do [ "$prev" = --row-file ] && rf=$a; prev=$a; done
     [ -n "$rf" ] && cat "$rf" >> "$STUB_DIR/rows-seen" && echo >> "$STUB_DIR/rows-seen"
@@ -143,20 +172,46 @@ case "$sub" in
 esac
 STUB
 
+# koto's action limit, played by the stand-ins that move the clock: a pass run
+# with ACTION_LIMIT set (pass, below, sets it for a case holding an
+# action-limit file) is killed once the clock passes <case>/limit, its tick's
+# start plus 30, as koto kills an action at its 30-second limit, and whatever
+# it had yet to write is lost. <case>/killed records that it happened, and the
+# tick's stderr ends with koto's own message for it.
+cat > "$T/limit.sh" <<'STUB'
+action_limit() {
+    [ -f "$STUB_DIR/limit" ] || return 0
+    [ "$(cat "$CLOCK")" -gt "$(cat "$STUB_DIR/limit")" ] || return 0
+    : > "$STUB_DIR/killed"
+    kill -KILL "$(cat "$STUB_DIR/pass.pid")" 2>/dev/null
+    echo "command timed out after 30 seconds" >> "$STUB_DIR/stderr"
+    exit 137
+}
+STUB
+
 # The record feature's session-log helper, for the calls the pass and the
 # report reader make. The visit is <case>/visit; the latest capture is
 # <case>/capture.
+# chain-start walks the chain in <case>/chain, one start a line, S's own
+# first and then each run before it (members S, m1, m2, ...); without that
+# file the chain is S at the run start and, when <case>/chain-start holds a
+# time, one run before it. Each hop logs its number to <case>/hops and adds
+# <case>/hop.cost seconds to the clock (none when absent). --back-to,
+# --deadline (on this clock, not the wall's) and --from behave as
+# coord-log.sh's, but the walk here knows its end without reading it.
 cat > "$SC/coord-log.sh" <<'STUB'
 #!/usr/bin/env bash
 echo "coord-log $*" >> "$STUB_DIR/log"
 cmd=$1; shift
-S="" ST="" TOK="" NAME=""
+S="" ST="" TOK="" NAME="" BACK="" DL="" FROM=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) S=$2; shift 2 ;; --state) ST=$2; shift 2 ;; --token) TOK=$2; shift 2 ;;
-        --name) NAME=$2; shift 2 ;; *) shift ;;
+        --name) NAME=$2; shift 2 ;; --back-to) BACK=$2; shift 2 ;; --deadline) DL=$2; shift 2 ;;
+        --from) FROM=$2; shift 2 ;; *) shift ;;
     esac
 done
+clock() { cat "${CLOCK:-/dev/null}" 2>/dev/null || echo 0; }
 h() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
 case "$cmd" in
     seal)
@@ -174,7 +229,43 @@ case "$cmd" in
         fi
         printf '%s\n' "$c" ;;
     run-start) echo 2026-09-27T00:00:00Z ;;
-    chain-start) cat "$STUB_DIR/chain-start" 2>/dev/null || echo 2026-09-27T00:00:00Z ;;
+    chain-start)
+        starts=()
+        if [ -f "$STUB_DIR/chain" ]; then
+            while IFS= read -r l; do starts+=("$l"); done < "$STUB_DIR/chain"
+        else
+            starts=(2026-09-27T00:00:00Z)
+            [ -s "$STUB_DIR/chain-start" ] && starts+=("$(cat "$STUB_DIR/chain-start")")
+        fi
+        # The cursor is "<hops> <start> <earliest> <member> <seen...>".
+        i=0 start=${starts[0]} moved=0
+        if [ -n "$FROM" ]; then i=${FROM%% *}; r=${FROM#* }; start=${r%% *}; r=${r#* }; least=${r%% *}; else least=$start; fi
+        t0=$(clock)
+        # In coord-log.sh's order: the bound, then the deadline, and only
+        # then whether a run is left, so a deadline can stop a call that has
+        # no hop left, as the real walk learns that only once it reads the
+        # member's links.
+        while :; do
+            [ -n "$BACK" ] && ! [[ ${least:0:16} > ${BACK:0:16} ]] && break
+            if [ -n "$DL" ] && [ "$moved" = 1 ] && [ $(( $(clock) - t0 )) -ge "$DL" ]; then
+                seen=$S j=1
+                while [ "$j" -le "$i" ]; do seen="$seen m$j"; j=$((j + 1)); done
+                printf 'partial %s %s %s %s %s\n' "$i" "$start" "$least" "${seen##* }" "$seen"
+                exit 3
+            fi
+            [ $((i + 1)) -lt "${#starts[@]}" ] || break
+            i=$((i + 1)); start=${starts[$i]}; moved=1
+            if [[ ${start:0:16} < ${least:0:16} ]]; then least=$start; fi
+            echo "$i" >> "$STUB_DIR/hops"
+            if [ -f "$STUB_DIR/hop.cost" ]; then
+                tmp=$(mktemp "$CLOCK.XXXXXX") || { echo "stand-in: can't write the clock" >&2; exit 98; }
+                echo $(( $(clock) + $(cat "$STUB_DIR/hop.cost") )) > "$tmp" && mv "$tmp" "$CLOCK"
+                [ -n "${ACTION_LIMIT-}" ] && { . "$ACTION_LIMIT"; action_limit; }
+            fi
+        done
+        # A bounded walk prints the earliest start it met, an unbounded one
+        # the last, as coord-log.sh does.
+        if [ -n "$BACK" ]; then printf '%s\n' "$least"; else printf '%s\n' "$start"; fi ;;
     directed-since)
         if [ -s "$STUB_DIR/directed" ]; then cat "$STUB_DIR/directed"; exit 1; fi; exit 0 ;;
     *) exit 64 ;;
@@ -191,10 +282,18 @@ rc=$(cat "$STUB_DIR/record-line.rc" 2>/dev/null || echo 0)
 exit "$rc"
 STUB
 
-# koto: a context store in <case>/ctx; every call logged.
+# koto: a context store in <case>/ctx; every call logged. With <case>/koto.cost
+# each call adds that many seconds to the clock: a slow backend's per-call
+# cost. No re-check runs while the pass makes a koto call, so it takes no lock.
 cat > "$T/bin/koto" <<'STUB'
 #!/usr/bin/env bash
 echo "koto $*" >> "$STUB_DIR/log"
+if [ -f "$STUB_DIR/koto.cost" ] && [ -n "${CLOCK-}" ]; then
+    now=$(cat "$CLOCK")
+    tmp=$(mktemp "$CLOCK.XXXXXX") || { echo "stand-in: can't write the clock" >&2; exit 98; }
+    echo $(( now + $(cat "$STUB_DIR/koto.cost") )) > "$tmp" && mv "$tmp" "$CLOCK"
+    [ -n "${ACTION_LIMIT-}" ] && { . "$ACTION_LIMIT"; action_limit; }
+fi
 [ "$1" = context ] || exit 2
 mkdir -p "$STUB_DIR/ctx"
 if [ "$2" = list ]; then
@@ -231,6 +330,14 @@ cat > "$SC/reconcile-legs.sh" <<'STUB'
 echo "$*" >> "$STUB_DIR/legs"
 cat "$STUB_DIR/legs.out" 2>/dev/null || echo '{"kind":"legs","status":"ok","outcome":"relegged","now":"leg req_9:deliver","reason":"","read_at":"t"}'
 STUB
+# The owed verdicts, the pass's third write at roadmap scope: logs its
+# arguments to <case>/owes and prints <case>/owe.out, else a fact owing
+# nothing, so every case without the file reads as it did before the write.
+cat > "$SC/reconcile-owe.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$STUB_DIR/owes"
+cat "$STUB_DIR/owe.out" 2>/dev/null || echo '{"kind":"owe","status":"ok","owed":[],"reason":"","read_at":"t"}'
+STUB
 chmod +x "$SC"/*.sh "$T/bin/koto" "$T/bin/git"
 
 SESSION=coordinate-plugin-system-20260927T000000Z
@@ -245,11 +352,29 @@ new_case() {
     echo 1000 > "$CASE/clock"
 }
 # pass -- one pass through the test entry; the line goes to $LINE, and the
-# engine's capture becomes it.
+# engine's capture becomes it. In a case holding an action-limit file the pass
+# runs under the stand-in limit (limit.sh): in the background, its pid in
+# <case>/pass.pid, written before it starts. A pass killed there prints
+# nothing koto would capture, so the capture keeps the last tick's line, and
+# KILLED is 1.
 pass() {
-    LINE=$(STUB_DIR="$CASE" CLOCK="$CASE/clock" WORKFILE="$SDIR/coordinate-reconcile/visit.json" PATH="$T/bin:$PATH" GH_TOKEN="${TOKEN-}" \
-        bash "$P" --test-entry --clock-file "$CASE/clock" --session "$SESSION" --session-dir "$SDIR" 2> "$CASE/stderr")
-    RC=$?
+    KILLED=0
+    if [ -f "$CASE/action-limit" ]; then
+        rm -f "$CASE/killed"
+        echo $(( $(cat "$CASE/clock") + 30 )) > "$CASE/limit"
+        STUB_DIR="$CASE" CLOCK="$CASE/clock" WORKFILE="$SDIR/coordinate-reconcile/visit.json" PATH="$T/bin:$PATH" GH_TOKEN="${TOKEN-}" \
+            ACTION_LIMIT="$T/limit.sh" bash -c 'echo $$ > "$0" && exec "$@"' "$CASE/pass.pid" \
+            bash "$P" --test-entry --clock-file "$CASE/clock" --session "$SESSION" --session-dir "$SDIR" > "$CASE/out" 2> "$CASE/stderr" &
+        wait $!
+        RC=$?
+        rm -f "$CASE/limit" "$CASE/pass.pid"
+        if [ -f "$CASE/killed" ]; then KILLED=1 LINE=; return; fi
+        LINE=$(cat "$CASE/out")
+    else
+        LINE=$(STUB_DIR="$CASE" CLOCK="$CASE/clock" WORKFILE="$SDIR/coordinate-reconcile/visit.json" PATH="$T/bin:$PATH" GH_TOKEN="${TOKEN-}" \
+            bash "$P" --test-entry --clock-file "$CASE/clock" --session "$SESSION" --session-dir "$SDIR" 2> "$CASE/stderr")
+        RC=$?
+    fi
     printf '%s\n' "$LINE" > "$CASE/capture"
 }
 get() { STUB_DIR="$CASE" PATH="$T/bin:$PATH" bash "$G" --session "$SESSION" "$@" 2>/dev/null; }
@@ -317,11 +442,53 @@ for c in "none 3" "unreadable 4" "unreadable 5"; do
     has_ctx reconcile/report.json && bad "no report when blocked (exit $2)" || ok "no report when blocked (exit $2)"
 done
 new_case blocked-late
-record "[]"; echo 20 > "$CASE/read.sleep"
-# The reader's deadline is the pass's own; this stand-in outlives it.
+record "[]"; echo 20 > "$CASE/read.sleep"; echo 21 > "$CASE/koto.cost"
+# The reader's deadline is the pass's own: the time left before the 24-second
+# mark, here 3 s after a listing that cost 21. This stand-in outlives it.
+start=$SECONDS
 LINE=$(STUB_DIR="$CASE" CLOCK="$CASE/clock" PATH="$T/bin:$PATH" bash "$P" --test-entry --clock-file "$CASE/clock" --session "$SESSION" --session-dir "$SDIR" 2>/dev/null)
 [ "$LINE" = blocked:unreadable ]; check "a record read that runs out its deadline is blocked" $? "$LINE"
 ctx reconcile/refusal | grep -q 'timed out'; check "and the refusal says it timed out" $?
+[ "$(cat "$CASE/read.deadline")" = 3 ]; check "the record read gets the time left before the 24-second mark" $? "$(cat "$CASE/read.deadline")"
+[ "$(ctx reconcile/refusal | sed -n 's/^reason: //p')" = "reading the record timed out after 3 s, while reading the record's sections" ]
+check "the refusal names the read's budget and the part it was reading" $? "$(ctx reconcile/refusal)"
+[ $((SECONDS - start)) -lt 10 ]; check "the read is cut at its 3-second budget" $? "$((SECONDS - start))s"
+new_case slow-read
+record "[]"; echo 14 > "$CASE/read.sleep"
+# A record that reads fine in 14 s, past the 12 s the pass once gave its read
+# (shirabe#1140): the pass goes on and seals the visit.
+pass
+case "$LINE" in
+    "reconciled "*" sealed:7:"*) ok "a record read that takes 14 s, past 12, goes on to seal the visit" ;;
+    *) bad "a record read that takes 14 s, past 12, goes on to seal the visit" "$LINE $(ctx reconcile/refusal | tr '\n' ' ')" ;;
+esac
+[ "$(cat "$CASE/read.deadline")" = 24 ]; check "a pass that starts on time gives its record read 24 s" $? "$(cat "$CASE/read.deadline")"
+new_case late-read
+record "[]"; echo 20 > "$CASE/read.cost"
+# A read that ends at the 20-second cutoff leaves the report and its seal to
+# the next tick: the seal's koto calls might not fit this one's 30 seconds.
+pass
+[[ $LINE =~ ^pending:7:0:([0-9a-f]{64})$ ]]; check "a record read ending at the cutoff ends the pass pending with 0 left" $? "$LINE $(tail -3 "$CASE/stderr")"
+lines_ok "$LINE"; check "the late pass prints one capturable line" $? "$LINE"
+[ "${LINE##*:}" = "$(sha < "$SDIR/coordinate-reconcile/visit.json")" ]; check "the pending line names the saved work file" $?
+ctx reconcile/progress | grep -q 'read late' && ! ctx reconcile/progress | grep -q 're-checks left'
+check "reconcile/progress says the record was read late" $? "$(ctx reconcile/progress)"
+has_ctx reconcile/report.json && bad "no report after a late record read" || ok "no report after a late record read"
+[ ! -s "$CASE/checks" ]; check "a late record read launches no re-check" $? "$(cat "$CASE/checks")"
+rm -f "$CASE/read.cost"
+pass
+case "$LINE" in
+    "reconciled "*" sealed:7:"*) ok "the next pass seals the visit" ;;
+    *) bad "the next pass seals the visit" "$LINE $(tail -3 "$CASE/stderr")" ;;
+esac
+[ "$(grep -c '^read ' "$CASE/log")" = 1 ]; check "the next pass trusts the work file and doesn't read the record again" $? "$(grep '^read ' "$CASE/log")"
+[ "$(ctx reconcile/report.json | sha)" = "$(printf '%s' "$LINE" | cut -d' ' -f2)" ]; check "and the stored report is the one it sealed" $?
+new_case late-read-holding
+record "[$(hold no-pr "")]"; echo 21 > "$CASE/read.cost"
+pass
+[[ $LINE =~ ^pending:7:([1-9][0-9]*):[0-9a-f]{64}$ ]]; check "a late read with a holding ends pending with its re-checks left" $? "$LINE"
+[ ! -s "$CASE/checks" ]; check "and launches none of them past the cutoff" $? "$(cat "$CASE/checks")"
+ctx reconcile/progress | grep -q 're-checks left'; check "and its progress counts them" $? "$(ctx reconcile/progress)"
 
 echo "== the budget =="
 new_case budget
@@ -357,6 +524,65 @@ pass
 elapsed=$((SECONDS - start))
 [ "$elapsed" -lt 20 ]; check "a re-check past its budget is stopped, and the pass's line doesn't wait for it" $? "${elapsed}s: $LINE"
 case "$LINE" in pending:*) ok "and the visit stays pending, to read it again" ;; *) bad "and the visit stays pending, to read it again" "$LINE" ;; esac
+# shirabe#1548: the stop is on stderr as it happens, so a tick koto kills
+# later still shows which re-check was slow, and the pending exit names what
+# is left to read.
+grep -Eq '^reconcile-pass: stopped h0\.appeared \(appeared\) at its [0-9]+s budget(, clipped: read again in a later pass|: try 1 of 2)$' "$CASE/stderr"
+check "stderr names the re-check still running when the pass gives up, as it stops it" $? "$(cat "$CASE/stderr")"
+grep -Eq '^reconcile-pass: pending with [0-9]+ re-checks left: (.*, )?h0\.appeared \(appeared\)(, .*)?$' "$CASE/stderr"
+check "the pending exit names the re-check still running when the pass gave up, among those left" $? "$(cat "$CASE/stderr")"
+
+# An inventory that never fits its budget (shirabe#1166): each launch costs 40
+# seconds of the clock and then hangs, so the pass stops it every time. Stopped
+# with its whole 20-second budget in two passes, it is stored as timed out and
+# the visit seals, instead of starting it again on every tick. The holding has
+# no branch, so the listing read is the only other re-check.
+new_case inventory-never-fits
+record "[$(hold slow "" '{"branch": ""}')]"
+echo 40 > "$CASE/cost.inventory"
+: > "$CASE/hang.inventory"
+pass
+case "$LINE" in pending:*) ok "an inventory stopped at its whole budget once is read again" ;; *) bad "an inventory stopped at its whole budget once is read again" "$LINE" ;; esac
+grep -qx 'reconcile-pass: stopped h0.inv (inventory) at its 20s budget: try 1 of 2' "$CASE/stderr"
+check "stderr names the re-check still running at its whole budget, as try 1 of 2" $? "$(cat "$CASE/stderr")"
+tick 1; pass
+case "$LINE" in "reconciled "*) ok "stopped at its whole budget in two passes, the visit seals" ;; *) bad "stopped at its whole budget in two passes, the visit seals" "$LINE: $(ctx reconcile/progress)" ;; esac
+grep -qx 'reconcile-pass: stopped h0.inv (inventory) at its 20s budget: try 2 of 2, stored as timed out' "$CASE/stderr"
+check "stderr names the re-check still running at its last try, stored as timed out" $? "$(cat "$CASE/stderr")"
+grep -q '^reconcile-pass: pending with ' "$CASE/stderr" && bad "a pass that seals writes no pending line" "$(cat "$CASE/stderr")" || ok "a pass that seals writes no pending line"
+[ "$(grep -c ' inventory ' "$CASE/checks")" = 2 ]; check "the inventory was launched twice" $? "$(cat "$CASE/checks")"
+ctx reconcile/report.md | grep -q 'inventory could not be taken (timed out: still running at the end of its 20 s budget in 2 passes)'
+check "the report says the inventory timed out and was not taken" $? "$(ctx reconcile/report.md)"
+jq -e '.not_verified | any(.what == "slow: inventory" and (.reason | startswith("timed out")))' <<<"$(ctx reconcile/report.json)" >/dev/null
+check "and lists it as not verified" $? "$(ctx reconcile/report.json)"
+
+# A stop with a clipped budget isn't a try: the record read costs 17 seconds
+# and the listing read one more, so the first launch gets 6 of the
+# inventory's 20 and the inventory is read again with its whole budget.
+new_case inventory-clipped
+record "[$(hold slow "" '{"branch": ""}')]"
+echo 17 > "$CASE/read.cost"
+echo 40 > "$CASE/cost.inventory"
+: > "$CASE/hang.inventory"
+pass
+grep -Eq '^reconcile-pass: stopped h0\.inv \(inventory\) at its [0-9]+s budget, clipped: read again in a later pass$' "$CASE/stderr"
+check "stderr names the re-check still running at a clipped budget, to be read again" $? "$(cat "$CASE/stderr")"
+tick 1; pass
+case "$LINE" in pending:*) ok "a stop with a clipped budget doesn't count as a try" ;; *) bad "a stop with a clipped budget doesn't count as a try" "$LINE" ;; esac
+tick 1; pass
+case "$LINE" in "reconciled "*) ok "two stops at the whole budget after it seal the visit" ;; *) bad "two stops at the whole budget after it seal the visit" "$LINE" ;; esac
+[ "$(grep -c ' inventory ' "$CASE/checks")" = 3 ]; check "the inventory was launched three times" $? "$(cat "$CASE/checks")"
+
+# Four found workers (shirabe#1202): inventories hold at most two of the four
+# slots, so the other re-checks always have one, and every inventory is taken.
+new_case inventories-share
+h="["; for i in 1 2 3 4; do h="$h$(hold "w$i" "" '{"branch": ""}'),"; done; h="${h%,}]"
+record "$h" '[{"action": "close", "target": "#9"}]'
+echo 2 > "$CASE/sleep.inventory"
+n=0; while [ "$n" -lt 6 ]; do pass; case "$LINE" in pending:*) ;; *) break ;; esac; tick 1; n=$((n + 1)); done
+case "$LINE" in "reconciled "*) ok "four inventories seal the visit" ;; *) bad "four inventories seal the visit" "$LINE" ;; esac
+[ "$(cat "$CASE/max.inventory")" -le 2 ]; check "at most two inventories run at once" $? "max $(cat "$CASE/max.inventory")"
+[ "$(grep -c ' inventory ' "$CASE/checks")" = 4 ]; check "and each is taken once" $? "$(cat "$CASE/checks")"
 
 echo "== a worker not found =="
 new_case missed-twice
@@ -445,6 +671,45 @@ nv=$(ctx reconcile/report.md | sed -n '/^## Not verified/,$p')
 grep -q 'the record refused the write' <<<"$nv"; check "a refused settle is listed as not verified" $? "$(ctx reconcile/report.md)"
 chg=$(ctx reconcile/report.md | sed -n '/^## Changed since then/,/^## /p')
 grep -q 'settled' <<<"$chg" && bad "and not reported as changed" || ok "and not reported as changed"
+
+echo "== the owed verdicts of Completed milestones =="
+# Once per visit, before the record read, the pass owes the verdict of every
+# milestone a roadmap/v4 roadmap reads Completed that the record doesn't owe
+# yet (reconcile-owe.sh, a stand-in here); each one owed is reported.
+new_case owe-written
+record '[]'
+echo '{"kind":"owe","status":"ok","owed":["Milestone 3"],"reason":"","read_at":"t"}' > "$CASE/owe.out"
+pass
+case "$LINE" in "reconciled "*) ok "a visit that owes a verdict seals in one pass" ;; *) bad "a visit that owes a verdict seals in one pass" "$LINE $(cat "$CASE/stderr")" ;; esac
+[ "$(cat "$CASE/owes" 2>/dev/null)" = "--session $SESSION" ]; check "the owed verdicts are written once, naming the session" $? "$(cat "$CASE/owes" 2>/dev/null)"
+chg=$(ctx reconcile/report.md | sed -n '/^## Changed since then/,/^## /p')
+grep -q '`Milestone 3`: verdict owed: the roadmap reads it Completed' <<<"$chg"
+check "Milestone 3's owed verdict is reported under Changed since then" $? "$(ctx reconcile/report.md)"
+ctx reconcile/report.json | jq -e '[.changes[] | select(.what == "verdict owed") | .topic] == ["Milestone 3"]' >/dev/null
+check "  ... and in the sealed report's changes" $? "$(ctx reconcile/report.json | jq -c .changes)"
+new_case owe-once
+record "[$(hold with-pr "$PR12"),$(hold no-pr "")]" '[{"action":"teardown","target":"old-worker","verified_head":"","attempted":"2026-09-26T11:00Z","how_to_confirm":"listing"}]'
+pass
+case "$LINE" in pending:7:*) ok "a visit left pending after its first pass" ;; *) bad "a visit left pending after its first pass" "$LINE" ;; esac
+tick 31
+pass
+case "$LINE" in "reconciled "*) ok "  ... seals on the next" ;; *) bad "  ... seals on the next" "$LINE $(cat "$CASE/stderr")" ;; esac
+[ "$(grep -c . "$CASE/owes" 2>/dev/null)" = 1 ]; check "  ... having owed the verdicts once in the visit" $? "$(cat "$CASE/owes" 2>/dev/null)"
+new_case owe-refused
+record '[]'
+echo '{"kind":"owe","status":"not_verified","reason":"the record refused the write: no live session","read_at":"t"}' > "$CASE/owe.out"
+pass
+case "$LINE" in "reconciled "*) ok "a refused owe still seals the visit" ;; *) bad "a refused owe still seals the visit" "$LINE" ;; esac
+nv=$(ctx reconcile/report.md | sed -n '/^## Not verified/,$p')
+grep -q 'the verdicts owed for Completed milestones: the record refused the write' <<<"$nv"
+check "  ... and is listed as not verified" $? "$(ctx reconcile/report.md)"
+new_case owe-silent
+record '[]'
+echo 'not json' > "$CASE/owe.out"
+pass
+nv=$(ctx reconcile/report.md | sed -n '/^## Not verified/,$p')
+grep -q 'the verdicts owed for Completed milestones: it printed nothing readable' <<<"$nv"
+check "an owe that printed nothing readable is listed as not verified" $? "$(ctx reconcile/report.md)"
 
 echo "== a pull request in another repository (shirabe#1581) =="
 # The holding's repo is acme/widgets; its link names acme/gadgets. The
@@ -588,7 +853,7 @@ new_case blocked-fast
 echo '{"status":"none","reason":"no record"}' > "$CASE/read.out"; echo 3 > "$CASE/read.rc"
 start=$SECONDS
 pass
-[ $((SECONDS - start)) -lt 10 ]; check "a blocked pass returns without waiting on the record read's 12-second deadline" $? "$((SECONDS - start))s; $(cat "$CASE/stderr" | tail -3)"
+[ $((SECONDS - start)) -lt 10 ]; check "a blocked pass returns without waiting on the record read's deadline" $? "$((SECONDS - start))s; $(cat "$CASE/stderr" | tail -3)"
 
 new_case cleared
 record "[]"
@@ -596,6 +861,123 @@ echo x > "$CASE/ctx/reconcile%refusal"; echo x > "$CASE/ctx/reconcile%progress"
 pass
 has_ctx reconcile/refusal || has_ctx reconcile/progress
 [ $? != 0 ]; check "refusal and progress are cleared at the start of every pass" $?
+
+echo "== a run at the end of a long chain, under koto's 30-second limit (shirabe#1548) =="
+# A run carried by its opener at the end of a 107-run chain, every hop of the
+# walk a second of the clock, the record read six. The pass runs under the
+# stand-in action limit, so a tick that outruns 30 seconds is killed with
+# nothing written, as koto kills it. What passes is what the ticks leave, never
+# how long they took.
+long_chain() {
+    jq -rn '("2026-09-27T00:00:00Z" | fromdateiso8601) as $s | range(0; 107) | ($s - . * 3600 | todate)' > "$CASE/chain"
+    echo 1 > "$CASE/hop.cost"; echo 6 > "$CASE/read.cost"; : > "$CASE/action-limit"
+}
+# ticks N -- up to N ticks, a second apart, until the visit seals. KILLS counts
+# the ticks killed at the limit; QUIET the ticks that ended pending with no
+# reconcile/progress left behind.
+ticks() {
+    local n=0
+    KILLS=0 QUIET=0 TICKS=0
+    while [ "$n" -lt "$1" ]; do
+        pass; n=$((n + 1)); TICKS=$n
+        [ "$KILLED" = 1 ] && KILLS=$((KILLS + 1))
+        case "$LINE" in
+            "reconciled "*) return 0 ;;
+            pending:*) has_ctx reconcile/progress || QUIET=$((QUIET + 1)) ;;
+        esac
+        tick 1
+    done
+    return 1
+}
+EARLIEST=$(jq -rn '("2026-09-27T00:00:00Z" | fromdateiso8601) - 106 * 3600 | todate')
+eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; fi; }
+
+new_case long-chain-no-deferral
+record "[]"; long_chain
+ticks 4
+check "a carried run at the end of a 107-run chain seals its visit within four ticks" $? "after $TICKS ticks: [$LINE] $(tail -3 "$CASE/stderr")"
+eq "  ... with no tick killed at koto's 30-second limit" 0 "$KILLS"
+eq "  ... and no chain walked: no deferral carries a time before the run start" 0 "$(grep -c '^coord-log chain-start' "$CASE/log")"
+eq "  ... the sealed report keeping the run start as the chain start, with no bound" \
+    '{"start":"2026-09-27T00:00:00Z","back_to":null}' "$(ctx reconcile/report.json | jq -c .chain)"
+
+new_case long-chain-later-carry
+record "[]" "[]" '[{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","disposition":"carried 2026-09-27T00:30Z: this run"}]'
+long_chain
+ticks 4
+check "a carry dated after the run start seals within four ticks" $? "after $TICKS ticks: [$LINE] $(tail -3 "$CASE/stderr")"
+eq "  ... walking no chain" 0 "$(grep -c '^coord-log chain-start' "$CASE/log")"
+grep -q -- '--chain-start 2026-09-27T00:00:00Z' "$CASE/checks"; check "  ... and judging the carry against the run start" $? "$(cat "$CASE/checks")"
+
+new_case long-chain-old-carry
+record "[]" "[]" '[{"deferral":"flaky test","reason":"later","raised":"2026-08-30T10:00Z","disposition":"carried 2026-09-01T00:00Z: long ago"}]'
+long_chain
+ticks 12
+check "a predecessor's carry from before the whole chain seals within twelve ticks" $? "after $TICKS ticks: [$LINE] $(tail -3 "$CASE/stderr")"
+[ "$TICKS" -gt 2 ]; check "  ... over several ticks, the walk not fitting one" $? "$TICKS ticks"
+eq "  ... with no tick killed at koto's 30-second limit" 0 "$KILLS"
+eq "  ... and every pending tick leaving reconcile/progress" 0 "$QUIET"
+eq "  ... the record read once, the later ticks trusting the work file" 1 "$(grep -c '^read ' "$CASE/log")"
+[ "$(grep -c -- '^coord-log chain-start .*--from ' "$CASE/log")" -ge 1 ]; check "  ... the walk resumed from its cursor" $? "$(grep '^coord-log chain-start' "$CASE/log" | cut -c1-120)"
+eq "  ... each of the 106 hops made once" "106 106" "$(wc -l < "$CASE/hops" | tr -d ' ') $(sort -u "$CASE/hops" | wc -l | tr -d ' ')"
+eq "  ... the deferral re-checked once, after the walk" 1 "$(grep -c ' deferral ' "$CASE/checks")"
+grep -q -- "--chain-start $EARLIEST" "$CASE/checks"; check "  ... against the start of the chain's first run" $? "$(cat "$CASE/checks")"
+eq "  ... which the sealed report keeps, with the carry's minute as its bound" \
+    "$(jq -nc --arg s "$EARLIEST" '{start: $s, back_to: "2026-09-01T00:00"}')" "$(ctx reconcile/report.json | jq -c .chain)"
+# The first tick's progress, as it was left: the walk then unfinished.
+new_case long-chain-progress
+record "[]" "[]" '[{"deferral":"flaky test","reason":"later","raised":"2026-08-30T10:00Z","disposition":"carried 2026-09-01T00:00Z: long ago"}]'
+long_chain
+pass
+case "$LINE" in pending:7:1:*) ok "a tick that leaves the walk unfinished ends pending, the deferral left" ;; *) bad "a tick that leaves the walk unfinished ends pending, the deferral left" "$LINE $(tail -3 "$CASE/stderr")" ;; esac
+ctx reconcile/progress | grep -q 'chain start.*still being read'; check "  ... and its progress says the chain start is still being read" $? "$(ctx reconcile/progress)"
+[ ! -s "$CASE/checks" ]; check "  ... launching no deferral re-check" $? "$(cat "$CASE/checks")"
+jq -e '.chain_start == null and .chain_back_to == "2026-09-01T00:00" and (.chain_cursor | test("^[0-9]+ "))' "$SDIR/coordinate-reconcile/visit.json" >/dev/null
+check "  ... its work file keeping the bound and the cursor" $? "$(jq -c '{chain_start, chain_back_to, chain_cursor: (.chain_cursor // "" | .[0:60])}' "$SDIR/coordinate-reconcile/visit.json")"
+
+new_case long-chain-near-carry
+# Carried half an hour after the third run back started: the walk stops there.
+record "[]" "[]" '[{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","disposition":"carried 2026-09-26T21:30Z: three runs back"}]'
+long_chain
+ticks 1
+check "a carry three runs back seals in one tick" $? "[$LINE] $(tail -3 "$CASE/stderr")"
+eq "  ... the walk bounded by it to three hops" 3 "$(wc -l < "$CASE/hops" | tr -d ' ')"
+grep -q -- '--chain-start 2026-09-26T21:00:00Z' "$CASE/checks"; check "  ... the carry judged against the start of the run it stopped at" $? "$(cat "$CASE/checks")"
+eq "  ... and the sealed report keeping that start and the minute it holds for" \
+    '{"start":"2026-09-26T21:00:00Z","back_to":"2026-09-26T21:30"}' "$(ctx reconcile/report.json | jq -c .chain)"
+
+echo "== a slow re-check or record read, under koto's 30-second limit (shirabe#1548) =="
+# The issue's other causes, run under the same stand-in limit: a re-check that
+# runs past its budget and then hangs, and a record read that ends late. Each
+# tick has to end pending before the limit, keeping what it read, so the next
+# tick resumes the visit instead of starting it over.
+
+new_case limit-overrun
+record "[$(hold slow "")]"; : > "$CASE/action-limit"
+# The appeared read takes 20 seconds of the clock, past its 8-second budget
+# but short of the limit, and then hangs for real.
+echo 20 > "$CASE/cost.appeared"
+: > "$CASE/hang.appeared"
+pass
+eq "a re-check past its budget, under the limit, doesn't get the tick killed" 0 "$KILLED"
+case "$LINE" in pending:*) ok "  ... the tick ends pending" ;; *) bad "  ... the tick ends pending" "$LINE $(tail -3 "$CASE/stderr")" ;; esac
+has_ctx reconcile/progress; check "  ... leaving reconcile/progress for the next tick" $? "$(ls "$CASE/ctx")"
+grep -Eq '^reconcile-pass: stopped h0\.appeared \(appeared\) at its [0-9]+s budget' "$CASE/stderr"
+check "  ... and naming the re-check it stopped on stderr" $? "$(cat "$CASE/stderr")"
+
+new_case limit-late-read
+record "[$(hold no-pr "")]"; : > "$CASE/action-limit"
+# A record read of 23 seconds, as seen on a loaded host: 7 seconds are left
+# under the limit for everything after it.
+echo 23 > "$CASE/read.cost"
+pass
+eq "a 23-second record read, under the limit, doesn't get the tick killed" 0 "$KILLED"
+[[ $LINE =~ ^pending:7:([1-9][0-9]*):[0-9a-f]{64}$ ]]; check "  ... the tick ends pending with the holding's re-checks left" $? "$LINE $(tail -3 "$CASE/stderr")"
+ctx reconcile/progress | grep -q 're-checks left'; check "  ... leaving reconcile/progress that counts them" $? "$(ctx reconcile/progress)"
+[ "${LINE##*:}" = "$(sha < "$SDIR/coordinate-reconcile/visit.json")" ]; check "  ... and naming the saved work file" $?
+rm -f "$CASE/read.cost"
+tick 1; pass
+[ "$(grep -c '^read ' "$CASE/log")" = 1 ]; check "  ... the next tick trusts the work file and doesn't read the record again" $? "$(grep '^read ' "$CASE/log")"
 
 echo "== the report reader =="
 new_case getter
@@ -720,6 +1102,14 @@ eq "a tick in a sealed visit makes three: the listing and the report put back" 3
 echo 8 > "$CASE/visit"; : > "$CASE/log"; pass
 case "$LINE" in "reconciled "*" sealed:8:"*) ok "a new visit reads again and seals" ;; *) bad "a new visit reads again and seals" "$LINE" ;; esac
 eq "  ... in six: the listing, the old report's two keys removed, the new one's two written and read back" 6 "$(kcalls)"
+new_case calls-late-read
+record "[]"; echo 20 > "$CASE/read.cost"
+: > "$CASE/log"; pass
+case "$LINE" in pending:7:0:*) ok "a visit whose record read ends late ends its first tick pending" ;; *) bad "a visit whose record read ends late ends its first tick pending" "$LINE" ;; esac
+eq "  ... in two koto calls: the listing and its progress" 2 "$(kcalls)"
+rm -f "$CASE/read.cost"; : > "$CASE/log"; pass
+case "$LINE" in "reconciled "*) ok "the next tick seals" ;; *) bad "the next tick seals" "$LINE" ;; esac
+eq "  ... in five, without reading the record again" 5 "$(kcalls)"
 
 echo "== the clock =="
 # #481: the stand-ins advance the clock while the pass reads it. Four writers
@@ -773,6 +1163,18 @@ pass
 jq -e '.visit == "7" and (.facts | type) == "object"' "$SDIR/coordinate-reconcile/visit.json" >/dev/null 2>&1
 check "and the work file still holds the visit" $? "$(cat "$SDIR/coordinate-reconcile/visit.json" 2>&1)"
 grep -q 'could not be written\|the plan could not be read' "$CASE/stderr"; check "and the pass says which write failed" $? "$(cat "$CASE/stderr")"
+
+# The record reaches jq through a file, not an argument: Linux caps one
+# argument at 131072 bytes, and a long-lived record outgrows that.
+new_case big-record
+record "[$(hold with-pr "$PR12")]"
+jq -c '.deferrals += [range(600) | {row: {deferral: ("d\(.) " + ("x" * 250)), reason: "r", raised: "2026-09-25T10:00Z",
+                                           disposition: "closed: moot"}, source: "record"}]' "$CASE/read.out" > "$CASE/read.x" \
+    && mv "$CASE/read.x" "$CASE/read.out"
+[ "$(wc -c < "$CASE/read.out")" -gt 131072 ]; check "a record over 131072 bytes" $? "$(wc -c < "$CASE/read.out")"
+pass
+jq -e '.record.deferrals | length == 600' "$SDIR/coordinate-reconcile/visit.json" >/dev/null 2>&1
+check "the first pass stores it whole in the work file" $? "$RC $(head -3 "$CASE/stderr")"
 grep -v '^[[:space:]]*#' "$P" | grep -n 'save "\$(' && bad "every save takes a document whose jq status was checked" || ok "every save takes a document whose jq status was checked"
 
 echo "== the token =="

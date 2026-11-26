@@ -1,0 +1,22 @@
+{
+  "schema": "shirabe-verification-result/v1",
+  "head": "3f9c2a7e5b1d4c8a9e0f6b2d7c3a1e5f8b4d9c0a",
+  "merge_base": "8a1b4c7d0e3f6a9b2c5d8e1f4a7b0c3d6e9f2a5b",
+  "status": "done",
+  "detail": "",
+  "commands": [
+    {
+      "id": "integration",
+      "argv": ["go", "test", "-tags", "integration", "./internal/fetch/..."],
+      "exit_status": 1,
+      "duration_secs": 31,
+      "timed_out": false,
+      "runaway": false,
+      "not_started": false,
+      "pgid": 48213,
+      "log": "/tmp/state/shirabe/verification/work-on/3f9c2a7e5b1d4c8a9e0f6b2d7c3a1e5f8b4d9c0a/attempts/1/0-integration.log",
+      "outcome": "failed",
+      "suites": null
+    }
+  ]
+}

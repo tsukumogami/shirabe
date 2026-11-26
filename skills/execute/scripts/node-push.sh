@@ -23,9 +23,10 @@
 #     opened in (session_bound_elsewhere from any other), so the run's
 #     session is read and written only from this checkout, and the node's
 #     work-item children only from the worktree their step agents opened them
-#     in (shared-deferral-record.sh --child-dir). It pushes, finds the
-#     node's owned PR or opens a draft one, records the node's PR, pushed
-#     head and deferral reasons in the run record (`run/node/<node>` through `run-record.sh push`),
+#     in (shared-deferral-record.sh and shared-rerun-record.sh --child-dir).
+#     It pushes, finds the node's owned PR or opens a draft one, records the
+#     node's PR, pushed head, deferral reasons and re-run lines in the run
+#     record (`run/node/<node>` through `run-record.sh push`),
 #     and renders the coordination PR's body from the record
 #     (coord-render.sh). --plan is the PLAN in the coordination checkout (the
 #     recorded plan_abs), since the node branch doesn't carry it: the node
@@ -126,6 +127,20 @@
 # it, and the loop's check (coord-common.sh), use it too; a push without it
 # leaves a recorded one as it is. With no wording nothing changes.
 #
+# The verification re-runs (node mode). A work item's child that re-ran a
+# failed verification command at the same head holds the archived attempts
+# as `verification_attempts`. The node's re-run lines are the line each
+# attempt asks for, in phase-6-pr.md's shape, collected from the same
+# children by shared-rerun-record.sh --lines before anything is pushed. With
+# none, nothing below changes. With any, a new node PR's `## Verification`
+# section carries each line, after the deferral's lines when the node also
+# carries a deferral; the public-content scan reads them, since they are
+# published whatever the deferral's wording; and an owned PR already on the
+# node branch is adopted only when its body carries every line
+# (shared-rerun-record.sh --recorded over it): one that doesn't is refused
+# with 82 before the push, and left to the caller to fix, as with 80. The
+# lines are required whatever the repository's PR Workflow Content setting.
+#
 # In order:
 #   1. check every value against its closed pattern (slug ^[a-z0-9-]+$, node
 #      id ^[a-z][a-z0-9-]*$, repositories owner/repo, issues a comma-joined
@@ -133,8 +148,8 @@
 #      plan-to-tasks.sh, refuse a PLAN that has no node named --node, and read
 #      each --issues work item's goal from the PLAN into the node's
 #      description, all before anything is pushed or edited; then collect the
-#      node's deferral reasons, and read its run record (the PR it names and
-#      its public wording);
+#      node's deferral reasons and re-run lines, and read its run record (the
+#      PR it names and its public wording);
 #   (the order mode skips steps 2, 4, 5, 5b, and the node-branch check in 3)
 #   2. refuse a detached HEAD, a checked-out branch other than the expected
 #      one (in node mode, the worktree's), and the remote's default branch;
@@ -146,7 +161,8 @@
 #      run record is 73) and, in node mode, check the node branch's PR: another run's
 #      PR there, or several, stops with 73 and nothing pushed, and the
 #      run's own PR there whose body doesn't record the node's deferral
-#      stops with 80, nothing pushed. Before those
+#      stops with 80, and one whose body lacks a re-run line of the node's
+#      with 82, nothing pushed. Before those
 #      reads, in node mode, read the home repository's and the node
 #      repository's visibility live (coord_node_visibility): a private node
 #      under a public coordination PR is refused with 77, and a public node
@@ -163,7 +179,7 @@
 #      with --body-file: the node's description (each work item's goal from
 #      the PLAN), one top-level `---`, then the fixed fields (the node id,
 #      the work-item ids, the coordination PR's link, and the `## Verification`
-#      section when the node carries a deferral) and the run's marker
+#      section when the node carries a deferral or a re-run) and the run's marker
 #      line last. The type is `docs` when every file the node changes against
 #      the default branch is under docs/ or a Markdown file at the repository
 #      root, `feat` otherwise. The link is left out when the node's
@@ -174,14 +190,18 @@
 #      (`run/node/<node>`), which must then be the one adopted: zero
 #      survivors, or a survivor other than the recorded PR, refuse;
 #   5b. record the pushed commit in the run record: node mode
-#      `run/node/<node>` {repo, pr, head, deferrals}, with public_reason when
-#      --public-reason was given (`run-record.sh push`, which keeps a
-#      recorded merged_head and public_reason), deferrals being the node's
-#      reasons step 1 collected, `[]` when none, so the loop checks the node
-#      PR's body against them without reading a work item's session from
-#      the coordination checkout; coordination mode `run/cascade` {verdict:
+#      `run/node/<node>` {repo, pr, head, deferrals, reruns}, with
+#      public_reason when --public-reason was given (`run-record.sh push`,
+#      which keeps a recorded merged_head and public_reason), deferrals being
+#      the node's reasons and reruns its re-run lines step 1 collected, each
+#      `[]` when none, so the loop checks the node PR's body against them
+#      without reading a work item's session from the coordination checkout;
+#      coordination mode `run/cascade` {verdict:
 #      pushed, head} (`run-record.sh cascade`). A refused or failed write is
 #      exit 70, and nothing is rendered;
+#   5c. node mode: pin the node worktree's build-output base
+#      (`build-output-pin.sh --id <node-id> --fetch`, run/cleanup/<node-id>,
+#      written once); it prints only to stderr and changes no exit code;
 #   6. render the coordination PR's body from the record: coord-render.sh,
 #      which observes merges, validates the body with
 #      `shirabe validate --coordination-body`, and posts it with
@@ -227,8 +247,8 @@
 #       push and the record write, with nothing posted (the caller's
 #       execute:visibility)
 #   78  node mode: a public node under a private coordination PR whose
-#       commits, description or deferral reasons (or their public wording)
-#       carry private-repository markers, or whose
+#       commits, description, deferral reasons (or their public wording) or
+#       re-run lines carry private-repository markers, or whose
 #       commits the check couldn't read; nothing was pushed or edited
 #       (execute:visibility)
 #   79  node mode: the node names a repository other than the coordination
@@ -242,10 +262,27 @@
 #   80  node mode: the node carries a verification deferral, and the owned PR
 #       on its branch doesn't record it in its body (stderr names each part
 #       missing); nothing was pushed or edited (execute:deferral-record)
+#   81  node mode: a work item took the hosted-of-record route, and the
+#       node's record was refused: the node branch's whole diff touches a
+#       path that decides what the hosted job runs, or a child's record
+#       doesn't validate against its result and map (stderr names each
+#       cause); no record was written and nothing was pushed (execute:ci)
+#   82  node mode: a work item of the node re-ran a failed verification
+#       command, and the owned PR on its branch lacks that re-run's line in
+#       its body, or has a wrong one (stderr names each); nothing was pushed
+#       or edited (execute:rerun-record)
 #
-# A deferral that can't be read (a koto read that failed, hosted-ci with no
-# reason) or checked (a GitHub read for the body) is a 72, like a failed
-# GitHub read, and nothing is pushed.
+# The hosted-of-record route (node mode, step 3c). A work item that took it
+# holds `hosted_of_record` in its own session. Before the push, the node's own
+# record is written as `run/hosted/<node>` in the run's session for the head
+# about to be pushed (work-on's verification-route.sh --collect, with the
+# node worktree for its git reads and its children's koto reads). The loop
+# reads that record before it evaluates or merges the node PR
+# (coord-common.sh).
+#
+# A deferral or a re-run that can't be read (a koto read that failed,
+# hosted-ci with no reason) or checked (a GitHub read for the body) is a 72,
+# like a failed GitHub read, and nothing is pushed.
 #
 # A failed visibility read is a 72, like any other GitHub read.
 #
@@ -467,8 +504,15 @@ fi
 # them.
 DEFERRAL_ARGS=()
 DEFERRAL=""
+# The node's verification re-runs, read the same way and from the same
+# children: the re-run line each archived attempt of a work item's
+# verification_attempts asks for (shared-rerun-record.sh --lines), one per
+# line, empty when no work item re-ran.
+RERUN_ARGS=()
+RERUNS=""
 if [ "$MODE" = node ]; then
     DEFERRAL_ARGS=(--session "$SESSION" --verification "$VERIFICATION" --reason "$RUN_REASON" --child-dir "$GIT_WT")
+    RERUN_ARGS=(--session "$SESSION" --child-dir "$GIT_WT")
     PLAN_ISSUES=$(printf '%s' "$TASKS" | jq -r --arg n "$NODE" \
         '[.[] | select(.name == $n) | .vars.ISSUES // empty] | first // ""')
     OLDIFS=$IFS; IFS=,
@@ -478,10 +522,16 @@ if [ "$MODE" = node ]; then
         case "$SEEN_ITEMS" in *",$item,"*) continue ;; esac
         SEEN_ITEMS="$SEEN_ITEMS$item,"
         DEFERRAL_ARGS+=(--child "work-on-$SLUG-$NODE-$item")
+        RERUN_ARGS+=(--child "work-on-$SLUG-$NODE-$item")
     done
     IFS=$OLDIFS
     DEFERRAL=$("$BASH" "$COORD_SELF_DIR/shared-deferral-record.sh" "${DEFERRAL_ARGS[@]}" --list </dev/null) || {
         echo "$PROG: could not read node $NODE's verification deferral; nothing was pushed" >&2
+        exit 72
+    }
+    RERUN_GATE="$COORD_SELF_DIR/shared-rerun-record.sh"
+    RERUNS=$("$BASH" "$RERUN_GATE" "${RERUN_ARGS[@]}" --lines </dev/null) || {
+        echo "$PROG: could not read node $NODE's verification re-runs; nothing was pushed" >&2
         exit 72
     }
 fi
@@ -600,13 +650,15 @@ if [ "$MODE" = node ]; then
         # The node PR's description comes from the same private PLAN, and a
         # new node PR publishes it, with any deferral reason it records: the
         # public wording when the node has one, which the reasons then stay
-        # out of.
+        # out of. Its re-run lines, which carry each work item's re-run
+        # reason, are published in every case.
         printf '%s\n' "$NODE_DESC" >>"$SCAN_DIR/text"
         if [ -n "$PUBLIC" ]; then
             printf '%s\n' "$PUBLIC" >>"$SCAN_DIR/text"
         elif [ -n "$DEFERRAL" ]; then
             printf '%s\n' "$DEFERRAL" >>"$SCAN_DIR/text"
         fi
+        [ -z "$RERUNS" ] || printf '%s\n' "$RERUNS" >>"$SCAN_DIR/text"
         SCAN=0
         grep -Eq '(^|[^A-Za-z0-9_.-])private/[A-Za-z0-9._-]|Repo Visibility:[[:space:]]*Private' "$SCAN_DIR/text" || SCAN=$?
         rm -rf "$SCAN_DIR"
@@ -647,9 +699,9 @@ if [ "$MODE" = node ]; then
     # the record whatever the repository's PR Workflow Content setting. The
     # node's public wording, when it has one, stands in for the reasons'
     # lines.
+    OWNED_ARGS=(--repo "$REPO" --head "$BRANCH" --state open)
+    [ -n "$COORD_RUN_ID" ] && OWNED_ARGS+=(--run-id "$COORD_RUN_ID")
     if [ -n "$DEFERRAL" ] && [ -n "$OWNED_NOW" ]; then
-        OWNED_ARGS=(--repo "$REPO" --head "$BRANCH" --state open)
-        [ -n "$COORD_RUN_ID" ] && OWNED_ARGS+=(--run-id "$COORD_RUN_ID")
         CHECK_ARGS=("${DEFERRAL_ARGS[@]}")
         [ -z "$PUBLIC" ] || CHECK_ARGS+=(--public-reason "$PUBLIC")
         "$BASH" "$COORD_SELF_DIR/shared-deferral-record.sh" "${CHECK_ARGS[@]}" --body -- "${OWNED_ARGS[@]}" </dev/null
@@ -661,6 +713,54 @@ if [ "$MODE" = node ]; then
                exit 72 ;;
         esac
     fi
+    # The same for re-runs: an open node PR whose work items re-ran gets no
+    # push until its body carries each re-run line step 1 collected, checked
+    # with shared-rerun-record.sh --recorded, as the loop checks the lines the
+    # run record holds (coord-common.sh). The lines are required whatever the
+    # repository's PR Workflow Content setting.
+    if [ -n "$RERUNS" ] && [ -n "$OWNED_NOW" ]; then
+        CHECK_ARGS=(--session "$SESSION")
+        while IFS= read -r l; do
+            [ -n "$l" ] && CHECK_ARGS+=(--recorded "$l")
+        done <<<"$RERUNS"
+        RERUN_GATE="$COORD_SELF_DIR/shared-rerun-record.sh"
+        "$BASH" "$RERUN_GATE" "${CHECK_ARGS[@]}" -- "${OWNED_ARGS[@]}" </dev/null
+        case $? in
+            0) ;;
+            1) echo "$PROG: node $NODE carries a verification re-run that $OWNED_NOW's body doesn't record; nothing was pushed. Add each re-run line to the ## Verification section of its body and push again" >&2
+               exit 82 ;;
+            *) echo "$PROG: could not check $OWNED_NOW's body for node $NODE's verification re-runs; nothing was pushed" >&2
+               exit 72 ;;
+        esac
+    fi
+fi
+
+# 3c. The hosted-of-record route (node mode). A work item whose verification
+# timed out with no check failed may have recorded hosted_of_record in its own
+# session; the node PR is where its hosted jobs run, so the node gets its own
+# record, `run/hosted/<node>` in this run's session, for the head about to be
+# pushed: verification-route.sh --collect validates each child's record
+# against that child's stored result and map, and runs the diff checks
+# /work-on's --open makes over the node branch's whole diff from its
+# merge-base with the default branch. A closing path anywhere in that diff is
+# 81: no record is written and nothing is pushed. With no child on the route
+# nothing is written. The record carries the worktree, so a later read from
+# this checkout runs its git reads there.
+if [ "$MODE" = node ]; then
+    HOSTED_ARGS=(--collect --session "$SESSION" --key "run/hosted/$NODE"
+        --head "$(git -C "$GIT_WT" rev-parse HEAD)" --work-tree "$GIT_WT" --child-dir "$GIT_WT")
+    [ -n "$DEFAULT" ] && HOSTED_ARGS+=(--base "refs/remotes/$REMOTE/$DEFAULT")
+    for a in "${DEFERRAL_ARGS[@]}"; do
+        case "$a" in work-on-"$SLUG"-"$NODE"-*) HOSTED_ARGS+=(--child "$a") ;; esac
+    done
+    "$BASH" "$COORD_SELF_DIR/../../work-on/scripts/verification-route.sh" "${HOSTED_ARGS[@]}" </dev/null >&2
+    case $? in
+        0|4) ;;
+        1) echo "$PROG: node $NODE's hosted-of-record route is refused (the causes are above); no record was written and nothing was pushed" >&2
+           exit 81 ;;
+        *) echo "$PROG: could not read or record node $NODE's hosted-of-record route; nothing was pushed" >&2
+           exit 72 ;;
+    esac
 fi
 
 # 4. The push: the explicit refspec, never a force option. The order mode
@@ -753,9 +853,13 @@ if [ "$MODE" = node ]; then
                 printf '\nCoordination PR: %s\n' "$C_URL"
             fi
             # The deferral's record, in phase-6-pr.md's words, one Reason:
-            # line per reason, or one for the node's public wording.
+            # line per reason, or one for the node's public wording; then
+            # each re-run line, as shared-rerun-record.sh --lines gave it.
+            if [ -n "$DEFERRAL" ] || [ -n "$RERUNS" ]; then
+                printf '\n## Verification\n\n'
+            fi
             if [ -n "$DEFERRAL" ]; then
-                printf '\n## Verification\n\nLocal verification did not run: it was deferred to hosted CI.\n'
+                printf 'Local verification did not run: it was deferred to hosted CI.\n'
                 if [ -n "$PUBLIC" ]; then
                     printf 'Reason: %s\n' "$PUBLIC"
                 else
@@ -764,6 +868,11 @@ if [ "$MODE" = node ]; then
                     done <<<"$DEFERRAL"
                 fi
                 printf 'Hosted CI is the build of record for this change.\n'
+            fi
+            if [ -n "$RERUNS" ]; then
+                [ -z "$DEFERRAL" ] || printf '\n'
+                printf 'A failed verification command was re-run at the same head:\n\n'
+                printf '%s\n' "$RERUNS"
             fi
         } > "$WORK/node-body.md"
         if [ -n "$COORD_RUN_ID" ]; then
@@ -814,8 +923,9 @@ if [ "$MODE" = node ]; then
     PUB_JSON=null
     case "$SEEN" in *" --public-reason "*) PUB_JSON=$(jq -cn --arg w "$PUBLIC_FLAG" '$w') ;; esac
     jq -cn --arg k "run/node/$NODE" --arg r "$REPO" --argjson p "$PR_NUM" --arg h "$SHA" --arg d "$DEFERRAL" \
-        --argjson w "$PUB_JSON" \
-        '{($k): ({repo: $r, pr: $p, head: $h, deferrals: ($d | split("\n") | map(select(length > 0)))}
+        --arg u "$RERUNS" --argjson w "$PUB_JSON" \
+        '{($k): ({repo: $r, pr: $p, head: $h, deferrals: ($d | split("\n") | map(select(length > 0))),
+                  reruns: ($u | split("\n") | map(select(length > 0)))}
                  + (if $w == null then {} else {public_reason: $w} end))}' \
         > "$WORK/record.json"
     RR_VERB=push
@@ -826,6 +936,18 @@ fi
 if ! "$BASH" "$COORD_SELF_DIR/run-record.sh" "$RR_VERB" --session "$SESSION" --json "$WORK/record.json" </dev/null >&2; then
     echo "$PROG: the run record write failed; the push happened, and the coordination PR's body was not rendered" >&2
     exit 70
+fi
+
+# 5c. The node worktree's build-output pin (run/cleanup/<node>), on every push:
+# the pin is write-once, so only the first push's merge base stands, and the
+# first push comes before the node's PR exists, so before its work can merge.
+# The merge base is computed in the node's own clone, after a fetch there, and
+# the koto write runs here, where the session answers. Its output goes to
+# stderr and it exits 0 whatever happens, so this script's lines and exit
+# code don't depend on it.
+if [ "$MODE" = node ]; then
+    "$BASH" "$COORD_SELF_DIR/build-output-pin.sh" --session "$SESSION" --id "$NODE" --worktree "$GIT_WT" --fetch \
+        </dev/null >&2 || true
 fi
 
 # 6. The body, rendered from the record just written.

@@ -15,22 +15,39 @@ action and records the unit as a fix when any of these holds:
 |--------|-------------|---------------------|
 | A fix label on the issue | `label:<name>` | The labels listed in the repository's `## Fix Labels:` declaration in `CLAUDE.md`, read at the run's base. `bug` when the repository declares none. Comma-separated; a label may contain spaces. |
 | A plan step's Fixes line | `step` | A `**Fixes**:` line in the step, which `/execute` passes to the run as `FIX_REPORT`. |
-| The run's own declaration | `declared` | `fix-kind.sh declare <session> --reason <why>`, at `fix_determination` or at `analysis` on a return there, when the report describes existing behaviour as wrong. |
+| The run's own declaration | `declared` | `fix-kind.sh declare <session> --reason <why>`, at `analysis`, before the run submits its plan, when the report describes existing behaviour as wrong. `resolve` keeps a fix declared there. |
 
 A unit none of these marks is a change. It goes from `fix_determination`
 straight to `implementation` and owes nothing below.
+
+The run doesn't stop at `fix_determination`. koto resolves a tick's routes with
+the variables as the tick started, so a `UNIT_KIND` the action has just bound
+can't route that tick. The routes test the `kind_route` gate instead,
+`fix-kind.sh kind <session> --exit --current "$UNIT_KIND"`, which reads the
+kind the action has just written to the ledger: exit 0 for a change goes to
+`implementation`, exit 3 for a fix to `reproduce`, in the tick that entered
+the state. Any other exit holds the run there: 4 (no kind recorded, because
+the action failed), 1 (a non-empty `UNIT_KIND` that disagrees with the
+ledger), 66 (a koto read failed) or 2 (`PLUGIN_ROOT` doesn't reach the plugin).
 
 The determination only grows. A later `resolve` can turn a change into a fix
 (a label added since), never the reverse: a fix stays a fix when its label is
 removed, and `fix-kind.sh withdraw` is always refused, naming the recorded
 source. The kind lives in the rebindable variable `UNIT_KIND`, which koto
 routes on, and in the ledger `fix_kind.jsonl`; `fix-kind.sh` changes both
-together. The `kind_unchanged` gate holds the run at `fix_determination` when
-the two disagree, so a hand rebind of `UNIT_KIND` can't skip the red.
+together. A hand rebind of `UNIT_KIND` away from the ledger, made before the
+run enters `fix_determination`, holds the run there: `kind_route` exits 1 and
+the `kind_unchanged` gate prints a `hold:` line naming both, so the rebind
+can't skip the red. `fix-kind.sh declare` puts a fix back.
 
 The report is stored once, as `fix_report.txt`: the plan step's Fixes line
 when there is one, else the issue body, else the free-form task text, else the
-step's context. It is what a red's passage is checked against.
+step's context. It is what a red's passage is checked against. A plan-backed
+child taken from a PLAN outline (`ISSUE_SOURCE=plan_outline`) has no issue
+body: its issue number is the outline's, so no GitHub issue is read for its
+report or its labels. A fix round started with `fix-round.sh start --fix-report
+<text>` has that text as its Fixes line, so the round's red can cite the CI
+failure or review finding that caused it.
 
 ## The red
 
@@ -131,16 +148,26 @@ against it; a ledger with no header holds the unit, and `init` refuses to run
 twice.
 
 The header's work tree can move: a run handed over to a new checkout is
-rebound there, and the old directory is gone. When the recorded work tree is
-gone and the one the gate runs in is the same work (its origin names the
+rebound there (`koto session rebind`), and the old directory may or may not
+still exist. Every call that reads the work tree to decide (`classify`,
+`seat`, `accept`, `decline`, `status` and `covered`) asks `koto session list`
+where the run's session is bound. When that directory is in another work tree
+than the recorded one, the run is classified against it, whether or not the
+old tree still exists, provided it is the same work: its origin names the
 header's repository when the header records one, and its HEAD has `impl_base`
-in its history), `status`,
-`seat`, `accept` and `decline` use it and append one `relocate` line naming
-both paths, which every later call reads in place of the header's. `covered`
-uses it without writing anything, and `record` reads only the relocate lines,
-never the directory it's run from. Any other case still stops the gate on the
-gone work tree. The acceptance rule doesn't fold relocate lines, so a move
-changes no verdict.
+in its history. A bound tree that isn't the same work stops the call (exit 2)
+naming both trees, and so does a listing that fails or doesn't parse; nothing
+falls back to the recorded tree then. When the listing gives the session no
+directory, or its directory is gone, the older rule holds: a gone recorded
+work tree is followed to the one the gate runs in when that is the same work,
+and any other case stops the gate on the gone work tree.
+
+A followed tree is used by `status`, `seat`, `accept` and `decline`, which
+append one `relocate` line naming both paths and the HEAD moved to; every
+later call reads it in place of the header's. `classify` and `covered` use it
+without writing anything, and `record` reads only the relocate lines, each
+with its HEAD, never the directory it's run from. The acceptance rule doesn't
+fold relocate lines, so a move changes no verdict.
 
 The same gate runs three times: at `pass_counting`, again at `pr_precheck`
 (`tests_still_counted`, so a commit made after counting is held again before
@@ -162,6 +189,11 @@ test-change.sh accept  <session> --as agent:<session>/accept-<n> --authority rev
 test-change.sh decline <session> --as agent:<session>/accept-<n> --authority reviewer --all --reason '<why>'
 ```
 
+The brief names the run's work tree and the commit its hunks end at, and says
+what the seat may run there: read-only commands, one per shell call, with no
+test, suite, script, build or koto command, and no command substitution in any
+argument.
+
 An acceptance covers the items at the digests they have at the run's head (a
 blob id, `deleted`, or an observation's digest). A commit that changes an
 accepted file ends that acceptance: the unit is held again, `changed since
@@ -170,6 +202,22 @@ back to implementation (`counting_status: declined`); the third decline of the
 same set of paths ends the run at `done_blocked`. While implementing, record
 why a test changed with `test-change.sh note <session> --file <path> --reason
 '<why>'`; the brief carries each note to the seat.
+
+Every `--reason` (`note`, `accept`, `decline` and `overrule`) is at most 300
+bytes. A longer one is a usage error (exit 64) that names the limit and the
+reason's length, and nothing is recorded, so shorten it and run the command
+again. A reason is stored whole or not at all.
+
+The brief carries the edited hunks whole when they fit in its limit (32768
+bytes). When they don't, it never passes part of a diff off as all of it: each
+file's diff goes in whole while it fits, a `[cut: ...]` line marks where the
+file crossing the limit stops and names every file not shown, and the brief
+gives the `git diff` that reads the cut files whole from the run's work tree.
+The seat line records the cut files, and the brief's accept command carries
+`--read-whole <cut files>`, which the seat gives only once it has read each of
+them in full. An accept covering a cut file that `--read-whole` doesn't name is
+refused `partial-read`; the seat may read the rest and run accept again, since
+a refusal doesn't use the seat.
 
 ### The interim rule
 
@@ -185,6 +233,7 @@ every refused attempt is recorded with the rule that refused it:
 | `unknown-session` | An agent at `coordinator` naming no existing koto session other than the run's. |
 | `no-terminal` | A person's attempt without an interactive terminal. |
 | `not-higher` | An overrule at an authority no higher than the acceptance's. |
+| `partial-read` | An accept covering a file whose diff its seat's brief cut, without stating a whole read of it (`--read-whole`). |
 
 Identities are recorded claims, not authentication: the run itself can mint a
 seat and accept as it. The seat makes an accidental self-acceptance visible in
@@ -280,6 +329,7 @@ green recorded before the CI fix no longer matches HEAD: record it again.
 
 | Gate | State | Script | Rule |
 |------|-------|--------|------|
+| `kind_route` | `fix_determination` | `fix-kind.sh kind --exit` | none; a routing gate (0 a change, 3 a fix, 4 no kind, 1 a disagreeing `UNIT_KIND`) |
 | `kind_unchanged` | `fix_determination` | `fix-kind.sh agree` | none; it prints a `hold:` line |
 | `red_recorded` | `reproduce` | `red-first.sh check-red` | `red-first/no-red` |
 | `fix_green` | `pass_counting`, `ci_pass_counting` | `red-first.sh check-green` | `red-first/no-green` |

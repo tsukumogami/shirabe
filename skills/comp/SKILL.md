@@ -109,15 +109,19 @@ The workflow runs six phases. Each phase file lives in
 
 From `$ARGUMENTS`:
 
-1. **Empty** — ask the user which competitive question they want to
-   survey.
+1. **Empty** — when the conversation already describes the competitive
+   question, derive the topic from it; otherwise ask the user which
+   competitive question they want to survey.
 2. **Path to existing COMP** with a lifecycle verb (`accept`, `done`) —
    execute the transition via `shirabe transition <comp-path>
    Accepted|Done`. No directory move.
 3. **`--upstream <path>`** — treat the named artifact as the upstream
    for the new COMP; derive the competitive question candidate from it
    during Phase 1.
-4. **Anything else** — use as the starting topic slug for Phase 0/1.
+4. **Anything else** — the author's topic: a slug used as given, or a
+   description of the question the agent derives a slug from, as
+   `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` says. The description is the starting
+   point for Phase 1.
 
 **Topic slug constraint.** The `<topic>` slug used in the session name and
 the COMP filename must match `^[a-z0-9][a-z0-9-]*$` (kebab-case, lowercase

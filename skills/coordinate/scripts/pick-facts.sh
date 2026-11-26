@@ -14,13 +14,19 @@
 # (`### Milestone N: title` on v3) or `### <PREFIX><N>[a-z]: title`, the
 # `**Status:**` value, and the dependencies
 # its `**Dependencies:**` paragraph names, soft mentions and parenthesised
-# text aside. A dependency is satisfied only when the feature it names is
-# finished (its Status opens Done or Shipped); a Dropped one never satisfies
-# it. A unit that is done (finished, or Dropped) is never blocked; any other
+# text aside. Every Status is read through the milestone status table
+# (state-common.sh lib_status), never compared as a word here. A dependency
+# is satisfied only when the feature it names satisfies (Done, Shipped or
+# Closed on v1 to v3; Completed or Verified on roadmap/v4); a Dropped one
+# never satisfies it. A unit is done when its status takes no work (those,
+# and Dropped): it is never blocked, and never offered. Any other unit
 # is blocked while a dependency is unsatisfied, and blocked_by lists those
 # features' positions (1-based, in heading order, which differ from the N of
 # `Feature N` only when headings are out of order), ascending. blocker_landed is true when it has dependencies
-# and none is unsatisfied.
+# and none is unsatisfied. On a roadmap/v4 roadmap each roadmap unit also
+# carries takes_work, so a Completed milestone, done for the pick but owing
+# its verdict, reads as one that takes no work; on v1 to v3 the field is
+# absent, which leaves their facts as they were.
 # Discipline scope: the host's open issues labelled with the discipline's name
 # (gh issue list --label, never a search), in issue-number order, none blocked.
 # A roadmap unit carries `landed`, the pull request link of its pending
@@ -55,10 +61,16 @@
 # (a Verified head and its Pull request cell cleared by a confirmed merge,
 # waiting for its worker's teardown; or a linked pull request GitHub reads
 # merged, when state-common.sh lib_link_merge_frees says its worker has
-# nothing left) or active; only active ones count against the cap. Local
-# agents have no holding and are never counted. The counts sit beside CAP and
-# PARKED_BOUND from the session's variables, the cap from the record's Run
-# section when it has one.
+# nothing left), stopped (its worker's Claude jobs on this host are all
+# finished, dispatch-common.sh dc_topic_stopped: kept until its pull request
+# merges, draft or not, with nothing running for it) or active; only active
+# ones count against the cap (shirabe#1419). Stopped is a mark beside the
+# others, not an exclusive class: it takes a row out of the active count
+# only, so a stopped row that is also parked still counts as parked toward
+# PARKED_BOUND. Local agents have no holding and
+# are never counted. The counts sit beside CAP and
+# PARKED_BOUND from the session's variables, each from the record's Run
+# section when it has a `cap` or `parked-bound` row.
 #
 # The record's pauses (Standing rows of kind pause, evaluated by
 # pause-read.sh): each unit and holding carries `paused`, the id of the pause
@@ -82,7 +94,11 @@
 # a `verdict-owed` row names it (a milestone whose work the coordinator
 # judged finished and whose verdict's roadmap edit isn't confirmed yet,
 # roadmap-status.sh), with or without its holding: such a unit is never
-# dispatched (docs/designs/DESIGN-milestone-verdicts.md, Decision 1). And
+# dispatched (docs/designs/DESIGN-milestone-verdicts.md, Decision 1). On a
+# roadmap/v4 roadmap the row also satisfies the milestone's dependents,
+# whatever its Status reads, and the milestone itself reads done with
+# takes_work false; on v1 to v3 it blocks them until the roadmap reads the
+# milestone Done. And
 # each carries `rework`, the Next step of a `rework` row that names it (the
 # not-held clauses and Changes needed line a confirmed changes-needed verdict
 # left, or the failed clause and what was seen a confirmed reopen left,
@@ -96,18 +112,20 @@
 #                    waiting for a verdict (a held entry and an escalation that
 #                    owes nothing never count). It comes first, so owed work
 #                    is done before a close is attempted. Needs the session
-#   scope-complete   roadmap: the roadmap lists features and every one is
-#                    done (its Status opens Done, Shipped or Dropped)
+#   scope-complete   roadmap: the roadmap lists features and every one's
+#                    status closes (Done, Shipped, Closed or Dropped on v1
+#                    to v3; Verified or Dropped on roadmap/v4, so a
+#                    Completed milestone keeps the scope open)
 #   rotation-over    discipline: today UTC is after the rotation's end date
 #                    (record/rotation's), or the rotation's reasoning is written
 #   pick             anything else
 # The facts go to context key coord/pick.json as data (what the agent reads at
 # pick):
 #   {scope, name, host (the repository an issue's `<host>#<n>` names),
-#    units: [{unit, number, title, status, done, blocked,
+#    units: [{unit, number, title, status, done, takes_work (roadmap/v4 only), blocked,
 #    blocked_by, blocker_landed, holding, landed, paused, awaiting, answered,
 #    follow_up, verdict_owed, rework, assigned?}], holdings: [{worker, unit, phase,
-#    dispatch_status, parked, merged, pull_request, paused}], decisions: [{decision, question,
+#    dispatch_status, parked, merged, stopped, pull_request, paused}], decisions: [{decision, question,
 #    state, round, verdict, reason, recommendation, target, owed}], active,
 #    parked, cap, parked_bound, pauses, go_aheads, paused_all}
 # decisions is the record's unsettled entries (state-decision.sh --list),
@@ -156,6 +174,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 . "$HERE/state-common.sh"
+lib_status
 ROADMAP=$ARG_ROADMAP
 lib_facts
 [ -z "$ARG_ROADMAP" ] || [ "$OVERRIDE" = 1 ] || usage
@@ -190,7 +209,8 @@ printf '%s\n' "$l2" > "$T/state.json"
 printf '%s\n' "$l3" > "$T/decisions.json"
 printf '%s\n' "$l4" > "$T/landed.json"
 lib_parked "$T/holdings.json" "$T/counted.json" || lib_die2 "a holding's pull request read failed"
-# The cap a person set in the record's Run section wins over the session's.
+# The cap and parked bound a person set in the record's Run section win over
+# the session's.
 lib_bounds "$T/state.json"
 
 VERDICT=pick
@@ -210,19 +230,35 @@ if [ "$SCOPE" = roadmap ]; then
     # the roadmap says so.
     # covers($id; $title): a Unit cell naming the item, as its tag or as
     # `<tag>: <title>`, the tag compared by key.
-    jq -c --slurpfile h "$T/counted.json" --slurpfile l "$T/landed.json" "$JQ_TAG_KEY"'
+    # takes_work and satisfies are the status table's (lib_roadmap_features);
+    # the unit carries takes_work on roadmap/v4 only.
+    # On roadmap/v4 a milestone a verdict-owed Work row names (its work
+    # finished, its verdict owed) satisfies its dependents whatever its Status
+    # reads, so they are offered in the pass its work finished rather than
+    # once its roadmap edit lands; it takes no work itself (takes_work false,
+    # done), and pick offers its verdict instead
+    # (docs/designs/DESIGN-completed-verified-states.md, Decision 3). The row
+    # matches by tag key, as the verdict_owed mark below does. On v1 to v3 the
+    # row changes neither.
+    jq -c --slurpfile h "$T/counted.json" --slurpfile l "$T/landed.json" --slurpfile st "$T/state.json" \
+        --argjson v4 "$([ "$(lib_status_family "$RM_SCHEMA")" = v4 ] && echo true || echo false)" "$JQ_TAG_KEY"'
         def covers($id; $title): (tag_key == ($id | tag_key))
             or (index(": ") as $i | $i != null and (.[0:$i] | tag_key) == ($id | tag_key) and .[$i + 2:] == $title);
-        . as $f | map(. as $u
-        | (if $u.done then [] else [$u.dependencies[] as $d | select(([$f[] | select(.number == $d and .finished)] | length) == 0) | $d] end) as $by
-        | {unit: $u.id, number: $u.number, title: $u.title, status: $u.status, done: $u.done,
-           blocked: (($by | length) > 0), blocked_by: $by,
+        (if $v4 then [($st[0].work // [])[] | select(.kind == "verdict-owed") | .item | tag_key] else [] end) as $owed
+        | map(. + (if $v4 and ((.id | tag_key) as $k | $owed | any(. == $k))
+                   then {satisfies: true, takes_work: false} else {} end))
+        | . as $f | map(. as $u
+        | ($u.takes_work | not) as $done
+        | (if $done then [] else [$u.dependencies[] as $d | select(([$f[] | select(.number == $d and .satisfies)] | length) == 0) | $d] end) as $by
+        | {unit: $u.id, number: $u.number, title: $u.title, status: $u.status, done: $done}
+        + (if $v4 then {takes_work: $u.takes_work} else {} end)
+        + {blocked: (($by | length) > 0), blocked_by: $by,
            blocker_landed: ((($u.dependencies | length) > 0) and (($by | length) == 0)),
            holding: ([$h[0][] | select(.unit | covers($u.id; $u.title))][0]
                      | if . == null then null else {worker, phase} end),
            landed: ([$l[0][] | select((.unit | tag_key) == ($u.id | tag_key)) | .pull_request][0] // null)})' "$T/features.json" > "$T/units.json" \
         || lib_die2 "jq failed"
-    if [ "$(jq length "$T/units.json")" -gt 0 ] && jq -e 'all(.done)' "$T/units.json" > /dev/null; then
+    if [ "$(jq length "$T/features.json")" -gt 0 ] && jq -e 'all(.closes)' "$T/features.json" > /dev/null; then
         VERDICT=scope-complete
     fi
 else
@@ -333,11 +369,11 @@ jq -n --arg scope "$SCOPE" --arg name "$NAME" --arg host "$REPO" --slurpfile u "
                      + {follow_up: (row("follow-up"; .unit) | if . == null then null else {after: .who, next: .next} end)}
                      + {verdict_owed: (row("verdict-owed"; .unit) != null)}
                      + {rework: (row("rework"; .unit) | if . == null then null else .next end)}],
-     holdings: [$h[0][] | {worker, unit, phase, dispatch_status, parked, merged, pull_request, paused: ($p.covers[.unit] // null)}],
+     holdings: [$h[0][] | {worker, unit, phase, dispatch_status, parked, merged, stopped, pull_request, paused: ($p.covers[.unit] // null)}],
      decisions: [$d[0].entries[] | select(.state != "settled")
                  | {decision, question, state, round, verdict: (.verdict // ""), reason: (.reason // ""),
                     recommendation: (.recommendation // ""), target: (.target // ""), owed: (.owed // "")}],
-     active: ([$h[0][] | select((.parked | not) and (.merged | not))] | length), parked: ([$h[0][] | select(.parked)] | length),
+     active: ([$h[0][] | select((.parked | not) and (.merged | not) and (.stopped | not))] | length), parked: ([$h[0][] | select(.parked)] | length),
      cap: $cap, parked_bound: $pb, pauses: $p.pauses, go_aheads: $p.go_aheads, paused_all: $p.all}' > "$T/pick.json" || lib_die2 "jq failed"
 jq -c -L "$HERE" 'include "pick-slice"; pick_slice' "$T/pick.json" > "$T/pick_slice.json" || lib_die2 "jq failed"
 if [ "$NO_SEAL" != 1 ] && [ -n "$SESSION" ]; then

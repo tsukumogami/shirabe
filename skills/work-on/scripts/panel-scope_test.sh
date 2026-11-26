@@ -37,6 +37,7 @@ SCRIPT="$SCRIPT_DIR/panel-scope.sh"
 SKILL_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 TEMPLATE="$SKILL_DIR/koto-templates/work-on.md"
 QA_PHASE="$SKILL_DIR/references/phases/phase-4c-qa.md"
+REVIEW_PHASE="$SKILL_DIR/references/phases/phase-4b-review.md"
 PLUGIN_ROOT=$(cd "$SKILL_DIR/../.." && pwd)
 
 PASS_COUNT=0
@@ -732,6 +733,81 @@ edit docs/c.md 1 changed
 run --plan scrutiny "$SESSION"
 expect_full "seats that judged no commit since impl_base" scrutiny "no commit since impl_base"
 
+# A fix round (fix-round.sh) inherits the ledger of the run it follows, marked
+# `inherited`, and records its own impl_base at the head that run left, so
+# every seat's newest record is no later than impl_base. Its plan.md is the
+# fix's, and its context.md is its own issue text, which may differ (a
+# comment added since); what has to match is the criteria section
+# review-level.sh stored, review_level_criteria.txt. Under the same criteria
+# the round judges the fix as a fix diff; with other criteria, without the
+# mark, or with a fix over the threshold it reviews in full.
+# fix_round <name> <inherit:yes|no> <criteria>: SESSION becomes <name>, a
+# round of the current fixture's run whose panels judged HEAD.
+fix_round() {
+    local parent="$SESSION" head
+    head=$(cd "$FX/repo" && git rev-parse HEAD)
+    SESSION="$1"
+    mkdir -p "$SHIM_STORE/$SESSION"
+    printf 'AC: the issue body\n' > "$SHIM_STORE/$parent/review_level_criteria.txt"
+    if [ "$2" = yes ]; then
+        jq --arg from "$parent" --arg base "$head" \
+            --arg crit "$(git hash-object "$SHIM_STORE/$parent/review_level_criteria.txt")" \
+            '.inherited = {from: $from, base: $base, criteria_sha: $crit}' \
+            "$SHIM_STORE/$parent/verdict_ledger.json" > "$SHIM_STORE/$SESSION/verdict_ledger.json"
+        printf 'AC: the issue body\nComment: a reviewer asked for a fix\n' > "$SHIM_STORE/$SESSION/context.md"
+    else
+        cp "$SHIM_STORE/$parent/verdict_ledger.json" "$SHIM_STORE/$SESSION/verdict_ledger.json"
+        cp "$SHIM_STORE/$parent/context.md" "$SHIM_STORE/$SESSION/context.md"
+    fi
+    printf '%s\n' "$head" > "$SHIM_STORE/$SESSION/impl_base"
+    printf '%s\n' "$3" > "$SHIM_STORE/$SESSION/review_level_criteria.txt"
+    printf 'Plan: the fix review asked for\n' > "$SHIM_STORE/$SESSION/plan.md"
+}
+
+fixture tr-inherit
+plan_record scrutiny "$ALL_PASS"
+fix_round tr-inherit-fix-1 yes 'AC: the issue body'
+edit docs/c.md 1 changed
+run --plan scrutiny "$SESSION"
+expect_not_full "a small fix in a round that inherited the run's ledger" scrutiny
+expect_decision "the inheriting round" scrutiny completeness keep
+if jq -e '[.decisions[] | select(.seat == "reverifier") | .fix_review] == [true]' \
+    "$SHIM_STORE/$SESSION/scrutiny_scope.json" >/dev/null 2>&1; then
+    pass "the inheriting round reviews the fix diff with the re-verifier alone"
+else
+    fail "the inheriting round planned $(jq -c '[.decisions[] | {seat, decision, fix_review}]' "$SHIM_STORE/$SESSION/scrutiny_scope.json")"
+fi
+record scrutiny '[{"seat":"reverifier"}]'
+if jq -e '.inherited.from == "tr-inherit"' "$SHIM_STORE/$SESSION/verdict_ledger.json" >/dev/null 2>&1; then
+    pass "recording the round keeps the ledger's inherited mark"
+else
+    fail "the round's ledger lost its inherited mark: $(jq -c '.inherited' "$SHIM_STORE/$SESSION/verdict_ledger.json")"
+fi
+
+fixture tr-inherit-ac
+plan_record scrutiny "$ALL_PASS"
+fix_round tr-inherit-ac-fix-1 yes 'AC: criteria the run was not judged against'
+edit docs/c.md 1 changed
+run --plan scrutiny "$SESSION"
+expect_full "an inheriting round whose criteria changed" scrutiny "acceptance criteria or the plan changed"
+
+fixture tr-inherit-none
+plan_record scrutiny "$ALL_PASS"
+fix_round tr-inherit-none-fix-1 no 'AC: the issue body'
+edit docs/c.md 1 changed
+run --plan scrutiny "$SESSION"
+expect_full "a round holding the run's ledger without the inherited mark" scrutiny "acceptance criteria or the plan changed"
+rm -f "$SHIM_STORE/$SESSION/plan.md"
+run --plan scrutiny "$SESSION"
+expect_full "the same round under the run's own plan" scrutiny "no commit since impl_base"
+
+fixture tr-inherit-big
+plan_record scrutiny "$ALL_PASS"
+fix_round tr-inherit-big-fix-1 yes 'AC: the issue body'
+(cd "$FX/repo" && seq 1 201 > docs/new.txt && git add docs/new.txt && git commit -q -m big) >/dev/null 2>&1
+run --plan scrutiny "$SESSION"
+expect_full "a 201-line fix in an inheriting round" scrutiny "changes 201 lines"
+
 fixture tr-201
 plan_record scrutiny "$ALL_PASS"
 (cd "$FX/repo" && seq 1 201 > docs/new.txt && git add docs/new.txt && git commit -q -m big) >/dev/null 2>&1
@@ -1022,6 +1098,8 @@ expect_rc "--verdict when every run is recorded and only advisory findings are o
 [ -z "$OUT" ] && pass "a passing verdict prints nothing" || fail "a passing verdict printed: $OUT"
 run --open-count scrutiny "$SESSION"
 [ "$RC" = 0 ] && [ "$OUT" = 0 ] && pass "--open-count counts no advisory finding" || fail "--open-count: exit $RC, [$OUT]"
+run --open-ids scrutiny "$SESSION"
+[ "$RC" = 0 ] && [ -z "$OUT" ] && pass "--open-ids prints no id for an advisory finding" || fail "--open-ids: exit $RC, [$OUT]"
 
 # A new round, full again, recorded with blocking findings: one unruled, one
 # citing an active rule, one marked fixed, one a decider left unverified.
@@ -1052,6 +1130,22 @@ N=$(verdict_findings | jq -s --arg r "$WANT_RANGE" '[.[] | select(.rule_id == "p
     || fail "rule_ref: want range [$WANT_RANGE] on 2 findings, got $N"
 run --open-count scrutiny "$SESSION"
 [ "$RC" = 0 ] && [ "$OUT" = 3 ] && pass "--open-count prints the number of findings --verdict printed" || fail "--open-count: exit $RC, [$OUT]"
+# The same three, by id, in --verdict's order; panel-retry-budget.sh records
+# them beside the count.
+run --open-ids scrutiny "$SESSION"
+WANT_IDS=$(printf '%s\n%s\n%s' "$(sid first)" "$(sid second)" "$(sid third)")
+[ "$RC" = 0 ] && [ "$OUT" = "$WANT_IDS" ] \
+    && pass "--open-ids prints the ids of the findings --verdict printed, in its order" \
+    || fail "--open-ids: exit $RC, [$OUT], want [$WANT_IDS]"
+# An open finding whose id isn't 16 hex characters holds (2) and prints
+# nothing, so a caller never reads a partial list as the round's.
+cp "$SHIM_STORE/$SESSION/verdict_ledger.json" "$WORKDIR/ledger.keep"
+jq --arg id "$(sid third)" '.findings[$id].id = "not-an-id"' \
+    "$WORKDIR/ledger.keep" > "$SHIM_STORE/$SESSION/verdict_ledger.json"
+run --open-ids scrutiny "$SESSION"
+[ "$RC" = 2 ] && [ -z "$OUT" ] && pass "--open-ids holds (2) on a malformed id and prints none" \
+    || fail "--open-ids with a malformed id: exit $RC, [$OUT]"
+cp "$WORKDIR/ledger.keep" "$SHIM_STORE/$SESSION/verdict_ledger.json"
 # As run() does: from the fixture repository, with the koto stand-in on PATH,
 # so the unaltered copy reads the same ledger and decides (exit 1).
 RF_SAVED_PATH=$PATH
@@ -1087,6 +1181,8 @@ run --verdict scrutiny "$SESSION"
 expect_rc "--verdict with a ledger that has no findings key" 2
 run --open-count scrutiny "$SESSION"
 expect_rc "--open-count with a ledger that has no findings key" 2
+run --open-ids scrutiny "$SESSION"
+expect_rc "--open-ids with a ledger that has no findings key" 2
 printf 'not json\n' > "$SHIM_STORE/$SESSION/verdict_ledger.json"
 run --verdict scrutiny "$SESSION"
 expect_rc "--verdict with an unreadable ledger" 2
@@ -1701,8 +1797,9 @@ case "$OUT" in
 esac
 RB=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" "$SCRIPT_DIR/panel-retry-budget.sh" "$SESSION" scrutiny 2>"$WORKDIR/rb.err")
 RBRC=$?
-[ "$RBRC" = 0 ] && [ "$(cat "$SHIM_STORE/$SESSION/panel_retries" 2>/dev/null)" = "scrutiny 1" ] \
-    && pass "panel-retry-budget.sh reads a count of 1" || fail "retry budget rc $RBRC out [$RB] err [$(cat "$WORKDIR/rb.err")]"
+[ "$RBRC" = 0 ] && [ "$(cat "$SHIM_STORE/$SESSION/panel_retries" 2>/dev/null)" = "scrutiny 1 ed67d1c117809e43" ] \
+    && pass "panel-retry-budget.sh reads a count of 1" \
+    || fail "retry budget rc $RBRC out [$RB] err [$(cat "$WORKDIR/rb.err")] record [$(cat "$SHIM_STORE/$SESSION/panel_retries" 2>/dev/null)]"
 
 # --plan never reads the log: its decisions are the same with batch events of
 # every outcome in it.
@@ -1793,6 +1890,166 @@ run --plan scrutiny "$SESSION"
 record scrutiny '[{"seat":"completeness","findings":[]},{"seat":"justification","findings":[]},{"seat":"intent","findings":[]}]'
 [ "$RC" -eq 0 ] && pass "no edited test: a round without test_edits records" || fail "no edited test: exit $RC"
 
+# --- --promote: reopening a round that stands at an unchanged HEAD -------------
+#
+# A round whose every run is recorded stands at an unchanged HEAD. When a later
+# whole read of the diff confirms a defect that round recorded only as an
+# advisory finding, --promote makes it blocking with a reason, so the round is
+# re-planned, --verdict blocks the panel, and the run goes back to
+# implementation, on a clean work tree.
+
+echo "--- script: --promote reopens a standing round on a confirmed advisory finding"
+
+fixture promote
+PROMOTE_SUMMARY="the loop over the new lines never ends on empty input"
+plan_record scrutiny "[{\"seat\":\"completeness\",\"findings\":[{\"severity\":\"advisory\",\"summary\":\"$PROMOTE_SUMMARY\",\"path\":\"src/a.sh\",\"lines\":\"41-42\"}]},
+                       {\"seat\":\"justification\"},{\"seat\":\"intent\"}]"
+PID=$(sid "$PROMOTE_SUMMARY")
+[ -n "$PID" ] && pass "the advisory finding is in the ledger" || fail "no advisory finding recorded"
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict on a round with only an advisory finding" 0
+cp "$SHIM_STORE/$SESSION/scrutiny_scope.json" "$WORKDIR/scope.before"
+run --plan scrutiny "$SESSION"
+cmp -s "$WORKDIR/scope.before" "$SHIM_STORE/$SESSION/scrutiny_scope.json" \
+    && pass "the recorded round stands at the same HEAD" || fail "the recorded round was re-planned before any promotion"
+
+snap
+run --promote scrutiny "$SESSION" 0000000000000000 "a whole read confirmed it"
+expect_rc "--promote on an id the ledger does not hold" 65
+run --promote light "$SESSION" "$PID" "a whole read confirmed it"
+expect_rc "--promote into a panel outside the scrutiny, review, qa order" 65
+run --promote scrutiny "$SESSION" "${PID%?}" "a whole read confirmed it"
+expect_rc "--promote on a malformed id" 65
+run --promote scrutiny "$SESSION" "$PID" ""
+expect_rc "--promote with an empty reason" 65
+run --promote scrutiny "$SESSION" "$PID" "   "
+expect_rc "--promote with a blank reason" 65
+run --promote scrutiny "$SESSION" "$PID" "$(head -c 1001 /dev/zero | tr '\0' x)"
+expect_rc "--promote with a reason over 1000 bytes" 65
+run --promote scrutiny "$SESSION" "$PID"
+expect_rc "--promote with no reason argument" 67
+unchanged "the refused --promote calls"
+
+PROMOTE_REASON="a whole read of the diff confirmed the loop never ends on empty input"
+run --promote scrutiny "$SESSION" "$PID" "$PROMOTE_REASON"
+expect_rc "--promote on an open advisory finding" 0
+led -e --arg id "$PID" --arg r "$PROMOTE_REASON" '.findings[$id] | .severity == "blocking"
+       and (.records[-1] | .kind == "promoted" and .reason == $r and .writer == {kind: "agent", name: "work-on"})' >/dev/null \
+    && pass "--promote makes the finding blocking with an agent promoted record and its reason" \
+    || fail "after --promote: $(led -c --arg id "$PID" '.findings[$id]')"
+led -e --arg id "$PID" '.seats["scrutiny/completeness"] | .verdict == "blocking" and ([.findings[].id] | index($id)) != null' >/dev/null \
+    && pass "the raising seat is blocking on the promoted finding" || fail "seat $(led -c '.seats["scrutiny/completeness"]')"
+[ -z "$(cd "$FX/repo" && git status --porcelain)" ] \
+    && pass "the work tree is clean: the reopen does not rest on the dirty-tree trigger" || fail "the work tree is dirty"
+run --plan scrutiny "$SESSION"
+expect_rc "--plan after --promote" 0
+cmp -s "$WORKDIR/scope.before" "$SHIM_STORE/$SESSION/scrutiny_scope.json" \
+    && fail "the round still stands after --promote" || pass "--promote re-plans the round at the same HEAD"
+grep -q 'stands' "$WORKDIR/stderr" && fail "--plan said the round stands: $(cat "$WORKDIR/stderr")" || pass "--plan does not report the round as standing"
+expect_not_full "the re-plan after --promote" scrutiny
+run --recorded scrutiny "$SESSION"
+expect_rc "--recorded on the re-planned round" 0
+run --carried scrutiny "$SESSION"
+expect_rc "--carried with a promoted finding open" 1
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict blocks on the promoted finding" 1
+case "$OUT" in *"$PROMOTE_SUMMARY"*) pass "--verdict names the promoted finding" ;;
+    *) fail "--verdict printed [$OUT]" ;; esac
+run --open-count scrutiny "$SESSION"
+[ "$OUT" = 1 ] && pass "--open-count counts the promoted finding" || fail "--open-count printed [$OUT]"
+snap
+run --promote scrutiny "$SESSION" "$PID" "$PROMOTE_REASON"
+expect_rc "--promote on a finding already blocking" 65
+unchanged "--promote on a blocking finding"
+
+# Back in implementation: the fix is committed, marked fixed, and re-verified.
+edit src/a.sh 41 "fortyone, now guarded"
+run --mark-fixed scrutiny "$SESSION" "$PID"
+expect_rc "--mark-fixed on the promoted finding" 0
+run --plan scrutiny "$SESSION"
+[ "$(due scrutiny)" = "$PID" ] && pass "the re-verifier is given the promoted finding" || fail "due is [$(due scrutiny)]"
+reverify scrutiny "$PID" "line 41 now guards the empty case"
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict once the promoted finding is re-verified" 0
+
+# A closed finding is refused even where its severity reads advisory.
+jq --arg id "$PID" '.findings[$id].severity = "advisory"' "$SHIM_STORE/$SESSION/verdict_ledger.json" > "$WORKDIR/l.json" \
+    && cp "$WORKDIR/l.json" "$SHIM_STORE/$SESSION/verdict_ledger.json"
+snap
+run --promote scrutiny "$SESSION" "$PID" "$PROMOTE_REASON"
+expect_rc "--promote on a closed finding" 65
+unchanged "--promote on a closed finding"
+
+# --- --promote from a later panel: a scrutiny advisory, with the run at review --
+#
+# The run has passed scrutiny and sits at review when a whole read confirms a
+# defect scrutiny held only as advisory. --promote names the panel the run is
+# at, so review's gates block on the scrutiny finding; the finding stays
+# scrutiny's, and scrutiny's re-verifier closes it on the walk back.
+
+echo "--- script: --promote review takes a scrutiny advisory and blocks review"
+
+fixture promote-into
+INTO_SUMMARY="the parser drops the last field on input with no trailing newline"
+plan_record scrutiny "[{\"seat\":\"completeness\",\"findings\":[{\"severity\":\"advisory\",\"summary\":\"$INTO_SUMMARY\",\"path\":\"src/a.sh\",\"lines\":\"43-44\"}]},
+                       {\"seat\":\"justification\"},{\"seat\":\"intent\"}]"
+SPID=$(sid "$INTO_SUMMARY")
+LATER_SUMMARY="the helper name says parse but it also writes"
+plan_record review "[{\"seat\":\"pragmatic\",\"findings\":[{\"severity\":\"advisory\",\"summary\":\"$LATER_SUMMARY\",\"path\":\"src/a.sh\",\"lines\":\"45\"}]},
+                     {\"seat\":\"architect\"},{\"seat\":\"maintainer\"}]"
+RPID=$(sid "$LATER_SUMMARY")
+{ [ -n "$SPID" ] && [ -n "$RPID" ]; } && pass "a scrutiny and a review advisory are in the ledger" \
+    || fail "advisories not recorded: [$SPID] [$RPID]"
+run --verdict review "$SESSION"
+expect_rc "--verdict review before any promotion" 0
+
+snap
+run --promote scrutiny "$SESSION" "$RPID" "a whole read confirmed it"
+expect_rc "--promote into an earlier panel than the finding's" 65
+unchanged "--promote of a later panel's finding"
+
+INTO_REASON="a whole read of the diff confirmed the last field is dropped"
+run --promote review "$SESSION" "$SPID" "$INTO_REASON"
+expect_rc "--promote review on a scrutiny advisory" 0
+led -e --arg id "$SPID" '.findings[$id] | .panel == "scrutiny" and .severity == "blocking"
+       and (.records[-1] | .kind == "promoted" and .into == "review")' >/dev/null \
+    && pass "the finding stays scrutiny's, blocking, with a promoted record into review" \
+    || fail "after --promote review: $(led -c --arg id "$SPID" '.findings[$id]')"
+led -e '.seats["scrutiny/completeness"].verdict == "blocking"' >/dev/null \
+    && pass "the raising scrutiny seat is blocking on it" || fail "seat $(led -c '.seats["scrutiny/completeness"]')"
+[ -z "$(cd "$FX/repo" && git status --porcelain)" ] \
+    && pass "the work tree is clean" || fail "the work tree is dirty"
+run --plan review "$SESSION"
+grep -q 'stands' "$WORKDIR/stderr" && fail "--plan review said the round stands: $(cat "$WORKDIR/stderr")" \
+    || pass "--plan review re-plans after the promotion into review"
+run --carried review "$SESSION"
+expect_rc "--carried review with the promoted scrutiny finding open" 1
+run --verdict review "$SESSION"
+expect_rc "--verdict review blocks on the promoted scrutiny finding" 1
+case "$OUT" in *"$INTO_SUMMARY"*) pass "--verdict review names the scrutiny finding" ;;
+    *) fail "--verdict review printed [$OUT]" ;; esac
+run --open-count review "$SESSION"
+[ "$OUT" = 1 ] && pass "--open-count review counts it" || fail "--open-count review printed [$OUT]"
+run --open-ids review "$SESSION"
+[ "$OUT" = "$SPID" ] && pass "--open-ids review names it by its scrutiny id" || fail "--open-ids review printed [$OUT]"
+
+# Back in implementation: the fix is marked fixed on the finding's own panel,
+# and scrutiny's re-verifier closes it, which clears review too.
+edit src/a.sh 43 "fortythree, keeps the last field"
+snap
+run --mark-fixed review "$SESSION" "$SPID"
+expect_rc "--mark-fixed on the panel it was promoted into" 65
+unchanged "--mark-fixed review on a scrutiny finding"
+run --mark-fixed scrutiny "$SESSION" "$SPID"
+expect_rc "--mark-fixed on the finding's own panel" 0
+run --plan scrutiny "$SESSION"
+[ "$(due scrutiny)" = "$SPID" ] && pass "scrutiny's re-verifier is given the promoted finding" || fail "due is [$(due scrutiny)]"
+reverify scrutiny "$SPID" "line 43 now keeps the last field"
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict scrutiny once the finding is re-verified" 0
+run --open-count review "$SESSION"
+[ "$OUT" = 0 ] && pass "the re-verified finding no longer counts against review" || fail "--open-count review printed [$OUT]"
+
 # --- engine cases -------------------------------------------------------------
 
 if ! command -v koto >/dev/null 2>&1; then
@@ -1816,6 +2073,8 @@ extract_block() {
 }
 QA_BLOCK=$(extract_block "$QA_PHASE" "koto context remove")
 [ -n "$QA_BLOCK" ] || { fail "could not extract the retry block from phase-4c-qa.md"; }
+REVIEW_BLOCK=$(extract_block "$REVIEW_PHASE" "koto context remove")
+[ -n "$REVIEW_BLOCK" ] || { fail "could not extract the retry block from phase-4b-review.md"; }
 
 # fix_determination reads the issue's labels with gh; the stand-in serves an
 # unlabelled issue, so these runs are changes.
@@ -1834,11 +2093,9 @@ tick() {
         | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
 }
 
-# engine_to_qa_retry <session>: a fresh repository and session, walked to
-# qa_validation with every scrutiny and review seat passing on src/a.sh:41-50,
-# then a QA failure on a missing test, retried through the shipped block.
-# Leaves the session at implementation, in $FX/repo.
-engine_to_qa_retry() {
+# engine_to_scrutiny <session>: a fresh repository and session at the full
+# review level, walked to scrutiny. Leaves the session there, in $FX/repo.
+engine_to_scrutiny() {
     local s="$1"
     fixture "$s"
     rm -rf "$SHIM_STORE/$s"
@@ -1856,13 +2113,22 @@ engine_to_qa_retry() {
     # The full review level keeps all three panels on the path.
     "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$s" full >/dev/null 2>&1 \
         || { fail "$s: review-level.sh set full failed"; return 1; }
-    # Into fix_determination, whose action binds UNIT_KIND; koto routes on it
-    # from the next tick, to implementation.
-    koto next "$s" --no-cleanup >/dev/null 2>&1
+    # Into fix_determination, whose action records the kind and whose
+    # kind_route gate routes on it in the same tick, to implementation.
     koto next "$s" --no-cleanup >/dev/null 2>&1
     submit "$s" '{"implementation_status":"complete"}'
     [ "$NEXT_STATE" = issue_type_routing ] && submit "$s" '{"issue_type":"code"}'
     [ "$NEXT_STATE" = scrutiny ] || { fail "$s: walk stopped at [$NEXT_STATE] before scrutiny"; return 1; }
+    return 0
+}
+
+# engine_to_qa_retry <session>: engine_to_scrutiny, then every scrutiny and
+# review seat passing on src/a.sh:41-50, then a QA failure on a missing test,
+# retried through the shipped block. Leaves the session at implementation, in
+# $FX/repo.
+engine_to_qa_retry() {
+    local s="$1"
+    engine_to_scrutiny "$s" || return 1
 
     printf '%s\n' '[{"seat":"completeness","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]},
         {"seat":"justification","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]},
@@ -1973,6 +2239,52 @@ if engine_to_qa_retry "$S"; then
     tick "$S"
     [ "$NEXT_STATE" = scrutiny ] && pass "scrutiny holds until the fix-diff review is recorded" \
         || fail "scrutiny advanced to [$NEXT_STATE] before the fix-diff review was recorded"
+fi
+
+echo "--- engine: a scrutiny advisory promoted at review blocks review_verdict and retries into implementation"
+
+# The case --promote exists for: scrutiny passed with the defect held only as
+# an advisory, the run sits at review with its round recorded, and a later
+# whole read confirms the defect. Only supported calls move the run.
+S=promote-at-review
+if engine_to_scrutiny "$S"; then
+    AT_REVIEW="the loop over the new lines never ends on empty input"
+    printf '%s\n' "[{\"seat\":\"completeness\",\"cited\":[{\"path\":\"src/a.sh\",\"lines\":\"41-50\"}],
+        \"findings\":[{\"severity\":\"advisory\",\"summary\":\"$AT_REVIEW\",\"path\":\"src/a.sh\",\"lines\":\"41-42\"}]},
+        {\"seat\":\"justification\",\"cited\":[{\"path\":\"src/a.sh\",\"lines\":\"41-50\"}]},
+        {\"seat\":\"intent\",\"cited\":[{\"path\":\"src/a.sh\",\"lines\":\"41-50\"}]}]" > "$WORKDIR/r.json"
+    panel_round_runs "$S" scrutiny "$WORKDIR/r.json"
+    "$SCRIPT" --record scrutiny "$S" "$WORKDIR/r.json" || fail "$S: --record scrutiny failed"
+    tick "$S"
+    [ "$NEXT_STATE" = review ] && pass "scrutiny passes with the defect held as an advisory" \
+        || fail "scrutiny went to [$NEXT_STATE], not review"
+    printf '%s\n' '[{"seat":"pragmatic","cited":[{"path":"src/a.sh","lines":"41-50"}]},
+        {"seat":"architect","cited":[{"path":"src/a.sh","lines":"41-50"}]},
+        {"seat":"maintainer","cited":[{"path":"src/a.sh","lines":"41-50"}]}]' > "$WORKDIR/r.json"
+    panel_round_runs "$S" review "$WORKDIR/r.json"
+    "$SCRIPT" --record review "$S" "$WORKDIR/r.json" || fail "$S: --record review failed"
+    AT_ID=$(koto context get "$S" verdict_ledger.json 2>/dev/null \
+        | jq -r --arg s "$AT_REVIEW" '[.findings[] | select(.summary == $s and .panel == "scrutiny" and .severity == "advisory")][0].id // empty')
+    [ -n "$AT_ID" ] && pass "the run sits at review with the defect held as an open scrutiny advisory" \
+        || fail "no scrutiny advisory in the ledger"
+
+    "$SCRIPT" --promote review "$S" "$AT_ID" "a whole read of the diff confirmed the loop never ends" \
+        && pass "--promote review accepts the scrutiny advisory" || fail "--promote review exited $?"
+    [ -z "$(git status --porcelain)" ] && pass "the work tree is clean" || fail "the work tree is dirty"
+    RESP=$(koto next "$S" --no-cleanup 2>/dev/null)
+    NEXT_STATE=$(printf '%s' "$RESP" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
+    GATE=$(printf '%s' "$RESP" | jq -r '[.blocking_conditions[]? | select(.name == "review_verdict") | .output.exit_code][0] // empty' 2>/dev/null)
+    { [ "$NEXT_STATE" = review ] && [ "$GATE" = 1 ]; } \
+        && pass "review_verdict blocks the run at review on the promoted finding (exit 1)" \
+        || fail "the tick left the run at [$NEXT_STATE] with review_verdict exit [$GATE]"
+
+    "$PLUGIN_ROOT/skills/work-on/scripts/panel-retry-budget.sh" "$S" review >/dev/null 2>&1 \
+        && pass "the retry budget grants the review retry" || fail "the retry budget refused the review retry"
+    printf '%s\n' "$REVIEW_BLOCK" | sed "s|<WF>|$S|g" | sed 's/koto next \(.*\) --no-cleanup$/koto next \1 --no-cleanup >\/dev\/null 2>\&1/' | bash
+    NEXT_STATE=$(koto status "$S" 2>/dev/null | jq -r '.current_state // empty')
+    [ "$NEXT_STATE" = implementation ] \
+        && pass "review_outcome blocking_retry takes the run back to implementation" \
+        || fail "the review retry block left the run at [$NEXT_STATE]"
 fi
 cd "$WORKDIR" || exit 1
 

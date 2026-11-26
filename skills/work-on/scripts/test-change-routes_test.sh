@@ -32,6 +32,13 @@
 #   declines          a seat's decline and `counting_status: declined` return
 #                     the run to implementation; the third decline of the same
 #                     test ends the run at done_blocked
+#   a test gap        a full code change held on its edited test commits a
+#                     test-only fix at pass_counting and submits
+#                     `counting_status: test_gap`: the run returns to
+#                     implementation with nothing written to the acceptance
+#                     ledger, scrutiny plans a re-verifier with a fix-diff
+#                     review before verification runs again, and the edit is
+#                     held again at its new digest
 #   a level raise     a fix raised from light to standard at
 #                     review_level_check keeps UNIT_KIND at fix: fix-kind.sh
 #                     agree still exits 0, and fix_green still holds without a
@@ -106,6 +113,8 @@ TC="$PLUGIN_ROOT/skills/work-on/scripts/test-change.sh"
 FK="$PLUGIN_ROOT/skills/work-on/scripts/fix-kind.sh"
 RF="$PLUGIN_ROOT/skills/work-on/scripts/red-first.sh"
 RL="$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh"
+PS="$PLUGIN_ROOT/skills/work-on/scripts/panel-scope.sh"
+. "$PLUGIN_ROOT/scripts/lib/panel-round-testlib.sh"
 
 # gh: `issue view <n> ... --json ...` prints <issues>/<n>.json. The directory
 # is written into the stand-in, since koto passes a gate or action command only
@@ -145,7 +154,13 @@ esac
     && pass "a decline goes back to implementation" || fail "the declined edges are [$(q '[.states.pass_counting.transitions[] | select(.when.counting_status == "declined")]')]"
 [ "$(q '[.states.pass_counting.transitions[] | select(.when["gates.tests_counted.exit_code"] == 3) | "\(.when | keys | join("+"))>\(.target)"] | join(",")')" = "gates.tests_counted.exit_code>done_blocked" ] \
     && pass "the decline limit goes to done_blocked with no evidence" || fail "the exit-3 edges are [$(q '.states.pass_counting.transitions')]"
-[ "$(q '[.states.ci_monitor.transitions[] | select(.when["gates.ci_passing.exit_code"] == 0 and .when["gates.merge_state_clean.exit_code"] == 0) | .target] | join(",")')" = ci_pass_counting ] \
+[ "$(q '[.states.pass_counting.transitions[] | select(.when.counting_status == "test_gap") | "\(.when["gates.tests_counted.exit_code"])/\(.when["gates.fix_green.exit_code"] // "-")>\(.target)"] | join(",")')" = "1/->implementation,0/1>implementation" ] \
+    && pass "a test gap goes back to implementation from a held edit or a fix held on its green" \
+    || fail "the test_gap edges are [$(q '[.states.pass_counting.transitions[] | select(.when.counting_status == "test_gap")]')]"
+# A run with no hosted-of-record record has hosted_settled at 0 (the gate
+# short-circuits), so that is the green edge this case reads; the edge for a
+# record that isn't settled yet goes to hosted_record first.
+[ "$(q '[.states.ci_monitor.transitions[] | select(.when["gates.ci_passing.exit_code"] == 0 and .when["gates.merge_state_clean.exit_code"] == 0 and .when["gates.hosted_settled.exit_code"] == 0) | .target] | join(",")')" = ci_pass_counting ] \
     && pass "green CI on a clean pull request goes to ci_pass_counting" || fail "ci_monitor's green edges are [$(q '.states.ci_monitor.transitions')]"
 [ "$(q '.states.ci_pass_counting.gates.tests_counted.command')" = "$(q '.states.pass_counting.gates.tests_counted.command')" ] \
     && [ "$(q '.states.ci_pass_counting.gates.fix_green.command')" = "$(q '.states.pass_counting.gates.fix_green.command')" ] \
@@ -233,9 +248,11 @@ walk() {
     tick "$s" '{"plan_outcome":"plan_ready"}'
     [ "$STATE" = review_level_choice ] || { fail "$s: walked to [$STATE], not review_level_choice"; return 1; }
     "$RL" set "$s" "$level" >/dev/null 2>"$WORKDIR/set.err" || { fail "$s: review-level.sh set failed: $(cat "$WORKDIR/set.err")"; return 1; }
+    # The tick that enters fix_determination leaves it: its kind_route gate
+    # routes on the kind the action has just recorded.
     tick "$s"
-    [ "$STATE" = fix_determination ] || { fail "$s: at [$STATE], not fix_determination"; return 1; }
-    tick "$s"
+    [ "$(visits "$s" fix_determination)" = 1 ] || { fail "$s: fix_determination entered [$(visits "$s" fix_determination)] times"; return 1; }
+    case "$STATE" in implementation|reproduce) ;; *) fail "$s: at [$STATE], not past fix_determination"; return 1 ;; esac
     return 0
 }
 
@@ -256,7 +273,7 @@ drop_mark() {
 echo "--- an edited test: held, refused for the run and an unminted name, accepted by a minted seat"
 
 S=tc_edit
-if walk "$S" 2 light; then
+if walk "$S" 2 light --var ISSUE_TYPE=task; then
     expect_state "a change" implementation
     [ "$(ledger "$S" | head -n 1 | jq -r '"\(.event)|\(.author)"')" = "header|agent:$S" ] \
         && pass "fix_determination wrote the ledger's header with the run as author" \
@@ -315,7 +332,7 @@ fi
 echo "--- added tests only: counted with no acceptance"
 
 S=tc_added
-if walk "$S" 3 light --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI"; then
+if walk "$S" 3 light --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI" --var ISSUE_TYPE=task; then
     expect_state "a change" implementation
     printf '#!/bin/sh\nout=$(./greet.sh Ada)\n[ "$out" = "Hello, Ada!" ] || exit 1\n' > tests/ada_test.sh
     git add tests/ada_test.sh
@@ -331,7 +348,7 @@ fi
 echo "--- declines: back to implementation, then done_blocked on the third"
 
 S=tc_decline
-if walk "$S" 2 light --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI"; then
+if walk "$S" 2 light --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI" --var ISSUE_TYPE=task; then
     drop_mark
     git commit -q -am "feat: drop the exclamation mark"
     for n in 1 2 3; do
@@ -388,7 +405,9 @@ EOF
     git add -A
     git commit -q -m "fix: refuse an empty name"
     tick "$S" '{"implementation_status":"complete"}'
-    tick "$S" '{"issue_type":"code"}'
+    # A code hint over a diff with scripts in it takes the code route on entry
+    # (code_route); the question is asked only when it didn't.
+    [ "$STATE" = issue_type_routing ] && tick "$S" '{"issue_type":"code"}'
     expect_state "a light fix below its facts floor" review_level_check
     [ "$(unit_kind "$S")" = fix ] && pass "before the raise UNIT_KIND is fix" || fail "before the raise UNIT_KIND is [$(unit_kind "$S")]"
     "$RL" set "$S" standard >/dev/null 2>"$WORKDIR/set.err" && pass "the level is raised to standard at review_level_check" \
@@ -403,6 +422,67 @@ EOF
 fi
 
 # ==============================================================================
+echo "--- a test gap found at pass_counting: back through implementation to a re-verifier"
+
+# record_round <session> <panel> <round JSON>: records a round, each entry
+# given the run its decision in <panel>_scope.json names.
+record_round() {
+    printf '%s\n' "$3" > "$WORKDIR/round.json"
+    panel_round_runs "$1" "$2" "$WORKDIR/round.json"
+    "$PS" --record "$2" "$1" "$WORKDIR/round.json" 2>"$WORKDIR/record.err" \
+        || fail "$1: panel-scope.sh --record $2 failed: $(cat "$WORKDIR/record.err")"
+}
+JUDGED='"test_edits":[{"path":"tests/greet_test.sh","judgment":"corrects"}]'
+
+S=tc_gap
+if walk "$S" 2 full; then
+    drop_mark
+    git commit -q -am "feat: drop the exclamation mark"
+    "$TC" note "$S" --file tests/greet_test.sh --reason "the issue asks for the expected value to change" >/dev/null 2>&1
+    tick "$S" '{"implementation_status":"complete"}'
+    [ "$STATE" = issue_type_routing ] && tick "$S" '{"issue_type":"code"}'
+    expect_state "a full code change" scrutiny
+    record_round "$S" scrutiny "[{\"seat\":\"completeness\",\"findings\":[],$JUDGED},{\"seat\":\"justification\",\"findings\":[],$JUDGED},{\"seat\":\"intent\",\"findings\":[],$JUDGED}]"
+    tick "$S"
+    record_round "$S" review "[{\"seat\":\"pragmatic\",\"findings\":[],$JUDGED},{\"seat\":\"architect\",\"findings\":[],$JUDGED},{\"seat\":\"maintainer\",\"findings\":[],$JUDGED}]"
+    tick "$S"
+    record_round "$S" qa "[{\"seat\":\"tester\",\"findings\":[],$JUDGED}]"
+    tick "$S"
+    settle_verification "$S"
+    expect_state "after clean panels and a local pass, the edited test holds the unit" pass_counting
+    [ "$(visits "$S" verification)" = 1 ] && pass "verification ran once" || fail "verification was entered $(visits "$S" verification) times"
+
+    # The run finds its own test checks less than it should, before any seat
+    # ran, and commits a test-only fix.
+    printf '[ "$(./greet.sh Ada)" = "Hello, Ada" ] || { echo "expected Hello, Ada"; exit 1; }\n' >> tests/greet_test.sh
+    git commit -q -am "test: check a second name"
+    tick "$S" '{"counting_status":"test_gap","detail":"the edited test checks one name; a second name is left unchecked"}'
+    expect_state "counting_status test_gap from a held edit" implementation
+    [ "$(ledger "$S" | jq -r 'select(.event == "decline" or .event == "seat") | .event' | wc -l | tr -d ' ')" = 0 ] \
+        && pass "a test gap writes no seat or decline to the acceptance ledger" || fail "the ledger is [$(ledger "$S")]"
+    tick "$S" '{"implementation_status":"complete"}'
+    [ "$STATE" = issue_type_routing ] && tick "$S" '{"issue_type":"code"}'
+    expect_state "the lap after the test gap" scrutiny
+    GOT=$(koto context get "$S" scrutiny_scope.json 2>/dev/null | jq -r '[.decisions[] | "\(.seat):\(.decision):\(.fix_review // "-")"] | join(",")')
+    [ "$GOT" = "completeness:keep:-,justification:keep:-,intent:keep:-,reverifier:recheck:true" ] \
+        && pass "scrutiny plans a re-verifier that reviews the fix diff" || fail "scrutiny_scope.json decisions are [$GOT]"
+    [ "$(visits "$S" verification)" = 1 ] && pass "verification has not run again before the re-verifier" \
+        || fail "verification was entered $(visits "$S" verification) times before the re-verifier"
+    record_round "$S" scrutiny '[{"seat":"reverifier","findings":[],"answers":[]}]'
+    tick "$S"
+    [ "$STATE" = review ] && tick "$S"
+    [ "$STATE" = qa_validation ] && tick "$S"
+    settle_verification "$S"
+    expect_state "after the re-verifier passed and a second local pass" pass_counting
+    [ "$(visits "$S" verification)" = 2 ] && pass "verification ran again after the re-verifier" \
+        || fail "verification was entered $(visits "$S" verification) times"
+    case "$(gate_stdout tests_counted)" in
+        *"held: unaccepted tests/greet_test.sh"*) pass "the edit is still held at its new digest" ;;
+        *) fail "tests_counted printed [$(gate_stdout tests_counted)]" ;;
+    esac
+fi
+
+# ==============================================================================
 echo "--- a person-required repository: no seat, an agent refused, a person at a terminal counted"
 
 git checkout -q main
@@ -410,7 +490,7 @@ git checkout -q -b person-main
 printf '# greet\n\n## Repo Visibility: Private\n\n## Test Change Acceptance: person\n' > CLAUDE.md
 git commit -q -am "docs: require a person to accept a test change"
 S=tc_person
-if WALK_FROM=person-main walk "$S" 2 light; then
+if WALK_FROM=person-main walk "$S" 2 light --var ISSUE_TYPE=task; then
     [ "$(ledger "$S" | head -n 1 | jq -r '"\(.person_required)|\(.person_required_source)"')" = "true|CLAUDE.md at impl_base: person" ] \
         && pass "the header records person_required true from CLAUDE.md at impl_base" \
         || fail "the header is [$(ledger "$S" | head -n 1)]"
@@ -572,7 +652,7 @@ echo "--- ci_pass_counting: a test edited while fixing CI is held after CI passe
 
 CI_BLOCKS="$(stub_block "$(extract_state ci_monitor)" ci_passing=0 merge_state_clean=0)
 $(extract_state ci_pass_counting)"
-fixture "$WORKDIR/ci.md" ci_monitor "$CI_BLOCKS"
+fixture "$WORKDIR/ci.md" ci_monitor "$CI_BLOCKS" hosted_record
 git checkout -q main
 git checkout -q -b case-ci
 S=tc_ci

@@ -52,7 +52,7 @@ to advance it, what it never does, and how it ends.
 
 | Flag | Effect |
 |------|--------|
-| `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown and local agents don't count. |
+| `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown, stopped ones and local agents don't count. |
 | `--parked-bound <n>` | Parked workers waiting on a merge by your reviewer before nothing new is dispatched, default 3. |
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
 | `--import <session> --from <workspace path>` | Move a run here from another host: koto imports the session from the bucket both hosts share, and the run continues here: on koto 0.32.0 and later as a takeover of the imported copy, on an older koto as a resume. `<workspace path>` is the source host's absolute workspace path, as the run's earlier reports name it. With the roadmap path, or a discipline's `--discipline` and `--host`, and no other setting. |
@@ -250,7 +250,11 @@ work.
    - `template-incompatible`: the old run's compat number isn't the one this
      plugin ships, or it sits in a state the shipped template doesn't have.
      The message names the template, both compat numbers and both compiled
-     hashes.
+     hashes. It refuses only while the run's driver is still running (the
+     liveness probe, against the driver its record/meta or coordinator row
+     names). A run whose driver stopped, or an imported copy whose driver has
+     no Claude job on this host, is carried into a new run instead, and the
+     old run is cancelled, as a finished one would be.
    - `koto-too-old`: this koto lacks `koto init --supersede` and its flags;
      the fence shipped in koto 0.28.0, so a takeover runs on koto 0.28.0
      and later.
@@ -300,11 +304,21 @@ work.
    again, which only marks the source and passes the live check because the live
    run is its own target; a plain start would carry a run whose source may still
    write. Compile the template here first (the opener does it);
-   `--trust-template` only when the operator passes it. The imported copy must
+   `--trust-template` only when the operator passes it. Before koto imports
+   anything, the source's template is judged where the source is: a run whose
+   template structure the compat table doesn't list at the shipped compat
+   number is refused `refused=template-incompatible` with nothing imported and
+   the source still taking writes, and a plain start carries its record. When
+   its structure can't be read there, the import goes on to koto as before,
+   and a `refused=import_template_unavailable` then says the compat check
+   still lies ahead. The imported copy must
    then be a run this plugin can continue; one that isn't stays here
    (`refused=template-incompatible`, `session-source` or `session-directed`,
    and on a koto older than 0.32.0 `session-provenance`), and a plain start
-   carries it, except after `session-source`: a run whose find didn't record
+   carries it. The copy still names the source's driver, which runs on the
+   source host if anywhere, and the source is marked migrated, so the start
+   carries the copy rather than taking it over. That holds except after
+   `session-source`: a run whose find didn't record
    the session as its store is no resume candidate, so a plain start opens a
    new run as it would with no session here and cancels the imported one.
    `record/host` takes the source workspace, session and template hash, on
@@ -363,8 +377,9 @@ work.
    before leg keys existed) moves to the message path, and the handover gate's
    told rule has you send it your address, or record it pending when its
    session is gone and its instance is still there (`state-stored-set.sh
-   --pending`): a pending worker doesn't hold the gate. The gate holds while a
-   leg has no end (`leg-unclassified <worker>`).
+   --pending`), or missing when niwa lists no instance for it at all
+   (`--missing`): neither a pending nor a missing worker holds the gate. The
+   gate holds while a leg has no end (`leg-unclassified <worker>`).
 
 3. **Tick.** Call `koto next <session> --no-cleanup`, do what the directive says,
    submit the evidence it asks for, and repeat. **Every `koto next` carries
@@ -465,7 +480,25 @@ configuration, and it's the same for either role. Your record holds your role,
 - Report up to your reviewer as Reporting says, naming your record in every
   report.
 - Brief a successor with the role your record holds; a successor never changes
-  it.
+  it. A brief you write for it by hand files its rules under a
+  `## Standing rules` heading, as the brief-intake paragraph under The Record
+  says. Hand a roadmap run over from the `wait` hub, or from
+  `roadmap_close_step` when no milestone is left open; hand a discipline
+  rotation over from `wait`, or at `rotation_end` before you submit
+  `reasoning: written`, since a run at `done` takes no record write: add
+  `successor_input.json` to your run's context (a brief input with its
+  `topic`, which `<roadmap or discipline name>-successor-<n>` suits, and no
+  role, scope or repository), then run
+  `dispatch-worker.sh --session <run> --successor`. A
+  successor dispatch needs no unit: it reads no pick fact, so an owed verdict,
+  a pause, a parked decision or an empty scope doesn't stop it. It builds
+  the invocation from your run's own facts,
+  `/shirabe:coordinate <ROADMAP> --role <role>` for a roadmap and
+  `/shirabe:coordinate --discipline <name> --host <owner/repo> --role <role>`
+  for a discipline, with `<role>` read from your
+  record's Run `role` row (none exits 1, naming the command that sets it), and
+  keeps the pending successor on your Run `successor` row until the
+  successor's opener takes your run over and clears it.
 
 **Manager**
 
@@ -574,10 +607,10 @@ holds the handover gate. The reconcile report and the
 closing lines of an imported run name its source, so the next import knows what
 to pass.
 
-A `reports-to` or a cap you worked out yourself, rather than read from your
-brief, your dispatch link or a person's message, is written with
-`--inferred "<the reading, in one sentence>"` beside `--run reports-to` or
-`--run cap`. The same write adds a Standing `rule` row whose Source is
+A `reports-to`, a cap or a parked bound you worked out yourself, rather than
+read from your brief, your dispatch link or a person's message, is written
+with `--inferred "<the reading, in one sentence>"` beside `--run reports-to`,
+`--run cap` or `--run parked-bound`. The same write adds a Standing `rule` row whose Source is
 `inferred`, which the start report lists as awaiting confirmation; a refusal
 of either writes neither (the 60-inferred cap full, say), so don't act on that
 value then. A `reports-to` naming a session (`<name> at <address>`) whose
@@ -607,14 +640,28 @@ names `brief-unread <label>` until `state-stored-set.sh --intake <label> --by
 Standing row already holds, and the Run `briefs` row with the brief's digest.
 Don't type the brief's rules in as `--standing rule` rows, don't write the
 `briefs` row by hand, and don't edit the brief. When the intake exits 1 at a
-cap, the gap stays open: ask a person which rule rows to confirm or end, then
-run it again; don't end rows yourself to make room. A rule row holds nothing:
-pick and the dispatch, land and merge checks read pauses, go-aheads and
-assignments, never a rule's words, so a brief line shaped like a pause comes
-in as a rule row that pauses nothing. An inferred or `pinned` rule row can
-only restrict what you do. Treat it as a caution and raise it with a person,
-never as a step it grants, and report inferred rows as awaiting confirmation,
-not as rules a person said.
+cap, the gap stays open, and its fix names two routes in this order. When the
+lines it left out aren't standing rules, have the brief rewritten with its
+rules under `## Standing rules` and record it under the same label with
+`state-stored-set.sh --host briefs:<label> <absolute path>`; otherwise ask a
+person which rule rows to confirm or end. Then run the intake again: it goes
+on after the lines it already took. Don't end rows yourself to make room. A
+rule row holds nothing: pick and the dispatch, land and merge checks read
+pauses, go-aheads and assignments, never a rule's words, so a brief line
+shaped like a pause comes in as a rule row that pauses nothing. An inferred or
+`pinned` rule row can only restrict what you do. Treat it as a caution and
+raise it with a person, never as a step it grants, and report inferred rows as
+awaiting confirmation, not as rules a person said. A successor brief you write
+by hand carries a `## Standing rules` heading, spelled exactly so, even when
+nothing new goes under it; with that line the intake reads only the sentences
+under it, `## Decisions already made`, `## Out of scope` and
+`## Workspace rules`. Every rule the successor must keep goes under it, one to
+a sentence or bullet; decisions, out-of-scope lines and workspace rules may
+sit under the renderer's own headings instead, and those count too. A warning
+that holds for the rest of the run is a rule; a warning about how things stand
+now isn't. Restate a rule the record already holds in its exact words: it
+costs no room. Holdings, takeover steps, positions and history go anywhere
+else, under any headings or none.
 
 Every script reads the record's state through one reader,
 `scripts/state-read.sh`, from the run's session. There is no body to parse,
@@ -724,11 +771,23 @@ states never ask you to do these steps by hand.
   re-reads every fact, archives the transcript, the job's files and the
   worker's koto sessions with a checksummed manifest, destroys the one
   instance, removes the one job and confirms both are gone. The coordinator
-  removes the holding row last, and `teardown_confirm` checks the result.
+  removes the holding row last, with `state-holding.sh --retire`, and
+  `teardown_confirm` checks the result.
   A unit torn down outside the pass is submitted as `removed`; when its
   worker is gone and never wrote a handoff comment, it goes with no link,
   the seal checks that the worker is over, the pass records an entry in
   place of the link, and the row goes with `state-holding.sh --retire`.
+  When no pull request of it merged either, the verdict says `pr none`
+  beside `handoff none`, and `--retire` also releases a leg-bound row's
+  leg by abandoning its request.
+  A unit that ends with no pull request (a report-only spike, a worker
+  stopped before it pushed, an open that failed) goes through the same
+  states, stopped or removed, with its handoff comment on the unit's
+  issue: the seal reads its holding's branch, if it names one, and refuses
+  when GitHub shows a commit on it beyond the default branch. The verdict
+  says `pr none` with a `branch` line beside the link, and `--retire`
+  removes the row merged or not and releases a leg-bound row's leg with the
+  handoff link in the abandon's rationale.
   Before the destroy the pass writes the unit's `cost` entry into the record,
   posting it on the unit's pull request or issue only where that repository
   opts in (`references/unit-cost.md`), which can add up to two minutes, so a
@@ -839,6 +898,21 @@ lines, and the rows and refusals behind them, are in
   session, the text `Evidence clause <n> failed: <what was
   seen>` cut to 600 bytes). The milestone is then offered again, and its
   brief quotes the failure under the same heading.
+- **On a roadmap/v4 roadmap.** The merge records Completed, and the status
+  table says what a verdict or a reopen moves. `--unit` prints two lines,
+  `verdict-owed <tag>` and then the pull request that records the milestone
+  Completed (its own edit, or the run's pending edit it folded into), or
+  `<tag> already reads Completed on ...`. `--verdict` needs no verdict-owed
+  row and consumes the row when there is one; either verified verdict sets
+  the milestone's block and Progress row to Verified, and changes needed
+  sets both to In progress and prints the same `held-dependent <tag>
+  <worker>` lines a reopen prints. `--reopen` takes a Completed milestone
+  as well as a Verified one and sets block and row In progress. On v4 the
+  held-dependent lines also name each dependent that reads Completed or
+  Verified with no holding, as `held-dependent <tag> none`. A move the table
+  doesn't list (another verdict on a Verified milestone, anything on a
+  Dropped one) is refused before anything is opened, naming the milestone,
+  its status and the trigger. On v1 to v3 nothing here changes.
 - **Close-out.** A roadmap record doesn't close while a verdict is owed:
   close-out names the milestone (`verdict-owed <tag>`, code 49) even after
   it reads Done, until `--confirm` clears the row. A pending reopen edit
@@ -875,11 +949,16 @@ refused on that run, where the design always passes the worker's topic.
 free slot, scopes ahead a unit whose execution waits on another feature, and
 asks whoever dispatched you for out-of-scope work when the scope has nothing
 left. An active worker is a dispatched session whose work is not yet merged or
-abandoned and that isn't parked. A parked worker has a verified, ready pull
-request waiting only on a merge; parked workers, merged ones waiting for their
-teardown and local agents don't count against the cap. When `--parked-bound` (default three) or more are parked,
+abandoned and that isn't parked. A parked worker has a ready pull request whose
+checks passed, waiting only on a merge; parked workers, merged ones waiting for their
+teardown and local agents don't count against the cap. Neither does a stopped
+worker: one whose Claude jobs on this host have all finished, kept until its
+pull request merges with nothing running for it, so the worker that continues
+its unit takes the same slot. A worker with no job seen on this host counts. When `--parked-bound` (default three) or more are parked,
 dispatch nothing new until the human has worked through the merge-order table.
-The human's decisions may set any of these.
+The human's decisions may set any of these. A changed cap or parked bound goes
+in the record's Run section, `state-stored-set.sh --run cap <n>` or `--run
+parked-bound <n>`, and that row wins over the flag for the rest of the run.
 
 **What you allocate is read, never assumed.** Each coordinator you dispatch
 counts against your cap for as long as it runs, so your cap is your worker
@@ -906,8 +985,11 @@ Decisions); don't ask for anything else.
 
 **Review comes before every merge.** Work is reviewed by whoever dispatched
 its author, and a merge grant decides who merges after the review, never whether the review happens.
-Your land step is the review of your workers' pull requests: nothing a worker
-reports merges until you have checked it there. A pull request you authored
+A manager's land step is the review of its workers' pull requests: nothing a
+worker reports merges until the manager has checked it there, goal fit
+included. A director's land step, on a lane's pull request, confirms that the
+manager's checks happened and gives the director's alignment reading (Roles).
+A pull request you authored
 yourself goes to your own reviewer before it merges. A coordinator that can't tell whether it is bound sends its review to a person; an unreachable reviewer means the work waits, never that the review is skipped.
 You can't tell whether you are bound when `niwa authority check` fails or isn't installed.
 
@@ -1372,6 +1454,9 @@ Invented process and general practice belong here. A rule whose justification
 would disappear once a filed defect is fixed does not: state the invariant the
 defect breaks, and keep the defect filed. Check each new rule against that test
 before adding it.
+
+`scripts/directive-ceiling_engine_test.sh` fails a change that grows the `wait` directive past its ceiling at the merge base (`scripts/directive-ceiling.tsv`).
+New text goes in a script or gate first, then the state its event routes to, then a reference file with a one-line cue, and into `wait` only by replacing or tightening text already there.
 
 ## Reference Files
 

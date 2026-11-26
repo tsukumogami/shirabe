@@ -50,7 +50,8 @@
 #       --supersede named and the Claude session that ran it ("" when the
 #       environment gave none). Exit 0 fenced; 1 not fenced; 2 read failure.
 #   coord-log.sh run-start --session S       Prints the header's created_at.
-#   coord-log.sh chain-start --session S
+#   coord-log.sh chain-start --session S [--back-to TIME] [--deadline SECS]
+#                            [--from CURSOR]
 #       Prints the created_at of the earliest run in S's chain: the runs that
 #       led to S, as koto's links give them, whatever the runs are named. The
 #       walk goes back from S one member at a time. A member's continues
@@ -75,6 +76,42 @@
 #       which only makes the chain shorter; a run met twice ends it too, and the
 #       walk stops after 1024 runs. Exit 0; 2 S's own log or a member's
 #       links can't be read.
+#       The walk reads every member's links, so a long chain can take longer
+#       than a caller has (shirabe#1548). Three flags bound it; with none of
+#       them the walk and its output are as above.
+#       --back-to TIME (YYYY-MM-DDTHH:MM[:SS[.fff]]Z) stops the walk, before
+#       each hop, once the earliest start it has met is at or before TIME's
+#       minute, so S's own start can end it with no hop, and prints that
+#       earliest start. The bound rests on one precondition: no run in the
+#       chain started before the run it continues or carried, as runs opened
+#       one after another on one clock do. Under it the time printed is good
+#       only for comparing a time at or after TIME's minute with the chain
+#       start: such a time is before the printed start exactly when it is
+#       before the chain start. Holding the earliest start met, not the last,
+#       means a clock that ran back between two members can't make the walk
+#       stop on, or print, a start later than one it has already passed.
+#       --deadline SECS (a whole number) stops the walk once SECS seconds have
+#       passed since the call began, and prints `partial CURSOR`, exit 3. It
+#       is checked before each hop after the call's first, before the walk
+#       looks for a run before the member, so a call can stop with no hop
+#       left; the resume then makes none and prints the start. A call always
+#       makes one hop when one is left, so --deadline 0 makes exactly one hop
+#       per call.
+#       --from CURSOR resumes the walk a partial line stopped: CURSOR is the
+#       rest of that line, "<hops> <start> <earliest> <member> <seen...>":
+#       the hops made, the member's own start, the earliest start met so far,
+#       the member reached and the members seen from S on, space-separated.
+#       The cycle and 1024-run rules count across resumes. A cursor that isn't
+#       one this walk could have printed for S (its seen list not starting at
+#       S, a hop count over 1024 or not its length, a member that isn't the
+#       last seen, a start that isn't the member's own created_at, an
+#       earliest start after it, or with no hop made other than it) is a
+#       usage error.
+#   coord-log.sh predecessor --session S
+#       Prints the run S took over: the one its continues relation names,
+#       read as chain-start reads it. A restart's dispatched-by link is not
+#       followed. Exit 0 printed; 1 no relation, or the run it names has no
+#       readable log; 2 S's log or its relation can't be read.
 #   coord-log.sh provenance --session S [--template PATH]
 #       Exit 0 when the session's template is one this plugin can drive and
 #       its PLUGIN_ROOT, as koto applies it now (the value it opened with,
@@ -98,6 +135,11 @@
 #       runs from can't be read).
 #       Exit 0 when the table lists the run's fingerprint at the shipped compat
 #       number; 1 otherwise; 2 the log or the table can't be read.
+#   coord-log.sh compat --fingerprint F [--template PATH]
+#       The same line and exit status for a template structure given by its
+#       fingerprint, with no session here: the compat is the table's, `-`
+#       when it doesn't list F. An import judges a source's template this way
+#       before koto copies the run (coordinate-open.sh).
 #   coord-log.sh plugin-root --session S
 #       Prints {"root","rebind"}: the run's PLUGIN_ROOT as koto applies it now,
 #       and whether the compiled template the run runs from declares it
@@ -242,6 +284,47 @@ session_log() {
     printf '%s\n' "$f"
 }
 
+# continues_of <session> <its log>: prints the run the session continues, the
+# name under its koto/links/continues/ (koto lets a session continue at most
+# one), or an empty line when it holds no such relation. Returns 2 when the
+# relation can't be listed, 3 when the listing isn't a key list.
+#
+# The relation is read first as the session's local context manifest holds
+# it, without a koto call. koto's listing is this manifest's keys, plus any
+# key only the bucket holds, sorted; every local write or removal of the link
+# updates the manifest, a take-back after a failed push and an import's
+# rewrite included, which the session log can miss. The manifest is read only
+# when it is the bytes jq prints for it (koto writes it pretty-printed, so a
+# byte-order mark, a duplicate key, a non-integer number or a stray escape
+# fails) and is one document of koto's manifest shape, {"keys": {<key>:
+# {"created_at": <string>, "size": <unsigned integer>, "hash": <string>,
+# "writer": <string or absent>}}}. Any other manifest, and one that names no
+# continues key, falls back to the listing, which then reads, or refuses, the
+# manifest as koto does. Two cases read differently. A session whose manifest
+# names one predecessor while the bucket alone holds a second that sorts
+# first: koto refuses a second predecessor, so only a race between two hosts
+# writing the link leaves that state. And a member imported into another
+# workspace: the listing refuses it, which only the bucket can tell, while its
+# local manifest still names the predecessor it had before the import.
+continues_of() {
+    local manifest=${2%/*}/ctx/manifest.json canon prev= rel
+    if canon=$(jq . "$manifest" 2>/dev/null) && [ "$canon" = "$(cat "$manifest" 2>/dev/null)" ]; then
+        prev=$(jq -rs --arg p koto/links/continues/ 'if length == 1 then .[0] else error("not one document") end
+            | .keys
+            | if type == "object" and all(.[]; type == "object"
+                    and (.created_at | type == "string") and (.hash | type == "string")
+                    and (.writer | . == null or type == "string")
+                    and (.size | type == "number" and (tojson | test("^(0|[1-9][0-9]{0,19})$") and (length < 20 or . <= "18446744073709551615"))))
+                then [keys[] | select(startswith($p))] else error("not a manifest") end
+            | .[0] // "" | ltrimstr($p)' "$manifest" 2>/dev/null) || prev=
+    fi
+    if [ -z "$prev" ]; then
+        rel=$("$KOTO" context list "$1" --prefix koto/links/continues/ </dev/null) || return 2
+        prev=$(printf '%s' "$rel" | jq -r '.[0] // "" | ltrimstr("koto/links/continues/")') || return 3
+    fi
+    printf '%s\n' "$prev"
+}
+
 # migrated_away <session>: exit 0 when koto says the session was imported
 # elsewhere. `koto dashboard <session> --detail` is a read that changes
 # nothing and answers such a session with a `migrated` object naming the copy;
@@ -314,7 +397,7 @@ compat_verdict() {
 default_template() { printf '%s/skills/coordinate/koto-templates/coordinate.md' "$(cd "$HERE/../../.." && pwd -P)"; }
 
 SESSION= STATE= TOKEN= FILE= KEY= SEALED= NAME= FOR= FROM= TEMPLATE= SLUG= AFTER= BEFORE=
-SCOPE= EVENT= HAS= AFTER_TIME= STATES= UNIT= LINE=
+SCOPE= EVENT= HAS= AFTER_TIME= STATES= UNIT= LINE= BACK_TO= DEADLINE= FINGERPRINT=
 WHERE='[]'
 ANY=0 ALL=0 WITH_TIME=0
 CMD=${1-}
@@ -336,12 +419,15 @@ while [ $# -gt 0 ]; do
         --after-time) [ $# -ge 2 ] || usage; AFTER_TIME=$2; shift 2 ;;
         --before) [ $# -ge 2 ] || usage; BEFORE=$2; shift 2 ;;
         --template) [ $# -ge 2 ] || usage; TEMPLATE=$2; shift 2 ;;
+        --fingerprint) [ $# -ge 2 ] || usage; FINGERPRINT=$2; shift 2 ;;
         --scope-slug) [ $# -ge 2 ] || usage; SLUG=$2; shift 2 ;;
         --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
         --event) [ $# -ge 2 ] || usage; EVENT=$2; shift 2 ;;
         --has) [ $# -ge 2 ] || usage; HAS=$2; shift 2 ;;
         --unit) [ $# -ge 2 ] || usage; UNIT=$2; shift 2 ;;
         --line) [ $# -ge 2 ] || usage; LINE=$2; shift 2 ;;
+        --back-to) [ $# -ge 2 ] || usage; BACK_TO=$2; shift 2 ;;
+        --deadline) [ $# -ge 2 ] || usage; DEADLINE=$2; shift 2 ;;
         --where) [ $# -ge 2 ] || usage
             case "$2" in ?*=*) ;; *) usage ;; esac
             WHERE=$(jq -nc --argjson w "$WHERE" --arg f "${2%%=*}" --arg v "${2#*=}" '$w + [[$f, $v]]') || usage
@@ -460,44 +546,66 @@ run-start)
     ;;
 chain-start)
     need SESSION
-    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
-    START=$(head -1 "$LOG" | jq -er '.created_at') || die "no created_at in the header"
-    CUR=$SESSION CUR_LOG=$LOG SEEN=" $SESSION " HOPS=0
+    # A koto session name, as koto's session-ID rule takes one: a letter,
+    # then letters, digits, `.`, `_`, `~` or `-` (`~` is koto's own, for the
+    # epoch branches a rewind makes). So no member the walk can reach makes a
+    # cursor its own resume refuses.
+    RE_NAME='[A-Za-z][A-Za-z0-9._~-]*'
+    RE_TIME='[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]{1,9})?)?Z'
+    RE_CURSOR="^(0|[1-9][0-9]{0,3}) ($RE_TIME) ($RE_TIME) ($RE_NAME)(( $RE_NAME)+)\$"
+    RE_SECS='^(0|[1-9][0-9]{0,5})$'
+    RE_TIME_ONLY="^$RE_TIME\$"
+    [ -z "$BACK_TO" ] || [[ $BACK_TO =~ $RE_TIME_ONLY ]] || usage
+    [ -z "$DEADLINE" ] || [[ $DEADLINE =~ $RE_SECS ]] || usage
+    if [ -n "$FROM" ]; then
+        # A cursor is taken only in the shape a partial line prints it, for
+        # this S: the seen list starts at S and holds hops + 1 distinct
+        # names, the last of them the member, so a resume can't skip the
+        # cycle or 1024-run rules, or walk another session's chain. Its
+        # start is checked against the member's own header below, so the
+        # check doesn't rest on whoever kept the cursor; its earliest start
+        # is one the walk met, so never after that start, and with no hop
+        # made, that start itself.
+        [[ $FROM =~ $RE_CURSOR ]] || usage
+        HOPS=${BASH_REMATCH[1]} START=${BASH_REMATCH[2]} LEAST=${BASH_REMATCH[5]}
+        CUR=${BASH_REMATCH[8]} LIST=${BASH_REMATCH[9]}
+        [ "$HOPS" -le 1024 ] || usage
+        ! [[ ${LEAST:0:16} > ${START:0:16} ]] || usage
+        [ "$HOPS" -gt 0 ] || [ "$LEAST" = "$START" ] || usage
+        SEEN=" " n=0 last=
+        for id in $LIST; do
+            case "$SEEN" in *" $id "*) usage ;; esac
+            [ "$n" -gt 0 ] || [ "$id" = "$SESSION" ] || usage
+            SEEN="$SEEN$id " n=$((n + 1)) last=$id
+        done
+        [ "$n" = $((HOPS + 1)) ] && [ "$last" = "$CUR" ] || usage
+        CUR_LOG=$(session_log "$CUR") || die "no readable log for $CUR"
+        AT=$(head -1 "$CUR_LOG" | jq -er '.created_at') || die "no created_at in $CUR's header"
+        [ "$AT" = "$START" ] || usage
+    else
+        LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+        START=$(head -1 "$LOG" | jq -er '.created_at') || die "no created_at in the header"
+        CUR=$SESSION CUR_LOG=$LOG SEEN=" $SESSION " HOPS=0 LEAST=$START
+    fi
+    BEGAN=$SECONDS MOVED=0
     while [ "$HOPS" -lt 1024 ]; do
-        # The relation as CUR's local context manifest holds it, read without
-        # a koto call. koto's listing is this manifest's keys, plus any key
-        # only the bucket holds, sorted; every local write or removal of the
-        # link updates the manifest, a take-back after a failed push and an
-        # import's rewrite included, which the session log can miss. The
-        # manifest is read only when it is the bytes jq prints for it (koto
-        # writes it pretty-printed, so a byte-order mark, a duplicate key, a
-        # non-integer number or a stray escape fails) and is one document of
-        # koto's manifest shape, {"keys": {<key>: {"created_at": <string>,
-        # "size": <unsigned integer>, "hash": <string>, "writer": <string or
-        # absent>}}}. Any other manifest, and one that names no continues
-        # key, falls back to the listing, which then reads, or refuses, the
-        # manifest as koto does. Two cases read differently. A session
-        # whose manifest names one predecessor while the bucket alone holds a
-        # second that sorts first: koto refuses a second predecessor, so only
-        # a race between two hosts writing the link leaves that state. And a
-        # member imported into another workspace: the listing refuses it,
-        # which only the bucket can tell, while its local manifest still
-        # names the predecessor it had before the import.
-        CUR_MANIFEST=${CUR_LOG%/*}/ctx/manifest.json PREV=
-        if CANON=$(jq . "$CUR_MANIFEST" 2>/dev/null) && [ "$CANON" = "$(cat "$CUR_MANIFEST" 2>/dev/null)" ]; then
-            PREV=$(jq -rs --arg p koto/links/continues/ 'if length == 1 then .[0] else error("not one document") end
-                | .keys
-                | if type == "object" and all(.[]; type == "object"
-                        and (.created_at | type == "string") and (.hash | type == "string")
-                        and (.writer | . == null or type == "string")
-                        and (.size | type == "number" and (tojson | test("^(0|[1-9][0-9]{0,19})$") and (length < 20 or . <= "18446744073709551615"))))
-                    then [keys[] | select(startswith($p))] else error("not a manifest") end
-                | .[0] // "" | ltrimstr($p)' "$CUR_MANIFEST" 2>/dev/null) || PREV=
+        # Minutes compare as strings: every time here is the same fixed
+        # width up to its minute.
+        if [ -n "$BACK_TO" ] && ! [[ ${LEAST:0:16} > ${BACK_TO:0:16} ]]; then break; fi
+        if [ -n "$DEADLINE" ] && [ "$MOVED" = 1 ] && [ $((SECONDS - BEGAN)) -ge "$DEADLINE" ]; then
+            # A start that isn't a time would make a cursor no resume takes.
+            [[ $START =~ $RE_TIME_ONLY ]] || die "$CUR's created_at is not a time"
+            [[ $LEAST =~ $RE_TIME_ONLY ]] || die "a created_at the walk met is not a time"
+            LIST=${SEEN# }
+            printf 'partial %s %s %s %s %s\n' "$HOPS" "$START" "$LEAST" "$CUR" "${LIST% }"
+            exit 3
         fi
-        if [ -z "$PREV" ]; then
-            REL=$("$KOTO" context list "$CUR" --prefix koto/links/continues/ </dev/null) || die "can't list $CUR's continues relation"
-            PREV=$(printf '%s' "$REL" | jq -r '.[0] // "" | ltrimstr("koto/links/continues/")') || die "$CUR's continues relation isn't a key list"
-        fi
+        PREV=$(continues_of "$CUR" "$CUR_LOG")
+        case $? in
+            0) ;;
+            3) die "$CUR's continues relation isn't a key list" ;;
+            *) die "can't list $CUR's continues relation" ;;
+        esac
         if [ -n "$PREV" ]; then
             PREV_LOG=$(session_log "$PREV") || break
         else
@@ -517,9 +625,24 @@ chain-start)
         fi
         case "$SEEN" in *" $PREV "*) break ;; esac
         START=$(head -1 "$PREV_LOG" | jq -er '.created_at') || die "no created_at in $PREV's header"
-        CUR=$PREV CUR_LOG=$PREV_LOG SEEN="$SEEN$PREV " HOPS=$((HOPS + 1))
+        CUR=$PREV CUR_LOG=$PREV_LOG SEEN="$SEEN$PREV " HOPS=$((HOPS + 1)) MOVED=1
+        if [[ ${START:0:16} < ${LEAST:0:16} ]]; then LEAST=$START; fi
     done
-    printf '%s\n' "$START"
+    # With no bound the start printed is the last member's, as it always was.
+    if [ -n "$BACK_TO" ]; then printf '%s\n' "$LEAST"; else printf '%s\n' "$START"; fi
+    ;;
+predecessor)
+    need SESSION
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    PREV=$(continues_of "$SESSION" "$LOG")
+    case $? in
+        0) ;;
+        3) die "$SESSION's continues relation isn't a key list" ;;
+        *) die "can't list $SESSION's continues relation" ;;
+    esac
+    [ -n "$PREV" ] || exit 1
+    session_log "$PREV" >/dev/null || exit 1
+    printf '%s\n' "$PREV"
     ;;
 fence)
     need SESSION
@@ -590,6 +713,19 @@ EOF
     exit 1
     ;;
 compat)
+    if [ -n "$FINGERPRINT" ]; then
+        # A fingerprint given directly: the table's verdict alone, since there
+        # is no session here whose record/meta could name its own compat.
+        [ -z "$SESSION" ] || usage
+        [[ $FINGERPRINT =~ ^[0-9a-f]{64}$ ]] || usage
+        [ -n "$TEMPLATE" ] || TEMPLATE=$(default_template)
+        TABLE=${TEMPLATE%.md}.compat.json
+        compat_verdict "$FINGERPRINT" "$TABLE"
+        RC=$?
+        [ $RC -eq 2 ] && die "the compat table $TABLE can't be read"
+        jq -r --arg f "$FINGERPRINT" '"\(.fingerprints[$f] // "-") \(.compat) \($f)"' "$TABLE"
+        exit $RC
+    fi
     need SESSION
     LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
     FP=$(run_fingerprint "$LOG") || FP=

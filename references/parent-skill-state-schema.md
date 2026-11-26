@@ -381,7 +381,10 @@ absorption is a contract violation in its own right.
 ## Topic-Slug Regex
 
 The topic-slug regex `^[a-z0-9-]+$` is the pattern-level constraint cited
-by every parent's SKILL.md. Slugs that fail the regex are hard-rejected at
-Phase 0 (no normalization, no automatic suggestion). The regex is referenced
+by every parent's SKILL.md. A slug that fails the regex is hard-rejected at
+Phase 0 (no normalization, no automatic suggestion). Which slug reaches the
+check is `topic-derivation.md`'s rule: one the author gave as-is, or one the
+agent derived from the author's description and named on its first line of
+output. The regex is referenced
 from each parent's SKILL.md topic-slug constraint statement (R1 structural
 element 3 in `parent-skill-pattern.md`).

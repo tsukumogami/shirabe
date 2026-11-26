@@ -1,20 +1,48 @@
 # check-skill.tsv -- how scripts/check-skill.sh orders and selects this
-# skill's suites. scripts/check-skill.sh's header defines both kinds of row;
+# skill's suites. scripts/check-skill.sh's header defines each kind of row;
 # .claude/shirabe-extensions/README.md has the rule for keeping them current.
 # Tab-separated.
 #
-# shared <file under scripts/>: a change to it runs every suite. A file
-# sourced by two or more of the skill's files is shared without a row; these
-# are the ones that check can't see: the template's own scripts, which every
-# engine suite drives; the state schema, which jq includes and nearly every
-# script reads or writes through; and run-tests.sh, which CI runs every suite
-# through.
+# shared <file under scripts/>: a change to it runs what it reaches, engine
+# suites included (scripts/check-skill.sh's reach_suites), not only the unit
+# suites a plain script gets. What it reaches follows its callers to the end of
+# every chain. A file sourced by two or more of the skill's files is shared
+# without a row; these are the ones that check can't see: the template's own
+# scripts, which every engine suite drives; and the state schema, which jq
+# includes and nearly every script reads or writes through.
 shared	coord-verdict.sh
 shared	coord-log.sh
 shared	coordinate-open.sh
 shared	coordinate-open.wording.tsv
-shared	run-tests.sh
 shared	state-schema.jq
+
+# all <file under scripts/>: the file runs every suite, so a change to it, or
+# to any file it runs directly or through other scripts, runs every suite.
+# run-tests.sh is how CI and an author run every suite.
+all	run-tests.sh
+
+# walk <suite> <glob> [<skip glob>]: the suite walks the skill's tree (find,
+# git ls-files) and reads every file whose path under skills/coordinate/
+# matches <glob> and not <skip glob>, case patterns where * also matches /. A
+# change to such a file selects the suite whatever else it selects, since the
+# suite reaches it without naming it. Declare the whole walk: a narrower glob
+# drops the suite for a file it reads. skill-hygiene_test.sh greps every file
+# git tracks under the skill except the suites; state-structure_test.sh every
+# file under scripts/ and koto-templates/;
+# coordinate-template-structure_engine_test.sh every .sh and .jq file except
+# the suites and scripts/testdata/ (its rows take testdata in too, which is
+# wider than the walk and harmless: a change there runs every suite anyway),
+# and SKILL.md, every references/*.md and every koto-templates/*.md, which it
+# scans for an outward-kind state-entry.sh call without --on (and SKILL.md
+# for "the human merges", references/state-keys.md for the key table).
+walk	skill-hygiene_test.sh	*	*_test.sh
+walk	state-structure_test.sh	scripts/*
+walk	state-structure_test.sh	koto-templates/*
+walk	coordinate-template-structure_engine_test.sh	*.sh	*_test.sh
+walk	coordinate-template-structure_engine_test.sh	*.jq
+walk	coordinate-template-structure_engine_test.sh	SKILL.md
+walk	coordinate-template-structure_engine_test.sh	references/*.md
+walk	coordinate-template-structure_engine_test.sh	koto-templates/*.md
 
 # cost <suite> <seconds>: the suite's CPU seconds (user plus system), measured
 # on main at 05d3a50 with four suites at a time on a loaded host. Suites
@@ -27,8 +55,13 @@ shared	state-schema.jq
 # coordinate-takeover-load_engine_test.sh at the cost of its skip, since it
 # runs on CI only (CI set) and SKIPs anywhere check-skill.sh runs it;
 # rule-sources_engine_test.sh, brief-intake_engine_test.sh,
-# discipline-carry_engine_test.sh, review-round-telemetry_engine_test.sh and
-# driver-check_engine_test.sh were each measured alone in one run.
+# discipline-carry_engine_test.sh, review-round-telemetry_engine_test.sh,
+# driver-check_engine_test.sh, directive-ceiling_engine_test.sh,
+# successor-handover_engine_test.sh and standing-provenance_engine_test.sh
+# were each measured alone in one run; lib-status_test.sh,
+# reconcile-owe_test.sh, roadmap-status-v4_test.sh and
+# roadmap-status-v4-verdict_test.sh were each measured alone in one run on a
+# loaded host.
 cost	driver-check_engine_test.sh	527
 cost	coordinate_1_engine_test.sh	271
 cost	state-carry_test.sh	262
@@ -46,6 +79,7 @@ cost	teardown-inventory_test.sh	154
 cost	land-check_test.sh	141
 cost	state-confirm_test.sh	139
 cost	roadmap-status_test.sh	135
+cost	successor-handover_engine_test.sh	134
 cost	pause_engine_test.sh	118
 cost	reconcile-check_test.sh	113
 cost	state-stored-set_test.sh	112
@@ -154,3 +188,10 @@ cost	alignment-read_test.sh	6
 cost	alignment-sources_test.sh	15
 cost	discipline-carry_engine_test.sh	23
 cost	review-round-telemetry_engine_test.sh	0
+cost	directive-ceiling_engine_test.sh	3
+cost	standing-provenance_engine_test.sh	4
+cost	cloud-hosts-start_test.sh	0
+cost	lib-status_test.sh	21
+cost	reconcile-owe_test.sh	13
+cost	roadmap-status-v4_test.sh	25
+cost	roadmap-status-v4-verdict_test.sh	37

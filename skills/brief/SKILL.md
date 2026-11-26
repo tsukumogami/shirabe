@@ -73,7 +73,8 @@ requirements contract.
 
 From `$ARGUMENTS`:
 
-1. **Empty** — ask the user which feature they want to frame.
+1. **Empty** — when the conversation already describes the feature, derive
+   the topic from it; otherwise ask the user which feature they want to frame.
 2. **Path to existing BRIEF** with lifecycle verb (`accept`, `done`) —
    execute the lifecycle transition via `shirabe transition <brief-path>
    <status>`. No reason argument; no directory move.
@@ -82,7 +83,10 @@ From `$ARGUMENTS`:
    derive the feature's problem/outcome candidate from its content
    during Phase 1. The roadmap is read, not recorded (see
    `references/phases/phase-0-setup.md`).
-4. **Anything else** — use as the starting topic for Phase 1 scoping.
+4. **Anything else** — the author's topic: a slug used as given, or a
+   description of the feature the agent derives a slug from, as
+   `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` says. The description is the starting
+   point for Phase 1 scoping.
 
 Any of the modes above may carry `--upstream <path>`, naming the
 grounding ROADMAP separately from the topic. `/brief <topic-slug>

@@ -9,6 +9,12 @@
 # a session with those set pushed the suite's sessions to the real bucket
 # (shirabe#1288).
 #
+# CLAUDE_CODE_SESSION_ID goes too. koto 0.37.0 takes an id-shaped value as the
+# agent session that decided a gate pass, so a suite run from inside an agent
+# session has a decider that CI lacks, and passes locally where CI fails
+# (shirabe#1733). A case that passes a gate as the agent sets its own stand-in
+# id on that call.
+#
 # Usage, as the line after the suite's `set` line, with the path to this file
 # written relative to the suite's own directory:
 #
@@ -17,8 +23,9 @@
 # The `|| exit 1` stops the suite when this file is missing. Once sourced:
 #
 #   - KOTO_SESSIONS_BASE, KOTO_TICK_SESSION, KOTO_HOME, KOTO_WORKFLOWS_DIR,
-#     KOTO_WORKFLOWS_HOST_SESSION, KOTO_ANCHOR, KOTO_DISPATCHER_ANCHOR, every
-#     KOTO_SESSION_* variable and every AWS_* variable are unset;
+#     KOTO_WORKFLOWS_HOST_SESSION, KOTO_ANCHOR, KOTO_DISPATCHER_ANCHOR,
+#     CLAUDE_CODE_SESSION_ID, every KOTO_SESSION_* variable and every AWS_*
+#     variable are unset;
 #   - HOME is a new directory under KOTO_TEST_GUARD_DIR, a directory made
 #     here with mkdir under TMPDIR (not with mktemp, so a suite run under a
 #     failing mktemp still reaches its own mktemp check). It is named
@@ -74,7 +81,7 @@ _ktg_cleanup" EXIT
 }
 
 for _ktg_v in KOTO_SESSIONS_BASE KOTO_TICK_SESSION KOTO_HOME KOTO_WORKFLOWS_DIR \
-    KOTO_WORKFLOWS_HOST_SESSION KOTO_ANCHOR KOTO_DISPATCHER_ANCHOR \
+    KOTO_WORKFLOWS_HOST_SESSION KOTO_ANCHOR KOTO_DISPATCHER_ANCHOR CLAUDE_CODE_SESSION_ID \
     $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p; s/^\(AWS_[A-Za-z0-9_]*\)=.*/\1/p'); do
     unset "$_ktg_v" || _ktg_fail "$_ktg_v could not be unset"
 done

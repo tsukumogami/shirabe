@@ -235,6 +235,22 @@ for src in merge_confirm merged_facts; do
     eq "$src merged: the unit's widgets#12 row still there waits beside gadgets#12" waiting "$(confirm)"
     body "$(rec | jq -c --argjson a "$(holding alpha '{"pull_request":""}')" --argjson g "$(holding gamma "$GADGETS12")" '.holdings = [$g, $a]')"
     eq "$src merged: widgets#12's cell cleared confirms though gadgets#12's row stays" confirmed "$(confirm)"
+    # The confirmed merge clears the pull request's Side effects merge row at
+    # the merged head, one a takeover carried included (shirabe#1824): while
+    # it stands the record step waits. A merge row at another head, another
+    # pull request's or repository's, and a row of another action don't hold it.
+    MSE=$(jq -nc --arg s "$SHA_HEAD" '{action: "merge", target: "acme/widgets#12", verified_head: $s, attempted: "2026-09-26T09:58Z", how_to_confirm: "compare blobs"}')
+    CA=$(holding alpha '{"pull_request":""}')
+    body "$(rec | jq -c --argjson h "$CA" --argjson m "$MSE" '.holdings = [$h] | .side_effects = [$m]')"
+    eq "$src merged: the cleared cell beside the pull request's Side effects merge row waits" waiting "$(confirm)"
+    bash "$C" --session "$S" >/dev/null 2>&1
+    jq -r '.expectation' "$KOTO_STORE/context/$S/coord/record_confirm.json" 2>/dev/null | grep -q 'no Side effects merge row for acme/widgets#12' \
+        && ok "$src merged:   ... naming the row it waits on" \
+        || bad "$src merged:   ... naming the row it waits on" "$(cat "$KOTO_STORE/context/$S/coord/record_confirm.json" 2>/dev/null)"
+    body "$(rec | jq -c --argjson h "$CA" --argjson m "$MSE" '.holdings = [$h] | .side_effects = [$m | .target = "merge of https://github.com/acme/widgets/pull/12"]')"
+    eq "$src merged: the merge row naming the pull request's URL waits too" waiting "$(confirm)"
+    body "$(rec | jq -c --argjson h "$CA" --argjson m "$MSE" --arg o "$SHA_OTHER" '.holdings = [$h] | .side_effects = [($m | .verified_head = $o), ($m | .target = "acme/widgets#13"), ($m | .target = "acme/gadgets#12"), ($m | .action = "teardown")]')"
+    eq "$src merged: a merge row at another head, another pull request's or repository's, or another action's row, doesn't hold it" confirmed "$(confirm)"
     # A holding at Phase scoping landed its unit's scoping alone: its
     # execution goes into Work as a follow-up before the merge confirms.
     SCOPED=$(holding alpha '{"pull_request":"","phase":"scoping"}')
@@ -368,14 +384,19 @@ body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')" "$BEFORE
 eq "teardown kept: a body written after the hub but before the evidence still waits" waiting "$(confirm)"
 
 echo "== destroy (the dispatch path's teardown) =="
+# destroy became due at DUE, after BEFORE; MID falls between it and the evidence.
+DUE=2026-09-26T09:56:00.000Z
+MID=2026-09-26T09:58:00Z
 destroy_run() { # destroy_run <outcome> <sealed topic>
     session
-    log_evidence "$S" wait '{"event":"retire","unit":"alpha"}' 2026-09-26T09:50:00.000Z
+    # The teardown became due at the hub, when the retire arrived.
+    log_to "$S" pick_facts wait "$DUE"
+    log_evidence "$S" wait '{"event":"retire","unit":"alpha"}' "$DUE"
     log_to "$S" wait teardown
     log_to "$S" teardown teardown_inventory
     printf 'topic %s\ninstance /x/instances/alpha\n' "$2" > "$T/inv"
     log_capture "$S" TEARDOWN_SEAL "$(bash "$HERE/coord-log.sh" seal --session "$S" --state teardown_inventory --file "$T/inv" --key teardown_verdict)"
-    log_to "$S" teardown_inventory destroy
+    log_to "$S" teardown_inventory destroy "$DUE"
     log_evidence "$S" destroy "{\"outcome\":\"$1\"}" "$EVT"
     log_to "$S" destroy record "$EVT"
 }
@@ -393,6 +414,15 @@ eq "destroy handed_over: without the Side effects row it waits" waiting "$(confi
 destroy_run handed_over alpha
 body "$(rec | jq -c '.side_effects = [{"action":"destroy","target":"instance of alpha-2","verified_head":"","attempted":"2026-09-26T09:58Z","how_to_confirm":"gone"}]')"
 eq "destroy handed_over: a row naming alpha-2 does not name alpha" waiting "$(confirm)"
+# The directive writes the record before it submits either outcome
+# (shirabe#1148), so a write made after the step became due, though before
+# the evidence, confirms.
+destroy_run destroyed alpha
+body "$(rec | jq -c --argjson h "$(holding beta)" '.holdings = [$h]')" "$MID"
+eq "destroy destroyed: a record written after the step became due, before the evidence, confirms" confirmed "$(confirm)"
+destroy_run handed_over alpha
+body "$(rec | jq -c --argjson se "$SEH" '.side_effects = $se')" "$MID"
+eq "destroy handed_over: a record written after the step became due, before the evidence, confirms" confirmed "$(confirm)"
 # Both outcomes are this run's writes, so they keep the time ordering.
 destroy_run destroyed alpha
 body "$(rec | jq -c --argjson h "$(holding beta)" '.holdings = [$h]')" "$BEFORE"

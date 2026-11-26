@@ -15,6 +15,7 @@
 #   roadmap-status.sh --session S --confirm TAG
 #   roadmap-status.sh --session S --drop TAG --reason TEXT
 #   roadmap-status.sh --session S --list
+#   roadmap-status.sh --session S --owe-completed
 #   ... [--scope roadmap --name N --repo O/R [--roadmap PATH]
 #        --skip-session-checks]                                   (tests)
 #
@@ -47,6 +48,33 @@
 # row there, it prints the same and writes nothing. The row keeps the
 # milestone off the picker and away from dispatch until its verdict's edit
 # is confirmed; --outcome is ignored.
+#
+# On a roadmap/v4 roadmap the merge records the milestone Completed
+# (docs/designs/DESIGN-completed-verified-states.md, Decision 3), and
+# --outcome is required. --unit refuses a TAG with a follow-up Work row, one
+# that isn't a milestone, one that already closes (Verified or Dropped) and
+# one the status table moves nowhere on `finished` (state-common.sh
+# lib_status_move). It writes the verdict-owed Work row as on v2 and v3 and
+# records the move the table gives (Completed): TAG's block **Status:** and
+# its row in the first `## Progress` table with a Status column read that
+# word, --outcome's text goes on its **Delivered:** line (added after an
+# existing one's last line, `, `-joined, or written after Status), and its
+# **Needs:** line goes. When the record holds no pending roadmap edit whose
+# pull request is still open, it opens one as the v1 path does, on
+# coordinate/roadmap-status-<tag>-<minute>, with a Side effects row, Action
+# `roadmap-status`, How to confirm `the roadmap on <default> reads <TAG>
+# Completed`. When the run's own edit is pending and open, it commits the
+# change onto that edit's branch instead, a new commit on the branch's head
+# as read (read again just before the commit; a branch that moved, or a
+# contents API 409, is read again), and adds one line naming TAG to that pull
+# request's body before its `---` separator; no pull request opens and no
+# row is added. A pending edit that moved and then merged or closed means a
+# new edit from the default branch as it is now; one still open at a new head
+# is refused (65), naming the head, with nothing committed and the record
+# unchanged. TAG already reading Completed (on the default branch or on the
+# pending edit's branch) changes nothing but a missing verdict-owed row. It
+# prints `verdict-owed TAG` and then the pull request's URL, or `TAG already
+# reads Completed on ...`.
 #
 # On any other roadmap --unit opens the roadmap pull request for the feature
 # whose heading tag is TAG (`Feature 7`, `ED1`, `AB10b`), the coordinator
@@ -152,6 +180,30 @@
 # a holding covers: that worker's milestone reads blocked again once the
 # edit lands, and the coordinator tells its owner.
 #
+# On a roadmap/v4 roadmap (docs/designs/DESIGN-completed-verified-states.md,
+# Decision 3) the status table, not Done, says what a verdict or a reopen
+# moves. --verdict needs no verdict-owed row: it takes a verdict on a
+# milestone in any status the table moves on the verdict's trigger
+# (`verified` for either verified verdict, `changes-needed`), passes the
+# row's Who to check-verdict when there is a row, and consumes the row in the
+# record write that adds its Side effects row. --reopen takes a milestone
+# the table moves on `reopen` (Completed or Verified). Each asks
+# state-common.sh lib_status_move first and refuses (65) a move the table
+# doesn't list (a Verified milestone given another verdict, a Dropped one
+# given anything, a reopen of one In progress), naming TAG, its status and
+# the trigger, with nothing opened and the record unchanged. The edit moves
+# TAG's block **Status:** and its row in the first `## Progress` table with
+# a Status column together, through status_row_edit, the edit --unit's
+# Completed uses: either verified verdict to Verified (Needs and Delivered as
+# above, follow-ups as above; its milestone-done row's How to confirm reads
+# `<TAG> Verified (entry N)`, which --confirm holds to a status that closes
+# and satisfies), changes needed and a reopen to In progress. A
+# changes-needed verdict prints, after its URL, the held-dependent lines a
+# reopen prints, and both name, besides each dependent a holding covers, each
+# one that reads Completed or Verified, with the worker `none` when no
+# holding covers it, one line per dependent. On v1 to v3 none of this
+# changes.
+#
 # --verdict and --reopen post their entry on the roadmap pull request they open
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2), in
 # an order that lets the Progress line name that comment: the edit without its
@@ -217,6 +269,22 @@
 # this edit's, so main hasn't shown it yet (1); a hash the entry doesn't match
 # is refused (65). The rework row's Who is then `verdict N` or `failure N`,
 # the entry's number.
+# --owe-completed is the reconcile pass's write (reconcile-owe.sh): it reads
+# the roadmap at the default branch's head and, on a roadmap/v4 roadmap,
+# writes a verdict-owed Work row, Who and Next as --unit writes them, for
+# every milestone that reads Completed (the status table's satisfies without
+# closes) and has none, all in one record write, printing `verdict-owed
+# <tag>` for each. A coordinator taking up a v4 roadmap whose milestones were
+# Completed before this record knew of them (a new record, a migration) so
+# owes their verdicts, and pick offers each one
+# (docs/designs/DESIGN-completed-verified-states.md, Decision 3). A row
+# that is there already matches by tag key and gets no second one, and a
+# milestone whose verdict or reopen edit is pending (a milestone-done,
+# milestone-verdict or milestone-reopen row) gets none either: its verdict
+# consumed the row, and the pending edit holds it. On v1 to
+# v3, at discipline scope, or with nothing to add, it writes nothing, prints
+# nothing and exits 0.
+#
 # --list prints the pending rows as a JSON array of {unit, pull_request,
 # attempted, action}, state-schema.jq pending_list, the projection pick-facts.sh
 # also takes from its own parse to mark landed units.
@@ -251,9 +319,14 @@
 #           gh pr view N --repo R --json state,headRefName                 (--verdict, --reopen, run again)
 #           gh api --method GET repos/R/contents/CLAUDE.md --jq .content   (--verdict, --reopen: the opt-in)
 #           gh api --method GET repos/R/contents/<roadmap>?ref=<branch>    (the Progress commit)
+#           gh pr view N --repo R --json state,headRefName                 (--unit on v4: a pending edit)
+#           gh api --method GET repos/R/issues/N                           (--unit on v4: its body)
+#           gh api --method GET repos/R/git/ref/heads/<its branch>         (--unit on v4: a pending edit)
+#           gh api --method GET repos/R/contents/<roadmap>?ref=<its head>  (--unit on v4: a pending edit)
 #   writes: gh api --method POST repos/R/git/refs -f ref=... -f sha=...
 #           gh api --method PUT repos/R/contents/<roadmap> (message, content, sha, branch)
 #           gh pr create --repo R --head <branch> --base <default> --title T --body-file F
+#           gh pr edit N --repo R --body-file F                            (--unit on v4: the folded line)
 #           the record, through state-write-core.sh; the entry, through state-entry.sh
 #           (the posted entry too, through state-entry.sh --repost --on)
 set -uo pipefail
@@ -287,6 +360,7 @@ while [ $# -gt 0 ]; do
         --confirm) [ $# -ge 2 ] || usage; setmode confirm; TAG=$2; shift 2 ;;
         --drop) [ $# -ge 2 ] || usage; setmode drop; TAG=$2; shift 2 ;;
         --list) setmode list; shift ;;
+        --owe-completed) setmode owe; shift ;;
         --outcome) [ $# -ge 2 ] || usage; OUTCOME=$2; OUTCOME_SET=1; shift 2 ;;
         --reason) [ $# -ge 2 ] || usage; REASON=$2; shift 2 ;;
         --entry) [ $# -ge 2 ] || usage; ENTRY_N=$2; shift 2 ;;
@@ -304,12 +378,15 @@ case "$MODE" in
     verdict) entry_given && [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON" ] || usage ;;
     reopen) entry_given && [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON$FOLLOW_UPS" ] || usage ;;
     drop) [ -n "$REASON" ] && [ "$OUTCOME_SET" = 0 ] && [ -z "$FOLLOW_UPS$ENTRY_N" ] || usage ;;
-    confirm|list) [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON$FOLLOW_UPS$ENTRY_N" ] || usage ;;
+    confirm|list|owe) [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON$FOLLOW_UPS$ENTRY_N" ] || usage ;;
     *) usage ;;
 esac
 . "$HERE/state-common.sh"
 lib_facts
 [ -z "$ARG_ROADMAP" ] || { [ "$OVERRIDE" = 1 ] || usage; ROADMAP=$ARG_ROADMAP; }
+# --owe-completed runs at every reconcile, whatever the scope: a rotation has
+# no milestones, so it owes nothing.
+[ "$SCOPE" = roadmap ] || [ "$MODE" != owe ] || exit 0
 [ "$SCOPE" = roadmap ] || { echo "$PROG: a feature's status is a roadmap's; this run's scope is $SCOPE" >&2; exit 64; }
 lib_roadmap_path
 lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
@@ -326,7 +403,7 @@ if [ -n "$ENTRY_N" ]; then
 fi
 RE_HEADING_TAG='^(Feature [0-9]+|Milestone [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$'
 case "$MODE" in
-    list) ;;
+    list|owe) ;;
     verdict|reopen) [[ $TAG =~ $RE_HEADING_TAG ]] && [ "${#TAG}" -le 40 ] \
                  || { echo "$PROG: refused: $TAG is not a milestone's heading tag (Feature 7, Milestone 7, ED1, AB10b)" >&2; exit 65; } ;;
     *) [[ $TAG =~ $RE_HEADING_TAG ]] || { echo "$PROG: $TAG is not a feature's heading tag (Feature 7, Milestone 7, ED1, AB10b)" >&2; exit 64; } ;;
@@ -975,6 +1052,94 @@ block_edit() {
             if (inprog) { more = 0; flush_progress() }
         }' > "$1" || lib_die2 "awk failed"
 }
+# status_row_edit <src> <out> <status>: SRC with TAG's milestone moved to
+# STATUS on a roadmap/v4 roadmap, and nothing else: its block's **Status:**
+# reads STATUS, and so does the Status cell of each row naming TAG in the
+# first table under `## Progress` with a Status column (its first cell the
+# milestone's tag, `Feature N` and `Milestone N` naming each other, followed
+# by its end, `:` or a space). The one edit of a v4 status that --unit,
+# --verdict and --reopen share. Values reach awk through the environment,
+# which takes them as written. TAG's block is HEAD_TAG under RM_SECTION (call
+# words_read first). OUT has LF endings; the caller restores CRLF ones.
+status_row_edit() {
+    local mnum=
+    [[ $HEAD_TAG =~ ^(Feature|Milestone)\ ([0-9]+)$ ]] && mnum=${BASH_REMATCH[2]}
+    tr -d '\r' < "$1" | RS_TAG="$HEAD_TAG" RS_NUM="$mnum" RS_SECTION="## $RM_SECTION" RS_STATUS="$3" awk '
+        BEGIN { tag = ENVIRON["RS_TAG"]; num = ENVIRON["RS_NUM"]; sect = ENVIRON["RS_SECTION"]; status = ENVIRON["RS_STATUS"] }
+        function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+        # names(cell): the row names TAG.
+        function names(c,   t, rest) {
+            c = trim(c)
+            if (num != "" && match(c, /^(Feature|Milestone) [0-9]+/)) {
+                t = substr(c, 1, RLENGTH); rest = substr(c, RLENGTH + 1)
+                if (substr(t, index(t, " ") + 1) != num) return 0
+            } else {
+                if (index(c, tag) != 1) return 0
+                rest = substr(c, length(tag) + 1)
+            }
+            return (rest == "" || rest ~ /^[: \t]/)
+        }
+        /^## / {
+            h = $0; sub(/[ \t]+$/, "", h); infeat = (h == sect); inblock = 0
+            inprog = (h == "## Progress") && !tabled; intable = 0; col = 0
+            print; next
+        }
+        infeat && /^### / { inblock = (index($0, "### " tag ": ") == 1); print; next }
+        inblock && /^\*\*Status:\*\*/ { print "**Status:** " status; next }
+        inprog && /^\|/ {
+            n = split($0, c, "|")
+            if (!intable) {
+                intable = 1
+                for (i = 2; i < n; i++) if (trim(c[i]) == "Status") col = i
+                if (col) tabled = 1
+                print; next
+            }
+            if (col && col < n && trim(c[2]) !~ /^:?-+:?$/ && names(c[2])) {
+                c[col] = " " status " "
+                line = c[1]; for (i = 2; i <= n; i++) line = line "|" c[i]
+                print line; next
+            }
+            print; next
+        }
+        inprog && intable { intable = 0; if (col) inprog = 0 }
+        { print }' > "$2" || lib_die2 "awk failed"
+}
+# v4_move <status> <trigger>: V4_TO, the word the status table moves TAG
+# from STATUS to on TRIGGER (lib_status_move). A move the table doesn't list
+# is refused (65) naming the milestone, its status and the trigger, before
+# anything is written; an unusable table exits 2.
+v4_move() {
+    V4_TO=$(lib_status_move "$1" "$2")
+    case $? in
+        0) ;;
+        1) refuse "$TAG reads ${1:-no status} on $DEFAULT_BRANCH, and the status table lists no move from it on $2; nothing was opened and the record is unchanged" ;;
+        *) exit 2 ;;
+    esac
+}
+# held_dependents <features.json>: HELD, a `held-dependent <tag> <worker>`
+# line for each milestone whose Dependencies name TAG (as pick reads them,
+# soft ones aside) and that a holding covers: that worker's milestone reads
+# blocked again once the edit lands. On a roadmap/v4 roadmap a dependent
+# that reads Completed or Verified (the table's satisfies) is named too,
+# with the worker `none` when no holding covers it, and each dependent is
+# named once, by its first holding.
+held_dependents() {
+    local v4=
+    [ "$(lib_status_family "$RM_SCHEMA")" = v4 ] && v4=1
+    HELD=$(jq -r --arg t "$TAG" --arg v4 "$v4" --slurpfile p "$WD/parsed.json" "$JQ_TAG_KEY"'
+        def covers($id; $title): (tag_key == ($id | tag_key))
+            or (index(": ") as $i | $i != null and (.[0:$i] | tag_key) == ($id | tag_key) and .[$i + 2:] == $title);
+        ([.[] | select((.id | tag_key) == ($t | tag_key)) | .number][0]) as $n
+        | .[] | select((.id | tag_key) != ($t | tag_key) and any(.dependencies[]; . == $n)) | . as $f
+        | if $v4 == "1" then
+            ([$p[0].holdings[] | select(.unit | covers($f.id; $f.title)) | .worker][0]) as $w
+            | select($w != null or ($f.satisfies == true))
+            | "held-dependent \($f.id) \($w // "none")"
+          else
+            $p[0].holdings[] | select(.unit | covers($f.id; $f.title))
+            | "held-dependent \($f.id) \(.worker)"
+          end' "$1") || lib_die2 "jq failed"
+}
 
 case "$MODE" in
 confirm|drop)
@@ -1089,6 +1254,13 @@ confirm|drop)
             ST=$(printf '%s' "$FEATURE" | jq -r '.status // empty')
             [ "$(printf '%s' "$FEATURE" | jq -r '.done // false')" = true ] \
                 || { echo "$PROG: $TAG reads ${ST:-no status} on $DEFAULT_BRANCH; its pull request, $PRL, hasn't landed" >&2; exit 1; }
+            # On v4 a verified verdict's edit has landed once TAG closes and
+            # satisfies (Verified): Completed is done too, but is what the
+            # default branch read before that edit.
+            if [ "$ACTION" = milestone-done ] && [ "$(lib_status_family "$RM_SCHEMA")" = v4 ]; then
+                [ "$(printf '%s' "$FEATURE" | jq -r '.closes == true and .satisfies == true')" = true ] \
+                    || { echo "$PROG: $TAG reads ${ST:-no status} on $DEFAULT_BRANCH; its pull request, $PRL, hasn't landed" >&2; exit 1; }
+            fi
         fi
         case "$ACTION" in
             milestone-verdict)
@@ -1132,7 +1304,6 @@ if [ "$MODE" = verdict ]; then
     # which this run finishes.
     session_entry milestone-verdict
     own_row milestone-done milestone-verdict
-    [ -n "$OWED_WHO" ] || refuse "$TAG has no verdict-owed row: tick landed for it first, which writes one"
     [ "$RESUME" = 1 ] || pending_refuse
     entry_posts
     # The roadmap at the entry's Source commit, the copy its clauses were
@@ -1144,6 +1315,14 @@ if [ "$MODE" = verdict ]; then
     SRC_PATH=${BASH_REMATCH[1]} SRC_COMMIT=${BASH_REMATCH[2]}
     [ "$SRC_PATH" = "$ROADMAP" ] || refuse "the entry's Source is $SRC_PATH, not this run's roadmap, $ROADMAP"
     head_read
+    # On a roadmap/v4 roadmap a verdict needs no verdict-owed row: the status
+    # table says which statuses take one, and the row is consumed when there
+    # is one (docs/designs/DESIGN-completed-verified-states.md, Decision 3).
+    # On v1 to v3 the row is the verdict's precondition.
+    lib_roadmap_words "$WD/roadmap.md"
+    V4=0
+    [ "$(lib_status_family "$RM_SCHEMA")" = v4 ] && V4=1
+    [ "$V4" = 1 ] || [ -n "$OWED_WHO" ] || refuse "$TAG has no verdict-owed row: tick landed for it first, which writes one"
     if ! CMP=$(gh api --method GET "repos/$REPO/compare/$SRC_COMMIT...$BASE_SHA" --jq .status 2> "$WD/cmp.err" < /dev/null); then
         grep -q 'HTTP 404' "$WD/cmp.err" && refuse "the entry's Source commit, $SRC_COMMIT, is not a commit of $REPO"
         lib_die2 "cannot compare $SRC_COMMIT with $DEFAULT_BRANCH: $(lib_scrub < "$WD/cmp.err")"
@@ -1184,7 +1363,16 @@ if [ "$MODE" = verdict ]; then
         || refuse "$TAG is not a milestone with Evidence on $DEFAULT_BRANCH: $(lib_scrub < "$WD/m.err")"
     TITLE=$(jq -r .title "$WD/milestone.json")
     words_read "$WD/roadmap.md"
-    case "$(jq -r .status "$WD/milestone.json")" in Done*) refuse "$TAG already reads Done on $DEFAULT_BRANCH" ;; esac
+    if [ "$V4" = 1 ]; then
+        # The move the status table gives on the verdict's trigger: Verified
+        # on either verified verdict, In progress on changes needed. A move
+        # it doesn't list (a Verified milestone given another verdict, a
+        # Dropped one) is refused here, before anything is opened.
+        if [ "$VERDICT" = "changes needed" ]; then TRIGGER=changes-needed; else TRIGGER=verified; fi
+        v4_move "$(jq -r .status "$WD/milestone.json")" "$TRIGGER"
+    else
+        case "$(jq -r .status "$WD/milestone.json")" in Done*) refuse "$TAG already reads Done on $DEFAULT_BRANCH" ;; esac
+    fi
     # Clauses are identified by position in the Evidence at Source; a
     # judgment is only good for the Evidence the default branch carries now,
     # so a sharpened or renumbered Evidence list is re-checked, never edited
@@ -1244,8 +1432,11 @@ if [ "$MODE" = verdict ]; then
     DOC="$WD/doc/$(basename "$ROADMAP")"
     CRLF=0
     grep -q $'\r$' "$WD/roadmap.md" && CRLF=1
-    # TAG's Status, Needs and Delivered lines and the Progress section.
-    if [ "$DONE" = 1 ]; then block_edit "$DOC.1" Done 1 "$DELIVER" "$PROGRESS"
+    # TAG's Status, Needs and Delivered lines and the Progress section. On v4
+    # the Status is status_row_edit's, after the follow-ups, so the block and
+    # its Progress row move together.
+    if [ "$V4" = 1 ]; then BE_STATUS=; else BE_STATUS=Done; fi
+    if [ "$DONE" = 1 ]; then block_edit "$DOC.1" "$BE_STATUS" 1 "$DELIVER" "$PROGRESS"
     else block_edit "$DOC.1" "" 0 "" "$PROGRESS"; fi
     # A verified milestone with no Delivered line gets one after its Status.
     if [ "$DONE" = 1 ] && [ -n "$DELIVER" ] && ! RS_H="### $HEAD_TAG: " RS_SECTION="## $RM_SECTION" awk '
@@ -1264,6 +1455,11 @@ if [ "$MODE" = verdict ]; then
         mv "$DOC.1" "$DOC"
     fi
     [ ! -s "$WD/fu-plan.tsv" ] || follow_ups_apply "$DOC"
+    if [ "$V4" = 1 ]; then
+        status_row_edit "$DOC" "$DOC.st" "$V4_TO" && mv "$DOC.st" "$DOC" || lib_die2 "cannot write $DOC"
+        bash "$HERE/milestone.sh" evidence "$DOC" "$TAG" 2> /dev/null | jq -e --arg s "$V4_TO" '.status == $s' > /dev/null \
+            || refuse "$TAG's Status could not be set to $V4_TO (its block has no **Status:** line?)"
+    fi
     if [ -n "$PROGRESS" ]; then
         while IFS= read -r pl; do
             bash "$HERE/milestone.sh" progress-has "$DOC" "$pl" || refuse "the Progress line could not be written into $ROADMAP"
@@ -1271,11 +1467,13 @@ if [ "$MODE" = verdict ]; then
 $PROGRESS
 EOF
     fi
-    if [ "$DONE" = 1 ]; then
+    if [ "$DONE" = 1 ] && [ "$V4" = 0 ]; then
         bash "$HERE/milestone.sh" evidence "$DOC" "$TAG" 2> /dev/null | jq -e '.status == "Done"' > /dev/null \
             || refuse "$TAG's Status could not be set to Done (its block has no **Status:** line?)"
     fi
-    if [ "$DONE" = 1 ]; then
+    if [ "$DONE" = 1 ] && [ "$V4" = 1 ]; then
+        MSG="docs(roadmap): record $HEAD_TAG, $TITLE, as verified on its verdict"
+    elif [ "$DONE" = 1 ]; then
         MSG="docs(roadmap): record $HEAD_TAG, $TITLE, as done on its verdict"
     else
         MSG="docs(roadmap): record the changes-needed verdict on $HEAD_TAG, $TITLE"
@@ -1284,8 +1482,12 @@ EOF
     if [ "$RESUME" = 0 ]; then
         populate_and_commit "$DOC" "$CRLF" coordinate/roadmap-verdict "$MSG"
         {
-            if [ "$DONE" = 1 ]; then
+            if [ "$DONE" = 1 ] && [ "$V4" = 1 ]; then
+                printf 'Records the %s verdict on %s of the roadmap, %s: its Status and its Progress row read Verified, its Needs line goes and its Delivered line names the work checked; a Progress line names the verdict, who checked it and the entry. Its Outcome and Evidence are unchanged, and the generated sections are regenerated.\n' "$VERDICT" "$HEAD_TAG" "$TITLE"
+            elif [ "$DONE" = 1 ]; then
                 printf 'Records the %s verdict on %s of the roadmap, %s: its Status is Done, its Needs line goes and its Delivered line names the work checked; a Progress line names the verdict, who checked it and the entry. Its Outcome and Evidence are unchanged, and the generated sections are regenerated.\n' "$VERDICT" "$HEAD_TAG" "$TITLE"
+            elif [ "$V4" = 1 ]; then
+                printf 'Records the changes-needed verdict on %s of the roadmap, %s: its Status and its Progress row go back to In progress, and a Progress line names the verdict, who checked it and the entry. Its Delivered line, Outcome and Evidence are unchanged; the milestone stays open for the changes the verdict names.\n' "$HEAD_TAG" "$TITLE"
             else
                 printf 'Records the changes-needed verdict on %s of the roadmap, %s: a Progress line names the verdict, who checked it and the entry. Its Status and Delivered line are unchanged; the milestone stays open for the changes the verdict names.\n' "$HEAD_TAG" "$TITLE"
             fi
@@ -1311,19 +1513,39 @@ EOF
         # The row names its entry, which a run that stopped short finds it by,
         # and whose comment --confirm reads from record/posted (or, kept in
         # the session, whose text it reads from there).
-        if [ "$DONE" = 1 ]; then ACTION=milestone-done HOW="the roadmap on $DEFAULT_BRANCH reads $TAG Done (entry $ENUM)"
+        if [ "$DONE" = 1 ] && [ "$V4" = 1 ]; then ACTION=milestone-done HOW="the roadmap on $DEFAULT_BRANCH reads $TAG $V4_TO (entry $ENUM)"
+        elif [ "$DONE" = 1 ]; then ACTION=milestone-done HOW="the roadmap on $DEFAULT_BRANCH reads $TAG Done (entry $ENUM)"
         elif [ "$POSTS" = 1 ]; then ACTION=milestone-verdict HOW="the roadmap on $DEFAULT_BRANCH carries its entry's comment in Progress (entry $ENUM)"
         else ACTION=milestone-verdict HOW="the roadmap on $DEFAULT_BRANCH carries its entry in Progress (entry $ENUM)"; fi
         CITED="entry $ENUM"
-        jq --arg t "$TAG [#$PR_NUM]($PR_URL)" --arg at "$(date -u +%Y-%m-%dT%H:%MZ)" --arg a "$ACTION" --arg h "$HOW" '
-            del(.written) | .side_effects += [{action: $a, target: $t, verified_head: "", attempted: $at, how_to_confirm: $h}]' \
+        # On v4 the verdict consumes TAG's verdict-owed row, when there is
+        # one: the pending edit, not the row, keeps pick off TAG until it is
+        # confirmed.
+        jq --arg t "$TAG [#$PR_NUM]($PR_URL)" --arg at "$(date -u +%Y-%m-%dT%H:%MZ)" --arg a "$ACTION" --arg h "$HOW" \
+            --arg tag "$TAG" --argjson v4 "$V4" "$JQ_TAG_KEY"'
+            del(.written) | .side_effects += [{action: $a, target: $t, verified_head: "", attempted: $at, how_to_confirm: $h}]
+            | if $v4 == 1 and .work != null then
+                .work = [.work[] | select((.kind == "verdict-owed" and (.item | tag_key) == ($tag | tag_key)) | not)]
+                | (if (.work | length) == 0 then del(.work) else . end)
+              else . end' \
             "$WD/parsed.json" > "$WD/next.json" || lib_die2 "jq failed"
-        write_record "$WD/next.json" "$TAG's verdict, $VERDICT, checked by $CHECKER ($CITED), is on its roadmap pull request $PR_URL. Its verdict stays owed, and pick passes over $TAG, until that merges and is confirmed."
+        if [ "$V4" = 1 ]; then
+            write_record "$WD/next.json" "$TAG's verdict, $VERDICT, checked by $CHECKER ($CITED), is on its roadmap pull request $PR_URL, which sets it $V4_TO. ${OWED_WHO:+Its verdict-owed row is consumed; }pick passes over $TAG until that merges and is confirmed."
+        else
+            write_record "$WD/next.json" "$TAG's verdict, $VERDICT, checked by $CHECKER ($CITED), is on its roadmap pull request $PR_URL. Its verdict stays owed, and pick passes over $TAG, until that merges and is confirmed."
+        fi
     fi
     entry_cite
     verdict_progress
     progress_commit "docs(roadmap): name the verdict entry on $HEAD_TAG in Progress"
     printf '%s\n' "$PR_URL"
+    if [ "$V4" = 1 ] && [ "$VERDICT" = "changes needed" ]; then
+        # The milestones that read it met: they read blocked again once this
+        # edit lands, as a reopen's do.
+        lib_roadmap_features "$WD/roadmap.md" > "$WD/features.json" 2> "$WD/f.err" || lib_die2 "cannot read the features of $ROADMAP: $(lib_scrub < "$WD/f.err")"
+        held_dependents "$WD/features.json"
+        [ -z "$HELD" ] || printf '%s\n' "$HELD"
+    fi
     exit 0
 fi
 
@@ -1337,8 +1559,20 @@ if [ "$MODE" = reopen ]; then
     [ "$RESUME" = 1 ] || pending_refuse
     entry_posts
     # Checked against the roadmap the edit changes, at the default branch's
-    # head: TAG reads Done there, and the clause is one of its Evidence's.
+    # head: TAG reads Done there, and the clause is one of its Evidence's. On
+    # a roadmap/v4 roadmap the status table gives the move first: a Completed
+    # or Verified milestone goes back to In progress, and any other status
+    # is refused naming it, before the entry is checked.
     head_read
+    lib_roadmap_words "$WD/roadmap.md"
+    V4=0 V4_ST=
+    if [ "$(lib_status_family "$RM_SCHEMA")" = v4 ]; then
+        V4=1
+        feature_read "$WD/roadmap.md"
+        [ -n "$FEATURE" ] || refuse "$TAG is not a milestone of $ROADMAP"
+        V4_ST=$(printf '%s' "$FEATURE" | jq -r '.status // ""')
+        v4_move "$V4_ST" reopen
+    fi
     bash "$HERE/milestone.sh" check-failure "$WD/roadmap.md" "$TAG" "$ENTRY" > "$WD/failure.json" 2> "$WD/check.err"
     case $? in
         0) ;;
@@ -1355,16 +1589,11 @@ if [ "$MODE" = reopen ]; then
     # can't hold is refused now, before any edit is opened.
     WHY=$(rework_problem_of "$(failure_rework_of "$ENTRY")")
     [ -z "$WHY" ] || refuse "What was seen becomes the milestone's rework text, which the next brief quotes, and it can't ($WHY)"
-    # The milestones a holding covers whose Dependencies name TAG, as pick
-    # reads them: they read blocked again once this edit lands.
+    # The milestones whose Dependencies name TAG and that read it met (a
+    # holding covers them; on v4 also one reading Completed or Verified):
+    # they read blocked again once this edit lands.
     lib_roadmap_features "$WD/roadmap.md" > "$WD/features.json" 2> "$WD/f.err" || lib_die2 "cannot read the features of $ROADMAP: $(lib_scrub < "$WD/f.err")"
-    HELD=$(jq -r --arg t "$TAG" --slurpfile p "$WD/parsed.json" "$JQ_TAG_KEY"'
-        def covers($id; $title): (tag_key == ($id | tag_key))
-            or (index(": ") as $i | $i != null and (.[0:$i] | tag_key) == ($id | tag_key) and .[$i + 2:] == $title);
-        ([.[] | select((.id | tag_key) == ($t | tag_key)) | .number][0]) as $n
-        | .[] | select((.id | tag_key) != ($t | tag_key) and any(.dependencies[]; . == $n)) | . as $f
-        | $p[0].holdings[] | select(.unit | covers($f.id; $f.title))
-        | "held-dependent \($f.id) \(.worker)"' "$WD/features.json") || lib_die2 "jq failed"
+    held_dependents "$WD/features.json"
     HASH=$(sha8 "$ENTRY")
     # The Progress line waits for the comment it names, as --verdict's does.
     PROGRESS=
@@ -1374,7 +1603,13 @@ if [ "$MODE" = reopen ]; then
     grep -q $'\r$' "$WD/roadmap.md" && CRLF=1
     # TAG's Status and the Progress section: Delivered, Outcome and Evidence
     # stay, so the milestone is judged again against the Evidence it failed.
-    block_edit "$DOC" "In progress" 0 "" "$PROGRESS"
+    # On v4 the block's Status and its Progress row move together.
+    if [ "$V4" = 1 ]; then
+        block_edit "$DOC.1" "" 0 "" "$PROGRESS"
+        status_row_edit "$DOC.1" "$DOC" "$V4_TO"
+    else
+        block_edit "$DOC" "In progress" 0 "" "$PROGRESS"
+    fi
     bash "$HERE/milestone.sh" evidence "$DOC" "$TAG" 2> /dev/null | jq -e '.status == "In progress"' > /dev/null \
         || refuse "$TAG's Status could not be set to In progress (its block has no **Status:** line?)"
     [ -z "$PROGRESS" ] || bash "$HERE/milestone.sh" progress-has "$DOC" "$PROGRESS" || refuse "the Progress line could not be written into $ROADMAP"
@@ -1383,7 +1618,11 @@ if [ "$MODE" = reopen ]; then
     if [ "$RESUME" = 0 ]; then
         populate_and_commit "$DOC" "$CRLF" coordinate/roadmap-reopen "$MSG"
         {
-            printf 'Reopens %s of the roadmap, %s, on a failure reported after it read Done: its Status goes back to In progress and a Progress line names the failed clause, who reported it and the entry. Its Delivered line, Outcome and Evidence are unchanged, and the generated sections are regenerated.\n' "$HEAD_TAG" "$TITLE"
+            if [ "$V4" = 1 ]; then
+                printf 'Reopens %s of the roadmap, %s, on a failure reported after it read %s: its Status and its Progress row go back to In progress and a Progress line names the failed clause, who reported it and the entry. Its Delivered line, Outcome and Evidence are unchanged, and the generated sections are regenerated.\n' "$HEAD_TAG" "$TITLE" "$V4_ST"
+            else
+                printf 'Reopens %s of the roadmap, %s, on a failure reported after it read Done: its Status goes back to In progress and a Progress line names the failed clause, who reported it and the entry. Its Delivered line, Outcome and Evidence are unchanged, and the generated sections are regenerated.\n' "$HEAD_TAG" "$TITLE"
+            fi
             if [ "$POSTS" = 1 ]; then
                 printf '\nThe failure entry, as the coordinator recorded it; it is posted as a comment on this pull request, and the Progress line names that comment:\n\n'
             else
@@ -1398,7 +1637,7 @@ if [ "$MODE" = reopen ]; then
         jq --arg t "$TAG [#$PR_NUM]($PR_URL)" --arg at "$(date -u +%Y-%m-%dT%H:%MZ)" --arg h "$HOW" '
             del(.written) | .side_effects += [{action: "milestone-reopen", target: $t, verified_head: "", attempted: $at, how_to_confirm: $h}]' \
             "$WD/parsed.json" > "$WD/next.json" || lib_die2 "jq failed"
-        write_record "$WD/next.json" "A failure of Evidence clause $CLAUSE of $TAG, reported by $REPORTER ($CITED), is on its reopen pull request $PR_URL. Until that merges and is confirmed, $TAG reads Done and pick passes over it."
+        write_record "$WD/next.json" "A failure of Evidence clause $CLAUSE of $TAG, reported by $REPORTER ($CITED), is on its reopen pull request $PR_URL. Until that merges and is confirmed, $TAG reads ${V4_ST:-Done} and pick passes over it."
     fi
     entry_cite
     PROGRESS="- $SEEN_ON: $HEAD_TAG -- reopened: clause $CLAUSE failed, reported by $REPORTER ($CITE, $HASH)"
@@ -1408,8 +1647,309 @@ if [ "$MODE" = reopen ]; then
     exit 0
 fi
 
+# ---- --owe-completed ---------------------------------------------------------
+if [ "$MODE" = owe ]; then
+    head_read
+    lib_roadmap_features "$WD/roadmap.md" > "$WD/features.json" 2> "$WD/f.err" \
+        || lib_die2 "cannot read the features of $ROADMAP: $(lib_scrub < "$WD/f.err")"
+    [ "$(lib_status_family "$RM_SCHEMA")" = v4 ] || exit 0
+    # Completed is the one v4 status that satisfies its dependents without
+    # closing the roadmap (skills/roadmap/references/milestone-statuses.json).
+    TODAY=$(date -u +%Y-%m-%d)
+    # A milestone whose verdict or reopen edit is pending is not owed again:
+    # a v4 verdict consumes the row, and the pending edit holds it.
+    jq -c --slurpfile f "$WD/features.json" --slurpfile pend "$WD/pending.json" --arg n "verdict owed since $TODAY" --arg u "$(date -u +%Y-%m-%dT%H:%MZ)" "$JQ_TAG_KEY"'
+        . as $r
+        | ([(.work // [])[] | select(.kind == "verdict-owed") | .item | tag_key]
+           + [$pend[0][] | select(.action == "milestone-done" or .action == "milestone-verdict" or .action == "milestone-reopen") | .unit | tag_key]) as $owed
+        | [$f[0][] | select(.satisfies and (.closes | not)) | .id
+           | (tag_key) as $k | select($owed | any(. == $k) | not)
+           | . as $t
+           | {item: $t, kind: "verdict-owed",
+              who: ([$r.holdings[] | select((.unit | tag_key) == $k
+                     or (.unit | index(": ") as $i | $i != null and (.[0:$i] | tag_key) == $k)) | .worker][0] // "none"),
+              next: $n, wakes: "0", updated: $u}]' "$WD/parsed.json" > "$WD/owe.json" || lib_die2 "jq failed"
+    [ "$(jq length "$WD/owe.json")" -gt 0 ] || exit 0
+    jq --slurpfile o "$WD/owe.json" 'del(.written) | .work = ((.work // []) + $o[0])' "$WD/parsed.json" > "$WD/next.json" || lib_die2 "jq failed"
+    TAGS=$(jq -r 'map(.item) | join(", ")' "$WD/owe.json")
+    write_record "$WD/next.json" "$ROADMAP reads $TAGS Completed on $DEFAULT_BRANCH with no verdict owed in the record; a verdict-owed row now stands for each, so pick offers its verdict and gives it no worker until that verdict's roadmap edit is confirmed."
+    jq -r '.[] | "verdict-owed \(.item)"' "$WD/owe.json"
+    exit 0
+fi
+
 # ---- --unit ------------------------------------------------------------------
 head_read
+
+# ---- --unit on a roadmap/v4 roadmap: Completed at the merge ------------------
+# owe_into <in> <out>: the record at IN with TAG's verdict-owed Work row added,
+# Who and Next as the v2 and v3 path writes them, or unchanged when the
+# record already owes it. Sets OWE_ADDED 1 when it added the row.
+owe_into() {
+    OWE_ADDED=0
+    if [ -n "$OWED_WHO" ]; then cp "$1" "$2" || lib_die2 "cannot copy the record"; return 0; fi
+    OWE_ADDED=1
+    OWE_WHO=$(jq -r --arg t "$TAG" "$JQ_TAG_KEY"'[.holdings[] | select((.unit | tag_key) == ($t | tag_key)
+        or (.unit | index(": ") as $i | $i != null and (.[0:$i] | tag_key) == ($t | tag_key))) | .worker][0] // "none"' "$WD/parsed.json")
+    jq --arg t "$TAG" --arg w "$OWE_WHO" --arg n "verdict owed since $(date -u +%Y-%m-%d)" --arg u "$(date -u +%Y-%m-%dT%H:%MZ)" '
+        del(.written) | .work = ((.work // []) + [{item: $t, kind: "verdict-owed", who: $w, next: $n, wakes: "0", updated: $u}])' \
+        "$1" > "$2" || lib_die2 "jq failed"
+}
+# owe_said: what the entry says about the verdict-owed row OWE_ADDED added.
+owe_said() {
+    if [ "$OWE_WHO" = none ]; then printf '%s' "$TAG's work is finished (no holding names it); its verdict is owed."
+    else printf '%s' "$TAG's work is finished ($OWE_WHO held it); its verdict is owed."; fi
+}
+# v4_read <roadmap>: TAG on that copy of the roadmap. Sets FEATURE, TITLE,
+# V4_ST (its Status as written), HEAD_TAG, and V4_TO, the word the status
+# table moves it to on `finished` (lib_status_move), or empty when it already
+# reads the status `finished` leads to (Completed: satisfies its dependents,
+# doesn't close the roadmap). Refused: a TAG that isn't a milestone there, one
+# that closes (Verified or Dropped), and one the table moves nowhere on
+# `finished`.
+v4_read() {
+    feature_read "$1"
+    [ -n "$FEATURE" ] || refuse "$TAG is not a milestone of $ROADMAP"
+    words_read "$1"
+    TITLE=$(printf '%s' "$FEATURE" | jq -r .title | tr -d '\000-\037\177')
+    V4_ST=$(printf '%s' "$FEATURE" | jq -r .status)
+    [ "$(printf '%s' "$FEATURE" | jq -r .closes)" = false ] || refuse "$TAG already reads $V4_ST"
+    if [ "$(printf '%s' "$FEATURE" | jq -r .satisfies)" = true ]; then V4_TO= ; return 0; fi
+    V4_TO=$(lib_status_move "$V4_ST" finished)
+    case $? in
+        0) ;;
+        1) refuse "$TAG reads ${V4_ST:-no status}, and the status table lists no move from it when its work is finished" ;;
+        *) exit 2 ;;
+    esac
+}
+# completed_edit <src> <out>: SRC with TAG's block and its Progress table row
+# moved to V4_TO, and nothing else before the populate: status_row_edit sets
+# the block's Status and the row, its Needs field goes with its wrapped
+# lines, and OUTCOME is added to its Delivered field (after the field's last
+# line, `, `-joined), or written as a Delivered line right after Status when
+# it has none. Values reach awk through the environment, which takes them as
+# written. OUT has LF endings; CE_CRLF is 1 when SRC had CRLF ones, which the
+# caller restores after the populate.
+completed_edit() {
+    CE_CRLF=0
+    grep -q $'\r$' "$1" && CE_CRLF=1
+    tr -d '\r' < "$1" > "$2.in" || lib_die2 "cannot read $1"
+    # Two passes over the same text: the first finds whether TAG's block has
+    # a Delivered field, the second edits.
+    RS_TAG="$HEAD_TAG" RS_SECTION="## $RM_SECTION" RS_DELIVER="$OUTCOME" awk '
+        BEGIN { tag = ENVIRON["RS_TAG"]; sect = ENVIRON["RS_SECTION"]; deliver = ENVIRON["RS_DELIVER"] }
+        function field_end() { return ($0 ~ /^[ \t]*$/ || $0 ~ /^\*\*[A-Z][A-Za-z ]*:\*\*/ || $0 ~ /^#+([ \t]|$)/) }
+        function flush_delivered(   i) { if (nd) { dl[nd] = dl[nd] ", " deliver; for (i = 1; i <= nd; i++) print dl[i]; nd = 0 } }
+        FNR == 1 { pass++; infeat = 0; inblock = 0 }
+        pass == 1 {
+            if ($0 ~ /^## /) { h = $0; sub(/[ \t]+$/, "", h); infeat = (h == sect); inblock = 0 }
+            else if (infeat && $0 ~ /^### /) inblock = (index($0, "### " tag ": ") == 1)
+            else if (inblock && $0 ~ /^\*\*Delivered:\*\*/) hasdel = 1
+            next
+        }
+        dropping && field_end() { dropping = 0 }
+        dropping { next }
+        nd && field_end() { flush_delivered() }
+        nd { dl[++nd] = $0; next }
+        /^## / { h = $0; sub(/[ \t]+$/, "", h); infeat = (h == sect); inblock = 0; print; next }
+        infeat && /^### / { inblock = (index($0, "### " tag ": ") == 1); print; next }
+        inblock && /^\*\*Needs:\*\*/ { dropping = 1; next }
+        inblock && /^\*\*Delivered:\*\*/ { nd = 1; dl[1] = $0; next }
+        # With no Delivered field in the block, the line goes right after Status.
+        inblock && /^\*\*Status:\*\*/ { print; if (!hasdel) print "**Delivered:** " deliver; next }
+        { print }
+        END { flush_delivered() }' "$2.in" "$2.in" > "$2.mid" || lib_die2 "awk failed"
+    status_row_edit "$2.mid" "$2" "$V4_TO"
+    rm -f "$2.in" "$2.mid"
+}
+# completed_check <edited>: the edit took: TAG reads V4_TO there and its
+# Delivered field carries OUTCOME.
+completed_check() {
+    local f
+    f=$(lib_roadmap_features "$1" 2> /dev/null | jq -r --arg t "$TAG" "$JQ_TAG_KEY"'[.[] | select((.id | tag_key) == ($t | tag_key)) | .status][0] // empty')
+    [ "$f" = "$V4_TO" ] || refuse "$TAG's Status could not be set to $V4_TO in $ROADMAP (its block has no **Status:** line?)"
+    tr -d '\r' < "$1" | grep -qF -- "$OUTCOME" || refuse "the Delivered text could not be written into $TAG's block as written"
+}
+# v4_line: the line a Completed edit's pull request body names TAG on, with
+# control characters stripped from what the roadmap and --outcome gave.
+v4_line() {
+    printf -- '- %s, %s: %s; Delivered: %s' "$HEAD_TAG" "$TITLE" "$V4_TO" "$OUTCOME" | tr -d '\000-\037\177'
+}
+# v4_done <url>: print what --unit prints on v4, the verdict owed and the
+# pull request that records Completed.
+v4_done() {
+    echo "verdict-owed $TAG"
+    printf '%s\n' "$1"
+    exit 0
+}
+# v4_already: TAG already reads Completed (on the default branch or on the
+# pending edit's branch): the verdict-owed row is written if the record
+# hasn't it, and nothing else changes.
+v4_already() {
+    owe_into "$WD/parsed.json" "$WD/next.json"
+    [ "$OWE_ADDED" = 0 ] || write_record "$WD/next.json" "$(owe_said) $ROADMAP already reads $TAG $V4_ST$1, so no roadmap edit is opened."
+    echo "verdict-owed $TAG"
+    echo "$TAG already reads $V4_ST$1"
+    exit 0
+}
+# v4_open: the Completed edit opened as its own pull request from the default
+# branch's head (head_read), with a Side effects row, Action roadmap-status,
+# that --confirm clears once the default branch reads TAG Completed.
+v4_open() {
+    v4_read "$WD/roadmap.md"
+    [ -n "$V4_TO" ] || v4_already " on $DEFAULT_BRANCH"
+    mkdir -p "$WD/doc"
+    DOC="$WD/doc/$(basename "$ROADMAP")"
+    completed_edit "$WD/roadmap.md" "$DOC"
+    completed_check "$DOC"
+    populate_and_commit "$DOC" "$CE_CRLF" coordinate/roadmap-status "docs(roadmap): record $HEAD_TAG, $TITLE, as $(lc "$V4_TO")"
+    {
+        printf 'Records milestones of the roadmap whose work merged as %s: each one'"'"'s Status and Progress row read %s, its Delivered line names what merged and its Needs line goes; the generated sections are regenerated. Each one'"'"'s verdict is still owed, and a later roadmap edit records it. One line per milestone:\n\n' "$V4_TO" "$V4_TO"
+        printf '%s\n' "$(v4_line)"
+        printf '\n---\n\n'
+        printf 'Opened by the coordinator for %s, after the milestone'"'"'s last pull request landed. Review it against the roadmap'"'"'s own rules for an Active document before merging; the coordinator never merges it.\n' "$NAME"
+    } > "$WD/prbody.md"
+    open_pr "docs(roadmap): record $HEAD_TAG, $TITLE, as $(lc "$V4_TO")"
+    owe_into "$WD/parsed.json" "$WD/owed.json"
+    jq --arg t "$TAG [#$PR_NUM]($PR_URL)" --arg at "$(date -u +%Y-%m-%dT%H:%MZ)" --arg h "the roadmap on $DEFAULT_BRANCH reads $TAG $V4_TO" '
+        del(.written) | .side_effects += [{action: "roadmap-status", target: $t, verified_head: "", attempted: $at, how_to_confirm: $h}]' \
+        "$WD/owed.json" > "$WD/next.json" || lib_die2 "jq failed"
+    local said=
+    [ "$OWE_ADDED" = 0 ] || said="$(owe_said) "
+    write_record "$WD/next.json" "${said}$TAG landed; its roadmap pull request $PR_URL sets it $V4_TO with the Delivered line \"$OUTCOME\". Its dependents read it met; pick offers its verdict, not its work."
+    v4_done "$PR_URL"
+}
+# pending_open: the run's own roadmap edit still open, the newest pending row
+# whose pull request GitHub reports OPEN. Sets FOLD_NUM, FOLD_URL,
+# FOLD_BRANCH and $WD/fold-pr.json; FOLD_NUM empty when none is (no row, or
+# each one's pull request merged or closed meanwhile).
+pending_open() {
+    local row n
+    FOLD_NUM= FOLD_URL= FOLD_BRANCH=
+    while IFS= read -r row; do
+        [ -n "$row" ] || continue
+        n=$(printf '%s' "$row" | sed -n 's/^\[#\([1-9][0-9]*\)\](.*$/\1/p')
+        [ -n "$n" ] || lib_die2 "a pending roadmap row names no pull request: $row"
+        pr_state "$n"
+        if [ "$PR_ST" = OPEN ]; then
+            FOLD_NUM=$n FOLD_URL=$(printf '%s' "$row" | sed -n 's/^\[#[0-9]*\](\(https:[^)]*\))$/\1/p')
+            FOLD_BRANCH=$(jq -r '.headRefName // ""' "$WD/fold-pr.json")
+            return 0
+        fi
+    done <<EOF
+$(jq -r 'reverse | .[].pull_request' "$WD/pending.json")
+EOF
+}
+# pr_state <n>: PR_ST, pull request N's state (OPEN, MERGED, CLOSED), read
+# with its branch into $WD/fold-pr.json.
+pr_state() {
+    gh pr view "$1" --repo "$REPO" --json state,headRefName > "$WD/fold-pr.json" 2> "$WD/pv.err" < /dev/null \
+        || lib_die2 "cannot read pull request #$1: $(lib_scrub < "$WD/pv.err")"
+    PR_ST=$(jq -r '.state // ""' "$WD/fold-pr.json")
+}
+# branch_head <branch>: the branch's head commit.
+branch_head() {
+    local h
+    h=$(gh api --method GET "repos/$REPO/git/ref/heads/$1" --jq .object.sha 2> "$WD/bh.err" < /dev/null) \
+        || lib_die2 "cannot read the head of $1: $(lib_scrub < "$WD/bh.err")"
+    [[ $h =~ $RE_SHA ]] || lib_die2 "the head of $1 is not a sha"
+    printf '%s\n' "$h"
+}
+# fold_moved <head-read>: the pending edit's branch moved, or its roadmap
+# changed, after it was read. Its pull request is read again: merged or
+# closed meanwhile, the Completed edit opens as a pull request of its own
+# from the default branch as it is now; still open, it is refused, naming the
+# branch's head now, with nothing committed and the record unchanged.
+fold_moved() {
+    local now
+    pr_state "$FOLD_NUM"
+    if [ "$PR_ST" = MERGED ] || [ "$PR_ST" = CLOSED ]; then
+        head_read
+        v4_open
+    fi
+    now=$(branch_head "$FOLD_BRANCH")
+    refuse "the pending roadmap edit $FOLD_URL is still open, and its branch $FOLD_BRANCH moved to $now after this read it at $1; nothing was committed and the record is unchanged: run this again"
+}
+# v4_fold: the Completed edit committed onto the pending edit's branch, a new
+# commit whose parent is the branch's head as read, and one line naming TAG
+# added to that pull request's body. No pull request opens and no Side
+# effects row is written: the record keeps its one pending edit.
+v4_fold() {
+    [[ $FOLD_BRANCH =~ ^coordinate/roadmap-(status|verdict|reopen)-[a-z0-9-]+-[0-9]{12,14}$ ]] \
+        || refuse "the pending roadmap edit $FOLD_URL is on $FOLD_BRANCH, a branch this script doesn't open; nothing was committed"
+    local fh blob msg
+    fh=$(branch_head "$FOLD_BRANCH")
+    gh api --method GET "repos/$REPO/contents/$ROADMAP?ref=$fh" > "$WD/fcontents.json" 2> "$WD/fc.err" < /dev/null \
+        || lib_die2 "cannot read $ROADMAP at $fh on $FOLD_BRANCH: $(lib_scrub < "$WD/fc.err")"
+    blob=$(jq -r '.sha // empty' "$WD/fcontents.json")
+    [[ $blob =~ $RE_SHA ]] || lib_die2 "$ROADMAP's blob sha on $FOLD_BRANCH is not a sha"
+    jq -r '.content // ""' "$WD/fcontents.json" > "$WD/fold.b64" && lib_b64d "$WD/fold.b64" "$WD/fold.md" || lib_die2 "cannot decode $ROADMAP on $FOLD_BRANCH"
+    v4_read "$WD/fold.md"
+    [ -n "$V4_TO" ] || v4_already " on the pending roadmap edit $FOLD_URL"
+    mkdir -p "$WD/fdoc"
+    local doc
+    doc="$WD/fdoc/$(basename "$ROADMAP")"
+    completed_edit "$WD/fold.md" "$doc"
+    completed_check "$doc"
+    (cd "$(dirname "$doc")" && shirabe roadmap populate "$(basename "$doc")" > /dev/null 2> "$WD/populate.err") \
+        || lib_die2 "shirabe roadmap populate failed: $(lib_scrub < "$WD/populate.err")"
+    if [ "$CE_CRLF" = 1 ]; then sed 's/$/\r/' "$doc" > "$doc.crlf" && mv "$doc.crlf" "$doc"; fi
+    # The branch's head as read is the new commit's parent: a branch that
+    # moved since is read again rather than committed on.
+    [ "$(branch_head "$FOLD_BRANCH")" = "$fh" ] || fold_moved "$fh"
+    base64 < "$doc" | tr -d '\n\r ' > "$WD/fcontent"
+    msg="docs(roadmap): record $HEAD_TAG, $TITLE, as $(lc "$V4_TO")"
+    if ! gh api --method PUT "repos/$REPO/contents/$ROADMAP" -f "message=$msg" \
+        -f "content=$(cat "$WD/fcontent")" -f "sha=$blob" -f "branch=$FOLD_BRANCH" > /dev/null 2> "$WD/w.err" < /dev/null; then
+        # GitHub refuses a blob sha the branch no longer has: it moved.
+        grep -q 'HTTP 409' "$WD/w.err" && fold_moved "$fh"
+        echo "$PROG: the commit to $FOLD_BRANCH failed: $(lib_scrub < "$WD/w.err")" >&2; exit 11
+    fi
+    # One line naming TAG, after the last line of the body's first part (the
+    # text before its `---` separator), unless the body names it already.
+    local line
+    line=$(v4_line)
+    # The pull request's own body, through the issues API (a pull request is
+    # an issue there); the record is never read this way, only through
+    # state-read.sh.
+    gh api --method GET "repos/$REPO/issues/$FOLD_NUM" > "$WD/fold-issue.json" 2> "$WD/pb.err" < /dev/null \
+        || lib_die2 "cannot read the body of pull request #$FOLD_NUM: $(lib_scrub < "$WD/pb.err")"
+    jq -j '.body // ""' "$WD/fold-issue.json" | tr -d '\r' > "$WD/fbody.md"
+    if ! grep -qxF -- "$line" "$WD/fbody.md"; then
+        # awk ends the body with a line break; the body is written back as it
+        # ended (its trailing line breaks are GitHub's to keep or drop).
+        RS_LINE="$line" awk '
+            { l[NR] = $0; if (sep == 0 && $0 == "---") sep = NR }
+            END {
+                if (sep == 0) { for (i = 1; i <= NR; i++) print l[i]; print ""; print ENVIRON["RS_LINE"]; exit }
+                k = 0; for (i = 1; i < sep; i++) if (l[i] !~ /^[ \t]*$/) k = i
+                for (i = 1; i <= k; i++) print l[i]
+                if (k > 0 && l[k] !~ /^- /) print ""
+                print ENVIRON["RS_LINE"]
+                for (i = k + 1; i <= NR; i++) print l[i]
+            }' "$WD/fbody.md" > "$WD/fbody.new" || lib_die2 "awk failed"
+        if [ -n "$(tail -c 1 "$WD/fbody.md")" ]; then
+            printf '%s' "$(cat "$WD/fbody.new")" > "$WD/fbody.nl" && mv "$WD/fbody.nl" "$WD/fbody.new" || lib_die2 "cannot write the body"
+        fi
+        gh pr edit "$FOLD_NUM" --repo "$REPO" --body-file "$WD/fbody.new" > /dev/null 2> "$WD/w.err" < /dev/null \
+            || { echo "$PROG: $HEAD_TAG's $V4_TO is committed on $FOLD_BRANCH, but the line naming it wasn't added to $FOLD_URL's body: $(lib_scrub < "$WD/w.err"); add it by hand: $line" >&2; exit 11; }
+    fi
+    owe_into "$WD/parsed.json" "$WD/next.json"
+    [ "$OWE_ADDED" = 0 ] || write_record "$WD/next.json" "$(owe_said) $TAG landed; its $V4_TO, with the Delivered line \"$OUTCOME\", is folded into the pending roadmap pull request $FOLD_URL. Its dependents read it met; pick offers its verdict, not its work."
+    v4_done "$FOLD_URL"
+}
+
+lib_roadmap_words "$WD/roadmap.md"
+if [ "$(lib_status_family "$RM_SCHEMA")" = v4 ]; then
+    [ "$OUTCOME_SET" = 1 ] && [ -n "$OUTCOME" ] || usage
+    follow_up_refuse
+    # TAG on the default branch first: a milestone that isn't one there, or
+    # already closes, is refused before any pending edit is read.
+    v4_read "$WD/roadmap.md"
+    [ -n "$V4_TO" ] || v4_already " on $DEFAULT_BRANCH"
+    pending_open
+    if [ -n "$FOLD_NUM" ]; then v4_fold; else v4_open; fi
+fi
+
 bash "$HERE/milestone.sh" is-milestone "$WD/roadmap.md"
 case $? in
     0) MILESTONES=1 ;;

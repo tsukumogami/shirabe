@@ -346,6 +346,13 @@ bl_reviewed_fresh() {
 #      how a worker with no leg, or whose session this host's store can't
 #      read, gives the land step its round: the coordinator's own session is
 #      the one record it can read wherever it runs.
+#   Between the two, for a row that returns by message: the session a leg of
+#      the row's Worker was bound to before a re-brief moved the holding off
+#      it (dispatch-worker.sh --rebrief stamps that leg's key in <session>
+#      with `rebriefed` and the bound `child`), and that session's
+#      review_round.json (bl_rebriefed_round). `source` is `session`. A
+#      worker no re-brief moved off a leg has no stamped key and goes on to
+#      its report.
 # Neither (no leg, no bound child, a request this host's store doesn't hold,
 # no key, no report carrying a round) is `{"status":"absent","source":"none"}`.
 # The pull request body is never read: a Review panel table there is not a
@@ -353,18 +360,19 @@ bl_reviewed_fresh() {
 # couldn't be read, or the round couldn't be judged, so the tick reads again
 # rather than call the round missing.
 bl_review_evidence() {
-    local s=$1 repo=$2 pr=$3 rows rws rp worker rc ev d line
+    local s=$1 repo=$2 pr=$3 rows rws rp worker dispatched rc ev d line
     rows=$(bash "$HERE/state-holding.sh" --session "$s" --list) || {
         echo "$PROG: the record's holdings could not be read" >&2; return 2; }
-    # One line per row: its return path (or `-`) and its Worker, tab-separated.
+    # One line per row: its return path (or `-`), its Worker and its
+    # Dispatched date, tab-separated.
     rws=$(printf '%s' "$rows" | jq -r -L "$HERE" --arg n "$pr" --arg r "$repo" 'include "state-schema";
         [.[]? | select(any(.pull_request // "" | pr_link; .number == $n and (.repo | ascii_downcase) == ($r | ascii_downcase)))
          | [(.return_path // "" | strings | select(test("^leg [^: ]+:[^: ]+$")) | ltrimstr("leg ")) // "-",
-            (.worker // "" | strings)] | join("\t")]
+            (.worker // "" | strings), (.dispatched // "" | strings)] | join("\t")]
         | reverse | reduce .[] as $x ([]; if index([$x]) then . else . + [$x] end) | .[]') || {
         echo "$PROG: the holdings list is not JSON" >&2; return 2; }
     d=$(mktemp -d "${TMPDIR:-/tmp}/board-round.XXXXXX") || return 2
-    while IFS='	' read -r rp worker; do
+    while IFS='	' read -r rp worker dispatched; do
         [ -n "$rp" ] || continue
         ev=$(bl_leg_round "$rp" "$d")
         rc=$?
@@ -374,6 +382,15 @@ bl_review_evidence() {
             *) rm -rf "$d"; return 2 ;;
         esac
         [ -n "$worker" ] && bl_topic_ok "$worker" || continue
+        if [ "$rp" = - ]; then
+            ev=$(bl_rebriefed_round "$s" "$worker" "$dispatched" "$d")
+            rc=$?
+            case "$rc" in
+                0) rm -rf "$d"; printf '%s\n' "$ev"; return 0 ;;
+                1) ;;
+                *) rm -rf "$d"; return 2 ;;
+            esac
+        fi
         line=$(bash "$HERE/coord-log.sh" result-line --session "$s" --unit "$worker" --line review_round 2>"$d/err")
         case $? in
             0) ;;
@@ -414,6 +431,75 @@ bl_leg_round() {
     child=$(printf '%s' "$view" | jq -r --arg l "$leg" '(.request // .) | .legs[$l].bound_child // "" | strings') || {
         echo "$PROG: request $req is not JSON" >&2; return 2; }
     [ -n "$child" ] && bl_session_ok "$child" || return 1
+    bl_child_round "$child" "$d"
+}
+
+# bl_rebriefed_round <session> <worker> <dispatched> <scratch-dir>: the review
+# round in the session a leg of <worker> was bound to before a re-brief moved
+# its holding to the message path. Of <session>'s legs/ keys whose topic is
+# <worker> and that carry `rebriefed` and a `child` (dispatch-worker.sh
+# --rebrief writes both), the one stamped latest is read, as bl_child_round
+# reads it. Only a key of the worker's own topic counts, and only the child
+# koto bound to that leg, so no other session's round is read. A stamp
+# something later replaced is never read: one dated before the holding's
+# <dispatched> date (the worker was dispatched again since), or one older
+# than the `opened` time of another leg key of the topic (a later leg
+# superseded it). The fields are read through dispatch-common.sh's
+# dc_leg_field. Returns 0 printed; 1 no stamped key in effect or no round
+# there; 2 a read failed or the round couldn't be judged.
+bl_rebriefed_round() {
+    local s=$1 worker=$2 dispatched=$3 d=$4 keys k req leg key at opened child
+    local best="" bestat="" lastopened=""
+    keys=$("$KOTO" context list "$s" --prefix legs/ </dev/null 2>"$d/err") || {
+        echo "$PROG: $s's leg keys couldn't be listed: $(head -1 "$d/err")" >&2; return 2; }
+    keys=$(printf '%s' "$keys" | jq -r '.[]? | strings') || {
+        echo "$PROG: $s's leg key listing is not JSON" >&2; return 2; }
+    while IFS= read -r k; do
+        [ -n "$k" ] || continue
+        req=${k#legs/}
+        leg=${req#*/}
+        req=${req%%/*}
+        [[ $req =~ $DC_RE_REQ ]] && [[ $leg =~ $DC_RE_LEG ]] || continue
+        key=$(dc_leg_get "$s" "$req" "$leg")
+        case "$?" in
+            0) ;;
+            1) continue ;;
+            *) echo "$PROG: the leg key $k couldn't be read" >&2; return 2 ;;
+        esac
+        [ "$(printf '%s' "$key" | jq -r '.topic // "" | strings')" = "$worker" ] || continue
+        opened=$(dc_leg_field "$key" opened) && child=$(dc_leg_field "$key" child) &&
+            at=$(dc_leg_field "$key" rebriefed) || {
+            echo "$PROG: the leg key $k is malformed" >&2; return 2; }
+        if [ -n "$opened" ] && { [ -z "$lastopened" ] || [[ $opened > $lastopened ]]; }; then
+            lastopened=$opened
+        fi
+        [ -n "$at" ] && [ -n "$child" ] || continue
+        if [ -z "$best" ] || [[ $at > $bestat ]]; then
+            best=$key bestat=$at
+        fi
+    done <<EOF
+$keys
+EOF
+    [ -n "$best" ] || return 1
+    # Stale: dated before the holding's latest dispatch.
+    if [ -n "$dispatched" ] && [[ ${bestat:0:10} < $dispatched ]]; then
+        return 1
+    fi
+    # Superseded: another leg of the topic opened after the stamp.
+    if [ -n "$lastopened" ] && [[ $lastopened > $bestat ]]; then
+        return 1
+    fi
+    child=$(dc_leg_field "$best" child) || return 2
+    bl_session_ok "$child" || return 1
+    bl_child_round "$child" "$d"
+}
+
+# bl_child_round <child> <scratch-dir>: <child>'s review_round.json, printed
+# as bl_review_evidence's JSON with `source: "session"` and `session`.
+# Returns 0 printed; 1 no such key; 2 a read failed or the round couldn't be
+# judged.
+bl_child_round() {
+    local child=$1 d=$2 rc ev
     # koto's 1 is no such key: the worker recorded no round there. Any other
     # failure is a read that didn't happen.
     rc=0

@@ -7,11 +7,15 @@
 # plan-to-tasks.sh), the run record in the session (run-record-lib.sh: the
 # coordination PR's number, the sealed node list, each node's recorded PR and
 # pushed head, the cascade's verdict), each open node's work-item children's
-# `verification_deferral` keys when its record holds no `deferrals`, read
-# where koto says each child is bound (`koto session list`, then
-# shared-deferral-record.sh --child-dir), and live `gh`
-# (each recorded PR checked against the ownership filter, and an open node
-# PR's body when its children deferred), writes nothing anywhere, and prints exactly
+# `verification_deferral` keys when its record holds no `deferrals` (and
+# `verification_attempts` keys when it holds no `reruns`), read where koto
+# says each child is bound (`koto session list`, then
+# shared-deferral-record.sh or shared-rerun-record.sh --child-dir), and live
+# `gh` (each recorded PR checked against the ownership filter, an open node
+# PR's body when its children deferred or re-ran, and the hosted jobs of
+# record of a node whose children took the hosted-of-record route, through
+# work-on's verification-route.sh --read --dry-run and --ready), writes
+# nothing anywhere, and prints exactly
 # one line. The agent performs that action and runs the script again, until it
 # prints `done:<outcome>`, `pause`, or `error:<step>`.
 #
@@ -77,8 +81,16 @@
 #                             and whose body doesn't record it
 #                             (execute:deferral-record; checked before the
 #                             node can be evaluated or merged, so it is never
-#                             readied or merged without the record), or a
-#                             verdict error
+#                             readied or merged without the record), an open
+#                             node PR whose work items re-ran a failed
+#                             verification command and whose body lacks a
+#                             re-run line (execute:rerun-record; checked
+#                             after the deferral, with the same effect), an
+#                             open node PR whose work items took the
+#                             hosted-of-record route and whose hosted jobs
+#                             of record refused, or stayed pending past 120
+#                             minutes, at the node's head (execute:ci; stderr
+#                             names each job and the head), or a verdict error
 #   done:merged               the coordination PR is MERGED
 #   merge:<node>              a node PR whose verdict is mergeable at the head
 #                             the run record holds (only with --merge true);
@@ -91,7 +103,10 @@
 #                             are all satisfied: cut it, run its work items,
 #                             push
 #   evaluate:<node>           a node PR that is still a draft (mark it ready
-#                             once its checks pass) or whose checks are pending
+#                             once its checks pass) or whose checks are pending;
+#                             also a node PR whose hosted record
+#                             (run/hosted/<node>) is not yet settled at its
+#                             head, which is never merged until it is
 #   evaluate:<node>/follow-up-<n>  a follow-up PR whose checks are pending:
 #                             wait for them only (the run never readies or
 #                             pushes to a follow-up)

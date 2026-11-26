@@ -168,12 +168,12 @@ printf '#!/bin/sh\necho "mktemp: failing on purpose" >&2\nexit 1\n' > "$BIN/mkte
 chmod +x "$BIN/mktemp"
 
 # A fixture repository whose suite sources a copy of the guard, then reports
-# what it was left with: the KOTO_ and AWS_ names still set, HOME, and the
-# guard's directory.
+# what it was left with: the KOTO_ and AWS_ names and CLAUDE_CODE_SESSION_ID
+# still set, HOME, and the guard's directory.
 G="$T/g"
 mkdir -p "$G/scripts/lib"
 cp "$GUARD" "$G/scripts/lib/koto-test-guard.sh"
-REPORT='echo CASES RAN<NL>env | sed -n -E "s/^((KOTO|AWS)_[A-Za-z0-9_]*)=.*/still set: \1/p"<NL>echo "HOME=$HOME"<NL>echo "DIR=$KOTO_TEST_GUARD_DIR"'
+REPORT='echo CASES RAN<NL>env | sed -n -E "s/^((KOTO|AWS)_[A-Za-z0-9_]*|CLAUDE_CODE_SESSION_ID)=.*/still set: \1/p"<NL>echo "HOME=$HOME"<NL>echo "DIR=$KOTO_TEST_GUARD_DIR"'
 put "$G/scripts/s_test.sh" "set -uo pipefail<NL>. \"\$(dirname \"\$0\")/lib/koto-test-guard.sh\" || exit 1<NL>$REPORT"
 put "$G/scripts/unguarded_test.sh" 'set -uo pipefail<NL>koto session dir probe'
 put "$G/scripts/gone_test.sh" "set -uo pipefail<NL>. \"\$(dirname \"\$0\")/lib/missing-guard.sh\" || exit 1<NL>$REPORT"
@@ -182,7 +182,8 @@ LOG="$T/koto.log"
 mkdir -p "$T/caller-home" "$T/tmp"
 # run <stub mode> <PATH> <TMPDIR> <suite> [NAME=VALUE...]: the suite under
 # env -i, its HOME a stand-in for the caller's, with the backend variables
-# pointed at dummy paths and a dummy bucket. Sets RC and OUT.
+# pointed at dummy paths and a dummy bucket, and a dummy agent session id, as
+# a run from inside an agent session has. Sets RC and OUT.
 run() {
     local mode=$1 path=$2 tmp=$3 suite=$4
     shift 4
@@ -192,7 +193,8 @@ run() {
         KOTO_SESSIONS_BASE="$T/dummy-store" KOTO_TICK_SESSION=dummy-session \
         KOTO_HOME="$T/dummy-root" KOTO_SESSION_BACKEND=cloud \
         KOTO_SESSION_CLOUD_BUCKET=dummy-bucket KOTO_SESSION_CLOUD_ENDPOINT=http://127.0.0.1:9 \
-        AWS_ACCESS_KEY_ID=dummy-key "$@" "$BASH_BIN" "$suite" 2>&1)
+        AWS_ACCESS_KEY_ID=dummy-key CLAUDE_CODE_SESSION_ID=dummy-agent-session \
+        "$@" "$BASH_BIN" "$suite" 2>&1)
     RC=$?
 }
 # stopped <label> [<text>]: the suite exited non-zero, ran no case, and said

@@ -61,6 +61,12 @@
 #   reconciled_at  <ISO time the pass finished>
 #   plugin_root    optional: inside|outside|unknown, where the scripts that
 #                  ran sit relative to the repository being worked on
+#   chain          optional: {start, back_to}, the chain start the pass
+#                  judged the deferrals' carries against (coord-log.sh
+#                  chain-start) and the minute (YYYY-MM-DDTHH:MM) its
+#                  bounded walk went back to, which a carry at or after it is
+#                  judged by; back_to null when the start is the run start,
+#                  no carry dating before it
 #   holdings[]     one per Holdings row:
 #     source       optional: record|handoff, for a discipline start that
 #                  mixes its predecessor's rows with its own
@@ -83,7 +89,14 @@
 #       files      paths[] (the pull request's changed paths, both sides of
 #                  a rename), truncated (bool); classified here, see phase
 #                  below
-#       host       state found|missed|ambiguous, reads (count)
+#       host       state found|missed|ambiguous, reads (count), and
+#                  optionally stopped (bool): every Claude job of the
+#                  worker on this host has finished. A row with a Verified
+#                  head and no pull request, every pull request on its
+#                  branch merged, waits for its teardown only once its
+#                  worker has finished: stopped true on a message row, or
+#                  a leg fact resolved or abandoned on a leg-bound one.
+#                  Otherwise it is waited on and listed as Ongoing.
 #       inventory  taken (bool), items[] {clone, kind: commit|change|file|
 #                  worktree|unchecked, path}, truncated (bool); an unchecked
 #                  item is a clone that couldn't be read, with the reason
@@ -117,6 +130,13 @@
 #                   not_verified with the reason, and in neither list
 #   reasoning      present|absent|not_recorded, or null at roadmap scope
 #   unparseable[]  {raw, reason}: rows the reader couldn't parse
+#   owe            optional, at roadmap scope: {kind: "owe", status:
+#                  ok|not_verified, owed: [<tag>...], reason, read_at}, the
+#                  pass's third write (reconcile-owe.sh): each milestone a
+#                  roadmap/v4 roadmap reads Completed that the record owed no
+#                  verdict for, now owed one, is reported under changes, a
+#                  failed write under not_verified; absent, nothing is
+#                  reported
 #
 # Output: coordinate-reconcile-report/v1
 #
@@ -159,10 +179,15 @@
 #                  (filed #<n>, closed, carried <time>, raised this run)
 #   reasoning      {status, key} or null
 #   not_verified[] {what, reason, raw}
+#   chain          the facts' chain, {start, back_to}, as given, present only
+#                  when the facts hold one whose start is a string and whose
+#                  back_to is a string or null. It is not rendered: the pass
+#                  seals it so deferral-check.sh can take the chain start
+#                  from the sealed report rather than walk the chain again.
 #
 # Phase. A row's `phase` value decides it, matched whole and ignoring case:
 # "scoping" or "scoping-ahead" is scoping ahead, "executing" is executing,
-# and "held" is held: verified, with the merge stopped by a hold in the record
+# and "held" is held: checks passed, with the merge stopped by a hold in the record
 # that the land check read as unmet (the coordinator writes the Phase at
 # surface after land's `held` verdict).
 # A held holding waits on the human, not on its worker: its next line is
@@ -288,12 +313,27 @@ def has_pr:
     or ($ap != null and (ok($ap) | not))
     or (ok($ap) and (($ap.prs // []) | length) > 0);
 # A row whose merge was confirmed: its Pull request cell was cleared and its
-# Verified head kept, and every pull request on its branch is merged. It
-# waits for the teardown of its worker; the merged pull request is no news.
-def merged_awaiting_teardown:
+# Verified head kept, and every pull request on its branch is merged. The
+# merged pull request is no news.
+def merged_pair:
   fact("appeared") as $ap
   | no_pr_recorded and ((.row.verified_head // "") != "")
     and ok($ap) and (($ap.prs // []) | length) > 0 and all($ap.prs[]; .state == "MERGED");
+# Has the worker of the row finished? The worker of a leg-bound row has when
+# its leg is resolved or abandoned; that of a message row when the host read
+# found every Claude job of it on this host stopped. Anything else (no read,
+# a leg still open, no job seen) is a worker that may still be live.
+def worker_finished:
+  if ((.row.return_path // "") | startswith("leg ")) then
+    fact("leg") as $l | ok($l) and (($l.disposition // "") | IN("resolved", "abandoned"))
+  else
+    fact("host") as $h | ok($h) and ($h.stopped == true)
+  end;
+# A merged row waits for the teardown of its worker only once that worker
+# has finished. A worker that goes on to the next pull request of its unit keeps
+# the same pair while it is live, so it is waited on, and listed in Where
+# things stand (shirabe#2080).
+def merged_awaiting_teardown: merged_pair and worker_finished;
 
 def state_of:
   if .refused != null then "refused"
@@ -301,6 +341,7 @@ def state_of:
   | fact("host") as $h
   | if ok($pr) then ($pr.state | ascii_downcase)
     elif merged_awaiting_teardown then "merged"
+    elif merged_pair then "merged; worker still live"
     elif has_pr then "pull request not verified"
     elif ok($h) then ("no pull request; worker " + (if $h.state == "found" then "found"
                       elif $h.state == "ambiguous" then "ambiguous" else "not found on this read" end))
@@ -346,6 +387,7 @@ def next_code_of:
             and ($pr.head == .row.verified_head) then "land"
        else "wait" end)
     elif merged_awaiting_teardown then "teardown"
+    elif merged_pair then "wait"
     elif has_pr then "read_again"
     elif leg_spent_early and ok($h) and $h.state == "found" then "replace_leg"
     elif ok($h) and $h.state == "found" then "wait"
@@ -355,7 +397,7 @@ def next_text:
    fix_ci: "worker fixes CI",
    not_run: "CI never ran; a person clears the cause and re-runs it, not the worker",
    land: "ready to land",
-   held: "verified; merge stopped by a hold in the record (the land check names it)",
+   held: "checks passed; merge stopped by a hold in the record (the land check names it)",
    wait: "wait on worker",
    read_again: "read again, then decide", refused: "refused by the record reader",
    replace_leg: "leg spent before the worker reported; replace the leg (dispatch-worker.sh --releg), keeping the worker"}[.];
@@ -390,7 +432,7 @@ def changes_of($written):
        elif ok($br) and ok($pr) and ($br.tip // "") != ($pr.head // "") then
         {topic: $t, what: "branch tip differs", recorded: ($pr.head // ""), live: ($br.tip // ""), written: $written, grade: "measured"}
        else empty end),
-      (if merged_awaiting_teardown then empty
+      (if merged_pair then empty
        elif ok($ap) and (($ap.prs // []) | length) == 1 then
         {topic: $t, what: "pull request appeared", recorded: "none yet", live: ($ap.prs[0].url // ""), written: $written, grade: "measured"}
        elif ok($ap) and (($ap.prs // []) | length) > 1 then
@@ -412,7 +454,9 @@ def changes_of($written):
                         else null end),
              repo: ($in.scope.repo // null),
              plugin_root: (if ($in.plugin_root == "inside" or $in.plugin_root == "outside") then $in.plugin_root else null end)},
-    changes: [$in.holdings[]? | select(.refused == null) | changes_of($w)[]],
+    changes: ([$in.holdings[]? | select(.refused == null) | changes_of($w)[]]
+      + [($in.owe // null) | select(ok(.)) | (.owed // [])[] | strings
+         | {topic: ., what: "verdict owed", recorded: "Completed, no verdict owed", live: "verdict owed", written: $w, grade: "measured"}]),
     holdings: [$in.holdings[]? | phase_of as $ph | {
         topic: topic, unit: (.row.unit // ""), phase: $ph,
         pull_request: ((.row.pull_request // "") as $p
@@ -493,8 +537,15 @@ def changes_of($written):
       + [$in.deferrals[]? | select((.status // "ok") != "ok")
           | {what: ("deferral " + (.row.deferral // "")), reason: (.reason // "disposal check failed"), raw: null}]
       + [$in.side_effects[]? | select((.fact.status // "ok") != "ok")
-          | {what: ((.row.action // "") + " " + (.row.target // "")), action: (.row.action // ""), target: (.row.target // ""), reason: (.fact.reason // "read failed"), raw: null}])
+          | {what: ((.row.action // "") + " " + (.row.target // "")), action: (.row.action // ""), target: (.row.target // ""), reason: (.fact.reason // "read failed"), raw: null}]
+      + [($in.owe // null) | select(. != null and (ok(.) | not))
+          | {what: "the verdicts owed for Completed milestones", reason: (.reason // "the write failed"), raw: null}])
   }
+  # The chain facts the deferrals were judged against, carried for the later
+  # readers of the seal; a facts document without them gets no key, so its
+  # report reads as it did before.
+  + ($in.chain | if type == "object" and (.start | type == "string") and (.back_to == null or (.back_to | type == "string"))
+                 then {chain: {start, back_to}} else {} end)
 | .waiting = (
     [.holdings[] | select(.next_code == "land" or .next_code == "held") | {topic, why: .next, grade: "inferred"}]
     + [.side_effects[] | select(.action == "merge" and .code == "not_confirmed") | {topic: .target, why: "merge not confirmed", grade: "inferred"}])
@@ -586,6 +637,7 @@ section("Changed since then"; [.changes[] | "- \(.topic | code): "
     + (if .what == "head moved" then "head moved past the verified head"
        elif .what == "branch tip differs" then "branch tip differs from the pull request head"
        elif .what == "dispatch status" then "settled: record said dispatching, the worker is live, and the record now says dispatched"
+       elif .what == "verdict owed" then "verdict owed: the roadmap reads it Completed and the record owed no verdict for it, so the record now owes its verdict and pick offers it"
        elif .what == "leg relegged" then "re-legged: its session came here with the import, so the record now says \(.live | code) in place of \(.recorded | code)"
        elif .what == "leg unwatchable" then "reports by message: its leg \(.recorded | code) cannot be watched from this host, so the record now says message; re-brief the worker (dispatch-worker.sh --rebrief) so its brief gives this coordinator'"'"'s address and names this run as the dispatcher it records"
        elif .what == "pull request appeared" then "pull request appeared: record said none yet, now \(.live | urllink)"

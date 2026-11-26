@@ -25,6 +25,8 @@ use shirabe_validate::{
 };
 use shirabe_validate::{check_pr_writing_style, suppressed_terms};
 
+mod compaction;
+mod migrate;
 mod plan_outlines;
 mod populate;
 mod pr_body_hook;
@@ -98,6 +100,12 @@ enum Commands {
     /// emit hook JSON) and the `/inflight` skill (`render`, which prints the
     /// plain block). Every subcommand exits 0 (fail-safe).
     WorkSummary(work_summary::WorkSummaryArgs),
+    /// Compaction hooks: `pre-compact` (PreCompact) prints the summary
+    /// instruction and `re-anchor` (SessionStart, matched on `compact`) sends a
+    /// compacted session back to its skills, its koto session and its note,
+    /// both from the ledger entry `scripts/handoff-brief.sh note` writes. Both
+    /// read a Claude Code hook JSON on stdin and always exit 0.
+    Compaction(compaction::CompactionArgs),
     /// Client-side PreToolUse hook: deny a `gh pr create` / `gh pr edit`
     /// command whose title or body breaks a PR-body rule
     /// (references/pr-body-conformance.md) before it runs. Reads a Claude Code
@@ -143,6 +151,12 @@ enum RoadmapCommands {
     /// `--issues` to create one GitHub issue per feature and key both
     /// sections on those issues; `--no-issues` names the default explicitly.
     Populate(populate::PopulateArgs),
+    /// Move a `roadmap/v2` or `roadmap/v3` roadmap to `roadmap/v4`. Each
+    /// milestone at Done, Shipped or Closed becomes Verified when its latest
+    /// verdict line in Progress is verified (with or without follow-ups) and
+    /// Completed otherwise; a v2 `## Features` layout becomes `## Milestones`.
+    /// Prints one line per milestone; `--dry-run` writes nothing.
+    Migrate(migrate::MigrateArgs),
 }
 
 #[derive(clap::Args)]
@@ -249,7 +263,7 @@ struct ValidateArgs {
     /// Repeatable and comma-splittable (e.g. `--check FC01 --check R7` or
     /// `--check FC01,R7`). Codes are the per-file checks: `SCHEMA`,
     /// `FC01`-`FC25`, `FC-CONVENTIONS`, `R6`-`R11`. The lifecycle codes
-    /// `L01`-`L10` come from `--lifecycle` and `--lifecycle-chain` and are not
+    /// `L01`-`L11` come from `--lifecycle` and `--lifecycle-chain` and are not
     /// selectable. An unknown code is a tool error. A valid but
     /// format-inapplicable code is a clean no-op.
     #[arg(long, value_delimiter = ',')]
@@ -431,9 +445,18 @@ fn exit_for_parse_error(err: clap::Error) -> ExitCode {
     // `exit` does -- the exit code is the contract.
     let _ = err.print();
     match err.kind() {
-        clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => {
+        clap::error::ErrorKind::DisplayVersion => {
+            // The milestone status table this binary embeds, so a host can
+            // see which statuses its binary reads. On stderr: stdout stays
+            // the single `shirabe <version>` line that the release check and
+            // the version tests compare exactly.
+            eprintln!(
+                "milestone statuses table version {}",
+                shirabe_validate::statuses::table_version()
+            );
             ExitCode::SUCCESS
         }
+        clap::error::ErrorKind::DisplayHelp => ExitCode::SUCCESS,
         _ => ExitCode::from(ValidateOutcome::ToolError.exit_code()),
     }
 }
@@ -447,6 +470,7 @@ fn main() -> ExitCode {
         Some(Commands::Validate(args)) => run_validate(&args),
         Some(Commands::Roadmap(args)) => match args.command {
             RoadmapCommands::Populate(p) => populate::run(&p),
+            RoadmapCommands::Migrate(m) => migrate::run(&m),
         },
         Some(Commands::Plan(args)) => match args.command {
             plan_outlines::PlanCommands::Outlines(o) => plan_outlines::run(&o),
@@ -456,6 +480,7 @@ fn main() -> ExitCode {
         Some(Commands::SlugPrefixDetect(args)) => run_slug_prefix_detect(&args),
         Some(Commands::InstallHooks(args)) => run_install_hooks_cmd(&args),
         Some(Commands::WorkSummary(args)) => work_summary::run(&args.command),
+        Some(Commands::Compaction(args)) => compaction::run(&args.command),
         Some(Commands::PrBodyHook) => pr_body_hook::run(),
         Some(Commands::PreActionHook(args)) => {
             pre_action::run_plugin(&args.plugin_root, &args.rules)
@@ -640,7 +665,7 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     for code in &args.check {
         if !is_known_check_code(code) {
             eprintln!(
-                "unknown --check code {:?}; valid codes: SCHEMA, FC01-FC25, FC-CONVENTIONS, R6-R11 (the lifecycle codes L01-L10 come from --lifecycle and --lifecycle-chain and are not selectable)",
+                "unknown --check code {:?}; valid codes: SCHEMA, FC01-FC25, FC-CONVENTIONS, R6-R11 (the lifecycle codes L01-L11 come from --lifecycle and --lifecycle-chain and are not selectable)",
                 code
             );
             return ValidateOutcome::ToolError.exit();
@@ -1502,10 +1527,13 @@ fi
 # Collect staged files NUL-delimited so a filename with spaces, newlines,
 # glob characters, or a leading dash cannot split arguments or smuggle
 # options. Narrow to Markdown; shirabe's own format detection skips any
-# non-artifact .md file.
+# non-artifact .md file. Files under a tests/fixtures/ or evals/fixtures/
+# directory are test inputs, some invalid on purpose, and are skipped, the
+# same paths CI's document validation leaves out.
 docs=()
 while IFS= read -r -d '' file; do
   case "$file" in
+    tests/fixtures/*|*/tests/fixtures/*|evals/fixtures/*|*/evals/fixtures/*) ;;
     *.md) docs+=("$file") ;;
   esac
 done < <(git diff --cached -z --name-only --diff-filter=ACMR)

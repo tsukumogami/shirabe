@@ -135,6 +135,13 @@ jq -e '(.states.teardown.directive + .states.teardown.details | contains("`remov
        and (.states.destroy.details | contains("removed yes"))' "$J" >/dev/null \
     && pass "the teardown, inventory, handoff and destroy directives explain removed" \
     || fail "the teardown, inventory, handoff and destroy directives explain removed"
+# destroy removes the holding with --retire after any done pass, not only a
+# removed one (shirabe#1148): the directive names the call for both, and the
+# details say it holds for an ordinary pass too.
+jq -e '(.states.destroy.directive | test("state-holding\\.sh\" --session\\s+\"\\{\\{SESSION_NAME\\}\\}\" --topic <topic> --retire`, whether or not the verdict says\\s+`removed yes`"))
+       and (.states.destroy.details | test("For any pass, removed\\s+or not, on `done` remove the holding row with `state-holding\\.sh --retire`"))' "$J" >/dev/null \
+    && pass "destroy names state-holding.sh --retire for every done pass, removed or not" \
+    || fail "destroy names state-holding.sh --retire for every done pass, removed or not"
 
 # The design's decision states and changed edges, as from>to pairs.
 EDGES='decision_next>decision_carry decision_next>decision_open decision_next>decision_answer
@@ -455,13 +462,13 @@ printf '%s\n' 'rotation_role() {' "    jq '.run = [{key: \"role\", value: \"mana
 # forms: the writers, state-handover.sh, coordinate-open.sh, which reads the
 # role of the run a start continues, coordinate-report.sh, whose --record-line
 # prints it on the record line (Decision 3), and dispatch-worker.sh's
-# input_role alone, which writes a successor brief's role from it
+# input_role and successor_inputs alone, which write a successor brief's role from it
 # (Decision 2): the script's resolve_grant, and every function that one
 # calls, stays role-blind, so a grant never depends on a role. An entry
 # `<path>:<function>` pins a script with two paths to the function that may
 # read it, so a read in any other function of that script (or outside one)
 # fails, the readers' list below included.
-ROLE_ALLOW="scripts/state-schema.jq scripts/state-stored-set.sh scripts/state-open.sh scripts/state-handover.sh scripts/coordinate-open.sh scripts/dispatch-worker.sh:input_role scripts/coordinate-report.sh"
+ROLE_ALLOW="scripts/state-schema.jq scripts/state-stored-set.sh scripts/state-open.sh scripts/state-handover.sh scripts/coordinate-open.sh scripts/dispatch-worker.sh:input_role scripts/dispatch-worker.sh:successor_inputs scripts/coordinate-report.sh"
 # ROLE_READERS: the scripts that read the Run section or the record at the
 # branch base this test landed on. Each may keep its whole reads for other rows,
 # and may read record/run directly; any other script that adds a direct
@@ -470,6 +477,10 @@ ROLE_ALLOW="scripts/state-schema.jq scripts/state-stored-set.sh scripts/state-op
 #   git grep -lE '^[^#]*(rs_record|rs_session_state|rs_session_read|rs_facts|state-read\.sh|state-handover\.sh|state-stored-set\.sh[^#]*--(list|rules)|record/run|[^A-Za-z0-9_]\.run([^A-Za-z0-9_]|$))' \
 #       c17f9b0e -- 'skills/coordinate/*.sh' 'skills/coordinate/*.jq' ':!:*_test.sh' ':!:skills/coordinate/scripts/testdata/*' \
 #       | sed 's/^[^:]*:skills\/coordinate\///'
+# Added since that base, each by hand with its reason:
+#   scripts/standing-provenance.sh  reads a cited decision's entering session's
+#                                   record/run for its reports-to row (the bound
+#                                   test); it reads no role row.
 ROLE_READERS="legacy-import/import.sh
 scripts/board-lib.sh
 scripts/board-verdict.sh
@@ -492,6 +503,7 @@ scripts/reconcile-deps.sh
 scripts/reconcile-read.sh
 scripts/resolve-coordinator.sh
 scripts/roadmap-status.sh
+scripts/standing-provenance.sh
 scripts/state-common.sh
 scripts/state-confirm.sh
 scripts/state-decision.sh
@@ -527,10 +539,12 @@ role_readers() {
         { print }'
 }
 RR=$(role_readers "$HERE/..") || RR="the reader check failed: $RR"
-[ -z "$RR" ] && pass "only the writers, state-handover.sh, coordinate-open.sh, dispatch-worker.sh's input_role and coordinate-report.sh read the Run role row, and only the listed readers read record/run" \
-    || fail "only the writers, state-handover.sh, coordinate-open.sh, dispatch-worker.sh's input_role and coordinate-report.sh read the Run role row, and only the listed readers read record/run" "$RR"
+[ -z "$RR" ] && pass "only the writers, state-handover.sh, coordinate-open.sh, dispatch-worker.sh's input_role and successor_inputs, and coordinate-report.sh read the Run role row, and only the listed readers read record/run" \
+    || fail "only the writers, state-handover.sh, coordinate-open.sh, dispatch-worker.sh's input_role and successor_inputs, and coordinate-report.sh read the Run role row, and only the listed readers read record/run" "$RR"
 grep -q '^scripts/dispatch-worker.sh	input_role	role-key	' <<<"$RH_ALL" && pass "dispatch-worker.sh's input_role reads it, a reader the check sees" \
     || fail "dispatch-worker.sh's input_role reads it, a reader the check sees" "$RH_ALL"
+grep -q '^scripts/dispatch-worker.sh	successor_inputs	role-key	' <<<"$RH_ALL" && pass "dispatch-worker.sh's successor_inputs reads it, a reader the check sees" \
+    || fail "dispatch-worker.sh's successor_inputs reads it, a reader the check sees" "$RH_ALL"
 grep -q '^scripts/coordinate-report.sh	-	run-read	' <<<"$RH_ALL" && grep -q '^scripts/coordinate-report.sh	-	role-key	' <<<"$RH_ALL" \
     && pass "coordinate-report.sh reads it through state-read.sh --run for the record line, a reader the check sees" \
     || fail "coordinate-report.sh reads it through state-read.sh --run for the record line, a reader the check sees" "$(grep coordinate-report <<<"$RH_ALL")"
@@ -541,7 +555,7 @@ grep -q '^scripts/coordinate-open.sh	[^	]*	run-read	' <<<"$RH_ALL" && pass "coor
 eq_fx() { [ "$2" = "$3" ] && pass "$1" || fail "$1" "want [$2], got [$3]"; }
 eq_fx "  ... and with coordinate-open.sh and coordinate-report.sh off the list, their reads fail the check" "scripts/coordinate-open.sh
 scripts/coordinate-report.sh" \
-    "$(role_readers "$HERE/.." "scripts/state-schema.jq scripts/state-stored-set.sh scripts/state-open.sh scripts/state-handover.sh scripts/dispatch-worker.sh:input_role" | cut -f1 | sort -u)"
+    "$(role_readers "$HERE/.." "scripts/state-schema.jq scripts/state-stored-set.sh scripts/state-open.sh scripts/state-handover.sh scripts/dispatch-worker.sh:input_role scripts/dispatch-worker.sh:successor_inputs" | cut -f1 | sort -u)"
 # into_fn <name> <function> <line>: a skill directory holding dispatch-worker.sh
 # with <line> added as the first line of <function>; prints what role_readers
 # reports there, path, function and form.
@@ -637,7 +651,7 @@ printf '%s\n' 'koto context get "$S" record/run > "$T/r"' >> "$T/roler-two/scrip
 eq_fx "  ... as does one outside any function, even for a listed reader" \
     "scripts/two-path.sh	-	record-run
 scripts/two-path.sh	grant_path_role	role-key" \
-    "$(role_readers "$T/roler-two" "scripts/two-path.sh:brief_path" "scripts/two-path.sh" | cut -f1,2,3 | sort)"
+    "$(role_readers "$T/roler-two" "scripts/two-path.sh:brief_path" "scripts/two-path.sh" | cut -f1,2,3 | LC_ALL=C sort)"
 
 # No script passes --role to niwa dispatch, whose own --role grants
 # authorities: not on the dispatch command, not in an array that command
@@ -753,6 +767,12 @@ for d in pick.choice classify_report.classification decision_verdict.verdict; do
     jq -e --arg s "$st" --arg f "$fld" '.states[$s].accepts[$f].decider != null' "$J" >/dev/null && pass "$d carries a decider" || fail "$d carries a decider"
     [ -f "$HERE/../koto-templates/coordinate.$d.decider.jsonl" ] && pass "$d has fixtures" || fail "$d has fixtures"
 done
+# The pick decider reads the cap and the parked bound from its slice, which
+# carries the bound in force: a CAP or PARKED_BOUND variable input beside it
+# would show the decider the bound a Run row replaced (shirabe#2106).
+PI=$(jq -c '[.states.pick.accepts.choice.decider.inputs[] | .source | keys[0] + ":" + (.context // .var // "")]' "$J")
+[ "$PI" = '["context:coord/pick_slice.json"]' ] && pass "the pick decider's one input is the slice, with no bound variable beside it" \
+    || fail "the pick decider's one input is the slice, with no bound variable beside it" "$PI"
 TERMS=$(jq -r '.states | to_entries[] | select(.value.terminal == true) | .key' "$J" | sort | tr '\n' ' ')
 [ "$TERMS" = "done done_handed_over done_not_active done_stopped " ] && pass "the terminals are the four the report names" || fail "the terminals are the four the report names" "$TERMS"
 RK=$(jq -r '[.states[] | select(.terminal == true) | (.result // {} | keys | sort | join(","))] | unique | join(";")' "$J")

@@ -319,10 +319,12 @@ dispatch|surface|teardown|destroy|decision_apply|posture_ask|leg_spent|roadmap_s
     EVSEQ=$(printf '%s' "$EV" | jq -r .seq)
     # The steps whose directives write the record before the closing
     # evidence are compared with the moment they became due (step_start);
-    # this case pattern is the list. dispatch keeps its DISPATCH_CHECK
-    # capture (below), and teardown and destroy, which write after it, keep
-    # the evidence's own time.
-    case "$SOURCE" in surface|decision_apply|posture_ask|leg_spent|roadmap_status|milestone_verdict|milestone_reopen) step_start "$SOURCE" "$EVSEQ" ;; esac
+    # this case pattern is the list. destroy is one: its directive removes
+    # the holding row (or, handed over, adds the Side effects row) and then
+    # submits its evidence (shirabe#1148). dispatch keeps its DISPATCH_CHECK
+    # capture (below), and teardown, which writes after it, keeps the
+    # evidence's own time.
+    case "$SOURCE" in surface|decision_apply|posture_ask|leg_spent|roadmap_status|milestone_verdict|milestone_reopen|destroy) step_start "$SOURCE" "$EVSEQ" ;; esac
     MIN=${EVT:0:16}
     ;;
 merge_confirm|merged_facts)
@@ -512,6 +514,16 @@ merge_confirm|merged_facts)
         EXPECT="the Holdings row for $UNIT kept, with its Pull request cell cleared of #$PR"
         if [ -z "$ROW" ]; then OKX=0
         elif [ -n "$(printf '%s' "$ROW" | jq -r '.pull_request // ""')" ]; then OKX=0
+        fi
+        # The confirmed merge settles the Side effects merge row a merge not
+        # confirmed added for #$PR at $SHA, one a takeover carried included:
+        # the write that clears the cell drops it (state-holding.sh), so the
+        # step waits while it stands (shirabe#1824).
+        if [ -n "$ROW" ]; then
+            MREPO=$(printf '%s' "$ROW" | jq -r '.repo // ""')
+            EXPECT="$EXPECT; no Side effects merge row for $MREPO#$PR at $SHA left"
+            holds "$LIB_MERGE_ROW_JQ"' all(.side_effects[]; merge_row($re; $pr; $sha) | not)' \
+                --arg re "$(lib_re_repo "$MREPO")" --arg pr "$PR" --arg sha "$SHA" || OKX=0
         fi
         # A holding at phase scoping landed its unit's scoping alone: its
         # execution is recorded as a follow-up Work row for the unit, not

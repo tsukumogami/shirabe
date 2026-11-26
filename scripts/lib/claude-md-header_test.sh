@@ -6,7 +6,9 @@
 # absent header and an absent file (exit 1); a header inside a ``` or ~~~
 # fence ignored, and one after the fence closes read; a longer fence that a
 # shorter run doesn't close; a duplicate refused (exit 2); a CRLF file; an
-# indented heading; a `###` heading ignored; at a commit, the committed text
+# indented heading; a `###` heading ignored; claude_md_header_named printing
+# the name as written and the value, with the same absent, fenced, duplicate
+# and unreadable answers; at a commit, the committed text
 # and not the working tree's, a file absent at that commit, and a commit that
 # doesn't exist (exit 2).
 #
@@ -60,6 +62,33 @@ put '   ## Fix Labels: bug\n'
 eq "a heading indented three spaces counts" "bug" "$(claude_md_header 'Fix Labels' "$f")"
 put '### Fix Labels: bug\n'
 claude_md_header 'Fix Labels' "$f" >/dev/null; eq "a level-3 heading is not a declaration" 1 $?
+
+# --- the name as written -------------------------------------------------------
+TAB=$(printf '\t')
+put '## Build Output Cleanup:  on \n'
+eq "named: the name as written, a tab, the value" "Build Output Cleanup${TAB}on" "$(claude_md_header_named 'Build Output Cleanup' "$f")"
+put '## build output cleanup: on\n'
+eq "named: a name in another case is printed as written" "build output cleanup${TAB}on" "$(claude_md_header_named 'Build Output Cleanup' "$f")"
+put '## Build Output Cleanup:\n'
+eq "named: an empty value" "Build Output Cleanup${TAB}" "$(claude_md_header_named 'Build Output Cleanup' "$f")"
+put '## Build Output Cleanup : on\n'
+eq "named: space before the colon is not part of the name" "Build Output Cleanup${TAB}on" "$(claude_md_header_named 'Build Output Cleanup' "$f")"
+put '# Repo\n'
+claude_md_header_named 'Build Output Cleanup' "$f" >/dev/null; eq "named: an absent header: exit 1" 1 $?
+claude_md_header_named 'Build Output Cleanup' "$W/none.md" >/dev/null; eq "named: an absent file: exit 1" 1 $?
+put '```\n## Build Output Cleanup: on\n```\n'
+claude_md_header_named 'Build Output Cleanup' "$f" >/dev/null; eq "named: a header inside a fence is ignored" 1 $?
+put '## Build Output Cleanup: on\n## Build Output Cleanup: on\n'
+claude_md_header_named 'Build Output Cleanup' "$f" >/dev/null 2>&1; eq "named: a duplicate is refused: exit 2" 2 $?
+eq "named: a duplicate prints nothing" "" "$(claude_md_header_named 'Build Output Cleanup' "$f" 2>/dev/null)"
+if [ "$(id -u)" -ne 0 ]; then
+    put '## Build Output Cleanup: on\n'
+    chmod 000 "$f"
+    claude_md_header_named 'Build Output Cleanup' "$f" >/dev/null 2>&1; eq "named: an unreadable file: exit 2" 2 $?
+    chmod 644 "$f"
+fi
+put '## Fix Labels: bug\n'
+eq "the unnamed read still prints the value alone" "bug" "$(claude_md_header 'Fix Labels' "$f")"
 
 # --- at a commit ---------------------------------------------------------------
 R="$W/repo"

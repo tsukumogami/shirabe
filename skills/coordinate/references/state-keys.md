@@ -125,16 +125,26 @@ core refuses one. Phase says whether a worker is scoping a unit whose
 scoping is the whole unit (`scoping`), scoping one whose
 execution waits on another feature landing (`scoping-ahead`), executing it, or
 holding a verified pull request whose merge a hold in the record stops (`held`).
-A row leaves Side effects once confirmed. Reversals only grow.
+A row leaves Side effects once confirmed. A merge row goes in the write that
+clears its holding's Pull request cell after the merge is confirmed at the
+row's head (`state-holding.sh`), and the record step checks it is gone.
+Reversals only grow.
 A Holdings row outlives its pull request's merge: a confirmed merge empties
 its `pull_request` and keeps its `verified_head`, and the row goes when the
 worker is torn down. A message-path worker whose unit you dispatch again
 after it went quiet is `stranded` (`state-holding.sh --strand`); its row
 goes once the unit's new worker is dispatched (`--retire`, which
-dispatch-worker.sh runs). A merged row whose worker was torn down outside
-the pass also goes with `--retire`, at destroy, once the removed pass is
-done, including one closed with no handoff comment, where the pass's entry
-stands in for the link. A `dispatch-failed` row, a launch that never
+dispatch-worker.sh runs). A merged row also goes with `--retire`, at
+destroy, once its teardown pass is done: one the pass tore down itself, or
+one torn down outside the pass (a removed pass), including one closed with no
+handoff comment, where the pass's entry stands in for the link. A
+leg-bound row whose worker was removed outside the run before anything
+merged goes the same way (its verdict says `pr none`); `--retire` then
+abandons the leg's request and its entry says so. A row whose unit ended
+with no pull request (no branch, or a branch with nothing beyond its base,
+and a handoff comment on its issue) goes once its teardown pass is done,
+merged or not; a leg-bound one's request is abandoned with the handoff link
+as the rationale. A `dispatch-failed` row, a launch that never
 started, goes through `--retire` too once no worker exists for its topic
 (niwa lists no session and no unfinished Claude job carries it); its removal
 is told as an `entry` entry.
@@ -298,7 +308,7 @@ nothing else, sits in three more keys, `record/run`, `record/standing` and
 `record/work`, each once it has a row:
 
 ```json
-{"run": [{"key": "<arguments, cap, coordinator, told, pending, rules, briefs, friction, reports-to or role>",
+{"run": [{"key": "<arguments, cap, parked-bound, coordinator, told, pending, missing, rules, briefs, friction, reports-to, role or successor>",
           "value": "<the value>", "set_by": "<who set it>", "set": "<YYYY-MM-DDTHH:MMZ>"}],
  "standing": [{"standing": "<s<n>>", "kind": "<pause, go-ahead, approval, answer, assignment or rule>",
                "on": "<a pause's or go-ahead's scope, an assignment's unit, or empty>",
@@ -315,14 +325,18 @@ nothing else, sits in three more keys, `record/run`, `record/standing` and
 ```
 
 **Run** holds the run's arguments, the cap in force (the readers of the cap
-take it over the `--cap` the session was opened with), this coordinator's
+take it over the `--cap` the session was opened with), the parked bound in
+force when one was set (a `parked-bound` row, taken over `--parked-bound` the
+same way), this coordinator's
 address (its messaging address: the session name a worker can message, which
 may hold `_`, or a dispatch topic; never a session id, a path or an instance
 name), one `told` row per party
 that has been sent that address, and one `pending` row per worker that can't
 be sent it yet: its session is gone, but its instance is still there to be
-started again. A worker is never both told and pending (the record is refused
-if it is). A new address clears the `told` and `pending` rows. It also
+started again. A `missing` row is a worker niwa on this host listed no
+instance for, so it can't be sent the address at all. A worker is never both
+told and pending, nor missing and told or pending (the record is refused if
+it is). A new address clears the `told`, `pending` and `missing` rows. It also
 holds the crash set: `rules` and `briefs` rows (`<label> sha256:<64 hex>`, the
 digest of a file this coordinator ran with, one row per label, a second write
 replacing the first), a `friction` label, and `reports-to` (`<name>` or `<name>
@@ -341,7 +355,11 @@ entry names each label added, changed or removed. A failed write prints
 label is yours, through `--run rules`. A `briefs` row is the brief intake's:
 you record the brief's path with `--host briefs:<label> <path>`, and
 `--intake <label>` writes the row once it has taken the brief's lines (Rule
-rows, below). A session opened before the
+rows, below). Beside it, a `briefs-read` row (`<label> sha256:<64 hex>
+<c>/<n>`, one per label, with 0 < c < n) says how far a capped intake of that
+digest got: n is the brief's candidate count and c the first candidate it
+couldn't take. Only `--intake` writes and removes it; `--run briefs-read` is
+refused, exit 64. A session opened before the
 GitHub record was removed may also hold a `store session` row; it is kept as it
 is, and nothing writes a new `store` row (`state-stored-set.sh --run store` is
 refused, exit 65: `store` is no Run key it writes). Run also holds the run's
@@ -365,6 +383,26 @@ write. Its reader is `state-read.sh --session S --run`, which prints
 when the read fails. The handover read prints it as `role`, or null. Every
 worker's brief names that address as where to report, read from here by
 `scripts/dispatch-worker.sh`, which refuses a dispatch while it is missing.
+Run's last key is `successor`, one row at most: the successor this run
+dispatched with `dispatch-worker.sh --session <run> --successor` and how its
+dispatch stands. Its value is `<status> <topic> <YYYY-MM-DD>`, the topic the
+successor's dispatch topic (`^[a-z0-9][a-z0-9-]*$`, at most 64 characters)
+and the date the day the row was written, and its Set by is the run that
+dispatched it. The status is one of four: `dispatching` (written before
+`niwa dispatch` runs), `dispatched` (the launch confirmed), `dispatch-failed`
+(the launch failed) and `stranded` (a dispatched successor whose session is
+gone). `state-stored-set.sh --successor <status> <topic> --by <run>` is its
+only writer, and `--run successor` is a usage error (exit 64). Each status
+moves only from the row as it stands: `dispatching` from no row, or from a
+`dispatch-failed` or `stranded` row under another topic; `dispatched` and
+`dispatch-failed` from `dispatching` of the same topic; `stranded` from
+`dispatched` of the same topic. Any other write is refused (exit 65) with
+nothing written. A `dispatching` or `dispatched` write's entry names the
+topic, the brief (`.niwa/dispatch-briefs/<topic>.md` under the workspace
+root) and the role the Run `role` row holds. `--successor clear --by <who>`
+removes the row; the successor's opener runs it when it takes the run over
+with `--dispatched-by` naming the run in the row's Set by, and any other
+takeover keeps the row, carried with the rest of the record.
 **Standing** holds the events only a person owns while they still bind: a
 pause, a go-ahead (a release or another step allowed once), a relayed approval,
 a standing answer. Owner is the person who decided it; Relayed by is who
@@ -402,10 +440,13 @@ written to the state and then told as an entry:
 state-stored-set.sh --session S --run arguments|cap|coordinator <value> --by <who>
 state-stored-set.sh --session S --run rules|briefs|friction|reports-to <value> --by <who>
 state-stored-set.sh --session S --run role manager|director --by <who> [--intervention dispatcher|person]
+state-stored-set.sh --session S --successor dispatching|dispatched|dispatch-failed|stranded <topic> --by <run>    (dispatch-worker.sh's)
+state-stored-set.sh --session S --successor clear --by <who>    (the successor's opener's)
 state-stored-set.sh --session S --host <key> <value> [--host <key> <value>]...
 state-stored-set.sh --session S --rule-files <file> --by <session>    (the start's, never yours)
 state-stored-set.sh --session S --told <topic> --by <who>
 state-stored-set.sh --session S --pending <topic> --by <who>
+state-stored-set.sh --session S --missing <topic> --by <who>
 state-stored-set.sh --session S --standing <kind> [--on <scope>] [--until <condition>] --what <text> --owner <who> [--relayed-by <who>]
 state-stored-set.sh --session S --standing rule --what <text> --source <form>
 state-stored-set.sh --session S --end <s<n>> --by <who>
@@ -441,9 +482,12 @@ A re-brief records its worker by itself: the template's `rebrief_record` step
 reads what you submitted at `rebrief` and writes `--told` when the worker was
 messaged its new brief (which names your address), `--pending` when its
 session is gone while niwa still lists its instance, and nothing when the
-message was refused or no instance is left. `--told` for a pending worker
-turns its `pending` row into a `told` one; `--pending` refuses a worker already
-told or already pending.
+message was refused or no instance is left. `--told` for a pending or missing
+worker turns its row into a `told` one; `--pending` and `--missing` each
+refuse a worker already told, pending or missing.
+At `reconcile`, `handover-classify.sh` writes `--missing` for a live holding's
+worker when niwa lists no instance for it, as it does after a teardown made
+outside the run.
 
 **Rule rows.** A Standing row of kind `rule` is a rule that binds the
 coordinator until `--end` ends it. It has no On and no Until, a blank Owner
@@ -476,7 +520,7 @@ the What, the host excepted, must be public too: a 404 under the host's owner
 is refused, one under another owner passes. A read that fails, runs past 10
 seconds or can't be parsed exits 2. The entry reads `s<n> (rule): <What>.
 Source: <Source>.`, and a stored row is never checked again. `--run
-reports-to` or `--run cap` with `--inferred "<sentence>"` writes its value and
+reports-to`, `--run cap` or `--run parked-bound` with `--inferred "<sentence>"` writes its value and
 a bare `inferred` row quoting the sentence in one write, under the same
 checks.
 
@@ -518,8 +562,12 @@ file once, never edits it and never prints its path. When a Run `briefs` row
 already reads `<label> sha256:<its digest>` it writes nothing and exits 0.
 Otherwise its candidates are the brief's sentences, less heading lines and
 the renderer's Goal, Checkpoints, Read first, Acceptance criteria, Reporting
-and Keep-alive sections. Each row whose Source is `inferred brief <label>`
-with another digest, and whose What no candidate states, ends; each candidate
+and Keep-alive sections, unless a line of the brief is exactly
+`## Standing rules`: that brief is read in the opt-in mode, where only the
+sentences under it, `## Decisions already made`, `## Out of scope` and
+`## Workspace rules` are candidates. Each row whose Source is `inferred
+brief <label>` with another digest, and whose What no candidate states,
+ends; each candidate
 no remaining row (of any kind or Source) holds under the normalized match is
 written as a rule row, Source `inferred brief <label> sha256:<digest>`. A line
 that fails a What check (over 400 bytes, a home-directory path, a
@@ -527,22 +575,34 @@ token-shaped string, or on a public host a repository that isn't public) is
 left out and named on stderr. When every line is taken it also writes the
 `briefs` row, Set by `<who>`; when a cap stops it, it writes the rows up to
 the cap and no `briefs` row, and exits 1 naming how many lines it couldn't
-take, so a person says which rows to confirm or end. A read that fails exits
-2 with nothing written. The rows, the ended rows and the `briefs` row go in
-one write, then their entries: one rule entry per row, one end entry per
-ended row, and `Run briefs <label> sha256:<digest> set by <who>.`
+take, so the brief can be rewritten or a person can say which rows to confirm
+or end. A capped write also leaves the label's `briefs-read` row at the first
+line it couldn't take, c (none when that is the brief's first line). The
+next intake of the same digest and the same candidate count starts at c, so
+a row a person ended doesn't come back; the intake that completes drops the
+`briefs-read` row in the same write that writes `briefs`. A read that fails
+exits 2 with nothing written. The rows, the ended rows and the `briefs` or
+`briefs-read` row go in one write, then their entries: one rule entry per
+row, one end entry per ended row, and `Run briefs <label> sha256:<digest> set
+by <who>.` or `Run briefs-read <label> sha256:<digest> c/n set by <who>.`
 
 `scripts/state-handover.sh` reads the stored set back, with the holds, and
 names its gaps: no arguments, cap or address; a live holding (dispatched, and
-not merged and waiting for its teardown) with no Work row, or whose worker
-has been neither told the current address nor recorded pending; a brief
+not merged and waiting for its teardown, which takes a Verified head with a
+blank Pull request cell and a worker seen to have finished: its leg resolved
+or abandoned, or every Claude job of it on this host stopped) with no Work row, or whose worker
+has been neither told the current address nor recorded pending or missing; a brief
 `record/host` names as `briefs:<label>` whose digest no Run `briefs` row
-carries (`brief-unread <label>`, its fix the intake, naming how many lines
-the caps would leave out; a key whose file can't be read raises none). The
+carries (`brief-unread <label>`, its fix the intake; when the caps would
+leave lines out, the fix counts them from the same start the intake uses,
+names the `## Standing rules` rewrite first and asking a person which rows to
+confirm or end second; a key whose file can't be read raises none). The
 step's gate runs it at every start, so a replacement that writes its own
-address can't go on until each live worker is told or pending. A pending
-worker doesn't hold the gate; it is told when it can be. A record with no
-`pending` row reads, checks and hands over as it did before the row existed.
+address can't go on until each live worker is told, pending or missing. A
+pending or missing worker doesn't hold the gate; it is told when it can be,
+and a missing one's report reaching the run turns it told. A record with no
+`pending` or `missing` row reads, checks and hands over as it did before the
+row existed.
 A record written before these sections existed
 has every gap at its first start under this version; fill them once. A
 rotation's carry copies the three sections into the next rotation as they
@@ -825,7 +885,13 @@ Each worker leg is a key of the coordinator's session,
 `legs/<request>/<leg>`: the worker's topic, the leg's templates and pinned
 inputs, the bound session's name once one attaches, and its result once read.
 `dispatch-worker.sh` writes it at dispatch (`open`) and when a new leg
-replaces it (`replaced`) or a launch fails (`spent`); `wait-target.sh` adds
+replaces it (`replaced`) or a launch fails (`spent`), and marks it `spent`
+when the run stops before the holding naming it is written, abandoning its
+request. A plain dispatch of a topic, once its holding names the new leg,
+marks the topic's earlier keys still reading `open` `replaced` when their
+request is no longer open, so a re-dispatch leaves no open leg without a
+worker; a key whose request is still open, or that this host's store doesn't
+hold, is left as it is. `wait-target.sh` adds
 the child and the end (`taken` with the result, or `spent`). After an import,
 a leg whose request this host's store doesn't hold gets its end from
 `reconcile-legs.sh`: re-legged by `dispatch-worker.sh --releg-imported`, which
@@ -910,6 +976,20 @@ reads the milestone `verdict_owed` while it stands and lists it as a verdict
 to give, and the dispatch check (`verdict-owed <tag>`, code 49),
 `dispatch-worker.sh` (exit 10) and close-out refuse it.
 
+On a `roadmap/v4` roadmap `--unit` takes `--outcome` and also records the
+milestone Completed in the roadmap: in a pull request of its own, or folded
+into the run's pending roadmap edit when that edit is still open. It prints
+two lines, `verdict-owed <tag>` and then that pull request's URL, or
+`<tag> already reads Completed on ...` when the default branch or the pending
+edit already says so. The row also satisfies the milestone's dependents,
+whatever its Status reads, so pick offers them in the pass the milestone's
+work finished; the milestone itself reads done with `takes_work` false, and
+the refusals above stay its own, never a dependent's. The reconcile pass,
+once per visit, runs `roadmap-status.sh --owe-completed`, which writes the
+same row for every milestone a `roadmap/v4` roadmap reads Completed that has
+none (a roadmap the record took up after its milestones were finished), and
+nothing on v1 to v3; the report lists each one under "Changed since then".
+
 ### The verdict entry
 
 Written with `state-entry.sh --kind milestone-verdict --on none`, at most 16
@@ -977,8 +1057,9 @@ What was seen: <one paragraph, at most 600 bytes, no URL or link>
 ```
 
 `milestone.sh check-failure <roadmap> <tag> <entry>` checks it against the
-roadmap on the default branch: the milestone must read Done there, and the
-clause must be one of its Evidence clauses. What was seen gets the rework
+roadmap on the default branch: the milestone must read Done there (Completed
+or Verified on a `roadmap/v4` roadmap), and the clause must be one of its
+Evidence clauses. What was seen gets the rework
 row's shape, because the milestone's next brief quotes it.
 
 ### The roadmap edits
@@ -1045,6 +1126,28 @@ as they are, and appends:
 
 It prints the pull request's URL, then `held-dependent <tag> <worker>` for
 each milestone whose Dependencies name this one and that a holding covers.
+
+On a `roadmap/v4` roadmap the status table decides each move, through
+`state-common.sh lib_status_move`, before anything is opened. `--verdict`
+needs no verdict-owed row: it passes the row's `who` as `--worker` when there
+is a row, and the record write that adds its Side effects row removes the
+row. Either verified verdict moves the milestone to Verified (trigger
+`verified`), and changes needed to In progress (`changes-needed`); `--reopen`
+moves a Completed or Verified milestone to In progress (`reopen`). Each edit
+sets the milestone's block Status and its row in the first `## Progress` table
+with a Status column together. A changes-needed verdict prints the
+held-dependent lines a reopen prints, and on v4 both name each dependent a
+holding covers and each one that reads Completed or Verified, the latter as
+`held-dependent <tag> none` when no holding covers it, one line per
+dependent. A move the table doesn't list is refused (65) with the milestone,
+its status and the trigger named, nothing opened and the record unchanged:
+another verdict on a Verified milestone, any verdict or reopen of a Dropped
+one, a reopen of one that's Not started or In progress. The `milestone-done`
+row's How to confirm reads `<tag> Verified (entry <n>)`, and `--confirm`
+waits for a status that closes and satisfies, since the default branch read
+the milestone Completed before the edit. The reconcile pass's
+`--owe-completed` owes nothing for a milestone whose verdict or reopen edit
+is pending. On v1 to v3 none of this changes.
 
 Each edit opens one pull request with the whole entry in its body, so the
 reviewer who approves it reads the judgment, and writes a Side effects row:
