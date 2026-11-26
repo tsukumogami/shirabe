@@ -1183,15 +1183,22 @@ if [[ "$FINALIZE_RC" -eq 0 ]]; then
         fi
 
         # A transition node the retirement guard blocked was left in place:
-        # nothing was applied to it. Its step is `skipped`, the design's status
-        # for a step deferred on state the cascade does not control (here, a
-        # document that still names the node). It is not `failed`, so it leaves
-        # ANY_FAILED alone and cascade_status follows the usual rule.
+        # nothing was applied to it, so the chain did not finalize. Its step is
+        # `failed`, for the reason the roadmap feature-not-found case above is
+        # (handle_roadmap's header): `failed` means the cascade was asked to do
+        # a step and could not, and recording a block as `skipped` would leave
+        # ANY_FAILED false, report `completed` for an unfinalized chain and let
+        # the PLAN deletion enter STAGED_FILES. Setting ANY_FAILED here, before
+        # Step 3, keeps that deletion out through the existing gate, and
+        # /execute's partial halt, which prints only `failed` steps, gets the
+        # blockers to show. scenario_push_blocked_design pins the same shape
+        # under --push.
         step_status="ok"
         step_detail="$note"
         if [[ "$blocked" == "true" ]]; then
-            step_status="skipped"
+            step_status="failed"
             step_detail=$(blocked_node_detail "$i" "$note")
+            ANY_FAILED=true
         fi
 
         case "$action" in

@@ -1513,8 +1513,8 @@ EOF
 }
 
 # ── A node the retirement guard blocked is a skip, not an ok step ────────────
-scenario_blocked_node_recorded_skipped() {
-    local scenario="#355: a blocked finalize-chain node is recorded as skipped"
+scenario_blocked_node_recorded_failed() {
+    local scenario="#355: a blocked finalize-chain node is recorded as failed"
     echo "Running $scenario..."
 
     local tmpdir
@@ -1549,23 +1549,24 @@ scenario_blocked_node_recorded_skipped() {
         '[.steps[] | select(.action == "transition_design" and .status == "ok")] | length == 0' \
         "a blocked node does not produce a step with status ok" || ok=false
     assert_json "$scenario" "$output" \
-        '[.steps[] | select(.action == "transition_design")][0].status == "skipped"' \
-        "the blocked node's step is skipped" || ok=false
+        '[.steps[] | select(.action == "transition_design")][0].status == "failed"' \
+        "the blocked node's step is failed" || ok=false
 
     # The detail names the blocker from blocked_by: the sibling PLAN and the
     # status it was read at. The engine's note says "still named as upstream
     # by", so "blocked by" pins the detail to the blocked_by list.
     assert_json "$scenario" "$output" \
         '[.steps[] | select(.action == "transition_design")][0].detail | test("blocked by docs/plans/PLAN-cascade-test-sibling\\.md \\(status: [A-Za-z]+\\)")' \
-        "the skipped step's detail names the blocking document and its status" || ok=false
+        "the failed step's detail names the blocking document and its status" || ok=false
 
-    # A skip never makes the run partial (DESIGN-completion-cascade.md): no step
-    # failed, so the verdict is completed.
+    # The block is the only failure, and a failed step makes the run partial
+    # (DESIGN-completion-cascade.md): the chain did not finalize, so the
+    # verdict must not read completed.
     assert_json "$scenario" "$output" \
-        '[.steps[] | select(.status == "failed")] | length == 0' \
-        "no step failed" || ok=false
-    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
-        "cascade_status is completed, consistent with a skipped step" || ok=false
+        '[.steps[] | select(.status == "failed")] | length == 1' \
+        "the blocked node is the only failed step" || ok=false
+    assert_json "$scenario" "$output" '.cascade_status == "partial"' \
+        "cascade_status is partial, consistent with a failed step" || ok=false
 
     # Filesystem: the blocked DESIGN really did not move or change status.
     if [[ -d "$repo/docs/designs/current" ]]; then
@@ -2006,7 +2007,7 @@ scenario_push_blocked_design() {
     # Two single-pr PLANs naming one DESIGN. Cascading the first leaves the
     # second still pointing at the DESIGN, so finalize-chain's retirement guard
     # blocks the node: it comes back action transition_design with blocked true
-    # and no new_path, the script records the step as "skipped" (see the #355
+    # and no new_path, the script records the step as "failed" (see the #355
     # scenario), and the DESIGN stays at Planned in docs/designs/.
     #
     # This is the case the guard exists for, and the case a post-verify seeded
@@ -4231,7 +4232,7 @@ cd "$ORIG_DIR"
 
 scenario_fail_open_note_surfaced
 
-scenario_blocked_node_recorded_skipped
+scenario_blocked_node_recorded_failed
 cd "$ORIG_DIR"
 
 scenario_plan_roadmap_no_design
