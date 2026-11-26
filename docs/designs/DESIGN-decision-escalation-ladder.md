@@ -1,21 +1,41 @@
 ---
 schema: design/v1
-status: Draft
+status: Proposed
 problem: |
   Worker workflows let an agent stop at about a dozen points with a free-text
   reason, the decision skills can only choose or assume, and the workflow
   engine's decision record has no open question, no typed addressee and no
   answer tied to a question. Nothing prompts a session to decide before it
-  stops, nothing durable holds a question for a person, and no read returns
-  what is waiting on whom.
+  stops, nothing durable holds a question for a person, no read returns what
+  is waiting on whom, and nothing ties a record naming the owner to the owner.
+decision: |
+  A question is one write-once entry in koto at the session that raised it,
+  with a typed addressee and its content stored beside it; passing it up and
+  answering it are entries stored where they are written and aimed at it, and
+  koto computes who it waits on, whether it is open and which answer is in
+  effect. Worker templates gain a decide-first state at their agent-declared
+  exits, the coordinator's scripts refuse a pass-up without an attempt, one
+  shirabe command family validates, records and renders, a hook keeps the
+  question prompt to turns a person typed, and the owner is recorded as
+  `owner` only when koto has verified the answered prompt behind the answer.
+rationale: |
+  Keeping every entry in the session that wrote it preserves koto's rule that
+  only a session's own processes write its keys, and computing open at read
+  time gives every reader one rule. A state is the only thing koto delivers
+  instructions for on arrival, so it is the only shape that prompts the
+  attempt at the moment it is needed. Tying the owner's word to a prompt koto
+  verifies once, on the machine where it was answered, addresses what went
+  wrong in practice, which was typed remarks and relays being treated as the
+  owner's word, without making the owner answer twice.
 upstream: docs/prds/PRD-decision-escalation-ladder.md
+decision_provenance: inline-resolved
 ---
 
 # DESIGN: Decision Escalation Ladder
 
 ## Status
 
-Draft
+Proposed
 
 ## Context and Problem Statement
 
@@ -131,6 +151,11 @@ answers asks for.
 
 ### Decision 1: How koto represents a question from raise to answer
 
+Delegated to /decision. Four alternatives went through a bakeoff, a peer
+revision and a cross-examination; the reviewers arguing for the request store
+and for a new question object both ended by recommending against their own
+alternative.
+
 koto has to hold a question under one identity from the moment it is raised
 until it is answered, return what is open by position and by person inside
 five seconds at 1,000 sessions on both storage backends, accept an answer from
@@ -139,11 +164,6 @@ session that asked at its next `koto next`. Its decision record has the trail
 of who decided but no open question, no typed addressee and no answer; its
 request store has a live wait with a wake but no typed decider and no read by
 position.
-
-Delegated to /decision. Four alternatives went through a bakeoff, a peer
-revision and a cross-examination; the reviewers arguing for the request store
-and for a new question object both ended by recommending against their own
-alternative.
 
 Key assumptions:
 
@@ -275,6 +295,8 @@ build and a third store to keep authoritative.
 
 ### Decision 2: How the worker templates deliver the decide-first step
 
+Resolved inline.
+
 The requirements ask that the workflow itself deliver the decide-first
 procedure at the moment an agent declares it cannot continue, and that the
 exit be refused until the session has a recorded attempt and, when the attempt
@@ -282,8 +304,6 @@ ended undecided, a raised question. They also ask that a session keep working
 on whatever does not depend on the answer. The covered exits are spread over
 three templates, and koto has no return-to-caller, so whatever is added has to
 say how a session that decides after all gets back to where it was.
-
-Resolved inline.
 
 #### Chosen: one decide-first state per template, in front of the covered exits
 
@@ -298,8 +318,9 @@ plus the three commands it may run.
 The state accepts two outcomes. `decided` means the attempt chose an option:
 the session returns to the state it came from by one edge per origin, selected
 on the context key, and carries on. `raised` means the attempt ended undecided
-and a question is on the record: the session leaves through the exit it was
-about to take. A command gate decides which is allowed by reading the
+and a question is on the record: the session leaves by a `raised` edge, which
+in `/execute` goes to the state that parks the issue and picks the next one,
+and in `/work-on` and `/scope` goes to the waiting terminal. A command gate decides which is allowed by reading the
 session's own record: `decided` needs a recorded attempt that chose an option
 for this state and visit, and `raised` needs an undecided attempt and an open
 question that names this state. A session cannot leave by declaring an
@@ -342,6 +363,8 @@ and the requirements cover that shape.
 
 ### Decision 3: How the coordinator side is enforced, and the one command
 
+Resolved inline.
+
 A coordinator must not pass a question up or present it without a recorded
 attempt, must stop re-wording a worker's question into a new entry, and must
 present everything pending instead of one at a time. Separately, the
@@ -352,8 +375,6 @@ in no workflow session.
 The constraint that shapes this is the coordinator template's compatibility
 rule: a structural change to `coordinate.md` raises its compatibility number,
 which blocks taking over a running coordinator and blocks importing one.
-
-Resolved inline.
 
 #### Chosen: enforce in the coordinator's scripts, and ship the command as a thin skill
 
@@ -392,17 +413,17 @@ behind it.
 
 ### Decision 4: How the question-prompt guard knows the person started the turn
 
+Resolved inline. Revised after Decision 6's research: the harness labels
+each turn-starting message as typed by a person, sent by another session, or a
+background notice, but a dispatched session's first prompt and a scheduled
+wake-up carry the same label as typed text, and about seven in eight turns so
+labelled on one machine were not the owner.
+
 A question prompt must not open in a turn the person did not start. The only
 presence signal either plugin reads today is whether a person is attending the
 session, which is true of a coordinator the person is attached to even while
 it is processing a worker's report. The guard also has to leave alone the
 prompts seven existing skills open in turns their author started.
-
-Resolved inline, and revised after Decision 6's research: the harness labels
-each turn-starting message as typed by a person, sent by another session, or a
-background notice, but a dispatched session's first prompt and a scheduled
-wake-up carry the same label as typed text, and about seven in eight turns so
-labelled on one machine were not the owner.
 
 #### Chosen: a pre-tool hook on the question tool that applies a narrow turn test
 
@@ -447,6 +468,8 @@ guard has to be present wherever shirabe's skills are.
 
 ### Decision 5: Where the procedure's shared logic lives in shirabe
 
+Resolved inline.
+
 Raising a question, passing it up, settling it, withdrawing it, answering it,
 listing what is pending and rendering a question for presentation are needed
 by three templates, the coordinator's scripts, `/decision`, the lightweight
@@ -454,8 +477,6 @@ protocol, the on-demand command and the guard. The requirements also ask that
 a waiting question be re-presented byte-for-byte, that a raised question be
 refused when a required part is missing or it exceeds 16 KiB, and that the
 prose rules stop living in several places.
-
-Resolved inline.
 
 #### Chosen: a `shirabe question` command family and one shared reference
 
@@ -499,6 +520,13 @@ A skill is the right wrapper only for the command a person types.
 
 ### Decision 6: How the owner is identified, where the owner's decision may be recorded, and what weight it carries
 
+Delegated to /decision. Two research agents read the repositories and about
+twelve weeks of session transcripts; four alternatives went through a
+bakeoff, a revision round and a cross-examination, and two reviewers
+abandoned their own alternatives. All four converged on everything below
+except whether to replace the planned root test now. They split two against
+two and the author ruled: replace it now.
+
 The read of what is open for a person matches a handle exactly, so every
 session has to name the workspace's one owner the same way. Today nothing
 does: coordinator records name the owner in free text in four spellings or by
@@ -508,13 +536,6 @@ the owner answer in any session with no ratifying step, while a planned
 design for standing rules counts a rule as the owner's only when the decision
 behind it was entered at a root coordinator. That test is unbuilt, and that
 design names it as the one thing to replace if the owner may speak elsewhere.
-
-Delegated to /decision. Two research agents read the repositories and about
-twelve weeks of session transcripts; four alternatives went through a
-bakeoff, a revision round and a cross-examination, and two reviewers
-abandoned their own alternatives. All four converged on everything below
-except whether to replace the planned root test now. They split two against
-two and the author ruled: replace it now.
 
 Key assumptions:
 
@@ -736,21 +757,30 @@ decide when those run. Nothing above koto stores a question, and nothing but
 - A fourth write-once area, `koto/packets/<decision-id>`, holds the content
   bytes, capped at 16 KiB.
 - Two new kinds: `readdress` (outcome `passed`) and `answer` (outcomes
-  `answered`, `settled`, `withdrawn`).
-- Verification of a person's answer. An `answer` by a person decider names
-  the question-tool call the person answered. koto reads the harness's record
-  of that call for the session the answer is recorded in and refuses the entry
-  unless the call exists, is the question tool, shows the stored question's
-  text and option labels exactly, carries the question's identity, holds a
-  result from the user, and has not been cited by an earlier answer. koto
-  takes the answer text from the call's result itself; the caller does not
-  supply it. An accepted entry carries the evidence with koto's observed mark
-  that it was verified, and every read returns that mark. If the harness's
-  record has a shape koto does not recognize, koto refuses the answer. koto refuses an
-  `answer` by a person with no such evidence. Both are stored under
+  `answered`, `settled`, `withdrawn`). Both are stored under
   `koto/aimed/<raiser-session-id>/` in the acting session or anchor; the aimed
   area, which today accepts only reversals, accepts them. A reversal of either
   is refused. Statuses are unchanged.
+- Verification of a person's answer. An `answer` by a person decider names
+  the question-tool call the person answered and which of that call's
+  questions it is, since one call can ask up to four. koto reads the harness's
+  record of that call for the session the answer is recorded in and refuses
+  the entry unless the call exists, is the question tool, its question at that
+  position has the stored question's `question` text and its options' `label`
+  texts byte for byte, the position carries the question's identity, the
+  result came from the user, and no earlier answer cites the same call and
+  position. koto takes the answer text from the call's result at that
+  position; the caller does not supply it. An accepted entry carries the
+  evidence with koto's observed mark that it was verified, and every read
+  returns that mark. If the harness's record has a shape koto does not
+  recognize, koto refuses the answer, and it refuses an `answer` by a person
+  with no such evidence. The mark counts as verified only when read from a
+  session this machine created. An entry in a session that arrived here by
+  import or by a pull from shared storage reads as a remote session's answer
+  whatever its mark says, and koto already records which sessions arrived
+  that way.
+- A session may hold at most twenty open questions addressed to a person;
+  koto refuses the next `escalate`.
 - Read-time resolution of the current addressee, of open, and of the answer in
   effect, as Decision 1 sets out.
 - Reads: open questions at and below a session or anchor; open questions for a
@@ -761,8 +791,9 @@ decide when those run. Nothing above koto stores a question, and nothing but
   open question or an answer it has not cited, reporting answers in a
   `questions` array on every response including a terminal one. It writes
   nothing, makes no network request and never blocks.
-- A ring of the asker's wake file when an answer, settle or withdrawal is
-  recorded.
+- A ring of the asker's wake file when an answer, settle or withdrawal that
+  counts is recorded. The ring is koto's existing touch of the per-session
+  wake file and carries no content.
 - Retention: a session holding an open question is kept; an aimed entry links
   its holder to the question's session. `koto session cleanup` refuses a
   session holding an open question or the answer in effect for one unless
@@ -775,7 +806,7 @@ decide when those run. Nothing above koto stores a question, and nothing but
 
 | Subcommand | Does |
 |------------|------|
-| `raise` | Validates content (context, problem, question, recommendation with reason, alternatives with reasons, ground, waiting work items, label, optional standing mark, optional dependency on another question), refuses a missing part, content over 16 KiB, content matching known secret patterns, a dependency cycle, or a twenty-first open question addressed to a person from the same session; works out the addressee from `koto session origin` (a session dispatcher, else `person:owner`, marking an unrecorded link); writes the content and the `escalate` entry. A need takes a kind and what is needed in place of options; a credential need names the credential and never holds its value. |
+| `raise` | Validates content (context, problem, question, recommendation with reason, alternatives with reasons, ground, waiting work items, label, optional standing mark, optional dependency on another question), refuses a missing part, content over 16 KiB, content matching known secret patterns, or a dependency cycle (koto refuses a twenty-first open question addressed to a person from the same session); refuses a decision question that has no recorded undecided attempt behind it; works out the addressee from `koto session origin` (a session dispatcher, else `person:owner`, marking an unrecorded link); writes the content and the `escalate` entry. A need takes a kind and what is needed in place of options; a credential need names the credential and never holds its value. |
 | `attempt` | Records that a decision was attempted for a state and visit, with its outcome: an option chosen, or undecided. It writes a `judgment` with `state` and `result`, which is what the gates read. |
 | `pass-up` | Records a `readdress` to the session's own dispatcher or to `person:owner`, with the ground relied on; refused without a recorded attempt unless the question is a need. |
 | `settle` | For a question addressed to this session, writes an `answer` with outcome `answered` and a session decider. For the raiser's own question, writes an `answer` with outcome `settled`, citing an earlier answer or evidence. A provisional decision on a contested call that raised no question is a `judgment` with `result` `provisional`, carrying the cheap-or-costly judgment in its text. |
@@ -810,8 +841,9 @@ attempts and questions through `shirabe question`. Each template's result map
 gains a `question` field carrying the identity. A run that ended at the
 waiting terminal is resumed by invoking the skill again: the new session
 continues the waiting one through koto's existing succession, so its first
-`koto next` reports the answer to the predecessor's question, and it re-enters
-the state the question was raised from.
+`koto next` reports the answer to the predecessor's question. The template's
+resume routing reads the `state` recorded on that question and enters that
+state, where the session records what it did with the answer and carries on.
 
 **shirabe: the coordinator**
 
@@ -853,11 +885,18 @@ that order with no insignificant whitespace, so the same question always
 hashes and renders the same. The format is fixed at the first release, since
 restore compares bytes.
 
-**The prompt pointer**: the harness session id and the question tool's call
-id, handed to koto with the `answer`. koto resolves it to the harness's record
-of the call, verifies it, and stores it with its verified mark. `render` puts
-the question's identity into the prompt so koto can match the call to the
-question. Nothing else resolves the pointer afterward.
+**The prompt pointer**: the harness session id, the question tool's call id
+and the position of the question within that call, handed to koto with the
+`answer`. koto resolves it to the harness's record of the call, verifies it,
+and stores it with its verified mark. `render` puts each question's identity
+into its position in the prompt, and emits the stored `question` text and
+option `label` texts unchanged, so koto can compare them byte for byte without
+calling the renderer. `raise` is what makes that possible: it refuses a
+`question` text or an option `label` that exceeds the prompt's limits or
+contains control characters, so `render` never has to alter them. The longer
+fields (context, problem, reasons) are laid out by `render`, may be shortened
+for display, and are not part of the comparison. Nothing else resolves the
+pointer afterward.
 
 **Gate contract** for `decide_first`: exit 0 when the outcome submitted
 matches the record (a chosen option for `decided`; an undecided attempt plus
@@ -1048,7 +1087,10 @@ labelled as observed by koto and not handed in by the caller. Because the
 check is in koto, a caller that bypasses `shirabe` meets it too. On the
 machine where koto verified it, readers rely on the mark and none re-opens the
 evidence. On another machine the entry is read as a remote session's answer:
-it does not read as the owner's, so a rule citing it grants nothing there. A
+it does not read as the owner's, so a rule citing it grants nothing there. koto decides
+that from where the session came from, not from the entry: only a session
+this machine created can hold a mark that reads as verified, and a session
+that arrived by import or by a pull from shared storage is read as remote. A
 forged entry therefore cannot borrow the owner's authority by being copied to
 a machine that cannot check it. Residual risk, which is the trust root the author
 named: koto verifies that the user answered that prompt with that content in
@@ -1057,8 +1099,22 @@ machine can answer a prompt; and a session runs as the same user as the
 harness, so an agent following injected instructions could write koto's files
 without going through koto, write to the shared store koto syncs with, or add
 a forged call to the harness's record before koto reads it. None of those is
-caught. A change in the harness's record format fails closed: koto refuses
-answers until it is taught the new shape.
+caught. That only the owner can produce a user result for a question prompt
+in an attended session is assumed and not tested: a harness mode that
+answers prompts automatically, a hook, or a sub-agent able to answer one
+would each produce a result koto accepts. The harness's record of a call is
+the only root of the owner's authority and its format is not a documented
+contract; a change in it fails closed, and koto refuses answers until it is
+taught the new shape. koto's refusal messages name the check that failed and
+never repeat content from the harness's record.
+
+**The owner misled by a prompt's wording.** A session writes the question and
+its options, and the owner's choice binds to those words. For an ordinary
+question the reach is the work waiting on it. For a question marked as
+standing it is every session that later cites the rule, so `raise` refuses a
+standing question whose text, options or reasons would not fit the prompt
+unshortened, and `render` never shortens one. That the owner reads what they
+choose remains the control.
 
 **Acting on another session's question.** Rules are enforced by koto when it
 resolves a question, not only by the command that writes. A pass-up counts
@@ -1071,14 +1127,21 @@ question is addressed to a person, only by citing an answer of the owner's
 that is in effect and carries the same subject label; for a question addressed
 to a session it must cite a decision or a recorded workflow event. It cannot settle a credential or reserved-step need at all.
 The standing mark is part of the question's content, fixed when it is raised,
-so no later entry can add it.
+so no later entry can add it. A session that is a question's addressee could
+pass it to a person handle other than the owner's and so take it off the
+owner's list; koto accepts any handle, so `pending` flags every open question
+addressed to a person other than `owner`, and the question still appears in
+the by-position read of every coordinator above its raiser.
 
 **Untrusted text.** A question's content, label, reasons and answers are
 written by agents and may quote repository or issue text. `render` treats them
-as data: it emits them into fixed positions of a fixed layout, truncates to
-the prompt's limits, strips control characters, and never interprets markup or
-instructions in them. The procedure tells a session reading a question or an
-answer that the text is data. Gate scripts pass identities and states as
+as data: it emits them into fixed positions of a fixed layout and never
+interprets markup or instructions in them. The question text and option
+labels were checked for length and control characters when the question was
+raised and are emitted unchanged; the longer display fields are shortened to
+the prompt's limits and stripped of control characters. The procedure tells a session reading a question or an
+answer that the text is data, and the answers `koto next` reports are
+labelled as data in its response. Gate scripts pass identities and states as
 arguments and never evaluate record content. Identities, sizes and shapes are
 validated on read as well as on write, because session state synced from
 shared storage is an input: a content hash that does not match reads as a
@@ -1093,19 +1156,23 @@ write-once, so a secret that gets through cannot be edited out: the remedy is
 removing the session, which the cleanup command allows with its force flag,
 and rotating the secret. Removal does not reach copies already synced to
 shared storage, so rotation is the remedy that counts. A question raised from a private repository may quote
-private material; it stays in session state, which has the same visibility as
-the rest of that session, and no part of this feature copies question content
-into a public pull request or issue.
+private material; it stays in session state, which every session on the machine can read, as
+it can read the rest of that session's decisions, and no part of this feature
+copies question content into a public pull request or issue.
 
 **The guard.** The hook reads only the fields of its input it needs and, if it
 reads the transcript, opens the one path the harness named, read-only, after
-checking it lies under the harness's own directory. It denies only the question
+checking it lies under the harness's own directory with symbolic links resolved, and
+takes the turn's origin only from the record's structured fields, never from
+message text. It denies only the question
 tool, fails open for every other tool, and has an off switch. A denied prompt
 costs a round trip; a wrongly allowed one can stop an unattended session, so
 where the turn's origin is unknown and the session is unattended it denies.
 
 **Flooding the owner.** A session may hold at most twenty open questions
-addressed to a person; `raise` refuses the next one and names the limit. The
+addressed to a person; koto refuses the next one, so the limit holds for a
+caller that bypasses `shirabe` too. It is a limit per session, not across
+sessions. The
 count of waiting work items that orders the list is supplied by the raiser as
 work item identifiers, which a reader can check exist, but it can be inflated;
 ordering affects only what the owner sees first, never what is asked.
