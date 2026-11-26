@@ -513,6 +513,29 @@ surface_node_note() {
     log_warn "finalize-chain note on $target: $note"
 }
 
+# Print the detail for a transition node the retirement guard blocked.
+#
+# finalize-chain marks such a node `blocked: true` and applies nothing to it.
+# The detail names the blockers from `blocked_by` (path and status, as the
+# engine read them). A block from a path that could not be canonicalized has
+# no referrer to name, so the engine's own note stands in, and a fixed sentence
+# covers a report that carried neither.
+blocked_node_detail() {
+    local index="$1"
+    local note="$2"
+    local blockers
+    blockers=$(jq -r --argjson i "$index" \
+        '[(.nodes[$i].blocked_by // [])[] | "\(.path) (status: \(.status))"] | join(", ")' \
+        <<< "$FINALIZE_OUT")
+    if [[ -n "$blockers" ]]; then
+        printf 'not transitioned: the retirement guard blocked it; blocked by %s' "$blockers"
+    elif [[ -n "$note" ]]; then
+        printf 'not transitioned: the retirement guard blocked it; %s' "$note"
+    else
+        printf 'not transitioned: finalize-chain reported the node blocked and named no blocker'
+    fi
+}
+
 emit_result() {
     local cascade_status="$1"
     local steps_array="[$STEPS_JSON]"
@@ -1151,11 +1174,24 @@ if [[ "$FINALIZE_RC" -eq 0 ]]; then
         target=$(jq -r ".nodes[$i].path" <<< "$FINALIZE_OUT")
         new_path=$(jq -r ".nodes[$i].new_path // empty" <<< "$FINALIZE_OUT")
         note=$(jq -r ".nodes[$i].note // empty" <<< "$FINALIZE_OUT")
+        blocked=$(jq -r ".nodes[$i].blocked // false" <<< "$FINALIZE_OUT")
 
         # The effective on-disk path after this node (post-move for a DESIGN).
         effective_path="$target"
         if [[ -n "$new_path" ]]; then
             effective_path="$new_path"
+        fi
+
+        # A transition node the retirement guard blocked was left in place:
+        # nothing was applied to it. Its step is `skipped`, the design's status
+        # for a step deferred on state the cascade does not control (here, a
+        # document that still names the node). It is not `failed`, so it leaves
+        # ANY_FAILED alone and cascade_status follows the usual rule.
+        step_status="ok"
+        step_detail="$note"
+        if [[ "$blocked" == "true" ]]; then
+            step_status="skipped"
+            step_detail=$(blocked_node_detail "$i" "$note")
         fi
 
         case "$action" in
@@ -1167,19 +1203,19 @@ if [[ "$FINALIZE_RC" -eq 0 ]]; then
                 STAGED_FILES+=("$effective_path")
                 CASCADE_DESIGN_PATH="$effective_path"
                 surface_node_note "$target" "$note"
-                add_step "transition_design" "$target" "$prev_path" "ok" "$note"
+                add_step "transition_design" "$target" "$prev_path" "$step_status" "$step_detail"
                 ;;
             transition_prd)
                 git add "$target" 2>/dev/null || true
                 STAGED_FILES+=("$target")
                 surface_node_note "$target" "$note"
-                add_step "transition_prd" "$target" "$prev_path" "ok" "$note"
+                add_step "transition_prd" "$target" "$prev_path" "$step_status" "$step_detail"
                 ;;
             transition_brief)
                 git add "$target" 2>/dev/null || true
                 STAGED_FILES+=("$target")
                 surface_node_note "$target" "$note"
-                add_step "transition_brief" "$target" "$prev_path" "ok" "$note"
+                add_step "transition_brief" "$target" "$prev_path" "$step_status" "$step_detail"
                 ;;
             roadmap_handoff)
                 # Record the node and run the handler AFTER the loop, not here.

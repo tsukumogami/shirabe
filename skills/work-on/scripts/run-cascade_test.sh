@@ -1553,9 +1553,10 @@ scenario_blocked_node_recorded_skipped() {
         "the blocked node's step is skipped" || ok=false
 
     # The detail names the blocker from blocked_by: the sibling PLAN and the
-    # status it was read at.
+    # status it was read at. The engine's note says "still named as upstream
+    # by", so "blocked by" pins the detail to the blocked_by list.
     assert_json "$scenario" "$output" \
-        '[.steps[] | select(.action == "transition_design")][0].detail | test("PLAN-cascade-test-sibling\\.md \\(status: [A-Za-z]+\\)")' \
+        '[.steps[] | select(.action == "transition_design")][0].detail | test("blocked by docs/plans/PLAN-cascade-test-sibling\\.md \\(status: [A-Za-z]+\\)")' \
         "the skipped step's detail names the blocking document and its status" || ok=false
 
     # A skip never makes the run partial (DESIGN-completion-cascade.md): no step
@@ -2005,8 +2006,8 @@ scenario_push_blocked_design() {
     # Two single-pr PLANs naming one DESIGN. Cascading the first leaves the
     # second still pointing at the DESIGN, so finalize-chain's retirement guard
     # blocks the node: it comes back action transition_design with blocked true
-    # and no new_path, the script records the step as "ok" because it reads
-    # neither field, and the DESIGN stays at Planned in docs/designs/.
+    # and no new_path, the script records the step as "skipped" (see the #355
+    # scenario), and the DESIGN stays at Planned in docs/designs/.
     #
     # This is the case the guard exists for, and the case a post-verify seeded
     # on the deleted PLAN could never catch: the un-moved DESIGN survives, so an
