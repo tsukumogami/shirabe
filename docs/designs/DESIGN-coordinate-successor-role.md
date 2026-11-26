@@ -978,8 +978,10 @@ None of these blocks the PRD's acceptance criteria.
   `reconcile-settle.sh --successor` takes the run's successor lock before
   it settles, writing nothing when another process holds it. The exit-12
   refusal and the report's line share one sentence from a new
-  `dc_successor_pending_msg` in `dispatch-common.sh`, which names the
-  `--successor` command to run again for a `dispatching` row. The
+  `dc_successor_pending_msg` in `dispatch-common.sh`. When the listing
+  couldn't be read, it says so and says whether the session is live isn't
+  known, rather than reading as a live successor; for an unlisted
+  `dispatching` row it names the `--successor` command to run again. The
   template's compat is 3, raised by a change outside this design, so each
   phase re-records `gate_scripts` at compat 3 where the sections above
   say 2.
