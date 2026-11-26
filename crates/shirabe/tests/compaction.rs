@@ -3,8 +3,8 @@
 //! outputs for a session with no usable entry.
 //!
 //! Every run clears the environment and puts only stand-ins on `PATH`: a koto
-//! stub that answers `context history`, `context list`, `status` and
-//! `session dir` from files under `$KOTO_STUB` (it never touches a koto
+//! stub that answers `context history`, `context list`, `status`,
+//! `session dir` and `session hierarchy` from files under `$KOTO_STUB` (it never touches a koto
 //! store; the session directory it names holds a fixture event log), a `gh` stub that
 //! logs each call, and a `git` wrapper that logs its arguments (and, in a
 //! second log, its `GIT_NO_LAZY_FETCH` and `GIT_ALLOW_PROTOCOL`) and runs the
@@ -171,18 +171,32 @@ exec '{}' \"$@\"\n",
             .join(format!("koto-{KS}.state.jsonl"))
     }
 
-    /// Write the run's event log: a header line, then one line per event.
+    /// Write the run's event log: a header line naming the fixture
+    /// repository as the run's execution directory, as koto records it, then
+    /// one line per event.
     fn events(&self, lines: &[String]) {
-        let mut body = format!(
-            "{}\n",
-            serde_json::json!({"schema_version": 1, "workflow": KS, "template_hash": "00",
-                "created_at": "2026-06-01T10:00:00.000Z"})
-        );
+        self.run_log(KS, Some(&self.p("repo").display().to_string()), lines);
+    }
+
+    /// Write the event log of koto session `ks`, in the directory the koto
+    /// stub names for every session: a header with `exec_dir` as its
+    /// `execution_dir` (none when `None`), then one line per event.
+    fn run_log(&self, ks: &str, exec_dir: Option<&str>, lines: &[String]) {
+        let mut header = serde_json::json!({"schema_version": 1, "workflow": ks,
+            "template_hash": "00", "created_at": "2026-06-01T10:00:00.000Z"});
+        if let Some(d) = exec_dir {
+            header["execution_dir"] = serde_json::json!(d);
+        }
+        let mut body = format!("{header}\n");
         for l in lines {
             body.push_str(l);
             body.push('\n');
         }
-        fs::write(self.log_path(), body).unwrap();
+        let path = self
+            .p("sessions")
+            .join(KS)
+            .join(format!("koto-{ks}.state.jsonl"));
+        fs::write(path, body).unwrap();
     }
 
     /// Append events to the run's log.
@@ -1312,6 +1326,367 @@ held-by link names the session's anchor";
     assert!(pc.contains(&format!("koto session: {KS}")), "{why}: {pc}");
     let ctx = context_of(&fx.run("re-anchor", "repo"));
     assert!(ctx.contains(&format!("koto status {KS}")), "{why}: {ctx}");
+}
+
+/// A session with no ledger entry whose anchor's hierarchy is `hierarchy`.
+fn no_entry_with(hierarchy: &str) -> Fx {
+    let fx = Fx::new();
+    fs::remove_file(fx.entry_path()).unwrap();
+    fs::write(fx.p("stub/hierarchy"), hierarchy).unwrap();
+    fx
+}
+
+/// One hierarchy member.
+fn member(kind: &str, name: &str, alive: bool, links: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({"kind": kind, "name": name, "alive": alive, "joined_by": links})
+}
+
+fn held_by(holder: &str, anchor: &str) -> serde_json::Value {
+    serde_json::json!([{"holder": holder, "named": anchor, "target": anchor, "via": "held-by link"}])
+}
+
+fn hierarchy_of(members: Vec<serde_json::Value>) -> String {
+    serde_json::json!({"session": format!("anchor-{SID}"), "members": members}).to_string()
+}
+
+/// Both hooks, from the other repository, print the no-entry outputs and
+/// name no run.
+fn assert_generic(fx: &Fx, env: &[(&str, &str)], why: &str) {
+    let path = ["kbin", "bin", "tools"];
+    let pc = fx.run_with("pre-compact", "other", &path, &fx.input(), env);
+    let ra = fx.run_with("re-anchor", "other", &path, &fx.input(), env);
+    let repo = fx.p("repo").display().to_string();
+    for text in [
+        KS,
+        "other-run",
+        BRANCH,
+        repo.as_str(),
+        "held-by link",
+        "worktree:",
+    ] {
+        assert!(
+            !pc.contains(text),
+            "{why}: pre-compact printed {text}: {pc}"
+        );
+        assert!(!ra.contains(text), "{why}: re-anchor printed {text}: {ra}");
+    }
+    assert!(pc.contains("No compaction note is recorded"), "{why}: {pc}");
+    assert!(
+        pc.contains(&format!("- branch: {OTHER_BRANCH}")),
+        "{why}: {pc}"
+    );
+    assert!(
+        context_of(&ra)
+            .starts_with("This session was just compacted, and no compaction note is recorded"),
+        "{why}: {ra}"
+    );
+}
+
+#[test]
+fn no_entry_names_the_anchored_run_its_worktree_the_live_branch_and_the_note() {
+    let fx = no_entry_with(&hierarchy_holding(&[KS]));
+    let repo = fx.p("repo").display().to_string();
+    let pc = fx.run("pre-compact", "other");
+    for want in [
+        format!("- koto session: {KS}"),
+        format!("- worktree: {repo}"),
+        format!("- branch: {BRANCH}"),
+        "- pull request: none recorded".to_string(),
+        format!("- compaction note: key compaction/note.md in koto session {KS}"),
+    ] {
+        assert!(pc.contains(&want), "missing {want}: {pc}");
+    }
+    assert!(!pc.contains(OTHER_BRANCH), "{pc}");
+    assert!(!pc.contains(STALE) && !pc.contains(UNKNOWN), "{pc}");
+    let ra = fx.run("re-anchor", "other");
+    assert!(ra.chars().count() < 10_000);
+    assert!(!ra.contains(INPUT_MARKER));
+    let ctx = context_of(&ra);
+    for want in [
+        FRESH.to_string(),
+        format!("koto session {KS}, in worktree {repo}"),
+        format!("run `koto status {KS}`"),
+        format!("handoff-brief.sh read --note --session {KS}"),
+        format!("on branch {BRANCH}."),
+    ] {
+        assert!(ctx.contains(&want), "missing {want}: {ctx}");
+    }
+    assert!(
+        !ctx.contains(OTHER_BRANCH) && !ctx.contains(REWRITE),
+        "{ctx}"
+    );
+    // The branch is read live in the worktree, not taken from anywhere.
+    fx.git_ok("repo", &["checkout", "-q", "-b", "moved/on"]);
+    assert!(fx
+        .run("pre-compact", "other")
+        .contains("- branch: moved/on"));
+}
+
+#[test]
+fn an_anchored_run_with_a_stale_note_gets_the_stale_line_and_the_rewrite() {
+    let fx = no_entry_with(&hierarchy_holding(&[KS]));
+    fx.commit("repo", AFTER_NOTE);
+    assert_eq!(fx.pre_compact().matches(STALE).count(), 1);
+    let ctx = context_of(&fx.run("re-anchor", "other"));
+    assert!(ctx.contains(STALE) && ctx.contains(REWRITE), "{ctx}");
+}
+
+#[test]
+fn an_anchored_run_with_no_note_says_so_and_points_at_none() {
+    let fx = no_entry_with(&hierarchy_holding(&[KS]));
+    fx.list(&["brief/brief.md"]);
+    let pc = fx.run("pre-compact", "other");
+    assert!(pc.contains(&format!("- koto session: {KS}")), "{pc}");
+    assert!(
+        pc.contains(&format!(
+            "- compaction note: none recorded in koto session {KS}"
+        )),
+        "{pc}"
+    );
+    assert!(!pc.contains("key compaction/note.md"), "{pc}");
+    assert!(!pc.contains(STALE) && !pc.contains(UNKNOWN), "{pc}");
+    let ctx = context_of(&fx.run("re-anchor", "other"));
+    assert!(
+        ctx.contains("That run has no compaction note recorded."),
+        "{ctx}"
+    );
+    assert!(ctx.contains(&format!("koto status {KS}")), "{ctx}");
+    for text in ["read --note", REWRITE, FRESH, UNKNOWN] {
+        assert!(!ctx.contains(text), "printed {text}: {ctx}");
+    }
+    // With no note there is no freshness to read.
+    let log = fs::read_to_string(fx.p("stub/log")).unwrap();
+    assert!(!log.contains("context history"), "{log}");
+}
+
+#[test]
+fn a_run_with_no_held_by_link_to_the_anchor_is_never_named() {
+    let anchor = format!("anchor-{SID}");
+    let other_anchor = "anchor-0000aaaa-0720-4fdd-ab29-5f0583eb2031";
+    let link = |via: &str, holder: &str, named: &str| serde_json::json!([{"holder": holder, "named": named, "target": named, "via": via}]);
+    let cases: Vec<(&str, serde_json::Value)> = vec![
+        (
+            "no link at all",
+            member("koto_session", KS, true, serde_json::json!([])),
+        ),
+        (
+            "another route",
+            member("koto_session", KS, true, link("parent link", KS, &anchor)),
+        ),
+        (
+            "held by another anchor",
+            member("koto_session", KS, true, held_by(KS, other_anchor)),
+        ),
+        (
+            "held through another holder",
+            member("koto_session", KS, true, held_by("other-run", &anchor)),
+        ),
+        (
+            "not alive",
+            member("koto_session", KS, false, held_by(KS, &anchor)),
+        ),
+        (
+            "not a koto session",
+            member("anchor_close", KS, true, held_by(KS, &anchor)),
+        ),
+        (
+            "a name outside koto's grammar",
+            member("koto_session", "../x", true, held_by("../x", &anchor)),
+        ),
+    ];
+    for (why, m) in cases {
+        let fx = no_entry_with(&hierarchy_of(vec![
+            member("anchor", &anchor, true, serde_json::json!([])),
+            m,
+        ]));
+        assert_generic(&fx, &[], why);
+    }
+}
+
+#[test]
+fn two_runs_held_by_the_anchor_name_neither() {
+    let anchor = format!("anchor-{SID}");
+    let fx = no_entry_with(&hierarchy_holding(&[KS, "other-run"]));
+    fx.run_log("other-run", Some(&fx.p("repo").display().to_string()), &[]);
+    assert_generic(&fx, &[], "two held runs");
+    // A run another anchor holds in the same tree is not this session's.
+    let fx = no_entry_with(&hierarchy_of(vec![
+        member("koto_session", KS, true, held_by(KS, &anchor)),
+        member(
+            "koto_session",
+            "other-run",
+            true,
+            held_by("other-run", "anchor-elsewhere"),
+        ),
+    ]));
+    let pc = fx.run("pre-compact", "other");
+    assert!(pc.contains(&format!("- koto session: {KS}")), "{pc}");
+    assert!(!pc.contains("other-run"), "{pc}");
+}
+
+#[test]
+fn a_hierarchy_that_fails_or_is_malformed_gives_the_generic_text() {
+    for (why, body) in [
+        ("not JSON", "not json"),
+        ("no members array", r#"{"members": 7}"#),
+        ("an array", "[]"),
+    ] {
+        assert_generic(&no_entry_with(body), &[], why);
+    }
+    // koto fails the call (the stub exits 2 with no fixture).
+    let fx = no_entry_with("");
+    fs::remove_file(fx.p("stub/hierarchy")).unwrap();
+    assert_generic(&fx, &[], "hierarchy call fails");
+}
+
+#[test]
+fn a_hierarchy_that_hangs_is_cut_off_and_gives_the_generic_text() {
+    let fx = no_entry_with(&hierarchy_holding(&[KS]));
+    fs::write(fx.p("stub/slow"), "").unwrap();
+    let t = Instant::now();
+    let pc = fx.run("pre-compact", "other");
+    assert!(pc.contains(&format!("- branch: {OTHER_BRANCH}")), "{pc}");
+    assert!(!pc.contains(KS), "{pc}");
+    let ra = fx.run("re-anchor", "other");
+    assert!(!ra.contains(KS), "{ra}");
+    assert!(t.elapsed().as_secs() < 30, "took {:?}", t.elapsed());
+}
+
+#[test]
+fn a_recorded_entry_wins_over_the_anchored_run() {
+    let anchor = format!("anchor-{SID}");
+    let fx = Fx::new();
+    fs::write(
+        fx.p("stub/hierarchy"),
+        hierarchy_of(vec![member(
+            "koto_session",
+            "other-run",
+            true,
+            held_by("other-run", &anchor),
+        )]),
+    )
+    .unwrap();
+    let pc = fx.pre_compact();
+    for want in [KS, PR, SKILL] {
+        assert!(pc.contains(want), "missing {want}: {pc}");
+    }
+    assert!(
+        !pc.contains("other-run") && !pc.contains("worktree:"),
+        "{pc}"
+    );
+    let ctx = context_of(&fx.run("re-anchor", "repo"));
+    assert!(ctx.contains(SKILL) && !ctx.contains("other-run"), "{ctx}");
+    assert!(
+        !fx.p("stub/log").exists()
+            || !fs::read_to_string(fx.p("stub/log"))
+                .unwrap()
+                .contains("hierarchy")
+    );
+}
+
+#[test]
+fn a_refused_entry_takes_the_anchored_run_and_prints_none_of_the_entry() {
+    let anchor = format!("anchor-{SID}");
+    let fx = Fx::new();
+    fs::set_permissions(fx.entry_path(), fs::Permissions::from_mode(0o644)).unwrap();
+    fs::write(
+        fx.p("stub/hierarchy"),
+        hierarchy_of(vec![member(
+            "koto_session",
+            "held-run",
+            true,
+            held_by("held-run", &anchor),
+        )]),
+    )
+    .unwrap();
+    fx.run_log("held-run", Some(&fx.p("other").display().to_string()), &[]);
+    let pc = fx.run("pre-compact", "repo");
+    let ra = fx.run("re-anchor", "repo");
+    assert!(pc.contains("- koto session: held-run"), "{pc}");
+    assert!(pc.contains(&format!("- branch: {OTHER_BRANCH}")), "{pc}");
+    assert!(context_of(&ra).contains("koto status held-run"), "{ra}");
+    for text in [
+        KS,
+        PR,
+        SKILL,
+        BRANCH,
+        "shirabe:deliver handoff-brief",
+        INPUT_MARKER,
+    ] {
+        assert!(!pc.contains(text), "pre-compact printed {text}: {pc}");
+        assert!(!ra.contains(text), "re-anchor printed {text}: {ra}");
+    }
+}
+
+#[test]
+fn a_bad_execution_dir_gives_the_generic_text() {
+    for (why, dir) in [
+        ("no execution_dir", None),
+        ("a relative path", Some("repo".to_string())),
+        ("a control character", Some("/tmp/a\u{7}b".to_string())),
+        (
+            "a missing directory",
+            Some("/nonexistent/compaction-run".to_string()),
+        ),
+    ] {
+        let fx = no_entry_with(&hierarchy_holding(&[KS]));
+        fx.run_log(KS, dir.as_deref(), &[]);
+        assert_generic(&fx, &[], why);
+    }
+    // Not a work tree, and a link to one.
+    let fx = no_entry_with(&hierarchy_holding(&[KS]));
+    fx.run_log(KS, Some(&fx.p("plain").display().to_string()), &[]);
+    assert_generic(&fx, &[], "not a work tree");
+    let fx = no_entry_with(&hierarchy_holding(&[KS]));
+    std::os::unix::fs::symlink(fx.p("repo"), fx.p("repo-link")).unwrap();
+    fx.run_log(KS, Some(&fx.p("repo-link").display().to_string()), &[]);
+    assert_generic(&fx, &[], "a link to a work tree");
+}
+
+#[test]
+fn the_latest_rebind_moves_the_execution_dir() {
+    let rebound = |to: &Path| {
+        ev_with(
+            6,
+            "execution_anchor_rebound",
+            serde_json::json!({"from": "/x", "to": to.display().to_string()}),
+        )
+    };
+    // The header names a plain directory; a rebind moved the run to the repo.
+    let fx = no_entry_with(&hierarchy_holding(&[KS]));
+    fx.run_log(
+        KS,
+        Some(&fx.p("plain").display().to_string()),
+        &[ev(5, "context_added"), rebound(&fx.p("repo"))],
+    );
+    let pc = fx.run("pre-compact", "other");
+    assert!(
+        pc.contains(&format!("- worktree: {}", fx.p("repo").display())),
+        "{pc}"
+    );
+    assert!(pc.contains(&format!("- branch: {BRANCH}")), "{pc}");
+    // A later rebind away from a work tree wins over the header.
+    let fx = no_entry_with(&hierarchy_holding(&[KS]));
+    fx.add_events(&[rebound(&fx.p("plain"))]);
+    assert_generic(&fx, &[], "rebound to a plain directory");
+}
+
+#[test]
+fn an_anchored_run_for_another_koto_session_is_not_named() {
+    let fx = no_entry_with(&hierarchy_holding(&[KS]));
+    assert_generic(
+        &fx,
+        &[("KOTO_SESSION", "someone-else")],
+        "KOTO_SESSION mismatch",
+    );
+    let out = fx.run_with(
+        "pre-compact",
+        "other",
+        &["kbin", "bin", "tools"],
+        &fx.input(),
+        &[("KOTO_SESSION", KS)],
+    );
+    assert!(out.contains(&format!("- koto session: {KS}")), "{out}");
 }
 
 #[test]
