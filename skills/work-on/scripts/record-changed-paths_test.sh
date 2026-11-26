@@ -327,6 +327,27 @@ else
     fail "a merge of main after impl_base: base is [$base_line], impl_base $ibase"
 fi
 
+# The same merge, then origin/main is replaced by a commit that shares no
+# history with HEAD: the default branch falls back to local main, which holds
+# the merged-in commit, and the merge is still folded (#1715).
+fixture merged-orphan-origin
+commit_file sibling/one.md "sibling one"
+run --base s-orphan
+commit_file mine/before.go
+(cd "$FX/seed" && mkdir -p skills/x/koto-templates && seq 1 500 > skills/x/koto-templates/x.md \
+    && git add -A && git commit -q -m up && git push -q origin main) >/dev/null 2>&1
+(cd "$FX/repo" && git fetch -q origin && git merge -q --no-edit origin/main \
+    && git branch -f main origin/main \
+    && git update-ref refs/remotes/origin/main \
+        "$(git commit-tree -m orphan "$(git hash-object -t tree -w /dev/null)")") >/dev/null 2>&1
+commit_file mine/after.go
+run --write s-orphan
+if [ "$RC" -eq 0 ] && [ "$(path_lines)" = "$(printf 'A\tmine/after.go\nA\tmine/before.go')" ]; then
+    pass "an origin/main with no shared history: local main's merge is folded, only the run's paths listed"
+else
+    fail "an origin/main with no shared history: rc $RC, paths [$PATHS]"
+fi
+
 # origin/main moves but is never merged: the base is impl_base, as before.
 fixture main-unmerged
 run --base s-unmerged

@@ -253,6 +253,23 @@ bad_case "a verdict outside the set" "$(good merged-ish "" "" "" "")"
 bad_case "a pr that is not a PR URL" "$(good ready "" "" review "" | sed 's#^pr=.*#pr=https://evil.example/x#')"
 bad_case "a waiting entry with a bad role" "$(good ready "$U11:someone" "" review "")"
 bad_case "a resume that is not an /execute command" "$(good paused "$U11:human" "/deliver x.md" review "")"
+bad_case "a resume whose path holds a ;" "$(good paused "$U11:human" "/execute /ws+inst/docs/PLAN-t.md;x.md" review "")"
+bad_case "a resume whose path holds a \$(" "$(good paused "$U11:human" "/execute /ws+inst/\$(x)/PLAN-t.md" review "")"
+bad_case "a resume whose path holds a backtick" "$(good paused "$U11:human" "/execute /ws+inst/\`x\`/PLAN-t.md" review "")"
+bad_case "a resume whose path has a .. segment" "$(good paused "$U11:human" "/execute docs/../PLAN-t.md" review "")"
+
+# A niwa instance directory is named <workspace>+<instance>, so the resume
+# command for a PLAN under one holds a `+`.
+setup_case resume-plus
+ct_record_setup
+ct_write_db
+export VERDICT_OUT="$(good paused "$U11:human" "/execute /w/ws+inst/docs/plans/PLAN-t.md --merge" merge-not-requested "")"
+run_stub
+if [ "$RC" -eq 0 ] && [ "$(ctx_val resume)" = "/execute /w/ws+inst/docs/plans/PLAN-t.md --merge" ]; then
+    pass "a resume whose PLAN path holds a + is recorded"
+else
+    fail "a resume whose PLAN path holds a +: rc=$RC resume=[$(ctx_val resume)]"
+fi
 bad_case "a reason outside the condition set" "$(good ready "$U11:human" "" "because" "")"
 bad_case "a follow-up-closed reason that is not a URL" "$(good ready "$U11:human" "" "follow-up-closed:not-a-url" "")"
 bad_case "a step outside the step set" "$(good error "" "" "" "execute:whatever")"

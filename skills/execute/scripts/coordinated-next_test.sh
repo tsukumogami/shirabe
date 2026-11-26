@@ -252,6 +252,34 @@ out=$(run_next "$PLANDIR" --merge true)
 expect "nothing recorded" "dispatch:$CT_CORE" "$out"
 wrote_nothing "the fresh case"
 
+# A niwa instance directory is named <workspace>+<instance>, so the PLAN's
+# absolute path from any instance holds a `+`. It is read like any other path.
+ct_case plan-path-plus
+ct_record_setup
+ct_write_db
+PLUSDIR="$CT_WORK/ws+inst/plan"
+ct_plan "$PLUSDIR"
+out=$(cd "$GONEDIR" && bash "$NEXT" --session "$S" --plan "$PLUSDIR/docs/plans/PLAN-t.md" --slug "$CT_SLUG" \
+    --repos "acme/repo-a,acme/repo-b" --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge true 2>"$CASE/stderr")
+expect "an absolute --plan under a directory whose name holds a +" "dispatch:$CT_CORE" "$out"
+if grep -q 'holds a character outside' "$CASE/stderr"; then
+    fail "a + in the --plan path was refused: $(head -1 "$CASE/stderr")"
+else
+    pass "a + in the --plan path is not refused"
+fi
+# Shell metacharacters and .. segments are still refused, + or not.
+for bad in 'docs/plans/PLAN-t.md;x' 'docs/plans/$(x).md' 'docs/plans/PLAN t.md' 'docs/plans/`x`.md' \
+    'docs/plans/PLAN-t.md|x' 'docs/../plans/PLAN-t.md' '../plan/docs/plans/PLAN-t.md' \
+    "$PLUSDIR/../plan/docs/plans/PLAN-t.md" "$PLUSDIR/docs/plans/PLAN-t.md;x"; do
+    out=$(cd "$PLANDIR" && bash "$NEXT" --session "$S" --plan "$bad" --slug "$CT_SLUG" \
+        --repos "acme/repo-a,acme/repo-b" --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge true 2>/dev/null); rc=$?
+    if [ "$rc" -eq 64 ] && [ -z "$out" ]; then
+        pass "--plan [$bad] is a usage error"
+    else
+        fail "--plan [$bad]: rc=$rc out=[$out]"
+    fi
+done
+
 ct_case index-only
 ct_record_setup
 ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"

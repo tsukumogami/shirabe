@@ -486,8 +486,12 @@ existing `shirabe work-summary compact` SessionStart hook:
   keeps verbatim any owner words, ids and hashes still in play. It judges the
   note stale when the koto session's latest event seq is later than the seq of
   the note's last write, or the branch's newest commit time is later than that
-  write's timestamp. A stale note gets one more line: the note is stale, and
-  rewriting it is the first step after the compaction. Branch and pull
+  write's timestamp. koto's CLI prints no session-wide latest seq, so the
+  latest event that moved the work on is read from the run's event log, the
+  `koto-<session>.state.jsonl` in the directory `koto session dir` prints,
+  passing over reads, imports and keys a cloud sync copied in. A stale note
+  gets one more line: the note is stale, and rewriting it is the first step
+  after the compaction. Branch and pull
   request come from the ledger entry, which `note` filled at its last write;
   the hook makes no `gh` call. With no entry, it says no note is recorded and
   names the branch from `git` in the hook's working directory. The summary
@@ -498,7 +502,14 @@ existing `shirabe work-summary compact` SessionStart hook:
   `compact`, prints a short block as `additionalContext`. It lists the
   recorded `SKILL.md` paths to re-read, outermost first. It names the
   innermost koto session and says to run `koto status` on it, and names the
-  note key and the record to re-read before acting. It stays under 10,000
+  note key and the record to re-read before acting. It makes the same
+  freshness judgment and opens with the verdict, whichever it is: the note is
+  fresh, stale, or its freshness could not be checked. A stale note gets a
+  step right after reading it, to rewrite it before any other work. The
+  verdict rides here as well as in the summary because a summary needn't
+  repeat pre-compact's line, and a compaction can run without pre-compact at
+  all; the SessionStart output is the one place the compacted session is
+  sure to read. It stays under 10,000
   characters and never inlines the note or a skill. With no ledger entry, it
   prints a generic line. That line says to work out the skill from the koto
   session's name prefix (`deliver-`, `scope-`, `coordinate-`) and re-read its
@@ -672,7 +683,7 @@ today's successor route.
 | Closing step | shirabe `scripts/closing-step.sh` | stray and push checks before the brief |
 | Context reader | shirabe `scripts/context-size.sh` | size after the latest boundary, boundaries and turns, window in force |
 | Thrash check | shirabe `scripts/thrash-check.sh` | can't continue, from the reader's report |
-| Compaction hooks | shirabe binary `shirabe compaction pre-compact`, `shirabe compaction re-anchor` | summary instruction and stale flag; re-anchor line |
+| Compaction hooks | shirabe binary `shirabe compaction pre-compact`, `shirabe compaction re-anchor` | summary instruction and stale flag; re-anchor line with the freshness verdict |
 | Window value | niwa `[session.dispatch_profiles.<name>] auto_compact_window`, `[session] default_dispatch_profile` | the window in a dispatched session's launch settings |
 | Reference | shirabe `references/handoff-brief.md` | limits, format, the keep record's format and how a workspace opts into it, the window setting, installing the hooks, setting the window without niwa |
 
@@ -1056,3 +1067,10 @@ reference states each.
   tree. The stale flag must work for a session rooted outside the repository,
   which is how dispatched workers run; read from the hook's working directory
   alone, such a session's branch input could never be checked.
+- 2026-11-25: The stale judgment reads the run's event log for its latest
+  event, and the re-anchor carries the freshness verdict too. Read only
+  through state changes and key writes, the judgment missed the events a
+  long-running session records most: evidence, decisions and transitions
+  back to the same state. A note 37 minutes behind its run passed as current.
+  And with the verdict only in pre-compact's line, nothing after the
+  compaction said the note was stale unless the summary repeated it.

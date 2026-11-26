@@ -119,6 +119,70 @@ CORE_STANDING_USED=
 # the row naming them. Empty, core_write reads the host itself, as it does
 # for every other write.
 CORE_HOST_PRIVATE= CORE_NOT_PUBLIC=
+# The record's write lock this process holds (core_lock), and how long a
+# writer waits for one another writer holds, in seconds, before it is refused
+# record-changed (12).
+CORE_LOCK= CORE_LOCK_WAIT=${CORE_LOCK_WAIT:-60}
+
+# core_lock <session>: take the session's record write lock
+# (state-read.sh rs_write_lock_path; shirabe#2059), a file created with bash's
+# noclobber (one O_EXCL open), holding `<pid> <epoch secs>`. A lock whose
+# holder is gone, or older than RS_LOCK_MAX_SECONDS, is taken over: renamed
+# aside and removed when the renamed copy still names the owner judged stale.
+# One a live writer holds is waited for, a second at a time, for at most
+# CORE_LOCK_WAIT seconds, then the write is refused record-changed (12), which
+# every caller retries on the fresh record. The lock is released by
+# core_unlock, which the EXIT trap also runs, so a writer that exits on any
+# path lets it go; one killed outright leaves its pid, which is then gone.
+core_lock() {
+    local s=$1 p own side waited=0 blank=0 prev
+    [ -z "$CORE_LOCK" ] || return 0
+    p=$(rs_write_lock_path "$s") || lib_die2 "cannot find session $s's directory for the record's write lock"
+    # A seed may be the session's first write, made before its directory
+    # holds anything; every other write's session already holds the record.
+    if [ ! -d "${p%/*}" ]; then
+        [ "$SESSION_SEED" = 1 ] && mkdir -p "${p%/*}" 2> /dev/null \
+            || lib_die2 "session $s's directory isn't there for the record's write lock"
+    fi
+    while :; do
+        if (set -C && printf '%s %s\n' "$$" "$(date +%s)" > "$p") 2> /dev/null; then
+            CORE_LOCK=$p
+            prev=$(trap -p EXIT)
+            prev=${prev#"trap -- "} prev=${prev%" EXIT"}
+            [ -n "$prev" ] && eval "prev=$prev"
+            # shellcheck disable=SC2064
+            trap "core_unlock; ${prev:-:}" EXIT
+            return 0
+        fi
+        own=$(cat -- "$p" 2> /dev/null) || own=
+        if [ -z "$own" ] && [ -e "$p" ] && [ "$blank" -lt 2 ]; then
+            blank=$((blank + 1))
+        elif ! rs_lock_live "$p" || [ -z "$own" ]; then
+            side="$p.stale.$$"
+            if mv -- "$p" "$side" 2> /dev/null; then
+                # Another writer took the lock between the read and the move:
+                # put it back, unless the lock has been taken again since.
+                [ "$(cat -- "$side" 2> /dev/null)" = "$own" ] || (set -C && cat -- "$side" > "$p") 2> /dev/null
+                rm -f -- "$side"
+            fi
+            continue
+        fi
+        if [ "$waited" -ge "$CORE_LOCK_WAIT" ]; then
+            echo "$PROG: refused: record-changed: session $s's record is being written by another writer; re-read it and redo the change" >&2
+            exit 12
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+}
+
+# core_unlock: release the record write lock this process holds; a lock
+# another process holds is left alone.
+core_unlock() {
+    [ -n "$CORE_LOCK" ] || return 0
+    case "$(cat -- "$CORE_LOCK" 2> /dev/null)" in "$$ "*) rm -f -- "$CORE_LOCK" ;; esac
+    CORE_LOCK=
+}
 
 # core_live: the live record, read through the seam, and every check against it:
 # the record this scope's, the compare on the written time, and the section
@@ -236,9 +300,12 @@ core_live() {
 # after the first key changed exits 11; the
 # pending mark tells a reader not to trust the sections until a write clears it.
 core_write_session() {
-    local s=${RS_SESSION:-$SESSION} pair field key rc RESEED= LIVE_SEC
+    local s=${RS_SESSION:-$SESSION} pair field key rc RESEED= LIVE_SEC STALE=
     [ -n "$s" ] || lib_die2 "the session store needs the run's session"
     [ "$1" = "$T/next-state.json" ] || cp "$1" "$T/next-state.json" || lib_die2 "cannot copy the state"
+    # The lock is held from this read of record/meta to the last key, so no
+    # other writer passes the compare below until this write has landed.
+    core_lock "$s"
     rs_key "$s" record/meta "$T/meta.now"; rc=$?
     if [ "$SESSION_SEED" = 1 ]; then
         # A seed that stopped part way left record/meta pending with no written
@@ -255,6 +322,12 @@ core_write_session() {
             echo "$PROG: refused: record-changed: session $s's record was written at $(jq -r '.written' "$T/meta.now"), but this state was edited from $BASE; re-read it and redo the change" >&2
             exit 12
         fi
+        # Marked pending while this writer holds the lock: a writer stopped
+        # part way through, after its mark and before its last key. Its
+        # written time is still the one this state was edited from, so the
+        # write goes on, and writes every section the state holds, since a
+        # key the stopped writer changed may differ from the copy read.
+        [ "$(jq -r '.pending // false' "$T/meta.now")" = true ] && STALE=1
     fi
     jq -c '.pending = true' "$T/meta.now" > "$T/meta.pending"
     "$KOTO" context add "$s" record/meta --from-file "$T/meta.pending" < /dev/null > /dev/null 2> "$T/k.err" \
@@ -300,7 +373,7 @@ core_write_session() {
                 mv "$T/sec.merged" "$T/sec.new"
                 LIVE_SEC=$( [ -s "$T/live.json" ] && jq -cS '.' "$T/live-holdings.json")
             fi
-            if [ -n "$LIVE_SEC" ] && [ "$LIVE_SEC" = "$(jq -cS . "$T/sec.new")" ]; then
+            if [ -z "$STALE" ] && [ -n "$LIVE_SEC" ] && [ "$LIVE_SEC" = "$(jq -cS . "$T/sec.new")" ]; then
                 continue
             fi
             "$KOTO" context add "$s" "record/$key" --from-file "$T/sec.new" < /dev/null > /dev/null 2> "$T/k.err" \
@@ -316,6 +389,7 @@ core_write_session() {
         "$T/meta.now" > "$T/meta.next" || lib_die2 "jq failed"
     "$KOTO" context add "$s" record/meta --from-file "$T/meta.next" < /dev/null > /dev/null 2> "$T/k.err" \
         || { echo "$PROG: the session write failed part way, at record/meta: $(lib_scrub < "$T/k.err")" >&2; exit 11; }
+    core_unlock
 }
 
 # core_write_host <json-file>: replace the run's record/host with the object in
@@ -371,6 +445,7 @@ core_write_meta() {
     local s=$1 f=$2 d
     shift 2
     d=$(mktemp -d "${TMPDIR:-/tmp}/state-meta.XXXXXX") || lib_die2 "mktemp failed"
+    core_lock "$s"
     rs_key "$s" record/meta "$d/meta"
     case $? in
         0) ;;
@@ -383,6 +458,7 @@ core_write_meta() {
         || { rm -rf "$d"; echo "$PROG: refused: the record/meta filter failed" >&2; exit 65; }
     "$KOTO" context add "$s" record/meta --from-file "$d/next" < /dev/null > /dev/null 2> "$d/k.err" \
         || { echo "$PROG: the record/meta write failed: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
+    core_unlock
     rm -rf "$d"
 }
 
@@ -419,6 +495,9 @@ core_write_pushed() {
     [[ $CORE_PUSHED_HEAD =~ ^([0-9a-f]{40})?$ ]] || { echo "$PROG: refused: a pushed head is 40 hex, or empty to clear it" >&2; exit 65; }
     lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
     d=$(mktemp -d "${TMPDIR:-/tmp}/state-pushed.XXXXXX") || lib_die2 "mktemp failed"
+    # Under the record's write lock, so a whole-state write can't land
+    # between this read of record/holdings and its write.
+    core_lock "$s"
     rs_key "$s" record/holdings "$d/holdings"
     case $? in
         0) ;;
@@ -443,6 +522,7 @@ core_write_pushed() {
             || { echo "$PROG: the record/holdings write failed: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
         rs_once_drop
     fi
+    core_unlock
     rm -rf "$d"
     printf '%s\n' "$s"
 }
@@ -839,7 +919,18 @@ core_write() {
     if lib_dispatched && lib_drop_disposed "$T/parsed.json" "$T/dropped.json"; then
         mv "$T/dropped.json" "$T/next.json"
     fi
-    jq --arg w "$(lib_now)" '.written = $w' "$T/next.json" > "$T/next-state.json" || lib_die2 "jq failed"
+    # The new written time differs from the one this state was edited from,
+    # so a writer that read the same version is refused when this lands.
+    # Written times are to the second: a write landing in the second of the
+    # version it replaces waits for the next.
+    local now try
+    for try in 1 2 3 4; do
+        now=$(lib_now)
+        [ "$now" != "$BASE" ] && break
+        [ "$try" -lt 4 ] || lib_die2 "the clock didn't move past the record's written time, $BASE"
+        sleep 1
+    done
+    jq --arg w "$now" '.written = $w' "$T/next.json" > "$T/next-state.json" || lib_die2 "jq failed"
     # A step's shared read (state-read.sh rs_once_begin) is the record as it
     # was before this write: forget it, so a read after the write is live. It
     # is forgotten again once the write lands, since a reader running beside
