@@ -265,7 +265,8 @@ whether a person was present when it was raised and when it was answered.
 **R11. Content.** A raised question carries its context, the problem, the
 question itself, a recommendation with its reason, each alternative with its
 reason, why the raiser may not settle it, and the work items waiting on it.
-The content does not change after it is raised, and is at most 16 KiB.
+The content does not change after it is raised, and is at most 16 KiB. A
+session may hold at most twenty open questions addressed to a person.
 
 **R12. Needs that are not decisions.** A credential only the person holds, a
 step the person reserved, or an action outside the session's reach is recorded
@@ -302,7 +303,8 @@ for it by a decider entitled to settle it: the person, the session it is
 currently addressed to under R2, or the session that raised it. The raiser
 may settle its own question only when the question is a decision; when that
 question is addressed to a person, only by citing an answer of the person's
-that is in effect (R9); and never when it is a need (R12). The raising
+that is in effect and has the same subject label (R9); and never when it is a
+need (R12). The raising
 session can also withdraw a question that no longer matters, with a reason. Each of these is recorded with
 its decider, and a closed or withdrawn question is no longer returned by the
 open reads. An answer from a session that is neither the raiser nor the
@@ -360,9 +362,15 @@ person or records the person's decision.
 decision is recorded as the owner's only when it carries a pointer to the
 question prompt the owner answered, and only in an attended session, in a
 worker as much as at the top coordinator. The workflow engine verifies the
-pointer when the answer is recorded and refuses the record if it does not
-hold; a record it accepts is marked as verified, and no session or later
-reader verifies it again, on that machine or another. What is recorded is the question,
+pointer when the answer is recorded: that the prompt showed the recorded
+question and its options exactly, and that the answer is the one the prompt
+returned. It takes the answer from the prompt's result and refuses the record
+if any of this does not hold; a record it accepts is marked as verified, and no session or later
+reader on that machine verifies it again. The record lives on the machine
+where the owner answered. Read on another machine it is evidence that a
+session there answered the question, and it does not carry the owner's
+authority there; carrying verified answers between machines that share
+storage is left for later. What is recorded is the question,
 the option labels and the owner's answer as the prompt gave them, never a
 session's wording of them.
 
@@ -541,6 +549,7 @@ that record or list must show.
   not the raiser's to settle is refused. (R11)
 - [ ] (checked) Content of exactly 16 KiB is accepted, content one byte larger
   is refused, and an attempt to change content after the question is raised is
+  refused. A session's twenty-first open question addressed to a person is
   refused. (R11)
 - [ ] (checked) A need that is not a decision is recorded with its kind and
   what is needed, with no recorded attempt; it is returned by the open reads;
@@ -614,11 +623,14 @@ that record or list must show.
   refused; recording it in an unattended session is refused; both refusals
   hold for a session with no dispatcher. The engine refuses a pointer that
   names no question-prompt call in that session, one whose call was for a
-  different question, one whose result did not come from the user, and one
-  already used for an earlier answer, whether the request comes through the
-  skills' command or directly. An accepted record reads as verified, and a
-  copy of it read in a store with no access to the original session's
-  transcript still reads as verified. A recorded answer holds the
+  different question, one whose prompt showed text or options that differ
+  from the recorded question, one whose result did not come from the user,
+  and one already used for an earlier answer; the recorded answer is the text
+  the prompt returned, whatever the caller supplied, whether the request comes through the
+  skills' command or directly. An accepted record reads as verified on the
+  machine that recorded it; a copy of it read on another machine reads as a
+  remote session's answer, is not returned as the owner's by the precedent
+  read there, and a rule citing it there does not read as the owner's. A recorded answer holds the
   question, the option labels and the answer exactly as the prompt gave them.
   (R21b)
 - [ ] (checked) A record naming the owner with no prompt pointer is stored as
@@ -722,7 +734,10 @@ that record or list must show.
   was running when this ships keeps its old behaviour until restarted, and a
   running coordinator cannot be taken over across the change.
 - **One machine.** A chain whose sessions run on two machines can be read
-  only one machine at a time.
+  only one machine at a time, and the owner's answer carries the owner's
+  authority only on the machine where it was given and verified. Elsewhere it
+  is a remote session's answer until a later feature carries verified answers
+  across shared storage.
 - **An overruled session may have built on its own answer.** R23 says which
   answer is in effect; it does not undo work done under the other one.
 
