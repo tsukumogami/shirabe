@@ -140,11 +140,14 @@
 #      coordinator's dispatch as its parent. niwa refuses a grant wider than
 #      its dispatcher's; that refusal is the one this script reports as such
 #      (exit 11), and nothing retries it with another grant. The input's
-#      `launch` field (render-brief.sh holds each value to a fixed set) adds
-#      `--model <model>`, `--permission-mode <mode>` and
+#      `launch` field (render-brief.sh holds each value to a fixed set, and a
+#      profile to niwa's profile-name grammar) adds `--model <model>`,
+#      `--permission-mode <mode>`, `--profile <name>` and
 #      `--accept-session-messages` (or `--accept-session-messages=false`), each
 #      only when the help lists that flag; one it doesn't is left off with a
-#      stderr line naming it. With no `launch` the launch is as it was.
+#      stderr line naming it. With no `launch` the launch is as it was. A
+#      profile the workspace doesn't define is niwa's to refuse, before it
+#      launches anything; that's a failed launch here (exit 4).
 #   7. Confirm: on success, rewrite the row `dispatched` and print the session
 #      name niwa reported, which the coordinator uses to message the worker
 #      and never records. A rework Work row on the unit (a milestone a
@@ -664,10 +667,11 @@ launch_flag() {
 # launch_flags: the flags that carry the grant and the parent, from the help:
 # one `--grant <authority>` per authority, and `--parent-from` with the first
 # directory at or above this one holding .niwa/instance.json. Then the input's
-# launch field, which render-brief.sh has already held to its fixed sets:
-# `--model <model>`, `--permission-mode <mode>`, and
-# `--accept-session-messages` for true or `--accept-session-messages=false`
-# for false, each only when the help lists it.
+# launch field, which render-brief.sh has already held to its fixed sets and
+# to niwa's profile-name grammar: `--model <model>`, `--permission-mode
+# <mode>`, `--profile <name>`, and `--accept-session-messages` for true or
+# `--accept-session-messages=false` for false, each only when the help lists
+# it.
 LAUNCH_ARGS=()
 launch_flags() {
     local a d v
@@ -697,6 +701,8 @@ EOF
     [ -n "$v" ] && launch_flag --model --model "$v"
     v=$(jq -r '.launch.permission_mode // empty | strings' "$INPUT") || die 2 "jq failed"
     [ -n "$v" ] && launch_flag --permission-mode --permission-mode "$v"
+    v=$(jq -r '.launch.profile // empty | strings' "$INPUT") || die 2 "jq failed"
+    [ -n "$v" ] && launch_flag --profile --profile "$v"
     v=$(jq -r '.launch.accept_session_messages | booleans' "$INPUT") || die 2 "jq failed"
     case "$v" in
         true) launch_flag --accept-session-messages --accept-session-messages ;;

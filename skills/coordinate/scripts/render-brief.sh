@@ -155,8 +155,14 @@
 #                                 capability categories) or fable, opus,
 #                                 sonnet or haiku; permission_mode, one of
 #                                 default, acceptEdits, plan, auto, dontAsk
-#                                 or bypassPermissions; and
-#                                 accept_session_messages, true or false.
+#                                 or bypassPermissions;
+#                                 accept_session_messages, true or false;
+#                                 and profile, a niwa dispatch profile name
+#                                 (a [session.dispatch_profiles] entry):
+#                                 lowercase letters, digits and dashes, not
+#                                 starting with a dash. Whether the
+#                                 workspace defines that name is niwa's to
+#                                 check at the launch.
 #                                 Any other key or value is refused, so
 #                                 nothing but these reaches the launch.
 #                                 dispatch-worker.sh turns each into its
@@ -356,16 +362,19 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
   then "grant: must be an array of distinct authorities from merge-pr, close-issue and cut-release" else empty end ),
 ( if has("launch") then
     ( .launch as $l
-      | if ($l | type) != "object" or ($l | length) == 0 then "launch: must be an object with model, permission_mode, accept_session_messages or any of them"
+      | if ($l | type) != "object" or ($l | length) == 0 then "launch: must be an object with model, permission_mode, accept_session_messages, profile or any of them"
         else
-          ( ($l | keys[]) | select(IN("model","permission_mode","accept_session_messages") | not)
-            | "launch: unknown key \(.); only model, permission_mode and accept_session_messages" ),
+          ( ($l | keys[]) | select(IN("model","permission_mode","accept_session_messages","profile") | not)
+            | "launch: unknown key \(.); only model, permission_mode, accept_session_messages and profile" ),
           ( if $l | has("model") and (.model | IN("balanced","fast","powerful","fable","opus","sonnet","haiku") | not)
             then "launch: model must be balanced, fast, powerful, fable, opus, sonnet or haiku" else empty end ),
           ( if $l | has("permission_mode") and (.permission_mode | IN("default","acceptEdits","plan","auto","dontAsk","bypassPermissions") | not)
             then "launch: permission_mode must be default, acceptEdits, plan, auto, dontAsk or bypassPermissions" else empty end ),
           ( if $l | has("accept_session_messages") and ((.accept_session_messages | type) != "boolean")
-            then "launch: accept_session_messages must be true or false" else empty end )
+            then "launch: accept_session_messages must be true or false" else empty end ),
+          # \A and \z, not ^ and $: in jq, $ also matches before a trailing newline.
+          ( if $l | has("profile") and ((.profile | type) != "string" or (.profile | test("\\A[a-z0-9][a-z0-9-]*\\z") | not))
+            then "launch: profile must be a niwa dispatch profile name matching ^[a-z0-9][a-z0-9-]*$" else empty end )
         end )
   else empty end ),
 ( (.entry_point // "" | strings) as $ep
