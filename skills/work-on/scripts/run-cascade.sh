@@ -497,9 +497,12 @@ add_step() {
     fi
 }
 
-# Surface a note finalize-chain attached to a node it acted on.
+# Surface a note finalize-chain attached to a node in its report.
 #
-# A transitioned node carries a note when the retirement guard could not see the
+# Two kinds of node carry one. A blocked node carries the guard's reason for
+# refusing it (or, with an empty blocked_by, why its path could not be
+# canonicalized); its step's detail comes from blocked_node_detail, and this
+# logs the note as well. A transitioned node carries a note when the retirement guard could not see the
 # whole corpus — one document that failed to index leaves the referrer map short,
 # and the walk fails open rather than letting a single malformed file block every
 # finalization. That is the only place the incompleteness is recorded, so it has

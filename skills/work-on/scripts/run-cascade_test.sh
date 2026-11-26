@@ -1512,7 +1512,7 @@ EOF
     cd "$SCRIPT_DIR"
 }
 
-# ── A node the retirement guard blocked is a skip, not an ok step ────────────
+# ── A node the retirement guard blocked is a failed step, not an ok one ──────
 scenario_blocked_node_recorded_failed() {
     local scenario="#355: a blocked finalize-chain node is recorded as failed"
     echo "Running $scenario..."
