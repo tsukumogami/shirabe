@@ -193,6 +193,40 @@ else
     fail "include: exit $RC, created body [$(cat "$CASE/created-body" 2>/dev/null)]"
 fi
 
+# --- a --plan-doc path holding + -------------------------------------------------
+# A niwa instance directory is named <workspace>+<instance>, so an absolute PLAN
+# path under one holds a +. --plan-doc takes it; shell metacharacters and a ..
+# segment are still refused, each beside a + so the refusal isn't the + itself.
+
+PLUS_DOC=/home/u/ws/tsuku+inst-1a2b3c4d/public/shirabe/docs/plans/PLAN-topic.md
+new_case create-plus-path
+echo '[]' > "$CASE/list.out.1"
+echo "[$(owned 7)]" > "$CASE/list.out.2"
+REPO_DIR="$WORK/include-repo"
+run_adopt --session "$S" --repo o/r --head impl/topic --create --plan-slug topic --plan-doc "$PLUS_DOC"
+REPO_DIR="$WORK/omit-repo"
+if [ "$RC" -eq 0 ] && [ "$(creates)" -eq 1 ] && [ "$(ctx home_pr)" = "$URL" ] \
+    && [ "$(head -1 "$CASE/created-body")" = "Implements $PLUS_DOC." ]; then
+    pass "--plan-doc under a directory named with +: the draft PR is created and its body names the path"
+else
+    fail "--plan-doc with +: exit $RC, creates $(creates), stderr [$(cat "$CASE/stderr" 2>/dev/null)]"
+fi
+
+for doc in \
+    '/home/u/ws/tsuku+inst/docs/plans/PLAN-a;b.md' \
+    '/home/u/ws/tsuku+inst/docs/plans/PLAN-$(id).md' \
+    '/home/u/ws/tsuku+inst/docs/plans/PLAN-`id`.md' \
+    '/home/u/ws/tsuku+inst/../plans/PLAN-topic.md'; do
+    new_case plus-refused
+    run_adopt --session "$S" --repo o/r --head impl/topic --create --plan-slug topic --plan-doc "$doc"
+    if [ "$RC" -eq 64 ] && [ ! -s "$CASE/gh.log" ] && [ ! -s "$CASE/koto.log" ] \
+        && grep -qF -- "--plan-doc [$doc]" "$CASE/stderr"; then
+        pass "--plan-doc [$doc] is refused: exit 64, no gh or koto call"
+    else
+        fail "--plan-doc [$doc]: exit $RC"
+    fi
+done
+
 # --- the run marker -------------------------------------------------------------
 
 MINE=0123456789abcdef0123456789abcdef
