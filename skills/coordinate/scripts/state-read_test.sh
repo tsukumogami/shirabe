@@ -336,13 +336,20 @@ SN=coordinate-roadmap-plugin-system-20260926T110500Z
 log_new "$SN" "$(roadmap_vars plugin-system)"
 eq "rs_record_api on a run with no found record fails" rc=2 \
     "$( ( PROG=t; . "$HERE/state-common.sh"; rs_record_api "$T/api2" "$SN" 2>/dev/null; echo "rc=$?" ) )"
-# A write part way through: record/meta marked pending.
+# A write part way through: record/meta marked pending, its writer holding
+# the record's write lock.
 SP=coordinate-roadmap-plugin-system-20260926T110100Z
 session_keys "$SP" "$T/rec.json" true
+PLOCK="$(koto session dir "$SP")/record-write.lock"
+printf '%s %s\n' "$$" "$(date +%s)" > "$PLOCK"
 : > "$KOTO_STORE/calls"
 eq "a record marked pending is re-read and then refused record-changed" rc=12 "$(seam_read "$T/p" "$SP")"
 eq "  ... after three re-reads" 4 "$(grep -c "^context get $SP record/meta" "$KOTO_STORE/calls")"
 grep -q record-changed "$T/p.err" && ok "  ... naming record-changed" || bad "  ... naming record-changed" "$(cat "$T/p.err")"
+# The same mark with no live writer holding the lock: a stopped writer's,
+# read past.
+rm -f "$PLOCK"
+eq "a pending mark no live writer holds the lock for is read past" rc=0 "$(seam_read "$T/p" "$SP")"
 # No record/meta in the run's session.
 SA=coordinate-roadmap-plugin-system-20260926T110200Z
 eq "a session holding no record/meta is session-absent" rc=4 "$(seam_read "$T/a" "$SA")"
