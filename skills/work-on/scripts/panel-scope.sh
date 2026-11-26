@@ -469,8 +469,8 @@ range_same() {
     esac
     a=$((10#${3%-*})) b=$((10#${3#*-}))
     [ "$a" -ge 1 ] && [ "$a" -le "$b" ] || return 1
-    git show "$1:$2" > "$WORK/range_a" 2>/dev/null || return 1
-    git show "HEAD:$2" > "$WORK/range_b" 2>/dev/null || return 1
+    git show "$1:$2" > "$WORK/range_a" 2>>"$WORK/range.err" || return 1
+    git show "HEAD:$2" > "$WORK/range_b" 2>>"$WORK/range.err" || return 1
     [ "$(wc -l < "$WORK/range_a")" -ge "$b" ] && [ "$(wc -l < "$WORK/range_b")" -ge "$b" ] || return 1
     [ "$(sed -n "${a},${b}p" "$WORK/range_a")" = "$(sed -n "${a},${b}p" "$WORK/range_b")" ]
 }
