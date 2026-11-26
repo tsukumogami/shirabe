@@ -15,7 +15,7 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use assert_cmd::Command;
@@ -47,6 +47,23 @@ esac
 echo unsupported >&2; exit 1
 "#;
 
+/// Write `contents` to `path` as an executable script. A child shell writes
+/// the file, so this process never holds it open for writing: a parallel
+/// test that forked to spawn while it did would keep a copy of that handle
+/// until its child's exec, and running the script in that window fails with
+/// ETXTBSY, which `track` reports as a PR not found (#2158, as in #1213).
+/// The mode is set by path, which opens nothing.
+fn write_script(path: &Path, contents: &str) {
+    let status = std::process::Command::new("/bin/sh")
+        .args(["-c", "printf '%s' \"$2\" > \"$1\"", "sh"])
+        .arg(path)
+        .arg(contents)
+        .status()
+        .unwrap();
+    assert!(status.success(), "writing {}: {status}", path.display());
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
 struct Fx {
     dir: PathBuf,
 }
@@ -59,9 +76,7 @@ impl Fx {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("store")).unwrap();
         fs::create_dir_all(dir.join("ghstate")).unwrap();
-        let stub = dir.join("gh-stub.sh");
-        fs::write(&stub, GH_STUB).unwrap();
-        fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+        write_script(&dir.join("gh-stub.sh"), GH_STUB);
         Fx { dir }
     }
 
@@ -918,8 +933,7 @@ impl Fx {
     fn pr_checks_stub(&self, rel: &str) -> PathBuf {
         let p = self.dir.join(rel);
         fs::create_dir_all(p.parent().unwrap()).unwrap();
-        fs::write(&p, PR_CHECKS_STUB).unwrap();
-        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+        write_script(&p, PR_CHECKS_STUB);
         p
     }
 
