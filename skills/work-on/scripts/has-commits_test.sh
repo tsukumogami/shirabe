@@ -265,13 +265,12 @@ to_routing() {
     # is unavailable (exit 3) and the run is already at analysis.
     tick "$1" '{"status":"override"}'
     printf 'plan\n' | ctx add "$1" plan.md
+    # plan_ready runs through fix_determination, whose action records the
+    # bound and the kind and whose kind_route gate routes on it in the same
+    # tick, to implementation.
     tick "$1" '{"plan_outcome":"plan_ready"}'
-    # The review level, chosen before implementation; full keeps scrutiny on
-    # the code route.
+    # A raise to full, which the level check keeps: scrutiny on the code route.
     (cd "$RUN" && "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$1" full) >/dev/null 2>&1
-    # Into fix_determination, whose action records the kind and whose
-    # kind_route gate routes on it in the same tick, to implementation.
-    tick "$1"
 }
 
 for sh in plain nomain worktree; do

@@ -6,8 +6,9 @@
 #      the always-exit-0 cases, the rejection-sampled mappings over every
 #      byte, the value form over 1000 draws, the record's files (order, mode,
 #      symlink refusal), the read-back on a second draw and after the opt-in
-#      is switched off, the entropy source, far_shown, and the rule's text.
-#   B. arm, near-text and the template's gate commands' exit mapping.
+#      is switched off, the entropy source, and that it prints nothing.
+#   B. arm, near-text, far-text (far_shown and the rule's text) and the
+#      template's gate commands' exit mapping.
 #   C. check against constructed session logs: every row of the exit table,
 #      exact comparison, visit scoping, the re-delivery ladder, the delivery
 #      marker, the time limit, no network, and what it never prints.
@@ -84,7 +85,7 @@ if [ $rc -ne 0 ] && [ ! -s "$T/unk.out" ] && ! grep -qE '[a-z]{3}[0-9]{6}' "$T/u
 else
     fail "an unknown subcommand: rc=$rc out=[$(cat "$T/unk.out")]"
 fi
-for sub in draw arm near-text check leak-branch leak-pr; do
+for sub in draw arm near-text far-text check leak-branch leak-pr; do
     grep -qE "^#   probe.sh $sub " "$SUT" && grep -qE "^        $sub\)" "$SUT" \
         && pass "probe.sh documents and dispatches $sub" || fail "probe.sh lacks the $sub subcommand"
 done
@@ -195,7 +196,7 @@ printf '#!/bin/sh\nfor a; do last=$a; done\nprintf "%%s\\n" "${last##*/}" >> "%s
 chmod 755 "$T/bin-mv/mv"
 d=$(fresh); : > "$T/mv.log"
 PATH="$T/bin-mv:$PATH" "$SUT" draw on "" "$d" "$REAL_ROOT" >/dev/null 2>&1
-check "draw moves value into place, then arm (then far_shown for a far run)" \
+check "draw moves value into place, then arm" \
     "$(head -n 2 "$T/mv.log" | tr '\n' ' ')" "value arm "
 check "the value file is mode 0600" "$(perms "$d/probe/value")" "-rw-------"
 check "the arm file is mode 0600" "$(perms "$d/probe/arm")" "-rw-------"
@@ -233,19 +234,33 @@ if [ -z "$ND" ] || [ -z "$FD" ] || [ -z "$RD" ]; then
 fi
 pass "draws land in all three arms within $tries draws"
 
-# far_shown and the printed text.
-for pair in "far:$FD:$FOUT" "far_redeliver:$RD:$ROUT"; do
+# The draw prints nothing in any arm; far-text delivers the far arms' rule,
+# once per session, from the first of reproduce and implementation.
+for pair in "far:$FD:$FOUT" "far_redeliver:$RD:$ROUT" "near:$ND:$NOUT"; do
     a=${pair%%:*}; rest=${pair#*:}; dd=${rest%%:*}; out=${rest#*:}
-    v=$(cat "$dd/probe/value")
-    check "$a: the first draw prints the full rule with the value" "$out" "$(full_text "$v")"
-    [ -f "$dd/probe/far_shown" ] && pass "$a: far_shown is recorded" || fail "$a: no far_shown"
-    draw "$dd"
-    check "$a: a second draw (analysis looping back) prints nothing" "$OUT" ""
+    check "$a: the draw prints nothing" "$out" ""
+    [ ! -e "$dd/probe/far_shown" ] && pass "$a: the draw writes no far_shown" || fail "$a: the draw wrote far_shown"
 done
-check "near: the draw prints nothing" "$NOUT" ""
-draw "$ND"; check "near: a second draw prints nothing" "$OUT" ""
-[ ! -e "$ND/probe/far_shown" ] && pass "near: no far_shown" || fail "near: far_shown written"
-if LC_ALL=C grep -Eq '^[a-zA-Z0-9._/:@+ \-]*$' <<<"$FOUT"; then
+FTEXT=""
+for pair in "far:$FD" "far_redeliver:$RD"; do
+    a=${pair%%:*}; dd=${pair#*:}
+    v=$(cat "$dd/probe/value")
+    out=$("$SUT" far-text "$dd"); rc=$?
+    [ -n "$FTEXT" ] || FTEXT=$out
+    check "$a: the first far-text prints the full rule with the value" "$out|$rc" "$(full_text "$v")|0"
+    [ -f "$dd/probe/far_shown" ] && pass "$a: far_shown is recorded" || fail "$a: no far_shown"
+    check "$a: a second far-text (a retry, or implementation after reproduce) prints nothing" "$("$SUT" far-text "$dd"; echo "rc=$?")" "rc=0"
+    draw "$dd"
+    check "$a: a draw after the delivery (analysis looping back) prints nothing" "$OUT" ""
+    check "$a: far-text after that draw still prints nothing" "$("$SUT" far-text "$dd")" ""
+done
+check "near: far-text prints nothing" "$("$SUT" far-text "$ND"; echo "rc=$?")" "rc=0"
+[ ! -e "$ND/probe/far_shown" ] && pass "near: far-text writes no far_shown" || fail "near: far_shown written"
+d=$(fresh); check "far-text: no arm prints nothing" "$("$SUT" far-text "$d"; echo "rc=$?")" "rc=0"
+d=$(fresh); record "$d" far "$(runtime_value)"; ln -s "$T/target-fs" "$d/probe/far_shown"
+check "far-text: a symlink at far_shown prints nothing" "$("$SUT" far-text "$d"; echo "rc=$?")" "rc=0"
+[ ! -e "$T/target-fs" ] && pass "far-text: nothing written through a symlinked far_shown" || fail "far-text wrote through far_shown"
+if LC_ALL=C grep -Eq '^[a-zA-Z0-9._/:@+ \-]*$' <<<"$FTEXT"; then
     pass "the printed rule holds only characters a captured value may hold"
 else
     fail "the printed rule holds a character a capture refuses"
