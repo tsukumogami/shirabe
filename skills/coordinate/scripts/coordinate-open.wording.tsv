@@ -10,7 +10,8 @@
 #   - the guidance blocks (guide.<family>, every row of a family one line of
 #     its block), read by coordinate-open.sh's guide, under "The opener's
 #     guidance blocks";
-#   - the compat phrase (compat-guide.phrase, one row), read by
+#   - the compat phrases (compat-guide.phrase, one row per wording, the
+#     shipped one last), read by
 #     coordinate-open.sh's compat_guide, at the end.
 # In the koto init rows {value} {var} {constraint} are replaced with koto's
 # fields, never evaluated.
