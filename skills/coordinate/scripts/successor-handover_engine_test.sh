@@ -791,7 +791,7 @@ fi
 # naming the command to run again; that command with the topic it names
 # launches once, exits 0 and leaves the row dispatched.
 # rpass: a restart's reconcile, through the template's own path. From pick
-# the run ticks to wait, and the moved tick takes it into reconcile_pass, a
+# a hold takes the run to wait, and the moved tick takes it into reconcile_pass, a
 # new visit (a visit already sealed would only say its report again), whose
 # action runs the pass with the niwa stand-in, at most three times until it
 # seals. The pass is run once more for its line, which a sealed visit says
@@ -800,7 +800,8 @@ fi
 rpass() {
     local n=0 sd st
     : > "$T/work/.niwa/workspace.toml"
-    [ "$(now_at)" = wait ] || at > /dev/null
+    [ "$(now_at)" = wait ] || [ "$(at --with-data '{"choice":"hold"}')" = wait ] \
+        || bad "15: a hold takes the run to wait" "$(now_at) $(cat "$T/tick.err")"
     st=$(NIWA="$NS/niwa" at --with-data '{"event":"moved"}')
     while [ "$st" = reconcile_pass ] && [ $n -lt 3 ]; do st=$(NIWA="$NS/niwa" at); n=$((n + 1)); done
     [ "$st" = reconcile ] || bad "15: the moved tick takes the run through a reconcile" "$st $(cat "$T/tick.err")"
