@@ -1365,6 +1365,276 @@ scenario_deletion_open_issue_skip() {
     cd "$SCRIPT_DIR"
 }
 
+# ── Scenario 12b: handle_roadmap_deletion — a gh failure is not an open issue ─
+# The issue check's query itself fails (rate limit, no auth, offline). The
+# record must say the state could not be read, carry gh's reason, and not claim
+# the issue is open. The run still removes the PLAN, so the detail must not ask
+# for a re-run either; it names the manual delete instead.
+scenario_deletion_gh_failure_distinct() {
+    local scenario="Scenario 12b: deletion — a gh failure is recorded apart from an open issue"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    set_github_origin "test-owner/test-repo"
+    setup_gh_stub "$repo"
+
+    # Replace the stub: every `gh issue view` fails the way a rate-limited
+    # runner does, with the reason on stderr and a non-zero exit.
+    cat > "$GH_STUB_DIR/gh" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "issue" ]] && [[ "${2:-}" == "view" ]]; then
+    echo "HTTP 403: API rate limit exceeded for user" >&2
+    exit 1
+fi
+exit 0
+EOF
+    chmod +x "$GH_STUB_DIR/gh"
+
+    write_roadmap_done_single "$repo/docs/roadmaps/ROADMAP-cascade-ghfail.md" \
+        "PLAN-cascade-ghfail.md" \
+        "https://github.com/test-owner/test-repo/issues/43"
+    write_design "$repo/docs/designs/DESIGN-cascade-ghfail.md" \
+        "docs/roadmaps/ROADMAP-cascade-ghfail.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-ghfail.md" \
+        "docs/designs/DESIGN-cascade-ghfail.md"
+
+    commit_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-ghfail.md")
+
+    local ok=true
+    local step='[.steps[] | select(.action == "delete_roadmap")]'
+
+    assert_json "$scenario" "$output" "$step | length == 1 and .[0].status == \"skipped\"" \
+        "one delete_roadmap step, skipped" || ok=false
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"could not read the state of issue https://github.com/test-owner/test-repo/issues/43\")" \
+        "detail says the issue's state could not be read" || ok=false
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"rate limit exceeded\")" \
+        "detail carries gh's own reason" || ok=false
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"which is still open\") | not" \
+        "a gh failure is not recorded as an issue which is still open" || ok=false
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"not the recovery\")" \
+        "detail says a re-run is not the recovery" || ok=false
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"git rm (-f )?docs/roadmaps/ROADMAP-cascade-ghfail.md\")" \
+        "detail names the manual delete" || ok=false
+
+    if [[ -f "$repo/docs/roadmaps/ROADMAP-cascade-ghfail.md" ]]; then
+        [[ "$VERBOSE" == "true" ]] && echo "  ✓ ROADMAP file preserved"
+    else
+        fail "$scenario: ROADMAP file was deleted though its issue could not be read"
+        ok=false
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Scenario 12c: handle_roadmap_deletion — the open-issue remedy is usable ───
+# The same run that skips the ROADMAP deletion removes the PLAN, and a re-run
+# refuses without it. The skip's recorded remedy must be one the operator can
+# perform from that state: not a re-run, but the manual delete once the issue
+# closes.
+scenario_deletion_open_issue_recovery_wording() {
+    local scenario="Scenario 12c: deletion — the open-issue skip names a recovery that works"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    set_github_origin "test-owner/test-repo"
+    setup_gh_stub "$repo"
+    printf 'OPEN\n' > "$GH_STUB_DIR/issue-states.txt"
+
+    write_roadmap_done_single "$repo/docs/roadmaps/ROADMAP-cascade-reword.md" \
+        "PLAN-cascade-reword.md" \
+        "https://github.com/test-owner/test-repo/issues/42"
+    write_design "$repo/docs/designs/DESIGN-cascade-reword.md" \
+        "docs/roadmaps/ROADMAP-cascade-reword.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-reword.md" \
+        "docs/designs/DESIGN-cascade-reword.md"
+
+    commit_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-reword.md")
+
+    local ok=true
+    local step='[.steps[] | select(.action == "delete_roadmap")]'
+
+    assert_json "$scenario" "$output" "$step | length == 1 and .[0].status == \"skipped\"" \
+        "one delete_roadmap step, skipped" || ok=false
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"issues/42 which is still open\")" \
+        "detail names the open issue" || ok=false
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"run the cascade again after it closes\") | not" \
+        "open-issue skip must not tell the operator to run the cascade again after it closes" || ok=false
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"not the recovery\")" \
+        "detail says a re-run is not the recovery" || ok=false
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"git rm (-f )?docs/roadmaps/ROADMAP-cascade-reword.md\")" \
+        "detail names the manual delete" || ok=false
+
+    # The detail's claim that a re-run cannot start holds: the PLAN is gone.
+    if [[ ! -f "$repo/docs/plans/PLAN-cascade-reword.md" ]]; then
+        [[ "$VERBOSE" == "true" ]] && echo "  ✓ PLAN removed, so a re-run cannot start"
+    else
+        fail "$scenario: PLAN file still present; the detail's reason no longer holds"
+        ok=false
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Scenario 12d: handle_roadmap_deletion — an unreadable issue can't hide an open one
+# The ROADMAP names two issues: the first can't be read, the second is open. A
+# scan that stops at the first issue it can't confirm closed records "could not
+# read; if closed, delete by hand", and an operator who checks only that issue
+# deletes a ROADMAP whose other issue is still open. The open issue must win the
+# record, the unreadable one must still be named, and the remedy must cover a
+# run that already pushed.
+scenario_deletion_unreadable_then_open() {
+    local scenario="Scenario 12d: deletion — an unreadable issue does not mask a later open one"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    set_github_origin "test-owner/test-repo"
+    setup_gh_stub "$repo"
+
+    # Issue 44's query fails; issue 45 answers OPEN.
+    cat > "$GH_STUB_DIR/gh" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "issue" ]] && [[ "${2:-}" == "view" ]]; then
+    if [[ "${3:-}" == "44" ]]; then
+        echo "HTTP 502: Bad Gateway" >&2
+        exit 1
+    fi
+    echo "OPEN"
+    exit 0
+fi
+exit 0
+EOF
+    chmod +x "$GH_STUB_DIR/gh"
+
+    write_roadmap_done_single "$repo/docs/roadmaps/ROADMAP-cascade-mask.md" \
+        "PLAN-cascade-mask.md" \
+        "https://github.com/test-owner/test-repo/issues/44 https://github.com/test-owner/test-repo/issues/45"
+    write_design "$repo/docs/designs/DESIGN-cascade-mask.md" \
+        "docs/roadmaps/ROADMAP-cascade-mask.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-mask.md" \
+        "docs/designs/DESIGN-cascade-mask.md"
+
+    commit_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-mask.md")
+
+    local ok=true
+    local step='[.steps[] | select(.action == "delete_roadmap")]'
+
+    assert_json "$scenario" "$output" "$step | length == 1 and .[0].status == \"skipped\"" \
+        "one delete_roadmap step, skipped" || ok=false
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"issues/45 which is still open\")" \
+        "the later open issue wins the record" || ok=false
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"issues/44\")" \
+        "the unreadable issue is still named" || ok=false
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"push\")" \
+        "the remedy covers a run that already pushed" || ok=false
+
+    if [[ -f "$repo/docs/roadmaps/ROADMAP-cascade-mask.md" ]]; then
+        [[ "$VERBOSE" == "true" ]] && echo "  ✓ ROADMAP file preserved"
+    else
+        fail "$scenario: ROADMAP file was deleted though one of its issues is open"
+        ok=false
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Scenario 12e: handle_roadmap_deletion — the named delete works as written ─
+# A run without --push stages its edits and commits nothing, so the ROADMAP it
+# leaves behind carries a staged change. A plain `git rm <path>` refuses such a
+# file ("has changes staged in the index"). The command the skip's detail names
+# is run here verbatim, in the state the run left, and must succeed.
+scenario_deletion_remedy_runs_verbatim() {
+    local scenario="Scenario 12e: deletion — the named delete runs as written after a run that did not push"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    set_github_origin "test-owner/test-repo"
+    setup_gh_stub "$repo"
+    printf 'OPEN\n' > "$GH_STUB_DIR/issue-states.txt"
+
+    local roadmap="docs/roadmaps/ROADMAP-cascade-rmf.md"
+    write_roadmap_done_single "$repo/$roadmap" \
+        "PLAN-cascade-rmf.md" \
+        "https://github.com/test-owner/test-repo/issues/46"
+    write_design "$repo/docs/designs/DESIGN-cascade-rmf.md" "$roadmap"
+    write_plan "$repo/docs/plans/PLAN-cascade-rmf.md" \
+        "docs/designs/DESIGN-cascade-rmf.md"
+
+    commit_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-rmf.md")
+
+    local ok=true
+    local step='[.steps[] | select(.action == "delete_roadmap")]'
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"git rm -f $roadmap\")" \
+        "detail names git rm -f for the ROADMAP" || ok=false
+
+    # Take the command exactly as the detail spells it and run it.
+    local named
+    named=$(jq -r "$step | .[0].detail | capture(\"(?<c>git rm [^,]*[.]md)\").c // empty" <<<"$output")
+    if [[ -z "$named" ]]; then
+        fail "$scenario: detail names no git rm command"
+        ok=false
+    else
+        local -a argv
+        read -r -a argv <<<"$named"
+        if "${argv[@]}" > /dev/null 2>&1; then
+            [[ "$VERBOSE" == "true" ]] && echo "  ✓ '$named' ran in the state the run left"
+        else
+            fail "$scenario: the named command '$named' fails in the state the run left"
+            ok=false
+        fi
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
 # ── Scenario 13: handle_roadmap_deletion — direct re-invocation idempotent ────
 # Calling handle_roadmap_deletion directly on a path that no longer exists
 # returns 0 with no side effects and emits no JSON step. Probes the
@@ -4222,6 +4492,18 @@ scenario_deletion_all_done_all_closed
 cd "$ORIG_DIR"
 
 scenario_deletion_open_issue_skip
+cd "$ORIG_DIR"
+
+scenario_deletion_gh_failure_distinct
+cd "$ORIG_DIR"
+
+scenario_deletion_open_issue_recovery_wording
+cd "$ORIG_DIR"
+
+scenario_deletion_unreadable_then_open
+cd "$ORIG_DIR"
+
+scenario_deletion_remedy_runs_verbatim
 cd "$ORIG_DIR"
 
 scenario_deletion_idempotent_reinvoke
