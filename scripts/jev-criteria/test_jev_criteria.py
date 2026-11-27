@@ -832,15 +832,18 @@ class MeasureTest(unittest.TestCase):
             # The projection is fixed, so the corpus's sizes are known.
             tail = "the facts call for light otherwise\nfloor: the most thorough level the facts call for\n"
             shipped = ("the facts call for full when classes has ci, security, template or engine;"
-                       + " or lines > 400; or files > 12; or tests_edited\n"
+                       + " or lines > 400; or files > 12; or red_test_edited\n"
                        + "the facts call for standard when classes has instruction, executable, test or manifest;"
-                       + " or unclassified; or criteria_changed; or lines > 40\n" + tail)
+                       + " or unclassified; or criteria_changed; or lines > 40\n"
+                       + "the facts call for light instead of standard when nothing calls for full,"
+                       + " criteria_changed and unclassified are false, lines <= 200, files <= 5"
+                       + " and every class is docs or test\n" + tail)
             want = sorted(len(("%s\nlevels: light < standard < full\n%slevel: standard\n" % (s, defs)).encode())
                           for s, defs in (('{"lines":12,"files":2,"classes":["docs"],"tests_changed":false,'
-                                           '"tests_edited":false,'
+                                           '"tests_edited":false,"red_test_edited":false,'
                                            '"criteria_changed":false,"unclassified":false,"floor":"light"}', shipped),
                                           ('{"lines":0,"files":2,"classes":["docs"],"tests_changed":false,'
-                                           '"tests_edited":false,'
+                                           '"tests_edited":false,"red_test_edited":false,'
                                            '"criteria_changed":false,"unclassified":false,"floor":"light"}',
                                            "the facts call for full when classes has ci\n" + tail)))
             out = io.StringIO()

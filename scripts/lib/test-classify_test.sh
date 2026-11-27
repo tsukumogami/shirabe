@@ -119,6 +119,13 @@ command -v jq >/dev/null 2>&1 && {
     printf 'not json\n' > "$W/bad.json"
     test_classify_unit "$BASE" "$HEAD_SHA" "$RULES" "$W/bad.json" >/dev/null 2>&1
     eq "a record that doesn't parse: exit 2" 2 $?
+    # test_classify_red_changed, review-level.sh's red_test_edited: only the
+    # recorded paths whose blob at the head differs from the red's.
+    eq "test_classify_red_changed lists the harness file changed since the red, not the unchanged test" \
+        "src/main.sh	$(git rev-parse "$HEAD_SHA:src/main.sh")" "$(test_classify_red_changed "$HEAD_SHA" "$W/red.json")"
+    eq "test_classify_red_changed with an empty record: nothing" "" "$(test_classify_red_changed "$HEAD_SHA" "$W/empty.json")"
+    test_classify_red_changed "$HEAD_SHA" "$W/bad.json" >/dev/null 2>&1
+    eq "test_classify_red_changed on a record that doesn't parse: exit 2" 2 $?
 }
 test_classify_unit 0123456789abcdef0123456789abcdef01234567 "$HEAD_SHA" "$RULES" >/dev/null 2>&1
 eq "test_classify_unit passes test_classify's exit 2 on" 2 $?

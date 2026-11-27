@@ -29,7 +29,10 @@ longer path.
 A panel's pass is koto's, not the agent's. Every finding a seat returns carries
 `severity: blocking` or `severity: advisory`; `panel-scope.sh --record` records a seat as
 blocking exactly when one of its findings is `blocking`, and refuses a round with a finding
-that has neither. Each panel state's `<panel>_verdict` gate runs `panel-scope.sh --verdict
+that has neither. On the scrutiny, review and QA panels every `blocking` finding also names
+its `category` (`security`, `correctness` or `other`, defined in
+`phases/phase-4a-scrutiny.md`), optional on an advisory one; `--record` keeps it and refuses
+any other value, and the light-cap audit names a miss by it. Each panel state's `<panel>_verdict` gate runs `panel-scope.sh --verdict
 <panel>` over the ledger: exit 0 (every run recorded, every blocking finding closed) advances with no
 evidence, exit 1 (a blocking finding is unclosed) prints one finding per unclosed
 blocking finding, under the rule it cites or `panel/open-finding`, and accepts `blocking_retry` or `blocking_escalate`, and exit 2 (the round
@@ -77,9 +80,10 @@ changed, and, for a fix, when a reproducing test changed after its red; a new te
 or one that only gained lines, is added. The same classifier decides three things, so
 they never disagree:
 
-- `review-level.sh facts` records `tests_edited`, and the rule `full tests_edited` floors
-  the change at `full`, so the QA seat reviews it too. An added-only change floors at
-  `standard`, as any change to a test does.
+- `review-level.sh facts` records `tests_edited`, a fact the seats and the acceptance
+  hold read. The `full` floor is narrower: `rule full red_test_edited` fires when a
+  fix's own reproducing test changed after its red. Any other change to a test floors
+  at `standard`, or at `light` when the light cap applies (`review-levels.md`).
 - The code packet's `## Test changes` section, between the changed paths and the diff,
   lists the added tests by path and the edited tests by path, then each edited test's
   hunks. It says `none` when the change touches no test file.
