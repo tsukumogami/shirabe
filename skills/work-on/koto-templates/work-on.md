@@ -3385,7 +3385,7 @@ states:
       #   test: skills/work-on/scripts/ci-relevant_test.sh
       ci_passing:
         type: command
-        command: "N=$(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty'); \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-relevant.sh\" --session \"{{SESSION_NAME}}\" --ci-wait \"{{CI_WAIT}}\" $N; case $? in 0) exit 0 ;; 1) ;; *) \"{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh\" $N --json bucket --jq 'length > 0 and ([.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0)' | grep -q true && exit 0 ;; esac; \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" \"{{SESSION_NAME}}\" || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-none-declared.sh\" \"{{SESSION_NAME}}\" || exit 1"
+        command: "\"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-relevant.sh\" --session \"{{SESSION_NAME}}\" --ci-wait \"{{CI_WAIT}}\" $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty'); case $? in 0) exit 0 ;; 1) ;; *) \"{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh\" $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq 'length > 0 and ([.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0)' | grep -q true && exit 0 ;; esac; \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" \"{{SESSION_NAME}}\" || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-none-declared.sh\" \"{{SESSION_NAME}}\" || exit 1"
         timeout: 180
       # A DIRTY pull request has merge conflicts, and GitHub creates no new
       # check-runs for one, so its CI gate says nothing about the change: it

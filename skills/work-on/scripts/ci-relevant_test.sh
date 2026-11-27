@@ -309,7 +309,7 @@ RAW=$(koto_gate_command "$WORK_ON" ci_passing)
 GATE=$(koto_unquote_scalar "$RAW")
 [ -n "$GATE" ] || { fail "could not read ci_passing from $WORK_ON"; GATE="exit 9"; }
 case "$GATE" in
-    *'ci-relevant.sh" --session "{{SESSION_NAME}}" --ci-wait "{{CI_WAIT}}" $N; case $? in 0) exit 0 ;; 1) ;; *)'*)
+    *'ci-relevant.sh" --session "{{SESSION_NAME}}" --ci-wait "{{CI_WAIT}}" $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '"'"'.[0].number // empty'"'"'); case $? in 0) exit 0 ;; 1) ;; *)'*)
         pass "ci_passing reads the relevant set first, and falls to every check on anything but 0 and 1" ;;
     *) fail "ci_passing's relevant read: $GATE" ;;
 esac
