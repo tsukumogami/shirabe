@@ -12,7 +12,7 @@ description: >-
   this skill per issue. Do NOT use it for a feature whose requirements are not
   written down anywhere — starting to code is how that feature gets decided
   by accident, and `/scope` is what settles it first.
-argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description"> [--review-floor=<level>] [--review-ceiling=<level>] [--verification=auto|local|hosted-ci [--verification-reason=<why>]] [--delivery=partial --delivery-reason=<why>] [--koto-leg=<request-id>:work-on]'
+argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description"> [--review-floor=<level>] [--review-ceiling=<level>] [--verification=auto|local|hosted-ci [--verification-reason=<why>]] [--delivery=partial --delivery-reason=<why>] [--ci-wait=all] [--koto-leg=<request-id>:work-on]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
@@ -207,6 +207,29 @@ silent skip:
   (`references/phases/phase-6-pr.md` has the section). `ci_monitor` then requires
   that CI green, as it does for every run.
 
+### Waiting Only on Relevant Checks
+
+`ci_monitor` waits on every check of the pull request unless the verification map
+at the merge-base carries `always_required` (`references/verification-map.md`,
+**Waiting only on relevant checks**). With it, `ci_passing` waits only on the
+checks the change can reach: the `hosted` twins of the commands the change selects,
+and the `always_required` list, read from the merge-base's map and again from the
+current default branch's on every read, keeping the union
+(`run-verification.sh --relevant`, recorded as `relevant_checks.txt`). Checks match
+on workflow and job together, never on a bare name. Every one must pass: a skipped
+twin isn't passed, since a twin that `needs:` its slices is skipped when one fails,
+and one not reported yet is pending.
+
+A failing check outside that set doesn't hold the green edge. The gate posts one pull
+request comment carrying only the check's name and link, mentions and markup
+neutralised, once per check per head, and lists it in `ci_outside_failures.txt`:
+name every check there in the final report. Merging is unchanged: `/execute`'s merge
+readiness still needs every check green.
+
+`CI_WAIT=all`, the opt-out, waits on every check whatever the map says: pass
+`--ci-wait=all` in the invocation (see **Initialize**). koto refuses any other value
+(`invalid_var`), and the variable isn't rebindable.
+
 ### Fixes Start Red
 
 A unit whose purpose is to correct behaviour reported as wrong is a **fix**, and a
@@ -370,9 +393,10 @@ description. Set aside the review-level bound the same way, `--review-floor=<lev
 and `--review-ceiling=<level>` (see **Review Level**), and the verification deferral,
 `--verification=<value>` and `--verification-reason=<why>` (see **Deferring
 Verification to Hosted CI**), and the partial delivery, `--delivery=<value>` and
-`--delivery-reason=<why>` (see **Initialize**). Set aside only for
+`--delivery-reason=<why>` (see **Initialize**), and the CI wait, `--ci-wait=<value>`
+(see **Waiting Only on Relevant Checks**). Set aside only for
 detection: the tokens file `work-on-open.sh` reads is the original `$ARGUMENTS`,
-`--koto-leg`, the bound, the deferral and the delivery included.
+`--koto-leg`, the bound, the deferral, the delivery and the CI wait included.
 
 - If `$ARGUMENTS` begins with `-- plan-backed` — **plan-backed child mode** (highest priority; the plan-level coordinator /execute is spawning this as a per-issue child workflow)
 - If the argument is a path matching `docs/plans/PLAN-*.md`, or any `.md` file whose frontmatter contains `schema: plan/v1` or `schema: plan/v2` — **plan dispatcher mode** (see Plan Input above). `plan/v1` plans carry issue outlines; `plan/v2` plans carry steps (see `skills/plan/references/plan-format.md`)
@@ -512,6 +536,11 @@ characters. Both refusals are `error=usage`; say which, and stop rather than ope
 without the deferral. koto refuses a `VERIFICATION` other than `auto`, `local` or
 `hosted-ci`, and a reason outside its pattern (`invalid_var`); report the refusal
 and stop.
+
+**The CI wait.** `--ci-wait=all` stays in the tokens too: the script hands koto
+`CI_WAIT=all`, and `ci_monitor` then waits on every check rather than on the
+relevant set (see **Waiting Only on Relevant Checks**). Don't pass it as `--var`.
+koto refuses any other value (`invalid_var`); report the refusal and stop.
 
 **The partial delivery.** A planned split, where this run's pull request delivers
 one step of the issue and leaves the issue open, is declared with
@@ -707,7 +736,18 @@ leg, since one leg answers one session.
   the Actions jobs at the head and the commit's statuses, and lists each
   required check neither answers, or that only another app's check run could,
   in the bucket `unreadable`, which no gate counts as green. It never touches
-  the token. `scripts/pr-checks_test.sh` is its harness.
+  the token. `--relevant <file>` keeps only the checks whose workflow and job
+  match a line of the relevant set, listing one not reported yet as pending;
+  `--outside <file>` keeps the others. gh never sees either flag, and both
+  work on the fallback too. `scripts/pr-checks_test.sh` is its harness.
+- `scripts/ci-relevant.sh --session <s> [--ci-wait <all|>] [<pr>]` — run by
+  koto, never by the agent, as `ci_passing`'s first read (see **Waiting Only on
+  Relevant Checks**). It reads the relevant set with `run-verification.sh
+  --relevant`, exits 0 when every relevant check passed, 1 when one hasn't, and
+  3 when the filter is off, which sends the gate to its read of every check. On
+  green it comments once per head on each failing check outside the set and
+  records it in `ci_outside_failures.txt`. `scripts/ci-relevant_test.sh` is its
+  harness.
 - `scripts/pr-url.sh` — sourced, never run: `pr_url_parse` splits a pull
   request URL into its host, owner and repository, or refuses it. Both CI
   fallbacks above take the repository from the pull request's URL through it

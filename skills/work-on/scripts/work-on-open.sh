@@ -167,6 +167,14 @@
 # scripts/lib/verification-deferral.sh; the other two live here, since only
 # /work-on maps the delivery flags. Both variables are not rebind.
 #
+# What ci_monitor waits on is mapped the same way:
+#
+#   --ci-wait=<all>   CI_WAIT=<value>
+#
+# `all` waits on every check, the opt-out from the relevant set. koto refuses
+# any other value as invalid_var (the variable's pattern ^(all)?$). Without
+# the flag no pair is written. Not rebind either.
+#
 # PLUGIN_ROOT is added by this script: $CLAUDE_PLUGIN_ROOT, else the plugin
 # root this script ships in. The template is this skill's work-on.md.
 #
@@ -459,6 +467,7 @@ jq -nc --arg root "$ROOT" --arg level "$LEVEL" --arg kind "$KIND" --argjson toke
     + [ $tokens[] | bound(.; "--verification-reason"; "VERIFICATION_DEFERRAL_REASON")[] ]
     + [ $tokens[] | bound(.; "--delivery"; "DELIVERY")[] ]
     + [ $tokens[] | bound(.; "--delivery-reason"; "DELIVERY_REASON")[] ]
+    + [ $tokens[] | bound(.; "--ci-wait"; "CI_WAIT")[] ]
     + [["PLUGIN_ROOT", $root]]
     + (if $level == "" then [] else [["REVIEW_LEVEL", $level]] end)
     + (if $kind == "" then [] else [["UNIT_KIND", $kind]] end)' --args ${VARS[@]+"${VARS[@]}"} > "$PAIRS_FILE" \
