@@ -53,15 +53,19 @@ session (`explore-<topic>` under `/explore`); in a direct run nobody called,
 the decision's own `decision-<topic>`. Only a decision nobody called raises
 its own question.
 
-- **Cheap, in an unattended session:** choose the recommendation, record the
+- **Cheap, in an unattended session, with no ground against it:** choose the
+  recommendation, record the
   attempt `provisional` (`shirabe question attempt --in <attempt session> --what
   "<question>" --result provisional --undo cheap --undo-reason "<what undoing
   would take>" --chosen "<name>"`), note its id, and write the settled report
   in 6.3 with status `assumed`.
-- **Otherwise** (costly, or attended with nobody to ask): record the attempt
-  `undecided` (`shirabe question attempt --in <attempt session> --what
-  "<question>" --result undecided`, adding `--undo costly --undo-reason "<why>"` in an
-  unattended session), note its id, write the undecided report in 6.3a and the
+- **Otherwise** (costly; cheap but kept from the session by one of the
+  grounds that reference lists; or attended with nobody to ask): record the
+  attempt `undecided` (`shirabe question attempt --in <attempt session> --what
+  "<question>" --result undecided`, adding `--undo costly --undo-reason
+  "<why>"` in an unattended session, or `--undo cheap --undo-reason "<what
+  undoing would take>" --ground <ground>` for a cheap choice a ground keeps
+  from it), note its id, write the undecided report in 6.3a and the
   question in 6.3b, and return `UNDECIDED` in 6.6.
 
 ### 6.3 Write Decision Report
