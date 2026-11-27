@@ -60,22 +60,32 @@ RULE_IDS=$(sed -n 's/^RULE_IDS="\(.*\)"$/\1/p' "$SCRIPT_DIR/pre-action-deny.sh")
 # -- the declaration -----------------------------------------------------------
 
 # No jq here, so these read hooks.json line by line: they expect its layout of
-# one `"key": value` pair per line, which the file keeps.
+# one `"key": value` pair per line, which the file keeps. The file holds more
+# than one PreToolUse entry (the question guard has its own), so the Bash
+# entry is the one whose command runs pre-action-deny.sh: its matcher is the
+# last `"matcher"` line before that command, and its timeout the next
+# `"timeout"` line after it.
 
-HOOK_CMD=$(sed -n 's/^ *"command": "\(.*\)",\{0,1\}$/\1/p' "$HOOKS_JSON" | sed 's/\\"/"/g')
+HOOK_CMD=$(sed -n 's/^ *"command": "\(.*pre-action-deny\.sh.*\)",\{0,1\}$/\1/p' "$HOOKS_JSON" | sed 's/\\"/"/g')
 
 [ "$HOOK_CMD" = 'bash "${CLAUDE_PLUGIN_ROOT}/hooks/pre-action-deny.sh"' ] \
     && pass "hooks.json runs bash on the quoted script path" \
     || fail "hooks.json command" "[$HOOK_CMD]"
 
+BASH_ENTRY=$(awk '
+    /"matcher":/ { matcher = $0 }
+    /"command":/ && /pre-action-deny\.sh/ { found = 1; n++; print matcher; next }
+    found && /"timeout":/ { print; found = 0 }
+    END { print "entries " n }
+' "$HOOKS_JSON")
 n_pre=$(grep -c '"PreToolUse"' "$HOOKS_JSON")
-n_matcher=$(grep -c '"matcher": "Bash"' "$HOOKS_JSON")
-n_cmd=$(grep -c '"type": "command"' "$HOOKS_JSON")
-n_timeout=$(grep -c '"timeout": 30$' "$HOOKS_JSON")
 n_fail=$(grep -c 'onFailure' "$HOOKS_JSON")
-[ "$n_pre" = 1 ] && [ "$n_matcher" = 1 ] && [ "$n_cmd" = 1 ] && [ "$n_timeout" = 1 ] && [ "$n_fail" = 0 ] \
+expected_entry='        "matcher": "Bash",
+            "timeout": 30
+entries 1'
+[ "$n_pre" = 1 ] && [ "$BASH_ENTRY" = "$expected_entry" ] && [ "$n_fail" = 0 ] \
     && pass "hooks.json declares one PreToolUse Bash command hook, timeout 30, no onFailure" \
-    || fail "hooks.json shape" "PreToolUse=$n_pre matcher=$n_matcher command=$n_cmd timeout=$n_timeout onFailure=$n_fail"
+    || fail "hooks.json shape" "PreToolUse=$n_pre onFailure=$n_fail bash entry=[$BASH_ENTRY]"
 
 mode=$(git -C "$REPO_ROOT" ls-files -s hooks/pre-action-deny.sh | cut -d' ' -f1)
 [ "$mode" = 100755 ] && pass "pre-action-deny.sh has mode 100755 in git" \

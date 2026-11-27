@@ -94,7 +94,10 @@ work.
    ```
 
    Write `$ARGS_DIR/args.json` with the Write tool or `jq`, never by pasting
-   tokens into a shell command.
+   tokens into a shell command. A dispatched start's prompt begins with the
+   invocation, so its arguments run past their first line: the tokens are the
+   first line's alone, and the lines after it are the dispatcher's prompt
+   (who the work is for, where it runs and the brief to read), never tokens.
 
 2. **Open the session.**
 

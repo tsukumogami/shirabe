@@ -17,7 +17,7 @@ A `/work-on` run takes part only when all of these hold:
   request of its own.
 
 When its analysis plan is ready, the run passes `offload_canary` and then
-`probe_draw` on its way to `review_level_choice`. `probe_draw` runs
+`probe_draw` on its way to `fix_determination`. `probe_draw` runs
 `skills/work-on/scripts/probe.sh draw`, which draws an arm and a value from
 `/dev/urandom`, records both under `probe/` in the session directory, and
 routes the run through one of three marker states:
@@ -25,12 +25,21 @@ routes the run through one of three marker states:
 | Arm | Marker state | Where the rule is printed |
 |---|---|---|
 | near | `probe_arm_near` | at the end of the `pr_creation` directive |
-| far | `probe_arm_far` | at the end of the `review_level_choice` directive |
+| far | `probe_arm_far` | at the end of the first `implementation` directive, or the first `reproduce` directive for a fix |
 | far_redeliver | `probe_arm_far_redeliver` | as far, and handed back by the check after a miss |
 | none | none | nowhere |
 
 Each arm takes a third of the draws. The value is three lowercase letters and
 six digits, drawn for the run and never reused.
+
+The far arms' rule is printed once per run. `implementation` runs
+`probe.sh far-text` on entry, and so does `reproduce` when it is going to stop
+(`red-first.sh has-red` says its red_recorded gate would hold). far-text prints
+the rule the first time it runs in a session and nothing after, so the first of
+the two states the run stops in carries it: `implementation` for a change,
+`reproduce` for a fix, and `implementation` for a fix whose red was recorded
+before `reproduce`, which passes straight through. No retry, return to
+`implementation` or later visit repeats it.
 
 A run that can't be drawn, for any reason, is in no arm and goes on exactly as
 if the probe were off: every directive it reads is the one a run without the
@@ -139,7 +148,10 @@ None of them carries the value, the `ack` field or the rule's text: koto's
 run journal exports declared names, ids, booleans and counts, never a
 finding's message, a string evidence field, a captured value or a gate's
 output, and the probe relies on that. Each
-re-print of a directive records a new delivery, so a tick that holds at
-`review_level_choice` or `pr_creation` adds one; a reader takes the last
+re-print of a directive that still carries the rule records a new delivery, so
+a tick that holds at `pr_creation` adds one for a near run. A far run records
+one: the tick after its first `reproduce` or `implementation` directive
+re-runs `far-text`, which prints nothing, so a re-print there carries no rule
+and records nothing. A reader takes the last
 delivery before the first decided check. A run's first check is its earliest
 `probe_ack` evaluation that isn't flagged not ready.

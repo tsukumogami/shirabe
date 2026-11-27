@@ -189,15 +189,16 @@ to_finalization() {
     # remote, so the check is unavailable (exit 3) and the run is at analysis.
     submit "$1" '{"status":"override"}'
     put "$1" plan.md plan
-    submit "$1" '{"plan_outcome":"plan_ready"}'
     # analysis recorded HEAD, which already carries the fixture's work commit;
-    # the run's base is the commit before it.
+    # the run's base is the commit before it. Set before plan_ready, whose
+    # tick runs fix_determination's action, which reads it.
     put "$1" impl_base "$BASE_SHA"
-    # The full review level keeps all three panels on the path.
+    # plan_ready runs through fix_determination, whose action records the
+    # bound and the kind and whose kind_route gate routes on it in the same
+    # tick, to implementation.
+    submit "$1" '{"plan_outcome":"plan_ready"}'
+    # A raise to full, which the level check keeps: all three panels on the path.
     "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$1" full >/dev/null 2>&1
-    # Into fix_determination, whose action records the kind and whose
-    # kind_route gate routes on it in the same tick, to implementation.
-    koto next "$1" --no-cleanup >/dev/null 2>&1
     submit "$1" '{"implementation_status":"complete"}'
     [ "$NEXT_STATE" = issue_type_routing ] && submit "$1" '{"issue_type":"code"}'
     pass_panel "$1" scrutiny completeness justification intent

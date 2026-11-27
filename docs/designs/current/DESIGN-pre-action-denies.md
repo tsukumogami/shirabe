@@ -960,7 +960,8 @@ its off switch.
 Deliverables:
 
 - `references/rule-registry.json`, `references/rule-registry.md`
-- `scripts/check-rule-registry.sh`, `scripts/check-rule-registry_test.sh`,
+- `scripts/check-rule-registry.sh`, its suite (now
+  `scripts/check-rule-registry_1_test.sh` to `_4_test.sh`),
   `.github/workflows/check-rule-registry.yml`
 - `docs/guides/offload-live-canary.md`, `README.md`
 

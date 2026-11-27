@@ -17,8 +17,8 @@ name: Check rule registry
 # globs as a path or a directory prefix, not with GitHub's full syntax.
 
 on:
-  # No push trigger, unlike the other macOS floor workflows: its macOS leg is
-  # one of the two longest and nearly every merge touches its paths, so a run
+  # No push trigger, unlike the other macOS floor workflows: its macOS work
+  # is one of the longest and nearly every merge touches its paths, so a run
   # per merge would crowd pull requests' macOS legs in the runner queue. Its
   # suite's floor read on main is macos-floor.yml's daily run, which files an
   # issue when it fails (shirabe#1085).
@@ -54,13 +54,23 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Each platform runs four slices: the Linux step and the macOS floor run
+  # keep slice SUITE_SLICE of scripts/bash-floor/rule-registry.list's suites,
+  # balanced by the list's cost lines (scripts/lib/suite-slice.sh), so each
+  # slice gets one part of check-rule-registry's suite and the four together
+  # run every suite once. fail-fast stays off so one failing slice doesn't
+  # cancel the rest; scripts/check-suite-slices.sh holds that shape.
   test-rule-registry:
     strategy:
+      fail-fast: false
       matrix:
         # No macOS leg while the pull request is a draft (shirabe#1300);
         # scripts/check-macos-floor-legs.sh holds the one copy of this line.
         os: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.draft && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
+        slice: [1, 2, 3, 4]
     runs-on: ${{ matrix.os }}
+    env:
+      SUITE_SLICE: ${{ matrix.slice }}/4
     steps:
       - uses: actions/checkout@v4
         with:
@@ -72,23 +82,32 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get install -y jq
 
-      # The suites need bash, git, jq, awk and sed. These steps run them under
-      # Linux's own bash 5; the macOS leg runs them on the floor in the last
-      # step, through the `rule-registry` suite.
+      # The suites need bash, git, jq, awk and sed. This step runs this
+      # slice of them under Linux's own bash 5, through run-suites.sh, over
+      # the `rule-registry` list's suites and with its cost lines as the cost
+      # table; the macOS leg runs its slice on the floor in the last step.
       - name: Run the suites (Linux)
         if: runner.os == 'Linux'
         run: |
-          bash scripts/rule-registry_test.sh
-          bash scripts/check-rule-registry_test.sh
-          bash scripts/rule-lifecycle_test.sh
-          bash scripts/rule-dispute_test.sh
+          set -euo pipefail
+          awk '$1 == "cost:" { n = split($2, p, "/"); printf "cost\t%s\t%s\n", p[n], $3 }' \
+            scripts/bash-floor/rule-registry.list > "$RUNNER_TEMP/rule-registry-costs.tsv"
+          suites=$(scripts/check-bash-floor.sh --scripts rule-registry)
+          # One path per line, none with a space, so the word split is safe.
+          # shellcheck disable=SC2086
+          SUITE_SLICE_COSTS="$RUNNER_TEMP/rule-registry-costs.tsv" bash scripts/run-suites.sh $suites
 
+      # The two checks below run once, in slice 1. The slice is read from
+      # SUITE_SLICE rather than put in the `if`, which
+      # scripts/check-macos-floor-legs.sh reads as Linux-only only in its
+      # plain form.
       - name: Check the registry against the merge base (Linux)
         if: runner.os == 'Linux'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
+          case "$SUITE_SLICE" in 1/*) ;; *) echo "the merge-base check runs in slice 1; this is slice $SUITE_SLICE"; exit 0 ;; esac
           base=$(git merge-base "$BASE_SHA" HEAD)
           scripts/check-rule-registry.sh --base "$base"
 
@@ -100,6 +119,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
+          case "$SUITE_SLICE" in 1/*) ;; *) echo "the adoption check runs in slice 1; this is slice $SUITE_SLICE"; exit 0 ;; esac
           base=$(git merge-base "$BASE_SHA" HEAD)
           scripts/check-rule-registry-adoption.sh "$base"
 

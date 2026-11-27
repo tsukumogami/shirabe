@@ -31,6 +31,7 @@ mod plan_outlines;
 mod populate;
 mod pr_body_hook;
 mod pre_action;
+mod question_guard;
 mod work_summary;
 
 /// The maximum accepted size of the `--custom-statuses` value, matching the
@@ -123,6 +124,25 @@ enum Commands {
     /// stdin; exits 0, or 3 when `--rules` names a rule this binary doesn't
     /// check. Run by the plugin's `hooks/pre-action-deny.sh`.
     PreActionHook(PreActionHookArgs),
+    /// The plugin's hooks other than the Bash pre-action hook.
+    Hook(HookArgs),
+}
+
+#[derive(clap::Args)]
+struct HookArgs {
+    #[command(subcommand)]
+    command: HookCommands,
+}
+
+#[derive(Subcommand)]
+enum HookCommands {
+    /// The plugin's PreToolUse hook on the question tool (AskUserQuestion):
+    /// deny a question prompt in a turn no person typed, read from the
+    /// session record the hook's input names, and give no decision
+    /// otherwise. Reads a Claude Code hook JSON on stdin; prints nothing or
+    /// one deny line; always exits 0. Run by the plugin's
+    /// `hooks/question-guard.sh`.
+    QuestionGuard,
 }
 
 #[derive(clap::Args)]
@@ -485,6 +505,9 @@ fn main() -> ExitCode {
         Some(Commands::PreActionHook(args)) => {
             pre_action::run_plugin(&args.plugin_root, &args.rules)
         }
+        Some(Commands::Hook(args)) => match args.command {
+            HookCommands::QuestionGuard => question_guard::run(),
+        },
         // Bare invocation: print the long help to stdout and exit 0,
         // matching cobra's behavior for a command with no `Run`. clap would
         // otherwise leave `command` as `None` and exit 0 silently.

@@ -19,6 +19,11 @@ set -euo pipefail
 #   0 - All tests passed
 #   1 - One or more tests failed
 
+# The runner slices a suite's list when SUITE_SLICE is set, and a developer or
+# a CI job may have it set in the environment that launches this test. Every
+# run below starts from neither variable; a slice case names its slice.
+unset SUITE_SLICE SUITE_SLICE_COSTS
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNNER="$SCRIPT_DIR/check-bash-floor.sh"
 CANARY="$SCRIPT_DIR/bash-floor-canary.sh"
@@ -688,8 +693,20 @@ test_every_list_names_a_workflow_and_scripts() {
         while IFS= read -r line || [ -n "$line" ]; do
             t=$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
             case "$t" in
-                ''|'#'*|'needs: shirabe') ;;
+                ''|'#'*|'needs: shirabe'|'slice: pass') ;;
                 workflow:*) ;;
+                cost:*)
+                    set -- $t
+                    cost_ok=1
+                    if [ "$#" -ne 3 ] || ! [ -f "$SCRIPT_DIR/../$2" ]; then
+                        cost_ok=0
+                    else
+                        case "$3" in
+                            ''|*[!0-9]*) cost_ok=0 ;;
+                        esac
+                    fi
+                    [ "$cost_ok" -eq 1 ] || bad="$bad $suite(bad cost line: $t)"
+                    ;;
                 *:*) bad="$bad $suite(unknown directive: $t)" ;;
                 *) [ -f "$SCRIPT_DIR/../$t" ] || bad="$bad $suite(no such script: $t)" ;;
             esac
@@ -788,6 +805,8 @@ fi
 exec "$HOST_BASH" "\$@"
 EOF
 chmod +x "$FLOOR_STANDIN"
+mkdir -p "$STDIN_REPO/scripts/lib"
+cp "$SCRIPT_DIR/lib/suite-slice.sh" "$STDIN_REPO/scripts/lib/suite-slice.sh"
 cp "$RUNNER" "$STDIN_REPO/scripts/check-bash-floor.sh"
 sed "s#/bin/bash#$FLOOR_STANDIN#g" "$RUNNER" >"$STDIN_REPO/scripts/check-bash-floor-system.sh"
 chmod +x "$STDIN_REPO/scripts/check-bash-floor-system.sh"
@@ -805,6 +824,21 @@ EOF
 echo 'echo second >>"$FLOOR_STDIN_MARKS"' >"$STDIN_REPO/scripts/stdin-second.sh"
 echo 'echo third >>"$FLOOR_STDIN_MARKS"' >"$STDIN_REPO/scripts/stdin-third.sh"
 
+# The slice fixtures: four harnesses that record their name and the slice they
+# see. `slice` is sliced, `slice-pass` passes its slice through, and
+# `slice-cost` gives two of the harnesses a cost.
+for h in a b c d; do
+    echo "echo \"$h:\${SUITE_SLICE:-none}\" >>\"\$FLOOR_STDIN_MARKS\"" >"$STDIN_REPO/scripts/slice-$h.sh"
+done
+printf '%s\n' 'workflow: .github/workflows/none.yml' \
+    scripts/slice-a.sh scripts/slice-b.sh scripts/slice-c.sh scripts/slice-d.sh \
+    >"$STDIN_REPO/scripts/bash-floor/slice.list"
+{ echo 'slice: pass'; cat "$STDIN_REPO/scripts/bash-floor/slice.list"; } \
+    >"$STDIN_REPO/scripts/bash-floor/slice-pass.list"
+{ cat "$STDIN_REPO/scripts/bash-floor/slice.list"
+  echo 'cost: scripts/slice-d.sh 50'
+  echo 'cost: scripts/slice-a.sh 1'; } >"$STDIN_REPO/scripts/bash-floor/slice-cost.list"
+
 STDIN_OUT=""
 STDIN_RC=0
 # run_stdin_suite <runner> <backend>: runs the fixture suite through that copy
@@ -814,10 +848,22 @@ STDIN_RC=0
 run_stdin_suite() {
     rm -f "$STDIN_MARKS" "$STUB_ROOT/log.run" "$STUB_ROOT/log.build"
     STDIN_RC=0
-    STDIN_OUT=$(env -u SHIRABE_FLOOR_REQUIRE_ROOTLESS PATH="$STUB_BIN:$PATH" \
+    STDIN_OUT=$(env -u SHIRABE_FLOOR_REQUIRE_ROOTLESS -u SUITE_SLICE -u SUITE_SLICE_COSTS PATH="$STUB_BIN:$PATH" \
         STUB_DAEMON=rootless STUB_LOG="$STUB_ROOT/log" STUB_EXEC=1 \
         FLOOR_STDIN_MARKS="$STDIN_MARKS" \
         "$STDIN_REPO/scripts/$1" --backend "$2" stdin </dev/null 2>&1) || STDIN_RC=$?
+}
+
+# run_slice_suite <runner> <backend> <suite> <slice>: runs a slice fixture
+# suite with SUITE_SLICE=<slice> and nothing else of the caller's slice
+# variables, leaving the output in STDIN_OUT and the status in STDIN_RC.
+run_slice_suite() {
+    rm -f "$STDIN_MARKS" "$STUB_ROOT/log.run" "$STUB_ROOT/log.build"
+    STDIN_RC=0
+    STDIN_OUT=$(env -u SHIRABE_FLOOR_REQUIRE_ROOTLESS -u SUITE_SLICE_COSTS PATH="$STUB_BIN:$PATH" \
+        STUB_DAEMON=rootless STUB_LOG="$STUB_ROOT/log" STUB_EXEC=1 \
+        FLOOR_STDIN_MARKS="$STDIN_MARKS" SUITE_SLICE="$4" \
+        "$STDIN_REPO/scripts/$1" --backend "$2" "$3" </dev/null 2>&1) || STDIN_RC=$?
 }
 
 # The marks the fixture's harnesses left, on one line.
@@ -881,6 +927,95 @@ test_a_suite_that_runs_short_fails() {
     esac
 }
 
+# -- slicing a suite's harness list ---------------------------------------------
+#
+# Four harnesses of no stated cost go one to a slice in name order, so slice 2
+# of 4 is slice-b.sh, and the harness sees no SUITE_SLICE: a sliced list's
+# children never slice again.
+test_a_sliced_suite_runs_its_slice_only() {
+    local name="SUITE_SLICE=2/4 runs one harness of four, which doesn't see the slice"
+    run_slice_suite check-bash-floor-system.sh system slice 2/4
+    if [ "$STDIN_RC" -ne 0 ] || [ "$(stdin_marks)" != "b:none " ]; then
+        fail "$name" "marks: $(stdin_marks) (exit $STDIN_RC): $STDIN_OUT"
+        return
+    fi
+    case "$STDIN_OUT" in
+        *"slice: ran 1 of 1 listed harnesses (slice 2/4 of 4)"*) pass "$name" ;;
+        *) fail "$name" "no count line naming the slice: $STDIN_OUT" ;;
+    esac
+}
+
+test_the_slices_together_run_every_harness_once() {
+    local name="the four slices of a list together run every harness once"
+    local i all=""
+    for i in 1 2 3 4; do
+        run_slice_suite check-bash-floor-system.sh system slice "$i/4"
+        all="$all$(stdin_marks)"
+    done
+    if [ "$all" = "a:none b:none c:none d:none " ]; then
+        pass "$name"
+    else
+        fail "$name" "marks: $all"
+    fi
+}
+
+# `slice: pass` leaves the list whole and the slice in the harness's hands.
+test_slice_pass_runs_every_harness_with_the_slice() {
+    local name="a list with slice: pass runs every harness, and each sees the slice"
+    run_slice_suite check-bash-floor-system.sh system slice-pass 2/4
+    if [ "$STDIN_RC" -eq 0 ] && [ "$(stdin_marks)" = "a:2/4 b:2/4 c:2/4 d:2/4 " ]; then
+        case "$STDIN_OUT" in
+            *"slice-pass: ran 4 of 4 listed harnesses"*) pass "$name"; return ;;
+        esac
+    fi
+    fail "$name" "marks: $(stdin_marks) (exit $STDIN_RC): $STDIN_OUT"
+}
+
+# The docker backend hands a passed-through slice to the container explicitly.
+test_docker_backend_passes_a_slice_through() {
+    local name="docker backend: a slice: pass list hands SUITE_SLICE to the container"
+    run_slice_suite check-bash-floor.sh docker slice-pass 2/4
+    if [ "$STDIN_RC" -eq 0 ] && run_has "SUITE_SLICE=2/4"; then
+        pass "$name"
+    else
+        fail "$name" "exit $STDIN_RC; docker run args: $(tr '\n' ' ' <"$STUB_ROOT/log.run" 2>/dev/null)"
+    fi
+}
+
+# With slice-d.sh costing 50 it fills slice 1 alone, and the three others,
+# costing 1 each, shift up a slice: slice 2 of 4 becomes slice-a.sh.
+test_a_cost_line_moves_a_harness() {
+    local name="a cost: line changes which harness lands in which slice"
+    run_slice_suite check-bash-floor-system.sh system slice-cost 2/4
+    if [ "$STDIN_RC" -eq 0 ] && [ "$(stdin_marks)" = "a:none " ]; then
+        pass "$name"
+    else
+        fail "$name" "marks: $(stdin_marks) (exit $STDIN_RC): $STDIN_OUT"
+    fi
+}
+
+test_a_malformed_slice_fails_the_suite() {
+    local name="a malformed SUITE_SLICE fails the suite, naming the value"
+    run_slice_suite check-bash-floor-system.sh system slice 5/4
+    if [ "$STDIN_RC" -eq 1 ] && [ -z "$(stdin_marks)" ]; then
+        case "$STDIN_OUT" in
+            *"SUITE_SLICE=5/4"*) pass "$name"; return ;;
+        esac
+    fi
+    fail "$name" "marks: $(stdin_marks) (exit $STDIN_RC): $STDIN_OUT"
+}
+
+# The test unset the slice variables at its top, so a slice exported around a
+# fixture run doesn't reach it.
+test_an_ambient_slice_does_not_reach_a_fixture_run() {
+    local name="an ambient SUITE_SLICE doesn't slice a fixture run"
+    (
+        export SUITE_SLICE=2/4
+        run_stdin_suite check-bash-floor-system.sh system
+        [ "$(stdin_marks)" = "reader second third " ] && [ "$STDIN_RC" -eq 0 ]
+    ) && pass "$name" || fail "$name" "the fixture run was sliced or failed"
+}
+
 echo "Running check-bash-floor.sh tests..."
 echo ""
 
@@ -914,6 +1049,13 @@ test_image_recipe
 test_system_backend_runs_every_harness_after_a_stdin_reader
 test_docker_backend_runs_every_harness_after_a_stdin_reader
 test_a_suite_that_runs_short_fails
+test_a_sliced_suite_runs_its_slice_only
+test_the_slices_together_run_every_harness_once
+test_slice_pass_runs_every_harness_with_the_slice
+test_docker_backend_passes_a_slice_through
+test_a_cost_line_moves_a_harness
+test_a_malformed_slice_fails_the_suite
+test_an_ambient_slice_does_not_reach_a_fixture_run
 
 echo ""
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

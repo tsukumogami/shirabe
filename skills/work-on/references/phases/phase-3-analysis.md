@@ -34,8 +34,8 @@ For full plans, load the project's language skill from the extension file.
 ## Is It a Fix?
 
 Decide here whether the unit corrects behaviour someone reported as wrong
-(`../red-first.md`). The run settles it at `fix_determination`, right after the
-review level is chosen and before implementation: a fix label on the issue (the
+(`../red-first.md`). The run settles it at `fix_determination`, in the tick that
+submits your plan and before implementation: a fix label on the issue (the
 repository's `## Fix Labels:`, `bug` by default) or a plan step's `**Fixes**:`
 line makes the unit a fix on its own. When neither does but the report says
 existing behaviour is wrong, declare it here, before you submit `plan_outcome`,

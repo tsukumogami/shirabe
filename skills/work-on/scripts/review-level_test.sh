@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# review-level_test.sh -- the review level: choose, raise, lower, the facts
-# floor, the level check, the decider slice and the ledger reader
+# review-level_test.sh -- the review level: set from the facts, raise, lower,
+# the facts floor, the level check, the decider slice and the ledger reader
 # Part of the work-on skill
 #
 # review-level.sh is the one way a /work-on run's review level changes. This
@@ -14,13 +14,15 @@
 #
 #   engine cases -- real koto sessions of a scratch template named work-on
 #     that declares REVIEW_LEVEL the way the design does (rebind, optional,
-#     pattern ^(light|standard|full)?$), with a choice state that runs `init`
-#     and holds until the level is set, and a check state that runs `facts`
-#     as its action and `check` as its gate. They assert the rebind lands on
-#     the live session, that the variable and the ledger agree after every
-#     `set`, that the floor holds a light run until it is raised, that a hand
-#     rebind holds the check, that the unset route records `unset`, and what
-#     `report` prints for them. Skipped with a note when koto is absent.
+#     pattern ^(light|standard|full)?$), with a state that runs `init` and
+#     moves on, as fix_determination does, and a check state that runs
+#     `facts` and `set-from-facts` as its action and routes on `level
+#     --exit` with `check --ledger` holding every route. They assert the run
+#     reaches its panel in the tick that enters the check with no level
+#     submitted, that the rebind lands on the live session, that a raise is
+#     kept, that the bound's floor and a facts floor past the ceiling are
+#     honoured, that a hand rebind can't steer the route, and what `report`
+#     prints for them. Skipped with a note when koto is absent.
 #
 # Every run isolates HOME and builds its own git fixtures under a temp
 # directory.
@@ -186,7 +188,8 @@ var() { cat "$(store .var)" 2>/dev/null; }
 events() { ledger | jq -r '.event' | tr '\n' ' ' | sed 's/ $//'; }
 last_level() {
     ledger | jq -r 'select(.event == "choose" or .event == "raise" or .event == "lower"
-                           or .event == "floor_raise" or .event == "veto") | .to' | tail -n 1
+                           or .event == "floor_raise" or .event == "veto"
+                           or .event == "from_facts") | .to' | tail -n 1
 }
 
 # agree <label>: the variable and the ledger's last level are the same.
@@ -292,6 +295,28 @@ expect_rc "a second init" 0
     || fail "a second init wrote $(( $(wc -l < "$(store .addlog)") - ADDS )) keys"
 [ "$(ledger)" = "$LEDGER_BEFORE" ] && pass "a second init leaves the ledger as it was" || fail "a second init changed the ledger"
 
+# analysis's action can run before context.md exists (a test walk that writes
+# it later, say): init then stores no criteria copy, and the next init, the
+# no-op at fix_determination, stores it once context.md is there.
+fixture init-late-criteria
+rm -f "$(store context.md)"
+run init "$SESSION" "" ""
+expect_rc "init with no context.md" 0
+[ ! -f "$(store review_level_criteria.txt)" ] && pass "init with no context.md stores no criteria copy" \
+    || fail "a criteria copy of [$(cat "$(store review_level_criteria.txt)")] was stored"
+[ "$(events)" = bound ] && pass "it still records the bound" || fail "events are [$(events)]"
+printf '# Issue\n\n## Acceptance Criteria\n\n- [ ] late criteria\n' > "$(store context.md)"
+LB=$(ledger)
+run init "$SESSION" "" ""
+expect_rc "a second init once context.md exists" 0
+grep -q "late criteria" "$(store review_level_criteria.txt)" 2>/dev/null \
+    && pass "the second init stores the criteria copy" || fail "no criteria copy after the second init"
+[ "$(ledger)" = "$LB" ] && pass "the second init adds no bound line" || fail "the second init changed the ledger"
+printf '# Issue\n\n## Acceptance Criteria\n\n- [ ] changed later\n' > "$(store context.md)"
+run init "$SESSION" "" ""
+grep -q "late criteria" "$(store review_level_criteria.txt)" \
+    && pass "a third init leaves the stored copy alone" || fail "a third init overwrote the criteria copy"
+
 fixture init-empty
 run init "$SESSION" "" ""
 GOT=$(ledger | jq -c '{floor, ceiling}')
@@ -306,6 +331,7 @@ fixture set-early
 run set "$SESSION" light --reason x
 expect_rc "set before init" 1
 expect_out "set before init names the rule" "refused: no bound recorded yet"
+expect_out "the refusal says where a level can be set" "set the level from analysis on"
 [ -z "$(var)" ] && pass "set before init rebinds nothing" || fail "set before init rebound to [$(var)]"
 
 fixture choose
@@ -396,9 +422,16 @@ expect_rc "a first choice below the bound" 1
 expect_out "it names the level and the bound" "refused: light is below the bound's floor standard"
 fixture out-of-bound-high
 run init "$SESSION" "" standard
-run set "$SESSION" full --reason x
-expect_rc "a first choice above the bound" 1
-expect_out "it names the level and the ceiling" "refused: full is above the bound's ceiling standard"
+run set "$SESSION" full
+expect_rc "a first choice above the bound with no reason" 1
+expect_out "it names the level and the ceiling" "refused: full is above the bound's ceiling standard; a level past it needs --reason"
+[ "$(events)" = bound ] && [ -z "$(var)" ] && pass "the refused choice changes nothing" || fail "events are [$(events)], variable [$(var)]"
+# Before the level check a choose is the agent's raise: past the ceiling it
+# goes through with a reason and is recorded as a breach.
+run set "$SESSION" full --reason "riskier than the paths show"
+expect_rc "a first choice above the bound with a reason" 0
+[ "$(events)" = "bound choose breach" ] && pass "it records choose and breach" || fail "events are [$(events)]"
+agree "after a choice past the ceiling"
 fixture inverted
 run init "$SESSION" full light
 for l in light standard full; do
@@ -1325,6 +1358,204 @@ run level;                 expect_rc "level with no session" 64
 rm -f "$(store review_level.jsonl)"
 
 # ==============================================================================
+echo "--- script: set-from-facts"
+
+# The level check's action: the level is the highest of the facts floor, the
+# ledger's level (every raise) and the bound's floor.
+fixture sff-floor
+run init "$SESSION" "" ""
+setfacts standard
+run set-from-facts "$SESSION"
+expect_rc "set-from-facts with only a facts floor" 0
+expect_out "it says what it recorded" "recorded: from_facts - -> standard (facts floor, rule lines>40)"
+[ "$(events)" = "bound from_facts check" ] && pass "it writes from_facts, then a check line" || fail "events are [$(events)]"
+GOT=$(ledger | jq -c 'select(.event == "from_facts") | [.from, .to, .source, .rule]')
+[ "$GOT" = '[null,"standard","facts","lines>40"]' ] && pass "the from_facts line names the level, its source and the rule" \
+    || fail "from_facts line is $GOT"
+GOT=$(ledger | tail -n 1 | jq -c '[.level, .floor]')
+[ "$GOT" = '["standard","standard"]' ] && pass "the check line is at the level set" || fail "check line is $GOT"
+[ "$(var)" = standard ] && pass "it rebinds REVIEW_LEVEL to the facts floor" || fail "variable is [$(var)]"
+agree "after set-from-facts"
+LB=$(ledger)
+ADDS=$(wc -l < "$(store .addlog)")
+run set-from-facts "$SESSION"
+expect_rc "set-from-facts again at the same facts" 0
+expect_out "it says the level is unchanged" "unchanged: standard (facts floor standard)"
+[ "$(ledger)" = "$LB" ] && pass "an unchanged level writes no ledger line" || fail "it appended [$(ledger | tail -n 1)]"
+[ "$(wc -l < "$(store .addlog)")" -eq "$ADDS" ] && pass "an unchanged level writes no key" || fail "it wrote a key"
+[ "$(tail -n 1 "$(store .initlog)")" = standard ] && pass "an unchanged level still rebinds the variable" \
+    || fail "last rebind was [$(tail -n 1 "$(store .initlog)")]"
+# A later lap whose facts are lighter keeps the level: it never drops on its own.
+setfacts light
+run set-from-facts "$SESSION"
+expect_rc "set-from-facts over a lighter facts floor" 0
+[ "$(events)" = "bound from_facts check check" ] && pass "a lighter floor adds a check line and no level line" \
+    || fail "events are [$(events)]"
+[ "$(last_level)" = standard ] && [ "$(var)" = standard ] && pass "the level stays at standard" \
+    || fail "level is [$(last_level)], variable [$(var)]"
+
+fixture sff-raise
+run init "$SESSION" "" ""
+run set "$SESSION" full --reason "riskier than the paths show"
+setfacts standard
+run set-from-facts "$SESSION"
+expect_rc "set-from-facts after a raise above the floor" 0
+expect_out "it keeps the raise" "unchanged: full (facts floor standard)"
+[ "$(events)" = "bound choose check" ] && pass "a kept raise writes no level line" || fail "events are [$(events)]"
+[ "$(var)" = full ] && [ "$(last_level)" = full ] && pass "the level stays at the raise" \
+    || fail "level is [$(last_level)], variable [$(var)]"
+# A raise made after the check is kept by the next one as well.
+run set "$SESSION" standard --reason "the fix shrank"
+setfacts light
+run set-from-facts "$SESSION"
+[ "$(last_level)" = standard ] && pass "a lower made by set is the level the next check keeps" \
+    || fail "level is [$(last_level)]"
+
+fixture sff-bound
+run init "$SESSION" full ""
+setfacts light
+run set-from-facts "$SESSION"
+expect_rc "set-from-facts under a bound floor above the facts" 0
+GOT=$(ledger | jq -c 'select(.event == "from_facts") | [.to, .source, .rule]')
+[ "$GOT" = '["full","bound",null]' ] && pass "the bound's floor sets the level, and the line says so" \
+    || fail "from_facts line is $GOT"
+[ "$(var)" = full ] && pass "it rebinds REVIEW_LEVEL to the bound's floor" || fail "variable is [$(var)]"
+
+fixture sff-breach
+run init "$SESSION" "" light
+setfacts full
+run set-from-facts "$SESSION"
+expect_rc "set-from-facts with a facts floor above the ceiling" 0
+expect_out "it reports the breach" "recorded: breach of ceiling light"
+[ "$(events)" = "bound from_facts breach check" ] && pass "the facts floor wins and a breach line follows" \
+    || fail "events are [$(events)]"
+GOT=$(ledger | jq -c 'select(.event == "breach") | [.to, .ceiling, .source]')
+[ "$GOT" = '["full","light","facts"]' ] && pass "the breach line names the level and the ceiling" || fail "breach line is $GOT"
+commit docs 'printf "x\n" >> docs/readme.md'
+setfacts full
+run set-from-facts "$SESSION"
+run check "$SESSION" --ledger
+expect_rc "the check passes the breached level" 0
+
+fixture sff-at-ceiling
+run init "$SESSION" "" standard
+setfacts standard
+run set-from-facts "$SESSION"
+expect_rc "set-from-facts with the facts floor at the ceiling" 0
+[ "$(events)" = "bound from_facts check" ] && pass "no breach at the ceiling" || fail "events are [$(events)]"
+fixture sff-below-ceiling
+run init "$SESSION" "" full
+setfacts light
+run set-from-facts "$SESSION"
+[ "$(events)" = "bound from_facts check" ] && [ "$(var)" = light ] && pass "no breach below the ceiling" \
+    || fail "events are [$(events)], variable [$(var)]"
+
+fixture sff-refused
+run set-from-facts "$SESSION"
+expect_rc "set-from-facts with no bound" 1
+expect_out "it names the missing bound" "refused: no bound recorded yet"
+run init "$SESSION" "" ""
+run set-from-facts "$SESSION"
+expect_rc "set-from-facts with no facts" 1
+expect_out "it names the missing facts" "refused: no facts recorded yet"
+[ "$(events)" = bound ] && [ -z "$(var)" ] && pass "a refused set-from-facts changes nothing" || fail "events are [$(events)]"
+fixture sff-inverted
+run init "$SESSION" full light
+setfacts standard
+run set-from-facts "$SESSION"
+expect_rc "set-from-facts under a floor-above-ceiling bound" 1
+expect_out "it names both bound values" "refused: the bound's floor full is above its ceiling light"
+run set-from-facts
+expect_rc "set-from-facts with no session" 64
+
+fixture sff-rebind-fails
+run init "$SESSION" "" ""
+setfacts standard
+LB=$(ledger)
+OUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" SHIM_FAIL_INIT=1 "$SCRIPT" set-from-facts "$SESSION" 2>"$WORKDIR/stderr"); RC=$?; ERR=$(cat "$WORKDIR/stderr")
+expect_rc "set-from-facts with a failed rebind" 66
+[ "$(ledger)" = "$LB" ] && pass "a failed rebind writes no ledger line" || fail "a failed rebind changed the ledger"
+fixture sff-ledger-fails
+run init "$SESSION" "" ""
+setfacts standard
+LB=$(ledger)
+OUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" SHIM_FAIL_ADD=review_level.jsonl "$SCRIPT" set-from-facts "$SESSION" 2>"$WORKDIR/stderr"); RC=$?; ERR=$(cat "$WORKDIR/stderr")
+expect_rc "set-from-facts with a failed ledger write" 66
+[ "$(ledger)" = "$LB" ] && pass "the ledger is unchanged" || fail "the ledger changed"
+[ "$(tail -n 2 "$(store .initlog)" | tr '\n' ' ')" = "standard  " ] \
+    && pass "the variable was rebound to standard, then back to unset" \
+    || fail "rebinds were [$(tr '\n' ' ' < "$(store .initlog)")]"
+
+echo "--- script: facts --no-check-line"
+
+fixture no-check-line
+run init "$SESSION" "" ""
+commit exe 'printf "y\n" >> scripts/old.sh'
+run facts "$SESSION" --no-check-line
+expect_rc "facts --no-check-line" 0
+[ "$(events)" = bound ] && pass "facts --no-check-line writes no check or unset line" || fail "events are [$(events)]"
+[ "$(fact .floor)" = '"standard"' ] && pass "it still records the facts" || fail "facts floor is $(fact .floor)"
+run facts "$SESSION" --shared-branch "" --no-check-line
+expect_rc "facts with --shared-branch and --no-check-line" 0
+run set-from-facts "$SESSION"
+[ "$(events)" = "bound from_facts check" ] && pass "set-from-facts writes the one check line" || fail "events are [$(events)]"
+
+echo "--- script: check, slice and level against the ledger"
+
+fixture ledger-reads
+run init "$SESSION" "" ""
+run level "$SESSION" --exit
+expect_rc "level --exit with no level recorded" 4
+[ -z "$OUT" ] && pass "level --exit with no level prints nothing" || fail "it printed [$OUT]"
+commit exe 'printf "y\n" >> scripts/old.sh'
+run facts "$SESSION" --no-check-line
+run check "$SESSION" --ledger
+expect_rc "check --ledger with no level recorded" 1
+expect_out "the hold says no level is recorded" "hold: no level recorded yet"
+run set-from-facts "$SESSION"
+# The variable is out of step on purpose: --ledger doesn't read it.
+printf 'light' > "$(store .var)"
+run check "$SESSION" --ledger
+expect_rc "check --ledger at the level set-from-facts recorded" 0
+expect_out "it names the level" "pass: level standard, facts floor standard"
+run level "$SESSION" --exit
+expect_rc "level --exit at standard" 12
+[ "$OUT" = standard ] && pass "level --exit still prints the level" || fail "it printed [$OUT]"
+run slice "$SESSION" --ledger
+[ "$(printf '%s\n' "$OUT" | tail -n 1)" = "level: standard" ] && pass "slice --ledger names the ledger's level" \
+    || fail "slice ends [$(printf '%s\n' "$OUT" | tail -n 1)]"
+run set "$SESSION" full
+run level "$SESSION" --exit
+expect_rc "level --exit at full" 13
+run set "$SESSION" light --reason x
+expect_rc "a lower below the facts floor stays refused" 1
+fixture ledger-reads-light
+run init "$SESSION" "" ""
+commit docs 'printf "x\n" >> docs/readme.md'
+run facts "$SESSION" --no-check-line
+run set-from-facts "$SESSION"
+run level "$SESSION" --exit
+expect_rc "level --exit at light" 11
+run level "$SESSION" --bogus
+expect_rc "level with an unknown flag" 64
+OUT=$(cd "$FX/repo" && SHIM_FAIL_GET=review_level.jsonl PATH="$SHIM_BIN:$PATH" "$SCRIPT" level "$SESSION" --exit 2>/dev/null)
+RC=$?
+expect_rc "level --exit with an unreadable ledger" 66
+
+echo "--- script: agree"
+
+fixture agree-cases
+run init "$SESSION" "" ""
+run set "$SESSION" standard
+run agree "$SESSION" standard
+expect_rc "agree with the ledger's level" 0
+run agree "$SESSION" ""
+expect_rc "agree with an empty variable over a recorded level" 0
+run agree "$SESSION" full
+expect_rc "agree with a variable that differs" 1
+expect_out "the hold names both" "REVIEW_LEVEL is full but the ledger's last level is standard"
+
+# ==============================================================================
 echo "--- script: a session koto refuses to read"
 
 # koto refuses every read of a session bound to another workspace, printing
@@ -1389,7 +1620,7 @@ for f in "$SHIM_STORE"/*/review_level.jsonl; do
         printf '%s\n' "$l" | jq -e '
             type == "object"
             and (.ts | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
-            and (.event | IN("bound","choose","raise","lower","floor_raise","veto","breach","check","unset"))
+            and (.event | IN("bound","from_facts","choose","raise","lower","floor_raise","veto","breach","check","unset"))
         ' >/dev/null 2>&1 || { BAD=$((BAD + 1)); echo "  bad line in $f: $l"; }
     done < "$f"
 done
@@ -1407,9 +1638,13 @@ if ! command -v koto >/dev/null 2>&1; then
     exit $?
 fi
 
-# A scratch template named work-on, standing in for the real one until the
-# level states land in it. REVIEW_LEVEL is declared the way the design says.
-# koto runs each command through sh -c, so the script path is quoted in it.
+# A scratch template named work-on, standing in for the real one's level
+# states. REVIEW_LEVEL is declared the way the design says. bound_record runs
+# `init` and moves on, as fix_determination's action does; work is where the
+# agent commits and may raise the level, as implementation is; the check
+# routes on `level --exit` in the tick that enters it, with `check --ledger`
+# on every route. koto runs each command through sh -c, so the script path is
+# quoted in it.
 RL="$SCRIPT"
 TPL="$WORKDIR/scratch-work-on.md"
 cat > "$TPL" <<EOF
@@ -1440,36 +1675,38 @@ states:
     accepts:
       entry:
         type: enum
-        values: [choose, skip]
+        values: [go]
     transitions:
-      - target: review_level_choice
+      - target: bound_record
         when:
-          entry: choose
-      - target: review_level_check
-        when:
-          entry: skip
-  review_level_choice:
+          entry: go
+  bound_record:
     default_action:
       command: '"$RL" init "{{SESSION_NAME}}" "{{REVIEW_FLOOR}}" "{{REVIEW_CEILING}}"'
+    transitions:
+      - target: work
+  work:
     accepts:
-      level_status:
+      work_status:
         type: enum
-        values: [blocked]
+        values: [complete]
     transitions:
       - target: review_level_check
         when:
-          vars.REVIEW_LEVEL: {is_set: true}
-      - target: blocked
-        when:
-          vars.REVIEW_LEVEL: {is_set: false}
-          level_status: blocked
+          work_status: complete
   review_level_check:
     default_action:
-      command: '"$RL" facts "{{SESSION_NAME}}" "{{REVIEW_LEVEL}}" --shared-branch "{{SHARED_BRANCH}}"'
+      command: '"$RL" facts "{{SESSION_NAME}}" --shared-branch "{{SHARED_BRANCH}}" --no-check-line && REVIEW_LEVEL_TEMPLATE="$TPL" "$RL" set-from-facts "{{SESSION_NAME}}"'
     gates:
+      level_route:
+        type: command
+        command: '"$RL" level "{{SESSION_NAME}}" --exit'
+        override_default:
+          exit_code: 13
+          error: ""
       level_floor:
         type: command
-        command: '"$RL" check "{{SESSION_NAME}}" "{{REVIEW_LEVEL}}"'
+        command: '"$RL" check "{{SESSION_NAME}}" --ledger'
     accepts:
       level_status:
         type: enum
@@ -1478,19 +1715,15 @@ states:
       - target: light_panel
         when:
           gates.level_floor.exit_code: 0
-          vars.REVIEW_LEVEL: light
+          gates.level_route.exit_code: 11
       - target: standard_panels
         when:
           gates.level_floor.exit_code: 0
-          vars.REVIEW_LEVEL: standard
+          gates.level_route.exit_code: 12
       - target: full_panels
         when:
           gates.level_floor.exit_code: 0
-          vars.REVIEW_LEVEL: full
-      - target: unset_panels
-        when:
-          gates.level_floor.exit_code: 3
-          vars.REVIEW_LEVEL: {is_set: false}
+          gates.level_route.exit_code: 13
       - target: blocked
         when:
           gates.level_floor.exit_code: 1
@@ -1501,8 +1734,6 @@ states:
     terminal: true
   full_panels:
     terminal: true
-  unset_panels:
-    terminal: true
   blocked:
     terminal: true
     failure: true
@@ -1512,9 +1743,13 @@ states:
 
 Start.
 
-## review_level_choice
+## bound_record
 
-Choose a level.
+Record the bound.
+
+## work
+
+Work.
 
 ## review_level_check
 
@@ -1531,10 +1766,6 @@ Standard.
 ## full_panels
 
 Full.
-
-## unset_panels
-
-Unset.
 
 ## blocked
 
@@ -1565,7 +1796,8 @@ kvar() {
 kledger() { koto context get "$1" review_level.jsonl 2>/dev/null; }
 klevel() {
     kledger "$1" | jq -r 'select(.event == "choose" or .event == "raise" or .event == "lower"
-                                 or .event == "floor_raise" or .event == "veto") | .to' | tail -n 1
+                                 or .event == "floor_raise" or .event == "veto"
+                                 or .event == "from_facts") | .to' | tail -n 1
 }
 kevents() { kledger "$1" | jq -r .event | tr '\n' ' ' | sed 's/ $//'; }
 kagree() {
@@ -1579,6 +1811,17 @@ kset() {
     RC=$?
     ERR=$(cat "$WORKDIR/stderr")
 }
+# kstart <session> [<koto init var>...]: a session at `work`, with the bound
+# recorded and impl_base at the repository's HEAD. An action runs in a cleared
+# environment, so the check's action names the scratch template for
+# set-from-facts's rebind in its own command line.
+kstart() {
+    local s="$1"
+    shift
+    koto init "$s" --template "$TPL" "$@" >/dev/null 2>&1 || fail "$s: koto init failed"
+    tick "$s" '{"entry":"go"}'
+    git rev-parse HEAD | koto context add "$s" impl_base >/dev/null 2>&1
+}
 
 # engine_repo <name>: a fresh repository with impl_base at its first commit.
 engine_repo() {
@@ -1591,106 +1834,89 @@ engine_repo() {
     git add -A && git commit -q -m init
 }
 
-echo "--- engine: choose, rebind, and the light route"
+echo "--- engine: the level comes from the facts, with nothing submitted"
 
 S=rl-light
 engine_repo "$S"
 koto init "$S" --template "$TPL" >/dev/null 2>&1 || fail "$S: koto init failed"
 kset "$S" light --reason x
-expect_rc "set before the choice state's init ran" 1
+expect_rc "set before the bound is recorded" 1
 expect_out "it says no bound is recorded" "refused: no bound recorded yet"
-tick "$S" '{"entry":"choose"}'
-[ "$STATE" = review_level_choice ] && pass "with no level the run holds at the choice" || fail "the run is at [$STATE]"
-[ "$(kevents "$S")" = bound ] && pass "the choice state's action recorded the bound" || fail "events are [$(kevents "$S")]"
+tick "$S" '{"entry":"go"}'
+[ "$STATE" = work ] && pass "the bound state moves on without stopping" || fail "the run is at [$STATE]"
+[ "$(kevents "$S")" = bound ] && pass "the bound state's action recorded the bound" || fail "events are [$(kevents "$S")]"
 git rev-parse HEAD | koto context add "$S" impl_base >/dev/null 2>&1
 printf 'x\n' >> docs/readme.md && git commit -q -am "docs: one line"
-kset "$S" light --reason "one-line docs fix"
-expect_rc "set light on a live session" 0
+tick "$S" '{"work_status":"complete"}'
+[ "$STATE" = light_panel ] && pass "a one-line docs change reaches the light panel in the tick that enters the check" \
+    || fail "the run is at [$STATE] ($NEXT_OUT)"
+[ "$(kevents "$S")" = "bound from_facts check" ] && pass "the ledger holds from_facts and one check" \
+    || fail "events are [$(kevents "$S")]"
 [ "$(kvar "$S")" = light ] && pass "koto reports REVIEW_LEVEL rebound to light" || fail "koto's REVIEW_LEVEL is [$(kvar "$S")]"
-kagree "$S" "after choose"
-# A hand rebind past the ledger holds the check, naming both levels.
-koto init "$S" --template "$TPL" --attach-live --var REVIEW_LEVEL=full >/dev/null 2>&1
-tick "$S"
-[ "$STATE" = review_level_check ] && pass "a hand rebind holds the level check" || fail "the run is at [$STATE]"
-case "$NEXT_OUT" in
-    *"REVIEW_LEVEL is full but the ledger's last level is light"*) pass "the hold names both levels" ;;
-    *) fail "the hold doesn't name both levels: $NEXT_OUT" ;;
-esac
-kset "$S" light
-expect_rc "set back to the ledger's level" 0
-kagree "$S" "after clearing the hand rebind"
-tick "$S"
-[ "$STATE" = light_panel ] && pass "a light run under every threshold takes the light route" || fail "the run is at [$STATE]"
+kagree "$S" "after set-from-facts"
 
-echo "--- engine: the floor holds a light run until it is raised"
+echo "--- engine: a facts floor above the ceiling"
 
 S=rl-floor
 engine_repo "$S"
-koto init "$S" --template "$TPL" --var REVIEW_CEILING=light >/dev/null 2>&1 || fail "$S: koto init failed"
-tick "$S" '{"entry":"choose"}'
-git rev-parse HEAD | koto context add "$S" impl_base >/dev/null 2>&1
+kstart "$S" --var REVIEW_CEILING=light
 printf 'echo hi\n' >> scripts/run.sh && git commit -q -am "fix: script"
-kset "$S" light
-kagree "$S" "after choose under a light ceiling"
-tick "$S"
-[ "$STATE" = review_level_check ] && pass "a light run with a standard floor holds at the check" || fail "the run is at [$STATE]"
-case "$NEXT_OUT" in
-    *"below the facts floor standard (rule class:executable)"*) pass "the hold names the rule and the floor" ;;
-    *) fail "the hold doesn't name the rule: $NEXT_OUT" ;;
-esac
-tick "$S"
-[ "$(kevents "$S")" = "bound choose check" ] && pass "holding ticks at one head add no check lines" || fail "events are [$(kevents "$S")]"
-kset "$S" standard
-expect_rc "the raise to the floor above a light ceiling, no reason" 0
-kagree "$S" "after the floor raise"
-tick "$S"
-[ "$STATE" = standard_panels ] && pass "after the raise the next tick takes the standard route" || fail "the run is at [$STATE]"
-[ "$(kevents "$S")" = "bound choose check floor_raise breach check" ] \
-    && pass "the ledger holds floor_raise, breach, then a check at standard" || fail "events are [$(kevents "$S")]"
-[ "$(kledger "$S" | tail -n 1 | jq -c '[.level, .floor]')" = '["standard","standard"]' ] \
-    && pass "the last check is at standard" || fail "last line: $(kledger "$S" | tail -n 1)"
-kset "$S" light --reason "too much"
-expect_rc "lowering below the facts floor on a live session" 1
-kagree "$S" "after a refused lower"
+tick "$S" '{"work_status":"complete"}'
+[ "$STATE" = standard_panels ] && pass "a script change under a light ceiling takes the standard route" \
+    || fail "the run is at [$STATE] ($NEXT_OUT)"
+[ "$(kevents "$S")" = "bound from_facts breach check" ] && pass "the ledger records the breach" \
+    || fail "events are [$(kevents "$S")]"
+kagree "$S" "after a breach"
 
-echo "--- engine: full, and the unset route"
+echo "--- engine: a raise is kept, and the bound's floor holds"
 
 S=rl-full
 engine_repo "$S"
-koto init "$S" --template "$TPL" >/dev/null 2>&1
-tick "$S" '{"entry":"choose"}'
-git rev-parse HEAD | koto context add "$S" impl_base >/dev/null 2>&1
+kstart "$S"
+kset "$S" full --reason "touches the release path"
+expect_rc "a raise at work, before the check" 0
 printf 'x\n' >> docs/readme.md && git commit -q -am "docs: x"
-kset "$S" full
-tick "$S"
-[ "$STATE" = full_panels ] && pass "full takes the full route" || fail "the run is at [$STATE]"
+tick "$S" '{"work_status":"complete"}'
+[ "$STATE" = full_panels ] && pass "the raise takes the full route over a light facts floor" || fail "the run is at [$STATE]"
+[ "$(kevents "$S")" = "bound choose check" ] && pass "a kept raise adds no from_facts line" || fail "events are [$(kevents "$S")]"
 
-S=rl-unset
+S=rl-bound
 engine_repo "$S"
-koto init "$S" --template "$TPL" >/dev/null 2>&1
-git rev-parse HEAD | koto context add "$S" impl_base >/dev/null 2>&1
+kstart "$S" --var REVIEW_FLOOR=standard
 printf 'x\n' >> docs/readme.md && git commit -q -am "docs: x"
-tick "$S" '{"entry":"skip"}'
-[ "$STATE" = unset_panels ] && pass "an unset level takes the unset route" || fail "the run is at [$STATE]"
-[ "$(kevents "$S")" = unset ] && pass "the ledger records unset" || fail "events are [$(kevents "$S")]"
+tick "$S" '{"work_status":"complete"}'
+[ "$STATE" = standard_panels ] && pass "the bound's floor lifts a light change to standard" || fail "the run is at [$STATE]"
+[ "$(kledger "$S" | jq -r 'select(.event == "from_facts") | .source')" = bound ] \
+    && pass "the from_facts line names the bound" || fail "ledger: $(kevents "$S")"
+
+echo "--- engine: a hand rebind can't steer the check"
+
+S=rl-hand
+engine_repo "$S"
+kstart "$S"
+koto init "$S" --template "$TPL" --attach-live --var REVIEW_LEVEL=full >/dev/null 2>&1
+printf 'x\n' >> docs/readme.md && git commit -q -am "docs: x"
+tick "$S" '{"work_status":"complete"}'
+[ "$STATE" = light_panel ] && pass "the check routes on the ledger, not on a hand-rebound variable" \
+    || fail "the run is at [$STATE] ($NEXT_OUT)"
+kagree "$S" "after the check rebound the variable"
 
 echo "--- engine: a step on a shared branch"
 
 # The action passes SHARED_BRANCH through. An earlier step's template commit
-# sits behind impl_base, so a light run whose own commit is one docs line
-# takes the light route; the cases above, with SHARED_BRANCH unset, are the
-# empty value reaching the script as "".
+# sits behind impl_base, so a run whose own commit is one docs line takes the
+# light route; the cases above, with SHARED_BRANCH unset, are the empty value
+# reaching the script as "".
 S=rl-shared
 engine_repo "$S"
 git checkout -q -b feat/plan
 koto init "$S" --template "$TPL" --var SHARED_BRANCH=feat/plan >/dev/null 2>&1 || fail "$S: koto init failed"
-tick "$S" '{"entry":"choose"}'
+tick "$S" '{"entry":"go"}'
 mkdir -p skills/x/koto-templates && seq 1 500 > skills/x/koto-templates/x.md
 git add -A && git commit -q -m "feat: an earlier step"
 git rev-parse HEAD | koto context add "$S" impl_base >/dev/null 2>&1
 printf 'x\n' >> docs/readme.md && git commit -q -am "docs: this step"
-kset "$S" light
-tick "$S"
+tick "$S" '{"work_status":"complete"}'
 [ "$STATE" = light_panel ] && pass "a shared-branch step floors on its own commit through the real action" \
     || fail "the run is at [$STATE] ($NEXT_OUT)"
 GOT=$(koto context get "$S" review_facts.json 2>/dev/null | jq -c '[.base_source, .shared_branch, .floor]')
@@ -1700,27 +1926,27 @@ GOT=$(koto context get "$S" review_facts.json 2>/dev/null | jq -c '[.base_source
 echo "--- engine: report"
 
 cd "$WORKDIR/eng-rl-light" || exit 1
-OUT=$("$RL" report rl-light rl-floor rl-unset 2>"$WORKDIR/stderr"); RC=$?
+OUT=$("$RL" report rl-light rl-floor rl-full 2>"$WORKDIR/stderr"); RC=$?
 expect_rc "report on real sessions" 0
-[ "$(printf '%s\n' "$OUT" | sed -n 2p | cut -f1-5)" = "$(printf 'rl-light\tlight\tlight\t-\t-')" ] \
-    && pass "the light run reports chosen and final light" || fail "row is [$(printf '%s\n' "$OUT" | sed -n 2p)]"
-[ "$(printf '%s\n' "$OUT" | sed -n 3p | cut -f1-10)" = "$(printf 'rl-floor\tlight\tstandard\t-\tlight\t0\t0\t1\t0\t1')" ] \
-    && pass "the floor run reports final standard, the ceiling, one floor raise and one breach" \
+[ "$(printf '%s\n' "$OUT" | sed -n 2p | cut -f1-5)" = "$(printf 'rl-light\t-\tlight\t-\t-')" ] \
+    && pass "the light run reports no choice and final light" || fail "row is [$(printf '%s\n' "$OUT" | sed -n 2p)]"
+[ "$(printf '%s\n' "$OUT" | sed -n 3p | cut -f1-10)" = "$(printf 'rl-floor\t-\tstandard\t-\tlight\t0\t0\t0\t0\t1')" ] \
+    && pass "the floor run reports final standard, the ceiling and one breach" \
     || fail "row is [$(printf '%s\n' "$OUT" | sed -n 3p)]"
-[ "$(printf '%s\n' "$OUT" | sed -n 4p | cut -f1-3)" = "$(printf 'rl-unset\t-\t-')" ] \
-    && pass "the unset run has a ledger but no choice and no final level" || fail "row is [$(printf '%s\n' "$OUT" | sed -n 4p)]"
+[ "$(printf '%s\n' "$OUT" | sed -n 4p | cut -f1-3)" = "$(printf 'rl-full\tfull\tfull')" ] \
+    && pass "the raised run reports its choice and final full" || fail "row is [$(printf '%s\n' "$OUT" | sed -n 4p)]"
 OUT=$("$RL" report 2>/dev/null)
 N=$(printf '%s\n' "$OUT" | grep -c '^rl-')
-[ "$N" = 5 ] && pass "report with no session lists every work-on session koto reports" || fail "report listed $N sessions: $OUT"
+[ "$N" = 6 ] && pass "report with no session lists every work-on session koto reports" || fail "report listed $N sessions: $OUT"
 
 echo "--- engine: every ledger line is well-formed"
 
 BAD=0
-for s in rl-light rl-floor rl-full rl-unset rl-shared; do
+for s in rl-light rl-floor rl-full rl-bound rl-hand rl-shared; do
     while IFS= read -r l; do
         printf '%s\n' "$l" | jq -e '
             (.ts | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
-            and (.event | IN("bound","choose","raise","lower","floor_raise","veto","breach","check","unset"))
+            and (.event | IN("bound","from_facts","choose","raise","lower","floor_raise","veto","breach","check","unset"))
         ' >/dev/null 2>&1 || BAD=$((BAD + 1))
     done <<EOF
 $(kledger "$s")

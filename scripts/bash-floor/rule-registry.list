@@ -4,10 +4,25 @@ workflow: .github/workflows/check-rule-registry.yml
 # repositories, and need only bash, git, jq, awk and sed, so every
 # case runs on 3.2.
 scripts/rule-registry_test.sh
-scripts/check-rule-registry_test.sh
+# The check's suite, cut into four parts by case order so each runs
+# in its own slice of the job.
+scripts/check-rule-registry_1_test.sh
+scripts/check-rule-registry_2_test.sh
+scripts/check-rule-registry_3_test.sh
+scripts/check-rule-registry_4_test.sh
 # The figures reader's suite writes its journal fixtures with awk and
 # needs no koto.
 scripts/rule-lifecycle_test.sh
 # The dispute wrapper refuses ids the reader doesn't resolve as active; its
 # suite runs against stub koto binaries, so it needs no koto either.
 scripts/rule-dispute_test.sh
+# Seconds on the bash 3.2 floor, for slicing: the old single suite's 43
+# minutes over four for each part, and the short suites' own times. Each
+# part is far the costliest, so each slice gets one.
+cost: scripts/check-rule-registry_1_test.sh 645
+cost: scripts/check-rule-registry_2_test.sh 645
+cost: scripts/check-rule-registry_3_test.sh 645
+cost: scripts/check-rule-registry_4_test.sh 645
+cost: scripts/rule-registry_test.sh 60
+cost: scripts/rule-lifecycle_test.sh 5
+cost: scripts/rule-dispute_test.sh 5

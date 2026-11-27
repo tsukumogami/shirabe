@@ -169,3 +169,59 @@ skills/work-on/scripts/setup-plan-backed-baseline_test.sh
 # discriminator exits 2 on a missing session name by design. It
 # reaches the floor through ci-monitor-role_test.sh, whose
 # engine-free case runs without koto and invokes it.
+# Seconds per suite, for slicing: each suite's step time on the Linux leg
+# of a green run on main (run 45222253262), at least 1. The macOS leg's
+# floor times run longer, about in proportion, so one table serves both.
+cost: skills/work-on/scripts/retry-clearing_test.sh 125
+cost: skills/work-on/scripts/run-verification_test.sh 118
+cost: skills/work-on/scripts/panel-scope_test.sh 106
+cost: skills/work-on/scripts/check-pr-output_test.sh 91
+cost: skills/work-on/scripts/review-level_test.sh 76
+cost: skills/work-on/scripts/finalization-shape_test.sh 73
+cost: skills/work-on/scripts/test-change_test.sh 57
+cost: skills/work-on/scripts/review-level-routes_test.sh 55
+cost: skills/work-on/scripts/probe_test.sh 50
+cost: skills/work-on/scripts/test-change-routes_test.sh 41
+cost: skills/work-on/scripts/ci-passing-timeout_test.sh 35
+cost: skills/work-on/scripts/output-gates-routing_test.sh 34
+cost: skills/work-on/scripts/verification-route_test.sh 33
+cost: skills/work-on/scripts/offload-canary_test.sh 29
+cost: skills/work-on/scripts/closing-keyword-gate_test.sh 25
+cost: skills/work-on/scripts/clean-build-output_test.sh 25
+cost: skills/work-on/scripts/scrutiny-decider-routes_test.sh 24
+cost: skills/work-on/scripts/record-changed-paths_test.sh 23
+cost: skills/work-on/scripts/has-commits_test.sh 19
+cost: skills/work-on/scripts/check-branch-output_test.sh 19
+cost: skills/work-on/scripts/panel-retry-budget_test.sh 18
+cost: skills/work-on/scripts/work-on-open_test.sh 17
+cost: skills/work-on/scripts/red-first-routes_test.sh 15
+cost: skills/work-on/scripts/red-first_test.sh 11
+cost: skills/work-on/scripts/pr-checks_test.sh 11
+cost: skills/work-on/scripts/verification-hosted-coverage_test.sh 9
+cost: skills/work-on/scripts/pre-pr-evidence_test.sh 8
+cost: skills/work-on/scripts/probe-routes_test.sh 6
+cost: skills/work-on/scripts/ci-none-declared_test.sh 6
+cost: skills/work-on/scripts/offload-canary-routes_test.sh 5
+cost: skills/work-on/scripts/step-detail-check_test.sh 4
+cost: skills/work-on/scripts/fix-kind_test.sh 4
+cost: skills/work-on/scripts/ci-cancel-after-merge_test.sh 3
+cost: skills/work-on/scripts/check-staleness_test.sh 3
+cost: skills/work-on/scripts/verification-deferral_test.sh 2
+cost: scripts/lib/acceptance-rule_test.sh 2
+cost: skills/work-on/scripts/work-on-requires_test.sh 1
+cost: skills/work-on/scripts/setup-plan-backed-baseline_test.sh 1
+cost: skills/work-on/scripts/settled-policy_test.sh 1
+cost: skills/work-on/scripts/leg-result_test.sh 1
+cost: skills/work-on/scripts/fix-round_test.sh 1
+cost: skills/work-on/scripts/ci-monitor-role_test.sh 1
+cost: skills/work-on/scripts/check-pre-pr-referents_test.sh 1
+cost: scripts/lib/test-classify_test.sh 1
+cost: scripts/lib/default-remote-ref_test.sh 1
+cost: skills/work-on/scripts/verify-cascade-commit_test.sh 1
+cost: skills/work-on/scripts/verification-map-schema_test.sh 1
+cost: skills/work-on/scripts/terminal-retention_test.sh 1
+cost: skills/work-on/scripts/pr-url_test.sh 1
+cost: skills/work-on/scripts/extract-context_test.sh 1
+cost: skills/work-on/scripts/decision-reasons_test.sh 1
+cost: skills/work-on/scripts/cascade-chaining_test.sh 1
+cost: scripts/lib/claude-md-header_test.sh 1

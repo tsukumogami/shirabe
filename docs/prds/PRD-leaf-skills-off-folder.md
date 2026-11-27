@@ -376,7 +376,8 @@ Enforcement:
       and the retired registry entry all match it. It prints only those named
       exceptions, which #759 lists by file:line.
 - [ ] `node-push_test.sh`, `check-branch-output_test.sh`,
-      `check-rule-registry_test.sh`, `publish-scoping-pr_test.sh`,
+      the rule-registry check's suite (now `check-rule-registry_1_test.sh` to
+      `_4_test.sh`), `publish-scoping-pr_test.sh`,
       `print-scope-exit_test.sh`, `deliver-report_test.sh` and
       `deliver-engine_test.sh` pass, and each still has at least one case that
       exercises the changed script.

@@ -287,7 +287,7 @@ if mrun handover owed; then
     WANT="Run \`/shirabe:coordinate $ROADMAP --role manager\` in $HOST."
     eq "1: the brief's Goal line" "$WANT" "$(goal_line handover-successor-1)"
     has_line() { if grep -Fq -- "$3" <<< "$2"; then ok "$1"; else bad "$1" "missing [$3] in [$2]"; fi; }
-    has_line "1: the prompt niwa was given carries the same line" "$(cat "$NS/prompt" 2>/dev/null)" "$WANT"
+    eq "1: the prompt niwa was given starts with the same invocation" "/shirabe:coordinate $ROADMAP --role manager" "$(head -1 "$NS/prompt" 2>/dev/null)"
     eq "1: niwa was called once" 1 "$(grep -c '^niwa dispatch' "$NS/calls.log")"
     eq "1: at the call, the Run section holds one successor row, dispatching, set by the run" \
         "[{\"value\":\"dispatching handover-successor-1 $TODAY\",\"set_by\":\"$A\"}]" \
@@ -498,8 +498,8 @@ if drun ci-health director open; then
     eq "7: ... and prints session=<name>" "session=ci_health_successor_1-""1a2b3c4d" "$SO"
     WANT=$(dgoal ci-health director)
     eq "7: the brief's Goal line" "$WANT" "$(goal_line ci-health-successor-1)"
-    has_line "7: the prompt niwa was given carries the invocation" "$(cat "$NS/prompt" 2>/dev/null)" \
-        '`/shirabe:coordinate --discipline ci-health --host acme/widgets --role director`'
+    eq "7: the prompt niwa was given starts with the invocation" \
+        '/shirabe:coordinate --discipline ci-health --host acme/widgets --role director' "$(head -1 "$NS/prompt" 2>/dev/null)"
     eq "7: the successor row reads dispatched" "dispatched ci-health-successor-1 $TODAY" "$(succ_value)"
     eq "7: the invocation line is the brief's only line naming manager or director" "$WANT" \
         "$(grep -inwE 'managers?|directors?' "$BRIEFS/ci-health-successor-1.md" | sed 's/^[0-9]*://')"

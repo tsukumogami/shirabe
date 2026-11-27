@@ -3,15 +3,16 @@
 # live offload canary the way DESIGN-offload-live-canary.md says,
 # driven through real `koto next` calls?
 #
-#   A. The shipped template, walked from `koto init` through analysis to
-#      review_level_choice, against a scratch plugin root whose registry marks
+#   A. The shipped template, walked from `koto init` through analysis and
+#      fix_determination to implementation, against a scratch plugin root
+#      whose registry marks
 #      pr-body/no-heading-in-part1 eligible: the first tick's entry evidence
 #      still reaches entry; a withheld run enters offload_arm_withheld once and
 #      a preloaded run offload_arm_preloaded once, read from koto's run journal
 #      (the state_entered events koto exports); an off, a
 #      shared-branch and a failed-assignment run (script missing, not
 #      executable, or failing) enter neither and still reach
-#      review_level_choice; a bad switch value and an attach with a different
+#      implementation; a bad switch value and an attach with a different
 #      one are refused; a rewound run keeps its group and enters neither
 #      marker again.
 #   B. The shipped pr_creation directive, rendered after the shipped canary
@@ -72,6 +73,10 @@ export XDG_CONFIG_HOME="$T/xdg"
 mkdir -p "$KOTO_SESSIONS_BASE" "$XDG_CONFIG_HOME/shirabe"
 echo on > "$XDG_CONFIG_HOME/shirabe/offload-canary"
 JOURNAL="$KOTO_SESSIONS_BASE/_run_journal.jsonl"
+# fix_determination reads the issue's labels with gh; the stand-in serves an
+# unlabelled issue, so the walks are changes and reach implementation.
+. "$REAL_ROOT/scripts/lib/gh-issue-testlib.sh"
+gh_issue_stand_in "$T/gh-bin"
 
 REPO="$T/repo"
 mkdir -p "$REPO"
@@ -79,12 +84,17 @@ git -C "$REPO" init -q
 git -C "$REPO" -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m init
 
 # make_root <dir> <script: real|missing|noexec|failing>: a plugin root with the
-# real scripts the walk to review_level_choice runs, whose registry marks the
+# real scripts the walk to implementation runs, whose registry marks the
 # rule eligible, and whose offload-canary.sh is as named.
 make_root() {
     mkdir -p "$1/references" "$1/skills/work-on"
     cp -R "$REAL_ROOT/scripts" "$1/scripts"
     cp -R "$SCRIPT_DIR" "$1/skills/work-on/scripts"
+    # fix_determination's action reads the skill beside its scripts:
+    # review-level.sh init copies the shipped rules file, and fix-kind.sh's
+    # rebind attaches with the template.
+    cp -R "$SKILL_DIR/references" "$1/skills/work-on/references"
+    cp -R "$SKILL_DIR/koto-templates" "$1/skills/work-on/koto-templates"
     cp "$REAL_ROOT/references/pr-body-conformance.md" "$1/references/pr-body-conformance.md"
     jq --arg id "$RULE" '(.rules[] | select(.id == $id) | .withhold) = "eligible"' \
         "$REAL_ROOT/references/rule-registry.json" > "$1/references/rule-registry.json"
@@ -157,13 +167,16 @@ fi
 [ "$(entered "$WS" offload_arm_preloaded)" -eq 0 ] && [ "$(entered "$PS" offload_arm_withheld)" -eq 0 ] \
     && pass "a withheld run never enters the preloaded marker, and the reverse" \
     || fail "a run entered both marker states"
-[ "$WSTATE" = review_level_choice ] && [ "$PSTATE" = review_level_choice ] \
-    && pass "both runs go on to review_level_choice" || fail "a canary run stopped at [$WSTATE]/[$PSTATE]"
+held() { # held: why the last response held, from its blocking conditions
+    jq -r '[.blocking_conditions[]? | "\(.name): \(.failure.findings[0].message // "")"] | join("; ") | .[:400]' <<<"$RESP"
+}
+[ "$WSTATE" = implementation ] && [ "$PSTATE" = implementation ] \
+    && pass "both runs go on to implementation" || fail "a canary run stopped at [$WSTATE]/[$PSTATE]: $(held)"
 
-neither() { # neither <label>: the last walked session took no group and reached review_level_choice
+neither() { # neither <label>: the last walked session took no group and reached implementation
     if [ "$(entered "$SESS" offload_arm_withheld)" -eq 0 ] && [ "$(entered "$SESS" offload_arm_preloaded)" -eq 0 ] \
-        && [ "$(entered "$SESS" offload_canary)" -eq 1 ] && [ "$(state_of)" = review_level_choice ]; then
-        pass "$1: through offload_canary, no marker state, and the run is at review_level_choice"
+        && [ "$(entered "$SESS" offload_canary)" -eq 1 ] && [ "$(state_of)" = implementation ]; then
+        pass "$1: through offload_canary, no marker state, and the run is at implementation"
     else
         fail "$1: state [$(state_of)], markers $(entered "$SESS" offload_arm_withheld)/$(entered "$SESS" offload_arm_preloaded)"
     fi
@@ -190,14 +203,15 @@ fi
 # A rewound withheld run keeps its group. koto rewind undoes the last move: it
 # returns to the state the second-to-last state change reached, counting
 # earlier rewinds, so a second rewind goes back where the first one started.
-# Before the probe, the state before review_level_choice was the canary's own
-# marker, and the old check that a rewound run "re-enters offload_arm_withheld"
-# held because the rewind itself arrived there. With probe_draw in between, a
-# rewind arrives at probe_draw and no sequence of rewinds reaches the marker or
-# the assignment. Both rewinds' destinations are pinned below, so a koto that
-# can step back further fails here and the marker check can come back. What a
-# rewind can reach is checked: the tick from probe_draw runs on to
-# review_level_choice without entering either marker again or re-running the
+# Before the probe, the state before the first stop after analysis was the
+# canary's own marker, and the old check that a rewound run "re-enters
+# offload_arm_withheld" held because the rewind itself arrived there. With
+# probe_draw and fix_determination in between, a rewind from implementation
+# arrives at fix_determination and no sequence of rewinds reaches the marker
+# or the assignment. The rewinds' destinations are pinned below, so a koto
+# that can step back further fails here and the marker check can come back.
+# What a rewind can reach is checked: the tick from fix_determination runs on
+# to implementation without entering either marker again or re-running the
 # assignment, and the recorded group is unchanged.
 RW1=$(cd "$REPO" && koto rewind "$WS" 2>/dev/null | jq -r '.state // empty')
 RW2=$(cd "$REPO" && koto rewind "$WS" 2>/dev/null | jq -r '.state // empty')
@@ -205,12 +219,12 @@ RW3=$(cd "$REPO" && koto rewind "$WS" 2>/dev/null | jq -r '.state // empty')
 SESS=$WS
 RESP=$(cd "$REPO" && koto next "$WS" --no-cleanup 2>/dev/null)
 WSDIR=$(cd "$REPO" && koto session dir "$WS" 2>/dev/null)
-if [ "$RW1" = probe_draw ] && [ "$RW2" = review_level_choice ] && [ "$RW3" = probe_draw ] \
-    && [ "$(state_of)" = review_level_choice ] \
+if [ "$RW1" = fix_determination ] && [ "$RW2" = implementation ] && [ "$RW3" = fix_determination ] \
+    && [ "$(state_of)" = implementation ] \
     && [ "$(entered "$WS" offload_canary)" -eq 1 ] && [ "$(entered "$WS" offload_arm_withheld)" -eq 1 ] \
     && [ "$(entered "$WS" offload_arm_preloaded)" -eq 0 ] \
     && [ "$(cat "$WSDIR/pr-rules/sample" 2>/dev/null)" = withheld ]; then
-    pass "a rewound withheld run keeps its group: rewinds reach probe_draw, never the other marker"
+    pass "a rewound withheld run keeps its group: rewinds reach fix_determination, never the other marker"
 else
     fail "rewind: rewinds reached [$RW1/$RW2/$RW3], state [$(state_of)], canary $(entered "$WS" offload_canary), markers $(entered "$WS" offload_arm_withheld)/$(entered "$WS" offload_arm_preloaded), sample [$(cat "$WSDIR/pr-rules/sample" 2>/dev/null)]"
 fi
@@ -235,7 +249,7 @@ section() {
 # The fixture starts at offload_canary, unlike the shipped template (which
 # starts at entry and reaches it from analysis), so the shipped canary states
 # can be run straight into a stub state that renders the shipped pr_creation
-# body. The stub is named review_level_choice because that is where the
+# body. The stub is named fix_determination because that is where the
 # extracted states route.
 BODY=$(section pr_creation)
 FIX="$T/fixture.md"
@@ -265,7 +279,7 @@ FIX="$T/fixture.md"
         probe_arm_near probe_arm_far probe_arm_far_redeliver; do
         extract_state $st
     done
-    echo "  review_level_choice:"
+    echo "  fix_determination:"
     echo "    accepts:"
     echo "      ok:"
     echo "        type: enum"
@@ -285,7 +299,7 @@ FIX="$T/fixture.md"
     for st in probe_draw probe_arm_near probe_arm_far probe_arm_far_redeliver; do
         echo "## $st"; echo; echo "Probe."; echo
     done
-    echo "## review_level_choice"
+    echo "## fix_determination"
     printf '%s\n' "$BODY"
     echo
     echo "## done"; echo; echo "Done."
