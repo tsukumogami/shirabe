@@ -2113,6 +2113,9 @@ states:
     #                   it starts a detached, bounded supervisor that runs the
     #                   verification map's commands (read at the merge-base)
     #                   and writes the result. It never calls koto.
+    #                   Then run-verification.sh --hold, which under a koto
+    #                   that runs the action in the background stays until
+    #                   that supervisor has ended (see the host pool below).
     #   verification_verdict  check-verification.sh --verdict, a poll: gate.
     #                   Exit 75 while there is no result for this head, which
     #                   koto reports as a temporal, non-actionable wait and
@@ -2221,8 +2224,39 @@ states:
     # a hosted twin it resolved with is gone. A hosted-ci run goes to
     # verification_deferred on every edge that would lead here, so the action
     # below never runs for it.
+    #
+    # The host pool. This is the one action in shirabe's templates that starts
+    # a heavy local suite, and two suites on one host slow and fail each other.
+    # `pool: suite` puts it on koto's host pool of that name (koto 0.40.0,
+    # docs/guides/host-pools.md there): every koto session under one koto root
+    # shares the pool's slots, and a host sizes it in the user's koto
+    # config.toml as [pools.suite]. A host that defines no such pool gets no
+    # limit, and nothing here changes for it.
+    #
+    # A slot is held while the action's command runs, and --start returns in
+    # a second, so the action is `background: true`: koto starts the command
+    # through a detached runner, returns from the tick, and holds the slot
+    # until every process of the run has exited. The runner ends whatever the
+    # command started as soon as the command returns, so --hold keeps the
+    # command there while the supervisor runs. timeout_secs is the
+    # supervisor's own 7200-second budget plus room to write its result; a
+    # host's [background] max_timeout_secs (7200 by default) cuts it.
+    #
+    # What a tick answers before the gates are read, all in this state and
+    # none of them a failure or an edge:
+    #   __pool__ queued     the pool is full; the session is in its queue and
+    #                       a later tick takes the slot and starts the run
+    #   __action__ running  the suite is running; a later tick reads its end
+    # The first tick after the command ends evaluates the gates below, and the
+    # tick after a hold starts the command again, which reuses the stored
+    # result and returns at once. A koto older than pools ignores the three
+    # fields and runs the command inside the tick, where --hold does nothing:
+    # the route this state had before them.
     default_action:
-      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" --start --session "{{SESSION_NAME}}"'
+      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" --start --session "{{SESSION_NAME}}" && "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" --hold --session "{{SESSION_NAME}}"'
+      pool: suite
+      background: true
+      timeout_secs: 7500
       fallback: >-
         koto could not start the verification run. Read the command's own
         output above: run-verification.sh exits 2 when HEAD or the merge-base
@@ -4684,7 +4718,34 @@ On entry koto starts it with `run-verification.sh --start`, which reads the
 verification map committed at the merge-base with the default branch, selects the
 commands for this branch's changed files, and starts them in a bounded, detached
 supervisor. The `verification_verdict` gate runs `check-verification.sh --verdict`
-on the result and koto routes on it, with no evidence from you:
+on the result and koto routes on it, with no evidence from you.
+
+The suite runs on the host's `suite` pool, so a second suite on a host that limits
+them waits its turn. Before any exit below, a tick can answer `action:
+"gate_blocked"` with one of two conditions. Both mean wait, neither is a failure,
+and the run stays in this state:
+
+- **`__pool__`, status `queued`**: another session's suite holds the pool, and this
+  run is in its queue (`output.position`, and `output.holders` for who holds it).
+  The suite has not started. Nothing you do moves the queue: don't run the
+  verification commands yourself, don't submit `blocked`, and don't rewind. Tick
+  again with `koto next {{SESSION_NAME}} --no-cleanup` after
+  `output.retry_after_secs` seconds, and keep ticking at about that pace, since a
+  free slot is kept for the first waiter for a limited time only. `koto pool status`
+  shows the holders and the queue.
+- **`__action__`, status `running`**: this run has its slot and its suite is
+  running. Wait for it in one call, then tick again:
+  `"{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" --hold --session "{{SESSION_NAME}}" --at-most 480`.
+  It returns when the suite ends or after eight minutes, whichever is first; give
+  the call a timeout above that. Status `orphaned` means the same: wait and tick.
+
+A `__pool__` or `__action__` condition whose status is an error names an
+`error_code` for the host's koto config (`pool_config_invalid`,
+`background_disabled`): that is the host owner's to fix, so submit
+`verification_status: blocked` with the code in `detail`. A koto older than 0.40.0
+has no pools: it starts the suite at once and answers with the exits below.
+
+The first tick after the suite ends reads the verdict:
 
 - **exit 0**: every selected command ran and passed. The run goes to `pass_counting`.
 - **exit 1**: a command ran and did not pass. The run returns to `implementation`

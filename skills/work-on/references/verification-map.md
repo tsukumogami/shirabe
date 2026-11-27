@@ -178,6 +178,16 @@ count passes `max_procs`; where `systemd-run --user --scope` works, the command 
 in a scope with `TasksMax` at twice `max_procs` plus 64, a ceiling the watchdog kills below. The group is killed after every command,
 so nothing a command left behind outlives it.
 
+The work-on template runs the launcher as a koto background action on the host pool
+`suite`: `--start`, then `run-verification.sh --hold --session <s>`, which stays for as
+long as the supervisor runs. koto holds the pool slot while the action's command lives,
+so the slot is held for the length of the suite and freed when it ends, and a second
+session's suite on a host that defines `[pools.suite]` in its koto `config.toml` waits
+in the pool's queue. `--hold` waits only inside such a background action; under a koto
+older than 0.40.0, which runs the action inside the tick, it returns at once.
+`--hold --at-most <secs>` is the form an agent runs between ticks to wait on a running
+suite in one call.
+
 Logs and the result live under
 `${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/verification/<session>/<head>/`, in
 directories created with mode 0700, outside every repository, pruned to the last ten heads

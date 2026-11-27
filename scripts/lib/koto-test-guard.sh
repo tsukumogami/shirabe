@@ -54,6 +54,21 @@
 # must not call exit, and under `set -e` one that fails ends the trap there
 # as it would have ended the suite's own; either way the directory stays.
 #
+# One more thing the guard gives a suite: `koto next` settles a background
+# action. From koto 0.40.0 a default_action with `background: true` (work-on's
+# verification launcher is one) is started by one tick and read by a later
+# one: the tick that starts it answers an `__action__` condition with status
+# `running` and stops before the state's gates. A suite asks where a
+# submission leads, not how many ticks koto takes to say so, so the `koto`
+# function below ticks the same session again, with no evidence, until the
+# answer is no longer that condition, and prints the last answer with its
+# exit status. It gives up after KTG_SETTLE_TRIES re-ticks (300, about 30
+# seconds) and prints the running answer as it is. Every other koto command,
+# and a koto older than background actions, passes through untouched. A case
+# that has to see the tick that starts the run calls `command koto next`.
+# The function reaches the suite's own shell and its subshells, not a script
+# the suite runs, which calls the koto on PATH as it always did.
+#
 # scripts/check-koto-test-guard.sh fails when a suite that names koto doesn't
 # source this file before it does, and when a suite that sources it sets its
 # own EXIT trap; scripts/check-koto-test-guard_test.sh covers both.
@@ -79,6 +94,37 @@ ktg_on_exit() {
     trap "$1
 _ktg_cleanup" EXIT
 }
+
+# Defined only where a koto is on PATH, so a suite's `command -v koto` still
+# says whether there is one.
+if type -P koto >/dev/null; then
+koto() {
+    if [ "${1:-}" != next ]; then
+        command koto "$@"
+        return
+    fi
+    local _ktg_o _ktg_rc _ktg_s="${2:-}" _ktg_keep="" _ktg_a _ktg_n=0
+    _ktg_o=$(command koto "$@")
+    _ktg_rc=$?
+    for _ktg_a in "$@"; do
+        [ "$_ktg_a" = --no-cleanup ] && _ktg_keep=--no-cleanup
+    done
+    case "$_ktg_s" in ''|-*) _ktg_n=${KTG_SETTLE_TRIES:-300} ;; esac
+    while [ "$_ktg_n" -lt "${KTG_SETTLE_TRIES:-300}" ]; do
+        case "$_ktg_o" in
+            *'"name":"__action__"'*'"status":"running"'*) ;;
+            *) break ;;
+        esac
+        sleep 0.1
+        # $_ktg_keep is empty or one flag, so it is left unquoted.
+        _ktg_o=$(command koto next "$_ktg_s" $_ktg_keep)
+        _ktg_rc=$?
+        _ktg_n=$((_ktg_n + 1))
+    done
+    [ -z "$_ktg_o" ] || printf '%s\n' "$_ktg_o"
+    return "$_ktg_rc"
+}
+fi
 
 for _ktg_v in KOTO_SESSIONS_BASE KOTO_TICK_SESSION KOTO_HOME KOTO_WORKFLOWS_DIR \
     KOTO_WORKFLOWS_HOST_SESSION KOTO_ANCHOR KOTO_DISPATCHER_ANCHOR CLAUDE_CODE_SESSION_ID \

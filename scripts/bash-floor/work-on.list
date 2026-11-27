@@ -115,6 +115,10 @@ skills/work-on/scripts/verification-route_test.sh
 # The verification runner and verdict against git fixtures and a
 # koto stand-in; its real-koto case skips without koto.
 skills/work-on/scripts/run-verification_test.sh
+# The suite's host pool: the shipped action's fields and the launcher's
+# --hold run on the floor, against git fixtures; the queue cases drive a
+# real koto and skip without one that has pools.
+skills/work-on/scripts/verification-pool_test.sh
 # The output gates' routes need koto and skip without it; the
 # removed-value counts, the routing gates' stdout and the kept
 # directive lines run on the floor.
@@ -192,6 +196,7 @@ cost: skills/work-on/scripts/has-commits_test.sh 19
 cost: skills/work-on/scripts/check-branch-output_test.sh 19
 cost: skills/work-on/scripts/panel-retry-budget_test.sh 18
 cost: skills/work-on/scripts/work-on-open_test.sh 17
+cost: skills/work-on/scripts/verification-pool_test.sh 25
 cost: skills/work-on/scripts/red-first-routes_test.sh 15
 cost: skills/work-on/scripts/red-first_test.sh 11
 cost: skills/work-on/scripts/pr-checks_test.sh 11

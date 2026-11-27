@@ -9,6 +9,9 @@
 # a second. check-verification.sh reads the result the supervisor writes, and
 # the state's `poll:` gate waits on it.
 #
+# The action is also a koto background action on the host pool `suite`
+# (koto 0.40.0 and later), so it runs `--hold` after `--start`: see --hold.
+#
 #   --start --session <s> [--base-ref <ref>]
 #       0. A koto key `hosted_of_record` (the hosted-of-record route's record,
 #          written by verification-route.sh --record) whose head is not this
@@ -100,6 +103,25 @@
 #       (verification-eligibility.sh's verification_gate_exit): 1 when a
 #       command failed, beside a timed-out one or not, and 5 for a timeout
 #       with nothing failed, held at the timed-out hold.
+#   --hold --session <s> [--at-most <secs>] [--base-ref <ref>]
+#       Wait while a supervisor of this head is running, then exit 0. Without
+#       --at-most this is the action's form, and it waits
+#       only when KOTO_BACKGROUND_OF names <s>, which koto sets on the command
+#       of a background action: there koto's runner ends every process the
+#       command started as soon as the command returns, the supervisor among
+#       them, and frees the action's pool slot. So the command stays for as
+#       long as the suite runs, and the slot is held for exactly that long.
+#       The wait has no bound of its own: the action's timeout_secs is the
+#       runner's, which stops the command and the supervisor together. With
+#       the variable unset or naming another session (an action koto runs
+#       inside a tick, as a koto older than pools does, a suite, a person)
+#       it exits 0 at once, and the supervisor outlives --start as it always
+#       has. With --at-most (a whole number from 1 to 3600) it is the
+#       agent's form, run between two ticks of a session whose suite is
+#       running: it waits whoever calls it, for no longer than <secs>, and
+#       exits 0 when the supervisor has ended or the time is up, so one tool
+#       call waits where a tick no longer does. Either form starts nothing,
+#       writes nothing and never calls koto.
 #   --locate --session <s> [--base-ref <ref>]
 #       Print three lines: the head, the merge-base, and the result file's
 #       path. check-verification.sh calls this so the path rules live here.
@@ -345,6 +367,7 @@ FAILURE_LINE_RE='^[[:space:]]*(\x1b\[[0-9;]*m)?(FAIL|not ok)([^A-Za-z]|$)'
 usage() {
     cat >&2 <<'EOF'
 Usage: run-verification.sh --start --session <s> [--base-ref <ref>]
+       run-verification.sh --hold --session <s> [--at-most <secs>] [--base-ref <ref>]
        run-verification.sh --archive --session <s> --reason <text> [--base-ref <ref>]
        run-verification.sh --locate --session <s> [--base-ref <ref>]
        run-verification.sh --plan --session <s> [--shared-branch <branch>] [--base-ref <ref>]
@@ -1300,7 +1323,7 @@ case "$MODE" in
     --await-removals)
         [ $# -eq 0 ] || { usage; exit 2; }
         await_removals_once ;;
-    --start|--locate|--archive|--plan|--resolved|--twins) ;;
+    --start|--hold|--locate|--archive|--plan|--resolved|--twins) ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
 esac
@@ -1311,6 +1334,7 @@ REASON=""
 REASON_SET=0
 SHARED_BRANCH=""
 SHARED_SET=0
+AT_MOST=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --session)
@@ -1322,6 +1346,11 @@ while [ $# -gt 0 ]; do
         --reason)
             [ "$MODE" = --archive ] && [ $# -ge 2 ] && [ "$REASON_SET" -eq 0 ] || { usage; exit 2; }
             REASON=$2; REASON_SET=1; shift 2 ;;
+        --at-most)
+            [ "$MODE" = --hold ] && [ $# -ge 2 ] && [ -z "$AT_MOST" ] || { usage; exit 2; }
+            case "$2" in ''|0*|*[!0-9]*|?????*) usage; exit 2 ;; esac
+            [ "$2" -le 3600 ] || { usage; exit 2; }
+            AT_MOST=$2; shift 2 ;;
         --shared-branch)
             # Empty is allowed: the gate passes an unset SHARED_BRANCH as "".
             [ "$MODE" = --plan ] && [ $# -ge 2 ] && [ "$SHARED_SET" -eq 0 ] || { usage; exit 2; }
@@ -1343,6 +1372,19 @@ resolve
 
 if [ "$MODE" = --locate ]; then
     printf '%s\n%s\n%s\n' "$HEAD_SHA" "$MB" "$RESULT"
+    exit 0
+fi
+
+# --- --hold ------------------------------------------------------------------------------
+
+if [ "$MODE" = --hold ]; then
+    [ -n "$AT_MOST" ] || [ "${KOTO_BACKGROUND_OF:-}" = "$SESSION" ] || exit 0
+    HOLD_END=""
+    [ -z "$AT_MOST" ] || HOLD_END=$((SECONDS + AT_MOST))
+    while lock_live "$HEAD_DIR/lock"; do
+        [ -z "$HOLD_END" ] || [ "$SECONDS" -lt "$HOLD_END" ] || break
+        sleep 2
+    done
     exit 0
 fi
 
@@ -1863,7 +1905,9 @@ exec 5<&-
 rm -f "$HOLD"
 set -m
 (
-    unset KOTO_TICK_SESSION
+    # KOTO_BACKGROUND_OF is --hold's signal and this action's alone: a
+    # command the supervisor runs that calls this script must not wait on it.
+    unset KOTO_TICK_SESSION KOTO_BACKGROUND_OF
     # Moved by a bare exec: a redirection on the exec that runs the script
     # leaves bash 3.2's saved copies of fds 3 and 4 open in it, the write end
     # among them, and the supervisor would never read end of file.
