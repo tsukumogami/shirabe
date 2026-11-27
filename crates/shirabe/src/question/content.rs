@@ -106,8 +106,9 @@ pub const STANDING_PHRASE: &str = "This answer sets a standing rule. ";
 /// The phrase that opens the first option's description.
 pub const RECOMMENDED_PHRASE: &str = "Recommended. ";
 
-/// The secret shapes, one ERE per line: the list the public-content check
-/// reads (scripts/lib/secret-shapes.ere).
+/// The secret shapes, one ERE per line (scripts/lib/secret-shapes.ere). The
+/// public-content check keeps the same list, and
+/// scripts/secret-shapes-consistency_test.sh holds the two equal.
 const SECRET_SHAPES: &str = include_str!("../../../../scripts/lib/secret-shapes.ere");
 
 fn secret_patterns() -> &'static [Regex] {

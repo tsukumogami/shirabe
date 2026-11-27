@@ -78,8 +78,9 @@ part; fewer than two or more than four options; an option without a `label` or
 (16,384 bytes); a label over 128 bytes; a control character in the context,
 the problem, the question or an option label; anything over the prompt limits
 in `references/decision-presentation.md`; a standing mark on content that
-would need shortening; text shaped like a secret, from the shared list in
-`scripts/lib/secret-shapes.ere` (the matched text is never printed); a
+would need shortening; text shaped like a secret, from the list in
+`scripts/lib/secret-shapes.ere`, the same list the public-content check
+keeps (the matched text is never printed); a
 `depends_on` naming no question, or one whose chain comes back round; both
 `options` and a need.
 
