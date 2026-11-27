@@ -35,6 +35,7 @@ rationale: |
   run can enforce without a model, and the live read after release checks
   what bytes can't see. Sessions without the profile, and interactive ones,
   read the same smaller entry and start as they do today or lighter.
+upstream: docs/briefs/BRIEF-coordinate-entry-budget.md
 decision_provenance: inline-resolved
 ---
 
