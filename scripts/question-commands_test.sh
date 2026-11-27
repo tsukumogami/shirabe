@@ -269,7 +269,8 @@ if [ -n "$Q_END" ] && [ "$RC1" -eq 0 ] && [ "$RC2" -eq 0 ] && [ "$END_STATE" = e
     && cmp -s "$T/end1.out" "$T/end2.out"; then
     pass "render prints the same bytes after the raising session has ended"
 else
-    fail "render after the raiser ended: raise $Q_END, exits $RC1/$RC2, state [$END_STATE]: $(cat "$T/raise.err" "$T/end.err" "$T/end-next.out" | head -c 600)"
+    END_ERR=$(cat "$T/raise.err" "$T/end.err" "$T/end-next.out")
+    fail "render after the raiser ended: raise $Q_END, exits $RC1/$RC2, state [$END_STATE]: ${END_ERR:0:600}"
 fi
 
 # --- answer ------------------------------------------------------------------
