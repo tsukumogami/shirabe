@@ -1424,7 +1424,7 @@ EOF
     assert_json "$scenario" "$output" "$step | .[0].detail | test(\"not the recovery\")" \
         "detail says a re-run is not the recovery" || ok=false
 
-    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"git rm docs/roadmaps/ROADMAP-cascade-ghfail.md\")" \
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"git rm (-f )?docs/roadmaps/ROADMAP-cascade-ghfail.md\")" \
         "detail names the manual delete" || ok=false
 
     if [[ -f "$repo/docs/roadmaps/ROADMAP-cascade-ghfail.md" ]]; then
@@ -1485,7 +1485,7 @@ scenario_deletion_open_issue_recovery_wording() {
     assert_json "$scenario" "$output" "$step | .[0].detail | test(\"not the recovery\")" \
         "detail says a re-run is not the recovery" || ok=false
 
-    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"git rm docs/roadmaps/ROADMAP-cascade-reword.md\")" \
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"git rm (-f )?docs/roadmaps/ROADMAP-cascade-reword.md\")" \
         "detail names the manual delete" || ok=false
 
     # The detail's claim that a re-run cannot start holds: the PLAN is gone.
@@ -1568,6 +1568,65 @@ EOF
     else
         fail "$scenario: ROADMAP file was deleted though one of its issues is open"
         ok=false
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Scenario 12e: handle_roadmap_deletion — the named delete works as written ─
+# A run without --push stages its edits and commits nothing, so the ROADMAP it
+# leaves behind carries a staged change. A plain `git rm <path>` refuses such a
+# file ("has changes staged in the index"). The command the skip's detail names
+# is run here verbatim, in the state the run left, and must succeed.
+scenario_deletion_remedy_runs_verbatim() {
+    local scenario="Scenario 12e: deletion — the named delete runs as written after a run that did not push"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    set_github_origin "test-owner/test-repo"
+    setup_gh_stub "$repo"
+    printf 'OPEN\n' > "$GH_STUB_DIR/issue-states.txt"
+
+    local roadmap="docs/roadmaps/ROADMAP-cascade-rmf.md"
+    write_roadmap_done_single "$repo/$roadmap" \
+        "PLAN-cascade-rmf.md" \
+        "https://github.com/test-owner/test-repo/issues/46"
+    write_design "$repo/docs/designs/DESIGN-cascade-rmf.md" "$roadmap"
+    write_plan "$repo/docs/plans/PLAN-cascade-rmf.md" \
+        "docs/designs/DESIGN-cascade-rmf.md"
+
+    commit_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-rmf.md")
+
+    local ok=true
+    local step='[.steps[] | select(.action == "delete_roadmap")]'
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"git rm -f $roadmap\")" \
+        "detail names git rm -f for the ROADMAP" || ok=false
+
+    # Take the command exactly as the detail spells it and run it.
+    local named
+    named=$(jq -r "$step | .[0].detail | capture(\"(?<c>git rm [^,]*[.]md)\").c // empty" <<<"$output")
+    if [[ -z "$named" ]]; then
+        fail "$scenario: detail names no git rm command"
+        ok=false
+    else
+        local -a argv
+        read -r -a argv <<<"$named"
+        if "${argv[@]}" > /dev/null 2>&1; then
+            [[ "$VERBOSE" == "true" ]] && echo "  ✓ '$named' ran in the state the run left"
+        else
+            fail "$scenario: the named command '$named' fails in the state the run left"
+            ok=false
+        fi
     fi
 
     [[ "$ok" == "true" ]] && pass "$scenario" || true
@@ -4442,6 +4501,9 @@ scenario_deletion_open_issue_recovery_wording
 cd "$ORIG_DIR"
 
 scenario_deletion_unreadable_then_open
+cd "$ORIG_DIR"
+
+scenario_deletion_remedy_runs_verbatim
 cd "$ORIG_DIR"
 
 scenario_deletion_idempotent_reinvoke
