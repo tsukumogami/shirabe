@@ -11,6 +11,10 @@
 # to naming every field and the merge-base read, and work-on.md to pointing at
 # the map without listing commands itself.
 #
+# Each `hosted` entry is also held to the workflow it names (see "hosted twins
+# against their workflows" below): the file exists, runs on pull requests, has
+# the named job, and that job's plan runs the same command as `runs`.
+#
 # Each jq check is a named query run against a file, so the negative cases run
 # the same query on altered copies of the map and require it to fail; a check
 # that passed everything would be caught.
@@ -180,6 +184,185 @@ if grep -Fq 'git show <merge-base>:.claude/shirabe-extensions/verification-map.j
     pass "verification-map.md documents the read at the merge-base"
 else
     fail "verification-map.md documents the read at the merge-base"
+fi
+
+# --- hosted twins against their workflows ----------------------------------------------
+#
+# VERIFICATION=auto lets a `hosted` entry stand in for a local run, so each one
+# is held to the workflow it names, for every row that declares one: the
+# workflow file exists; it runs on pull requests (an `on:` with pull_request,
+# not pull_request_target); it has the job the entry names (`<job>` or
+# `<job> (<matrix leg>)`), with no job-level `if:` that keeps it off pull
+# requests; and that job's plan runs the same command as `runs`. The plan is
+# what the job's step script prints with `--list` (the shape
+# scripts/skill-gate.sh has), run in a throwaway repository on a diff that
+# selects the row, with the base the job writes to $GITHUB_ENV; `runs`, with
+# {skill} filled in for an `each` row, must be one of its lines, and the
+# line's first word must name the row's program (scripts/check-skill.sh is
+# `check-skill`), which the step script must run.
+# verification-hosted-coverage_test.sh holds the declaration to every suite
+# the row can select; this is the per-entry check any row with a twin gets.
+
+# twin_workflow_ok <workflow file>: exists and runs on pull requests.
+twin_workflow_ok() {
+    [ -f "$1" ] || { echo "the workflow $1 does not exist"; return 1; }
+    awk '
+        /^on:[ ]*pull_request[ ]*$/ { ok = 1 }
+        /^on:[ ]*\[/ && /[[ ,]pull_request[] ,]/ { ok = 1 }
+        /^[^ #]/ { top = $0 }
+        top ~ /^on:[ ]*$/ && /^  pull_request:/ { ok = 1 }
+        END { exit !ok }' "$1" && return 0
+    echo "$1 has no pull_request trigger"
+    return 1
+}
+
+# twin_job_block <workflow file> <job id>: the job's lines under `jobs:`.
+twin_job_block() {
+    awk -v job="$2" '
+        /^[^ #]/ { injobs = ($0 ~ /^jobs:/); cur = ""; next }
+        injobs && /^  [A-Za-z0-9_-]+:/ { cur = $1; sub(/:.*/, "", cur); next }
+        injobs && cur == job { print }
+    ' "$1"
+}
+
+# twin_job_ok <workflow file> <job name>: the job exists, its leg is in its
+# matrix, and no job-level `if:` keeps it off pull requests.
+twin_job_ok() {
+    local id leg block cond
+    case "$2" in
+        *" ("*")") id=${2%% (*}; leg=${2#* (}; leg=${leg%)} ;;
+        *) id=$2; leg="" ;;
+    esac
+    block=$(twin_job_block "$1" "$id")
+    [ -n "$block" ] || { echo "$1 has no job $id"; return 1; }
+    if [ -n "$leg" ]; then
+        case "$block" in *"$leg"*) ;; *) echo "job $id's matrix doesn't name $leg"; return 1 ;; esac
+    fi
+    cond=$(printf '%s\n' "$block" | sed -n 's/^    if:[ ]*//p')
+    case "$cond" in
+        "") ;;
+        *event_name*"== 'pull_request'"*|*'event_name == "pull_request"'*) ;;
+        *event_name*) echo "job $id's if: [$cond] can keep it off pull requests"; return 1 ;;
+    esac
+    return 0
+}
+
+# twin_plan_ok <workflow file> <job name> <runs> <row id>: the job's step
+# script prints `runs` in its plan for a diff that selects the row, and the
+# line names the row's program, which the script runs.
+twin_plan_ok() {
+    local wf="$1" job="$2" runs="$3" row="$4" id block planner envname prog word glob path each leaf want plan fix
+    id=${job%% (*}
+    block=$(twin_job_block "$wf" "$id")
+    planner=""
+    while IFS= read -r p; do
+        [ -n "$p" ] && [ -f "$ROOT/$p" ] && { planner=$p; break; }
+    done <<EOF
+$(printf '%s\n' "$block" | sed -n -E 's/^ +run: (bash )?([A-Za-z0-9_.\/-]+\.sh)[ ]*$/\2/p')
+EOF
+    [ -n "$planner" ] || { echo "job $id has no step that runs a script of this repository"; return 1; }
+    envname=$(sed -n -E 's/^ +echo "([A-Z_][A-Z0-9_]*)=.*>> "\$GITHUB_ENV".*/\1/p' <<<"$block")
+    envname=${envname%%$'\n'*}
+    prog=$(jq -r --arg id "$row" '.commands[$id].run[0]' "$MAP")
+    word=${runs%% *}
+    [ "$word" = "$(basename "$prog" .sh)" ] \
+        || { echo "runs [$runs] starts with [$word], which doesn't name the row's program $prog"; return 1; }
+    grep -qF "$prog" "$ROOT/$planner" \
+        || { echo "$planner never runs $prog"; return 1; }
+    # A concrete path for the first glob of the first entry that selects the row.
+    glob=$(jq -r --arg id "$row" '[.entries[] | select(.commands | index([$id]))][0].paths[0] // empty' "$MAP")
+    [ -n "$glob" ] || { echo "no map entry selects $row"; return 1; }
+    path=$(printf '%s' "$glob" | sed -e 's#\*\*#probe/x#g' -e 's#\*#probe#g')
+    want=$runs
+    each=$(jq -r --arg id "$row" '.commands[$id].each // empty' "$MAP")
+    if [ -n "$each" ]; then
+        leaf=$(printf '%s' "$each" | sed -e 's#\*#probe#g')
+        leaf=${leaf##*/}
+        want=$(printf '%s' "$runs" | sed "s/[{]skill[}]/$leaf/g")
+    fi
+    fix="$WORKDIR/twin-plan.$$.$RANDOM"
+    mkdir -p "$fix/$(dirname "$planner")" "$fix/$(dirname "$path")" || return 1
+    cp "$ROOT/$planner" "$fix/$planner" || return 1
+    (
+        cd "$fix" || exit 1
+        git init -q . && git -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false \
+            commit -q --allow-empty -m base || exit 1
+        base=$(git rev-parse HEAD) || exit 1
+        echo probe > "$path"
+        git add -A && git -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false \
+            commit -q -m probe || exit 1
+        if [ -n "$envname" ]; then
+            env "$envname=$base" bash "$planner" --list
+        else
+            bash "$planner" --list
+        fi
+    ) > "$fix.plan" 2>"$fix.err" || { echo "$planner --list failed: $(head -c 300 "$fix.err")"; return 1; }
+    plan=$(cat "$fix.plan")
+    grep -Fxq -- "$want" "$fix.plan" && return 0
+    echo "the plan of job $id for a change to $path is [$plan], with no line [$want]"
+    return 1
+}
+
+twin_expect() { # twin_expect <label> <command...>
+    local label="$1" msg
+    shift
+    if msg=$("$@"); then pass "$label"; else fail "$label: $msg"; fi
+}
+twin_refused() { # twin_refused <label> <fragment> <command...>
+    local label="$1" want="$2" msg
+    shift 2
+    if msg=$("$@"); then
+        fail "$label: the check passed"
+    else
+        case "$msg" in *"$want"*) pass "$label" ;; *) fail "$label: said [$msg], not [$want]" ;; esac
+    fi
+}
+
+TWIN_ROWS=$(jq -r '.commands | to_entries[] | select(.value | has("hosted")) | .key' "$MAP")
+[ -n "$TWIN_ROWS" ] && pass "the map declares hosted twins on: $(printf '%s ' $TWIN_ROWS)" \
+    || fail "the map declares no hosted twin"
+for row in $TWIN_ROWS; do
+    n=$(jq -r --arg id "$row" '.commands[$id].hosted | length' "$MAP")
+    i=0
+    while [ "$i" -lt "$n" ]; do
+        wf=$(jq -r --arg id "$row" --argjson i "$i" '.commands[$id].hosted[$i].workflow' "$MAP")
+        job=$(jq -r --arg id "$row" --argjson i "$i" '.commands[$id].hosted[$i].job' "$MAP")
+        runs=$(jq -r --arg id "$row" --argjson i "$i" '.commands[$id].hosted[$i].runs' "$MAP")
+        twin_expect "$row: $wf exists and runs on pull requests" twin_workflow_ok "$ROOT/$wf"
+        twin_expect "$row: $wf has job [$job], not kept off pull requests" twin_job_ok "$ROOT/$wf" "$job"
+        twin_expect "$row: job [$job]'s plan runs [$runs]" twin_plan_ok "$ROOT/$wf" "$job" "$runs" "$row"
+        i=$((i + 1))
+    done
+done
+
+# Negative cases, on the first twin: altered copies of its workflow, and
+# altered entries.
+T_ROW=${TWIN_ROWS%%$'\n'*}
+if [ -n "$T_ROW" ]; then
+    T_WF=$(jq -r --arg id "$T_ROW" '.commands[$id].hosted[0].workflow' "$MAP")
+    T_JOB=$(jq -r --arg id "$T_ROW" '.commands[$id].hosted[0].job' "$MAP")
+    T_RUNS=$(jq -r --arg id "$T_ROW" '.commands[$id].hosted[0].runs' "$MAP")
+    twin_refused "negative: a workflow file that doesn't exist fails" "does not exist" \
+        twin_workflow_ok "$ROOT/.github/workflows/no-such-workflow.yml"
+    awk '/^[^ #]/ { top = $0 } top ~ /^on:/ && /^  pull_request:/ { skip = 1; next }
+         skip && /^    / { next } { skip = 0; print }' "$ROOT/$T_WF" > "$WORKDIR/no-pr.yml"
+    twin_refused "negative: a workflow without its pull_request trigger fails" "no pull_request trigger" \
+        twin_workflow_ok "$WORKDIR/no-pr.yml"
+    printf 'on:\n  pull_request_target:\njobs: {}\n' > "$WORKDIR/prt.yml"
+    twin_refused "negative: pull_request_target is not a pull_request trigger" "no pull_request trigger" \
+        twin_workflow_ok "$WORKDIR/prt.yml"
+    twin_refused "negative: a job the workflow doesn't have fails" "has no job" \
+        twin_job_ok "$ROOT/$T_WF" "no-such-job (ubuntu-latest)"
+    twin_refused "negative: a leg the job's matrix doesn't name fails" "doesn't name" \
+        twin_job_ok "$ROOT/$T_WF" "${T_JOB%% (*} (windows-latest)"
+    awk -v id="  ${T_JOB%% (*}:" '{ print } $0 == id { print "    if: github.event_name == '\''push'\''" }' \
+        "$ROOT/$T_WF" > "$WORKDIR/push-only.yml"
+    twin_refused "negative: a job kept to push events by its if: fails" "keep it off pull requests" \
+        twin_job_ok "$WORKDIR/push-only.yml" "$T_JOB"
+    twin_refused "negative: a runs naming another program fails" "doesn't name the row's program" \
+        twin_plan_ok "$ROOT/$T_WF" "$T_JOB" "other-check {skill}" "$T_ROW"
+    twin_refused "negative: a runs line the plan doesn't print fails" "with no line" \
+        twin_plan_ok "$ROOT/$T_WF" "$T_JOB" "${T_RUNS%% *} --changed {skill}" "$T_ROW"
 fi
 
 # work-on.md points at the map and lists no commands of its own.

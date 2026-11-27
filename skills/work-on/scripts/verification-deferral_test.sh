@@ -7,7 +7,7 @@
 # Part of the work-on skill
 #
 # work-on.md splits every edge into `verification` on VERIFICATION: `local`
-# (the default) keeps the edge, and a twin with `hosted-ci` goes to
+# keeps the edge, and a twin with `hosted-ci` goes to
 # `verification_deferred`, which runs no command and goes on, through
 # pass_counting, to finalization with the reason in context as
 # `verification_deferral`, or to done_blocked
@@ -54,6 +54,18 @@
 #          `pr_status: created` while the body lacks the record, then reaches
 #          done with the pull request in the leg's payload once it has it; a
 #          local run never calls --deferral-record.
+#
+# VERIFICATION=auto, the default, adds a third twin to every such edge, into
+# verification_plan, whose verification_route_plan gate (run-verification.sh
+# --plan, a fake here) routes in the same tick: 0 to verification_deferred,
+# which writes the hosted resolution's own reason, and 1, 2 or -1 to
+# verification. The suite checks those edges statically, drives them through
+# koto from each panel and from issue_type_routing, checks that an explicit
+# local or hosted-ci never runs --plan, checks the record gate's auto branch
+# (--resolved first, then the hosted reason), and drives ci_monitor's
+# hosted_twins: a twin gone (--twins exit 1) sends an auto run back through
+# verification with verification_twin_gone written; local and hosted-ci runs
+# never start --twins. The resolution itself is verification-plan_test.sh's.
 #
 # The engine part skips, loudly, when koto is not on PATH (the bash 3.2 floor
 # leg has no koto), and its leg cases skip when koto lacks --koto-leg.
@@ -147,17 +159,22 @@ echo "--- the shipped template"
 EDGES=$(edges)
 # A loop inside verification (its re-run at the timed-out hold) isn't a way in,
 # and a hosted-ci run never reaches that hold, so only edges from other states
-# count and need a twin.
-INTO=$(printf '%s\n' "$EDGES" | awk -F'|' '$1 != "verification" && $2 == "verification"')
-TWINS=$(printf '%s\n' "$EDGES" | awk -F'|' '$2 == "verification_deferred"')
+# count and need a twin. verification_plan is where an auto run's twins go, and
+# its own edges route on its gate; ci_monitor's edge in is the twin re-check,
+# which only an auto run resolved to hosted CI takes. Both are checked below.
+INTO=$(printf '%s\n' "$EDGES" | awk -F'|' '$1 != "verification" && $1 != "verification_plan" && $1 != "ci_monitor" && $2 == "verification"')
+TWINS=$(printf '%s\n' "$EDGES" | awk -F'|' '$1 != "verification_plan" && $2 == "verification_deferred"')
+AUTOS=$(printf '%s\n' "$EDGES" | awk -F'|' '$2 == "verification_plan"')
 N_INTO=$(printf '%s\n' "$INTO" | grep -c .)
 N_TWINS=$(printf '%s\n' "$TWINS" | grep -c .)
+N_AUTOS=$(printf '%s\n' "$AUTOS" | grep -c .)
 if [ "$N_INTO" -ge 8 ]; then
     pass "found $N_INTO edges into verification"
 else
     fail "expected at least 8 edges into verification (docs, task, two each from light_review, review and qa_validation), found $N_INTO"
 fi
 eq "every edge into verification has one twin into verification_deferred" "$N_INTO" "$N_TWINS"
+eq "every edge into verification has one twin into verification_plan" "$N_INTO" "$N_AUTOS"
 
 BAD=$(printf '%s\n' "$INTO" | grep -v 'vars.VERIFICATION: local;' || true)
 if [ -z "$BAD" ]; then
@@ -181,17 +198,69 @@ if [ "$WANT" = "$GOT" ]; then
 else
     fail "twins differ from their edges: want [$WANT], got [$GOT]"
 fi
+WANT=$(printf '%s\n' "$INTO" | sed -e 's/|verification|/|verification_plan|/' \
+    -e 's/vars\.VERIFICATION: local;/vars.VERIFICATION: auto;/' | sort)
+GOT=$(printf '%s\n' "$AUTOS" | sort)
+if [ "$WANT" = "$GOT" ]; then
+    pass "each auto twin carries its edge's state and conditions, with auto for local, into verification_plan"
+else
+    fail "auto twins differ from their edges: want [$WANT], got [$GOT]"
+fi
 for src in issue_type_routing light_review review qa_validation; do
     n=$(printf '%s\n' "$TWINS" | awk -F'|' -v s="$src" '$1 == s' | grep -c .)
     if [ "$n" -ge 1 ]; then pass "$src has $n edge(s) into verification_deferred"; else fail "$src has no edge into verification_deferred"; fi
 done
 
+# verification_plan routes on its gate alone, in the tick that arrives: 0 to
+# verification_deferred, and 1, 2 and -1 (anything it could not decide) to
+# local verification.
+PLAN_EDGES=$(printf '%s\n' "$EDGES" | awk -F'|' '$1 == "verification_plan" { print $2 "|" $3 }' | sort)
+WANT_PLAN=$(printf '%s\n' \
+    "verification_deferred|gates.verification_route_plan.exit_code: 0;" \
+    "verification|gates.verification_route_plan.exit_code: 1;" \
+    "verification|gates.verification_route_plan.exit_code: 2;" \
+    "verification|gates.verification_route_plan.exit_code: -1;" | sort)
+eq "verification_plan routes 0 to verification_deferred and 1, 2, -1 to verification" "$WANT_PLAN" "$PLAN_EDGES"
+PLAN_BLOCK=$(extract_state verification_plan)
+if grep -qE '^    (default_action|accepts):' <<<"$PLAN_BLOCK"; then
+    fail "verification_plan declares an action or accepts evidence; it must only route"
+else
+    pass "verification_plan has no action and takes no evidence"
+fi
+case "$(gate_command verification_plan verification_route_plan)" in
+    *'/run-verification.sh" --plan --session "{{SESSION_NAME}}" --shared-branch "{{SHARED_BRANCH}}"') pass "verification_route_plan runs run-verification.sh --plan" ;;
+    *) fail "verification_route_plan's command: [$(gate_command verification_plan verification_route_plan)]" ;;
+esac
+
+# ci_monitor's green edge needs the twin re-check, and its failure is the one
+# edge from ci_monitor into verification, which writes verification_twin_gone.
+GREEN=$(printf '%s\n' "$EDGES" | awk -F'|' '$1 == "ci_monitor" && $2 == "ci_pass_counting"')
+case "$GREEN" in
+    *"gates.hosted_twins.exit_code: 0;"*) pass "ci_monitor's green edge needs hosted_twins" ;;
+    *) fail "ci_monitor's green edge does not need hosted_twins: [$GREEN]" ;;
+esac
+BACK=$(printf '%s\n' "$EDGES" | awk -F'|' '$1 == "ci_monitor" && $2 == "verification"')
+case "$BACK" in
+    *"gates.ci_passing.exit_code: 0;"*"gates.hosted_twins.exit_code: 1;"*) pass "ci_monitor's twin edge goes to verification on green CI with a twin gone" ;;
+    *) fail "ci_monitor's edge into verification: [$BACK]" ;;
+esac
+MONITOR=$(extract_state ci_monitor)
+case "$MONITOR" in
+    *'
+          verification_twin_gone: "'*) pass "ci_monitor's twin edge writes verification_twin_gone" ;;
+    *) fail "ci_monitor's twin edge does not write verification_twin_gone" ;;
+esac
+case "$(gate_command ci_monitor hosted_twins)" in
+    'test "{{VERIFICATION}}" = auto || exit 0; '*'run-verification.sh" --twins --session "{{SESSION_NAME}}"') pass "hosted_twins runs --twins for an auto run only" ;;
+    *) fail "hosted_twins's command: [$(gate_command ci_monitor hosted_twins)]" ;;
+esac
+
 V_BLOCK=$(extract_var VERIFICATION)
 R_BLOCK=$(extract_var VERIFICATION_DEFERRAL_REASON)
-grep -q '^    default: local$' <<<"$V_BLOCK" && pass "VERIFICATION defaults to local" \
-    || fail "VERIFICATION does not default to local: [$V_BLOCK]"
-grep -q '^    values: \[local, hosted-ci\]$' <<<"$V_BLOCK" && pass "VERIFICATION takes local or hosted-ci" \
-    || fail "VERIFICATION's values are not [local, hosted-ci]: [$V_BLOCK]"
+grep -q '^    default: auto$' <<<"$V_BLOCK" && pass "VERIFICATION defaults to auto" \
+    || fail "VERIFICATION does not default to auto: [$V_BLOCK]"
+grep -q '^    values: \[auto, local, hosted-ci\]$' <<<"$V_BLOCK" && pass "VERIFICATION takes auto, local or hosted-ci" \
+    || fail "VERIFICATION's values are not [auto, local, hosted-ci]: [$V_BLOCK]"
 [ -n "$R_BLOCK" ] && pass "VERIFICATION_DEFERRAL_REASON is declared" || fail "VERIFICATION_DEFERRAL_REASON is not declared"
 for b in "$V_BLOCK" "$R_BLOCK"; do
     if grep -q 'rebind:' <<<"$b"; then
@@ -240,6 +309,20 @@ fi
 grep -q '^          verification_deferral: "{{VERIFICATION_DEFERRAL_REASON}}"$' <<<"$DEFERRED" \
     && pass "verification_deferred writes the reason to context" \
     || fail "verification_deferred does not write verification_deferral"
+# An auto run's hosted resolution writes its own reason, the one
+# run-verification.sh prints and pr_creation's record gate looks for.
+SCRIPT_REASON=$(sed -n 's/^HOSTED_REASON="\(.*\)"$/\1/p' "$SCRIPT_DIR/run-verification.sh")
+[ -n "$SCRIPT_REASON" ] || fail "run-verification.sh declares no HOSTED_REASON"
+grep -qF "          verification_deferral: \"$SCRIPT_REASON\"" <<<"$DEFERRED" \
+    && pass "verification_deferred writes an auto run's reason, run-verification.sh's HOSTED_REASON" \
+    || fail "verification_deferred does not write [$SCRIPT_REASON] for an auto run"
+case "$(gate_command pr_creation verification_deferral_recorded)" in
+    *"--deferral-record --reason \"$SCRIPT_REASON\""*) pass "the record gate checks an auto run's body for the same reason" ;;
+    *) fail "the record gate does not check for [$SCRIPT_REASON]" ;;
+esac
+AUTO_EDGE=$(printf '%s\n' "$EDGES" | awk -F'|' '$1 == "verification_deferred" && $3 ~ /vars.VERIFICATION: auto;/')
+[ -n "$AUTO_EDGE" ] && pass "verification_deferred has an edge for an auto run" \
+    || fail "verification_deferred has no edge on vars.VERIFICATION: auto"
 
 CREATED_EDGE=$(printf '%s\n' "$EDGES" | awk -F'|' '$1 == "pr_creation" && $2 == "ci_monitor"')
 case "$CREATED_EDGE" in
@@ -257,13 +340,15 @@ RC_DIR="$WORKDIR/rc"
 LOG="$WORKDIR/calls.log"
 mkdir -p "$FAKE_ROOT/skills/work-on/scripts" "$RC_DIR"
 : > "$LOG"
-# Each fake logs `<script> <args>` and exits with the number in
+# Each fake logs `<script> <args>`, prints $RC_DIR/<script><first-argument>.out
+# when there is one, and exits with the number in
 # $RC_DIR/<script><first-argument>, else $RC_DIR/<script>, else 0.
 for s in panel-scope.sh review-level.sh has-commits.sh run-verification.sh check-verification.sh \
          check-pr-output.sh find-anchor-plan.sh red-first.sh test-change.sh; do
     cat > "$FAKE_ROOT/skills/work-on/scripts/$s" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "$s \$*" >> "$LOG"
+if [ -f "$RC_DIR/$s\${1-}.out" ]; then cat "$RC_DIR/$s\${1-}.out"; fi
 rc=0
 if [ -f "$RC_DIR/$s\${1-}" ]; then rc=\$(cat "$RC_DIR/$s\${1-}")
 elif [ -f "$RC_DIR/$s" ]; then rc=\$(cat "$RC_DIR/$s"); fi
@@ -297,6 +382,7 @@ echo root
 EOF
 chmod +x "$FAKE_ROOT"/skills/work-on/scripts/*
 set_rc() { printf '%s\n' "$2" > "$RC_DIR/$1"; }
+set_out() { printf '%s\n' "$2" > "$RC_DIR/$1.out"; }
 reset_rc() { rm -f "$RC_DIR"/*; }
 calls() { grep -c -- "^$1" "$LOG" 2>/dev/null || true; }
 
@@ -327,6 +413,32 @@ reset_rc; : > "$LOG"
 set_rc check-pr-output.sh--deferral-record 1
 sh -c "$(render hosted-ci "$REASON")" >/dev/null 2>&1
 eq "hosted-ci, body lacks it: the record gate fails" 1 "$?"
+
+# auto: --resolved says whether verification_plan resolved the run to hosted
+# CI; only then is the body checked, for the hosted resolution's own reason.
+reset_rc; : > "$LOG"
+set_out run-verification.sh--resolved hosted-ci
+sh -c "$(render auto "")" >/dev/null 2>&1
+eq "auto resolved to hosted-ci, body records it: the record gate passes" 0 "$?"
+eq "auto resolved to hosted-ci: the gate asks --resolved, then checks the hosted reason" \
+    "run-verification.sh --resolved --session {{SESSION_NAME}}
+check-pr-output.sh --deferral-record --reason $SCRIPT_REASON" "$(cat "$LOG")"
+set_rc check-pr-output.sh--deferral-record 1
+sh -c "$(render auto "")" >/dev/null 2>&1
+eq "auto resolved to hosted-ci, body lacks it: the record gate fails" 1 "$?"
+
+reset_rc; : > "$LOG"
+set_out run-verification.sh--resolved local
+set_rc check-pr-output.sh--deferral-record 1
+sh -c "$(render auto "")" >/dev/null 2>&1
+eq "auto resolved to local: the record gate passes" 0 "$?"
+eq "auto resolved to local: check-pr-output.sh is never started" 0 "$(calls check-pr-output.sh)"
+
+reset_rc; : > "$LOG"
+set_rc run-verification.sh--resolved 2
+sh -c "$(render auto "")" >/dev/null 2>&1
+eq "auto, --resolved can't answer: the record gate holds at 2" 2 "$?"
+eq "auto, --resolved can't answer: check-pr-output.sh is never started" 0 "$(calls check-pr-output.sh)"
 
 # --- 3. engine -----------------------------------------------------------------------
 
@@ -447,7 +559,7 @@ run_entry() {
     S="vd-$N"
     mkdir -p "$dir"
     build "$dir/fixture.md" verification-deferral-fixture "$src" \
-        "$src verification verification_deferred pass_counting done_blocked"
+        "$src verification_plan verification verification_deferred pass_counting done_blocked"
     : > "$LOG"
     if ! (cd "$REPO" && koto init "$S" --template "$dir/fixture.md" --var PLUGIN_ROOT="$FAKE_ROOT" "$@") \
         >"$dir/init.out" 2>&1; then
@@ -475,19 +587,51 @@ for src in qa_validation light_review review; do
     fi
 
     # shellcheck disable=SC2086
-    run_entry "$src" $extra
-    eq "$src, default local: reaches finalization through verification" finalization "$STATE"
+    run_entry "$src" $extra --var VERIFICATION=local
+    eq "$src, local: reaches finalization through verification" finalization "$STATE"
     n=$(calls "run-verification.sh --start")
     if [ "$n" -ge 1 ]; then
-        pass "$src, default local: verification's action starts the map"
+        pass "$src, local: verification's action starts the map"
     else
-        fail "$src, default local: run-verification.sh --start was not called"
+        fail "$src, local: run-verification.sh --start was not called"
     fi
+    eq "$src, local: the auto resolution never runs" 0 "$(calls "run-verification.sh --plan")"
     if (cd "$REPO" && koto context exists "$S" verification_deferral) >/dev/null 2>&1; then
-        fail "$src, default local: verification_deferral is in context"
+        fail "$src, local: verification_deferral is in context"
     else
-        pass "$src, default local: nothing records a deferral"
+        pass "$src, local: nothing records a deferral"
     fi
+
+    # The default, auto, resolved to hosted CI: verification_deferred in the
+    # same tick, with the hosted resolution's reason, and no map started.
+    set_rc run-verification.sh--plan 0
+    # shellcheck disable=SC2086
+    run_entry "$src" $extra
+    eq "$src, auto resolved to hosted-ci: reaches finalization in one tick" finalization "$STATE"
+    eq "$src, auto resolved to hosted-ci: verification_route_plan ran --plan" 1 "$(calls "run-verification.sh --plan --session $S --shared-branch ")"
+    eq "$src, auto resolved to hosted-ci: the hosted reason is in context as verification_deferral" \
+        "$SCRIPT_REASON" "$(ctx verification_deferral)"
+    eq "$src, auto resolved to hosted-ci: the map is never started" 0 "$(calls "run-verification.sh --start")"
+    eq "$src, auto resolved to hosted-ci: check-verification.sh is never called" 0 "$(calls check-verification.sh)"
+
+    # auto resolved to local (1), or undecided (2): local verification.
+    for rc in 1 2; do
+        set_rc run-verification.sh--plan "$rc"
+        # shellcheck disable=SC2086
+        run_entry "$src" $extra --var VERIFICATION=auto
+        eq "$src, auto, --plan exit $rc: reaches finalization through verification" finalization "$STATE"
+        if [ "$(calls "run-verification.sh --start")" -ge 1 ]; then
+            pass "$src, auto, --plan exit $rc: verification's action starts the map"
+        else
+            fail "$src, auto, --plan exit $rc: run-verification.sh --start was not called"
+        fi
+        if (cd "$REPO" && koto context exists "$S" verification_deferral) >/dev/null 2>&1; then
+            fail "$src, auto, --plan exit $rc: verification_deferral is in context"
+        else
+            pass "$src, auto, --plan exit $rc: nothing records a deferral"
+        fi
+    done
+    reset_rc
 done
 
 # run_routing <issue_type> <var>...: builds a fixture from the shipped
@@ -504,7 +648,7 @@ run_routing() {
     S="vd-route-$N"
     mkdir -p "$dir"
     build "$dir/fixture.md" verification-deferral-fixture issue_type_routing \
-        "issue_type_routing verification verification_deferred pass_counting done_blocked"
+        "issue_type_routing verification_plan verification verification_deferred pass_counting done_blocked"
     : > "$LOG"
     if ! (cd "$REPO" && koto init "$S" --template "$dir/fixture.md" --var PLUGIN_ROOT="$FAKE_ROOT" "$@") \
         >"$dir/init.out" 2>&1; then
@@ -531,19 +675,35 @@ for type in docs task; do
     eq "$type, hosted-ci: run-verification.sh is never called" 0 "$(calls run-verification.sh)"
     eq "$type, hosted-ci: check-verification.sh is never called" 0 "$(calls check-verification.sh)"
 
-    run_routing "$type"
-    eq "$type, default local: reaches finalization through verification" finalization "$STATE"
+    run_routing "$type" --var VERIFICATION=local
+    eq "$type, local: reaches finalization through verification" finalization "$STATE"
     n=$(calls "run-verification.sh --start")
     if [ "$n" -ge 1 ]; then
-        pass "$type, default local: verification's action starts the map"
+        pass "$type, local: verification's action starts the map"
     else
-        fail "$type, default local: run-verification.sh --start was not called"
+        fail "$type, local: run-verification.sh --start was not called"
     fi
+    eq "$type, local: the auto resolution never runs" 0 "$(calls "run-verification.sh --plan")"
     if (cd "$REPO" && koto context exists "$S" verification_deferral) >/dev/null 2>&1; then
-        fail "$type, default local: verification_deferral is in context"
+        fail "$type, local: verification_deferral is in context"
     else
-        pass "$type, default local: nothing records a deferral"
+        pass "$type, local: nothing records a deferral"
     fi
+
+    set_rc run-verification.sh--plan 0
+    run_routing "$type"
+    eq "$type, auto resolved to hosted-ci: reaches finalization" finalization "$STATE"
+    eq "$type, auto resolved to hosted-ci: the hosted reason is in context" "$SCRIPT_REASON" "$(ctx verification_deferral)"
+    eq "$type, auto resolved to hosted-ci: the map is never started" 0 "$(calls "run-verification.sh --start")"
+    set_rc run-verification.sh--plan 1
+    run_routing "$type"
+    eq "$type, auto resolved to local: reaches finalization through verification" finalization "$STATE"
+    if [ "$(calls "run-verification.sh --start")" -ge 1 ]; then
+        pass "$type, auto resolved to local: verification's action starts the map"
+    else
+        fail "$type, auto resolved to local: run-verification.sh --start was not called"
+    fi
+    reset_rc
 done
 
 # The docs twin keeps has_commits: with no commit a deferred docs run holds at
@@ -561,6 +721,14 @@ case "$(ctx failure_reason)" in
     *) fail "hosted-ci with no reason: failure_reason is [$(ctx failure_reason)]" ;;
 esac
 eq "hosted-ci with no reason: run-verification.sh is never called" 0 "$(calls run-verification.sh)"
+
+# An auto run with a VERIFICATION_DEFERRAL_REASON still writes the hosted
+# resolution's reason: the stated one is for hosted-ci only.
+set_rc run-verification.sh--plan 0
+run_entry qa_validation --var VERIFICATION=auto --var "VERIFICATION_DEFERRAL_REASON=$REASON"
+eq "auto with a stated reason, resolved to hosted-ci: reaches finalization" finalization "$STATE"
+eq "auto with a stated reason: the hosted resolution's reason is recorded" "$SCRIPT_REASON" "$(ctx verification_deferral)"
+reset_rc
 
 run_entry qa_validation --var VERIFICATION=sometimes
 case "$STATE" in init-failed*) pass "koto refuses VERIFICATION=sometimes" ;; *) fail "VERIFICATION=sometimes was accepted ($STATE)" ;; esac
@@ -607,6 +775,67 @@ if (cd "$REPO" && koto init "$S" --template "$DIR/fixture.md" --var PLUGIN_ROOT=
 else
     fail "shared branch pr_creation fixture: koto init: $(head -c 300 "$DIR/init.out")"
 fi
+reset_rc
+
+# --- ci_monitor's twin re-check --------------------------------------------------------
+#
+# An auto run that resolved to hosted CI meets hosted_twins on ci_monitor's
+# green edge. A twin gone from the default branch's map (--twins exit 1)
+# sends it to local verification in the same tick, writing
+# verification_twin_gone; every other run takes the green edge as before.
+
+echo "--- ci_monitor's twin re-check"
+
+# run_monitor <var>...: a fixture from the shipped ci_monitor onward, CI green
+# and the pull request clean, ticked once. Sets S and STATE.
+run_monitor() {
+    N=$((N + 1))
+    local dir="$WORKDIR/m$N"
+    S="vd-mon-$N"
+    mkdir -p "$dir"
+    build "$dir/fixture.md" verification-deferral-fixture ci_monitor \
+        "ci_monitor verification_plan verification verification_deferred pass_counting done_blocked" \
+        ci_passing=0 merge_state_clean=0
+    : > "$LOG"
+    if ! (cd "$REPO" && koto init "$S" --template "$dir/fixture.md" --var PLUGIN_ROOT="$FAKE_ROOT" "$@") \
+        >"$dir/init.out" 2>&1; then
+        STATE="init-failed: $(head -c 300 "$dir/init.out")"; return
+    fi
+    (cd "$REPO" && koto next "$S" --no-cleanup) >"$dir/tick.out" 2>&1
+    STATE=$( (cd "$REPO" && koto status "$S" 2>/dev/null) | jq -r '.current_state // "none"')
+}
+
+reset_rc
+set_rc run-verification.sh--twins 1
+run_monitor
+eq "auto, a twin gone at ci_monitor: back through local verification to finalization in one tick" finalization "$STATE"
+eq "auto, a twin gone: --twins ran" 1 "$(calls "run-verification.sh --twins")"
+if [ "$(calls "run-verification.sh --start")" -ge 1 ]; then
+    pass "auto, a twin gone: verification's action starts the map"
+else
+    fail "auto, a twin gone: run-verification.sh --start was not called"
+fi
+case "$(ctx verification_twin_gone)" in
+    *"verifies locally"*) pass "auto, a twin gone: verification_twin_gone is in context" ;;
+    *) fail "auto, a twin gone: verification_twin_gone is [$(ctx verification_twin_gone)]" ;;
+esac
+
+set_rc run-verification.sh--twins 0
+run_monitor
+eq "auto, every twin still there: the green edge goes to ci_pass_counting" ci_pass_counting "$STATE"
+eq "auto, every twin still there: the map is never started" 0 "$(calls "run-verification.sh --start")"
+
+set_rc run-verification.sh--twins 2
+run_monitor
+eq "auto, --twins can't answer: the green path holds at ci_monitor" ci_monitor "$STATE"
+
+set_rc run-verification.sh--twins 1
+run_monitor --var VERIFICATION=local
+eq "local, --twins would fail: the green edge goes to ci_pass_counting" ci_pass_counting "$STATE"
+eq "local: --twins is never started" 0 "$(calls "run-verification.sh --twins")"
+run_monitor --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=$REASON"
+eq "hosted-ci, --twins would fail: the green edge goes to ci_pass_counting" ci_pass_counting "$STATE"
+eq "hosted-ci: --twins is never started" 0 "$(calls "run-verification.sh --twins")"
 reset_rc
 
 # --- the leg -------------------------------------------------------------------------
@@ -675,7 +904,7 @@ fi
 reset_rc
 set_rc find-anchor-plan.sh 1
 set_rc check-pr-output.sh--deferral-record 1
-if open_leg; then
+if open_leg --var VERIFICATION=local; then
     : > "$LOG"
     tick --with-data '{"go":"pr"}'
     tick --with-data "$CREATED"
@@ -683,6 +912,41 @@ if open_leg; then
     eq "local: --deferral-record is never called" 0 "$(calls "check-pr-output.sh --deferral-record")"
     eq "local: the leg's payload carries the pull request" "\"$URL\"" "$(leg .result.payload.pr)"
 fi
+
+# auto, resolved to hosted CI: the body must record the hosted resolution's
+# reason, as a hosted-ci run's must record its stated one.
+reset_rc
+set_rc find-anchor-plan.sh 1
+set_out run-verification.sh--resolved hosted-ci
+set_rc check-pr-output.sh--deferral-record 1
+if open_leg; then
+    : > "$LOG"
+    tick --with-data '{"go":"pr"}'
+    tick --with-data "$CREATED"
+    eq "auto resolved to hosted-ci, body without the record: pr_status created holds at pr_creation" pr_creation "$(state)"
+    if [ "$(calls "check-pr-output.sh --deferral-record --reason $SCRIPT_REASON")" -ge 1 ]; then
+        pass "auto resolved to hosted-ci: the gate asked about the hosted resolution's reason"
+    else
+        fail "auto resolved to hosted-ci: --deferral-record --reason [$SCRIPT_REASON] was not called: [$(cat "$LOG")]"
+    fi
+    set_rc check-pr-output.sh--deferral-record 0
+    tick --with-data "$CREATED"
+    eq "auto resolved to hosted-ci, body with the record: the run ends at done" "done" "$(state)"
+fi
+
+# auto, resolved to local: no record is asked for.
+reset_rc
+set_rc find-anchor-plan.sh 1
+set_out run-verification.sh--resolved local
+set_rc check-pr-output.sh--deferral-record 1
+if open_leg; then
+    : > "$LOG"
+    tick --with-data '{"go":"pr"}'
+    tick --with-data "$CREATED"
+    eq "auto resolved to local: created with CI green ends at done" "done" "$(state)"
+    eq "auto resolved to local: --deferral-record is never called" 0 "$(calls "check-pr-output.sh --deferral-record")"
+fi
+reset_rc
 
 echo
 echo "verification-deferral_test: $PASS_COUNT passed, $FAIL_COUNT failed"

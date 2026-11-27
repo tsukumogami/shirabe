@@ -104,8 +104,12 @@
 #
 # The verification deferral (#1012) is mapped the same way:
 #
-#   --verification=<local|hosted-ci>   VERIFICATION=<value>
-#   --verification-reason=<text>       VERIFICATION_DEFERRAL_REASON=<text>
+#   --verification=<auto|local|hosted-ci>   VERIFICATION=<value>
+#   --verification-reason=<text>            VERIFICATION_DEFERRAL_REASON=<text>
+#
+# Without --verification no pair is written and the run gets the template's
+# default, auto (hosted CI when every started command has a hosted twin and no
+# path is in a risky class, local otherwise); --verification=local opts out.
 #
 # koto refuses a value outside VERIFICATION's values, and a reason that does
 # not start with a letter or digit (a bare flag among them), as invalid_var.

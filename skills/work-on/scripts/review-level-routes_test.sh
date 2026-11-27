@@ -242,8 +242,8 @@ GOT=$(jq -r '[.states.light_review.transitions[] | select(.when.light_outcome ==
     && pass "escalate goes back to the level check, only with the ledger at standard or full" || fail "escalate routes are [$GOT]"
 GOT=$(jq -r '[.states.light_review.transitions[] | select(.when.light_outcome == null)
               | "\(.target):\(.when["gates.audited.exit_code"]):\(.when["gates.light_level.exit_code"])"] | unique | join(",")' "$COMPILED" 2>/dev/null)
-[ "$GOT" = "scrutiny:0:11,verification:1:11,verification_deferred:1:11" ] \
-    && pass "a passed light panel goes to verification, or to scrutiny when audited, only at light" || fail "light_review's passed routes are [$GOT]"
+[ "$GOT" = "scrutiny:0:11,verification:1:11,verification_deferred:1:11,verification_plan:1:11" ] \
+    && pass "a passed light panel goes to verification (local, hosted-ci or auto), or to scrutiny when audited, only at light" || fail "light_review's passed routes are [$GOT]"
 GOT=$(jq -r '[.states.light_review.transitions[] | select(.when.light_outcome == null) | .when["gates.light_escalate.exit_code"]] | unique | map(tostring) | join(",")' "$COMPILED" 2>/dev/null)
 [ "$GOT" = 1 ] && pass "every passed light route needs light_escalate at 1 (the seat didn't escalate)" \
     || fail "light_review's passed routes read light_escalate as [$GOT]"

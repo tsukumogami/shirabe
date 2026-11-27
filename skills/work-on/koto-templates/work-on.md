@@ -188,28 +188,34 @@ variables:
     values: ["on", "off"]
   VERIFICATION:
     description: >-
-      Where the definition-of-done gate runs. `local` (the default) enters the
-      verification state, which runs the repository's verification map on this
-      host. `hosted-ci` defers verification to the pull request's hosted CI:
+      Where the definition-of-done gate runs. `auto` (the default) decides at
+      each way into verification, in verification_plan: hosted CI is the
+      build of record when every command the run would start has a hosted
+      twin in the merge-base's verification map and no changed path is in the
+      ci, security, template or engine class, and the run verifies locally
+      otherwise (run-verification.sh --plan). `local` enters the verification
+      state, which runs the repository's verification map on this host.
+      `hosted-ci` defers verification to the pull request's hosted CI:
       every edge into verification from another state goes to
       verification_deferred instead, so
       the map is never launched, and the run still finalizes and opens its
       pull request. A deferral needs VERIFICATION_DEFERRAL_REASON, and
       pr_creation holds until the pull request body records it. Set at init
-      (`--var VERIFICATION=hosted-ci`, or `--verification=hosted-ci` through
-      work-on-open.sh) and not rebindable: a run never changes where its
-      verification runs partway through, and an attach that leaves it out
+      (`--var VERIFICATION=local`, or `--verification=local` through
+      work-on-open.sh, to opt out of auto) and not rebindable: a run never
+      changes its setting partway through, and an attach that leaves it out
       keeps the value the run started with.
     required: false
-    default: local
-    values: [local, hosted-ci]
+    default: auto
+    values: [auto, local, hosted-ci]
   VERIFICATION_DEFERRAL_REASON:
     description: >-
       Why verification is deferred to hosted CI, in one line: the stated reason
       a VERIFICATION=hosted-ci run carries into context
       (verification_deferral) and into its pull request body, where
       pr_creation's verification_deferral_recorded gate looks for it verbatim.
-      Ignored when VERIFICATION is local. A hosted-ci run without it ends at
+      Ignored when VERIFICATION is local or auto; an auto run that resolves
+      to hosted CI carries its own reason. A hosted-ci run without it ends at
       done_blocked rather than running the map or skipping it silently. The
       pattern refuses a value that does not start with a letter or digit, so a
       bare flag can't pass for a reason. koto accepts only letters, digits,
@@ -1370,6 +1376,12 @@ states:
           issue_type: docs
           gates.has_commits.exit_code: 0
           vars.VERIFICATION: hosted-ci
+      - target: verification_plan
+        when:
+          gates.code_route.exit_code: 1
+          issue_type: docs
+          gates.has_commits.exit_code: 0
+          vars.VERIFICATION: auto
       - target: verification
         when:
           gates.code_route.exit_code: 1
@@ -1380,6 +1392,11 @@ states:
           gates.code_route.exit_code: 1
           issue_type: task
           vars.VERIFICATION: hosted-ci
+      - target: verification_plan
+        when:
+          gates.code_route.exit_code: 1
+          issue_type: task
+          vars.VERIFICATION: auto
 
   review_level_check:
     # Between the issue-type question and the first panel of a code change, on
@@ -1712,7 +1729,8 @@ states:
     transitions:
       # Where a passed review goes depends on the review level: `standard`
       # stops before QA, `full` and an unset level (a session from an earlier
-      # template) go on to it. `light` never reaches this state. A hand
+      # template) go on to it. `light` reaches this state only on an audited
+      # run (light_review's audited routes), and goes on to QA too. A hand
       # rebind while the run sits here fails level_unchanged, so no passed
       # route matches and the state holds until review-level.sh set puts the
       # level back to the ledger's.
@@ -1730,6 +1748,12 @@ states:
           gates.level_unchanged.exit_code: 0
           vars.REVIEW_LEVEL: standard
           vars.VERIFICATION: hosted-ci
+      - target: verification_plan
+        when:
+          gates.review_carried.exit_code: 0
+          gates.level_unchanged.exit_code: 0
+          vars.REVIEW_LEVEL: standard
+          vars.VERIFICATION: auto
       - target: qa_validation
         when:
           gates.review_carried.exit_code: 0
@@ -1765,6 +1789,14 @@ states:
           gates.level_unchanged.exit_code: 0
           vars.REVIEW_LEVEL: standard
           vars.VERIFICATION: hosted-ci
+      - target: verification_plan
+        when:
+          gates.review_carried.exit_code: 1
+          gates.review_verdict.exit_code: 0
+          gates.review_recorded.exit_code: 0
+          gates.level_unchanged.exit_code: 0
+          vars.REVIEW_LEVEL: standard
+          vars.VERIFICATION: auto
       - target: qa_validation
         when:
           gates.review_carried.exit_code: 1
@@ -1864,6 +1896,10 @@ states:
         when:
           gates.qa_carried.exit_code: 0
           vars.VERIFICATION: hosted-ci
+      - target: verification_plan
+        when:
+          gates.qa_carried.exit_code: 0
+          vars.VERIFICATION: auto
       # The round is recorded and the tester is not blocking: koto advances.
       - target: verification
         when:
@@ -1877,6 +1913,12 @@ states:
           gates.qa_verdict.exit_code: 0
           gates.qa_recorded.exit_code: 0
           vars.VERIFICATION: hosted-ci
+      - target: verification_plan
+        when:
+          gates.qa_carried.exit_code: 1
+          gates.qa_verdict.exit_code: 0
+          gates.qa_recorded.exit_code: 0
+          vars.VERIFICATION: auto
       - target: implementation
         when:
           gates.qa_carried.exit_code: 1
@@ -2028,6 +2070,14 @@ states:
           gates.light_escalate.exit_code: 1
           gates.audited.exit_code: 1
           vars.VERIFICATION: hosted-ci
+      - target: verification_plan
+        when:
+          gates.light_carried.exit_code: 0
+          gates.level_unchanged.exit_code: 0
+          gates.light_level.exit_code: 11
+          gates.light_escalate.exit_code: 1
+          gates.audited.exit_code: 1
+          vars.VERIFICATION: auto
       # The round is recorded and the seat is not blocking: koto advances.
       - target: verification
         when:
@@ -2051,7 +2101,19 @@ states:
           gates.light_escalate.exit_code: 1
           gates.audited.exit_code: 1
           vars.VERIFICATION: hosted-ci
-      # An audited run: the same two passes, on to the full panels.
+      - target: verification_plan
+        when:
+          gates.light_carried.exit_code: 1
+          gates.light_verdict.exit_code: 0
+          gates.light_recorded.exit_code: 0
+          gates.has_commits.exit_code: 0
+          gates.level_unchanged.exit_code: 0
+          gates.light_level.exit_code: 11
+          gates.light_escalate.exit_code: 1
+          gates.audited.exit_code: 1
+          vars.VERIFICATION: auto
+      # An audited run: the same two passes, on to the full panels, whatever
+      # VERIFICATION says; qa_validation's routes take it to verification.
       - target: scrutiny
         when:
           gates.light_carried.exit_code: 0
@@ -2099,6 +2161,54 @@ states:
           light_outcome: blocking_escalate
         context_assignments:
           failure_reason: ${evidence.failure_reason}
+
+  verification_plan:
+    # Where an auto run decides, on each way into verification, whether hosted
+    # CI is its build of record (VERIFICATION=auto, the default). Every edge
+    # into verification or verification_deferred from another state has a
+    # twin here on `vars.VERIFICATION: auto`.
+    #
+    # A variable rebound in a tick isn't seen until the next one, so the
+    # decision is a gate, not a variable, and koto routes on it in the tick
+    # that arrives: the run reaches verification_deferred, or starts local
+    # verification, without stopping here. The state has no action, so
+    # nothing is started before the gate decides; verification's own action
+    # starts the map only once the run is there.
+    #
+    #   verification_route_plan  run-verification.sh --plan. It reads the
+    #                   merge-base's map, selects as --start would, takes a
+    #                   fix round's carry out (a carried check starts nothing,
+    #                   so it needs no twin), classifies the changed paths with
+    #                   review-level.sh classify, and writes the koto key
+    #                   verification_plan.
+    #     0  hosted-ci: every started command has a hosted twin, and no path
+    #        is in the ci, security, template or engine class
+    #                                       verification_deferred
+    #     1  local: anything else, each cause named on stdout
+    #                                       verification
+    #     2  it could not decide (usage, no HEAD or merge-base, a koto read or
+    #        write that failed)             verification
+    #    -1  koto could not run it          verification
+    # Local is where every undecided case goes: it runs the map, which says
+    # what is wrong with it, and costs time, never a check.
+    gates:
+      verification_route_plan:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" --plan --session "{{SESSION_NAME}}" --shared-branch "{{SHARED_BRANCH}}"'
+        timeout: 120
+    transitions:
+      - target: verification_deferred
+        when:
+          gates.verification_route_plan.exit_code: 0
+      - target: verification
+        when:
+          gates.verification_route_plan.exit_code: 1
+      - target: verification
+        when:
+          gates.verification_route_plan.exit_code: 2
+      - target: verification
+        when:
+          gates.verification_route_plan.exit_code: -1
 
   verification:
     # The definition-of-done gate, run by koto rather than reported by the
@@ -2213,7 +2323,9 @@ states:
     # cleared the panel and summary keys first. koto now takes the edge
     # itself, so those keys are implementation's clear_on_entry.
     #
-    # Only a VERIFICATION=local run enters this state. A hosted-ci run goes to
+    # A VERIFICATION=local run enters this state directly; an auto run enters
+    # it through verification_plan's local resolution, or from ci_monitor when
+    # a hosted twin it resolved with is gone. A hosted-ci run goes to
     # verification_deferred on every edge that would lead here, so the action
     # below never runs for it.
     default_action:
@@ -2342,12 +2454,14 @@ states:
           failure_reason: "verification blocked: ${evidence.detail}"
 
   verification_deferred:
-    # Where a VERIFICATION=hosted-ci run goes instead of verification (#1012).
-    # Every edge into verification from another state has a twin here, split
-    # on the variable's value, so a `local` run (the default) takes exactly the
-    # routes it took before the twins existed. The `rerun` self-loops at
-    # verification's timed-out hold need no twin: they start and end in
-    # verification, which a hosted-ci run never enters.
+    # Where a VERIFICATION=hosted-ci run goes instead of verification (#1012),
+    # and where an auto run goes when verification_plan resolves it to hosted
+    # CI.
+    # Every edge into verification from another state has a twin here, and a
+    # third into verification_plan, split on the variable's value, so a
+    # `local` run takes exactly the routes it took before the twins existed.
+    # The `rerun` self-loops at verification's timed-out hold need no twin:
+    # they start and end in verification, which a hosted-ci run never enters.
     #
     # The split sits on the edges, not inside verification, because koto runs
     # a state's default_action before its skip_if and its transitions: once a
@@ -2375,19 +2489,35 @@ states:
     #
     # A deferral counts as a passing check here, so the run goes through
     # pass_counting like a local pass does.
+    #
+    # An auto run reaches this state only from verification_plan's exit 0, and
+    # its edge writes the hosted resolution's fixed reason ("hosted twins
+    # cover every selected command", run-verification.sh's HOSTED_REASON) to
+    # verification_deferral, so the pull request body record and
+    # pr_creation's gate apply to it unchanged.
+    # VERIFICATION_DEFERRAL_REASON plays no part in it.
     transitions:
       - target: pass_counting
         when:
+          vars.VERIFICATION: hosted-ci
           vars.VERIFICATION_DEFERRAL_REASON:
             is_set: true
         context_assignments:
           verification_deferral: "{{VERIFICATION_DEFERRAL_REASON}}"
       - target: done_blocked
         when:
+          vars.VERIFICATION: hosted-ci
           vars.VERIFICATION_DEFERRAL_REASON:
             is_set: false
         context_assignments:
           failure_reason: "verification_deferred: VERIFICATION=hosted-ci was chosen without VERIFICATION_DEFERRAL_REASON. A deferral to hosted CI needs a stated reason, and the variable is fixed at init: start the run again with both, or without the deferral."
+      # An auto run comes here only through verification_plan's hosted
+      # resolution, and carries that resolution's own reason.
+      - target: pass_counting
+        when:
+          vars.VERIFICATION: auto
+        context_assignments:
+          verification_deferral: "hosted twins cover every selected command"
 
   verification_hosted:
     # The recording step of the hosted-of-record route, entered only from
@@ -2464,6 +2594,10 @@ states:
         when:
           gates.hosted_record_valid.exit_code: 1
           vars.VERIFICATION: hosted-ci
+      - target: verification_plan
+        when:
+          gates.hosted_record_valid.exit_code: 1
+          vars.VERIFICATION: auto
       - target: done_blocked
         when:
           gates.hosted_record_valid.exit_code: 2
@@ -3083,11 +3217,14 @@ states:
       # when any of the three is missing; 2 when it could not decide. It gates
       # the created edge only, so 1 and 2 hold here, like pr_body_conformant:
       # fix the body with `gh pr edit` and submit again. A local run never
-      # starts the script: the test short-circuits to 0, with no process and
-      # no GitHub read.
+      # starts the script: the case short-circuits to 0, with no process and
+      # no GitHub read. An auto run asks run-verification.sh --resolved first:
+      # `hosted-ci` (verification_plan resolved it to hosted CI and no twin has
+      # gone since) checks the body for the hosted resolution's own reason;
+      # `local` passes as a local run does; no answer is 2 and holds.
       verification_deferral_recorded:
         type: command
-        command: 'test "{{VERIFICATION}}" != hosted-ci || { test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --deferral-record --reason "{{VERIFICATION_DEFERRAL_REASON}}"; }'
+        command: 'case "{{VERIFICATION}}" in hosted-ci) test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --deferral-record --reason "{{VERIFICATION_DEFERRAL_REASON}}" ;; auto) test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" || exit 2; case "$("{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" --resolved --session "{{SESSION_NAME}}")" in hosted-ci) test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --deferral-record --reason "hosted twins cover every selected command" ;; local) exit 0 ;; *) exit 2 ;; esac ;; *) exit 0 ;; esac'
       # A run that re-ran a failed verification command at the same head
       # (verification_attempts holds one JSON line per archived attempt) says
       # so where a reviewer reads it. check-pr-output.sh --rerun-record reads
@@ -3366,6 +3503,20 @@ states:
         type: command
         command: 'koto context exists "{{SESSION_NAME}}" hosted_of_record; case $? in 0) ;; 1) exit 0 ;; *) exit 2 ;; esac; test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --settled --session "{{SESSION_NAME}}"'
         timeout: 120
+      # Whether the hosted twins an auto run resolved with are still there.
+      # Only an auto run that verification_plan resolved to hosted CI is
+      # checked; any other run passes without starting the script past the
+      # test. run-verification.sh --twins fetches the default branch and reads
+      # its current map: 0 every started command keeps a twin it resolved
+      # with; 1 one has none, which sends a green run back to local
+      # verification (the run never verified those commands anywhere else);
+      # 2 koto, the fetch or git could not answer, and the green path holds.
+      # A twin that fails is a failing check like any other: ci_passing
+      # holds the run here for a fix.
+      hosted_twins:
+        type: command
+        command: 'test "{{VERIFICATION}}" = auto || exit 0; test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" --twins --session "{{SESSION_NAME}}"'
+        timeout: 120
     accepts:
       ci_outcome:
         type: enum
@@ -3387,6 +3538,21 @@ states:
           gates.merge_state_clean.exit_code: 0
           gates.probe_value_absent.exit_code: 0
           gates.hosted_settled.exit_code: 0
+          gates.hosted_twins.exit_code: 0
+      # Green CI on a run that resolved to hosted CI, but a twin it resolved
+      # with is gone from the default branch's map: the commands it covered
+      # ran nowhere, so the run verifies locally. The key it writes makes
+      # every later verification_plan resolve to local and turns
+      # hosted_twins and the deferral record gate off for the run.
+      - target: verification
+        when:
+          gates.ci_passing.exit_code: 0
+          gates.merge_state_clean.exit_code: 0
+          gates.probe_value_absent.exit_code: 0
+          gates.hosted_settled.exit_code: 0
+          gates.hosted_twins.exit_code: 1
+        context_assignments:
+          verification_twin_gone: "a hosted twin this run resolved with is gone from the default branch's verification map; it verifies locally"
       # Green CI with a hosted-of-record record that isn't settled goes to the
       # read. It returns here once the pull request is ready, so the legs that
       # run only on a ready pull request are waited for like any other check.
@@ -3514,6 +3680,10 @@ states:
         when:
           gates.hosted_read.exit_code: 1
           vars.VERIFICATION: hosted-ci
+      - target: verification_plan
+        when:
+          gates.hosted_read.exit_code: 1
+          vars.VERIFICATION: auto
       - target: done_blocked
         when:
           gates.hosted_read.exit_code: 3
@@ -4525,6 +4695,24 @@ While `light_verdict` exits 1, submit `light_outcome: blocking_retry` when the f
 
 Retry cap: retries from this panel share the run's blocking retries with scrutiny, review and qa_validation, under the rule the scrutiny directive states: the first 2 are granted whatever the counts, a third only when this panel's count of blocking findings is lower than on its own previous blocking round in this run, or when none of its open blocking findings was open on the run's previous blocking round in any panel, and no run gets more than 3. Before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" light_review` once for the round. It takes no count: it reads the panel's unclosed blocking findings from the ledger itself (`panel-scope.sh --open-count` and `--open-ids`), the same set `light_verdict` printed, so the count it compares is never the agent's. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
 
+## verification_plan
+
+koto passes through this state without stopping, and you submit nothing here. The
+run has `VERIFICATION=auto`, the default, and the `verification_route_plan` gate
+(`run-verification.sh --plan`) decides where it verifies, once per way in:
+
+- **Hosted CI** (exit 0) when every command the run would start has a `hosted` twin
+  in the merge-base's verification map and no changed path is in the ci, security,
+  template or engine class (`review-level.sh classify`). In a fix round a check the
+  carry marks `carried` starts nothing, so it needs no twin. The run goes to
+  `verification_deferred` with the reason `hosted twins cover every selected
+  command`, and the pull request's hosted CI is its build of record.
+- **Local** (exit 1, or 2 and -1 when it could not decide) otherwise: the run goes
+  to `verification`, which runs the map here. The gate's output names the cause, and
+  so does `koto context get {{SESSION_NAME}} verification_plan`.
+
+A run started with `--verification=local` never enters this state.
+
 ## verification
 
 koto runs this state itself; don't run the commands yourself. What it runs is the
@@ -4685,11 +4873,13 @@ Evidence schema (only when the record can't be written or read):
 ## verification_deferred
 
 koto passes through this state without stopping, and nothing here runs a
-command. The run was started with `VERIFICATION=hosted-ci`, so it came here
-instead of `verification`: local verification did not run, and the verification
-map was never launched. The stated reason, `VERIFICATION_DEFERRAL_REASON`, is in
-context as `verification_deferral`
-(`koto context get {{SESSION_NAME}} verification_deferral`).
+command. The run was started with `VERIFICATION=hosted-ci`, or with `auto` and
+`verification_plan` resolved it to hosted CI, so it came here instead of
+`verification`: local verification did not run, and the verification map was
+never launched. The reason is in context as `verification_deferral`
+(`koto context get {{SESSION_NAME}} verification_deferral`): the stated
+`VERIFICATION_DEFERRAL_REASON` for `hosted-ci`, and `hosted twins cover every
+selected command` for `auto`.
 
 The run goes on to `pass_counting`, then `finalization`. The pull request's hosted
 CI is the build of record: `pr_creation` holds until the pull request body records
@@ -5208,6 +5398,18 @@ for this pull request, concluded success. Until then green CI goes to
 the read. A record whose run ids were filled by hand fails this gate the same
 way. When the record can't be read (exit 2) the green path holds; tick again. A
 run with no record passes the gate without running anything.
+
+A run whose `verification_plan` resolved to hosted CI (`VERIFICATION=auto`) has one
+more gate on its green edge, `hosted_twins` (`run-verification.sh --twins`). It
+fetches the default branch and re-reads the twins the run resolved with from the
+current map. When each started command still has one, the green edge holds as
+usual. When one is gone, green CI no longer covers that command, and koto sends
+the run back to `verification` to verify locally, writing
+`verification_twin_gone` so the run stays local from then on. It comes back here
+through finalization and `pr_creation`: edit the body's Verification section so it
+no longer says hosted CI is the build of record. When the fetch or koto fails
+(exit 2) the green path holds; tick again. A failing twin is a failing check like
+any other, fixed here with `ci_outcome: failing_fixed`.
 
 ## hosted_record
 

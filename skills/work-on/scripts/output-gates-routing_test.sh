@@ -419,7 +419,7 @@ build_chain() {
             '  SHARED_BRANCH:' '    description: shared branch' '    required: false' \
             '  REVIEW_LEVEL:' '    description: review level' '    required: false' \
             '  VERIFICATION:' '    description: verification' '    required: false' \
-            '    default: local' '    values: [local, hosted-ci]' \
+            '    default: auto' '    values: [auto, local, hosted-ci]' \
             '  VERIFICATION_DEFERRAL_REASON:' '    description: deferral reason' '    required: false' \
             '  PROBE_NEAR_RULE:' '    description: the probe_near capture pr_creation reads' '    required: false' \
             'states:' '  start:' '    transitions:' "      - target: $state"
@@ -461,6 +461,12 @@ drive() {
         build "$dir" "$state" "$@"
     fi
     for v in ${DRIVE_VARS:-}; do vars="$vars --var $v"; done
+    # The fixtures declare the shipped VERIFICATION (default auto); these
+    # cases are about local verification unless they name it.
+    case " ${DRIVE_VARS:-} " in
+        *" VERIFICATION="*) ;;
+        *) vars="$vars --var VERIFICATION=local" ;;
+    esac
     if [ -n "$shared" ]; then
         # shellcheck disable=SC2086 # $vars is --var pairs; no value holds a space
         (cd "$REPO" && koto init "$s" --template "$dir/fixture.md" $vars \
@@ -654,7 +660,7 @@ RR_TARGETS=$(printf '%s\n%s\n' "$RR_VER" "$RR_IMPL" | awk '/^      - target:/ { 
         '  SHARED_BRANCH:' '    description: shared branch' '    required: false' \
         '  REVIEW_LEVEL:' '    description: review level' '    required: false' \
         '  VERIFICATION:' '    description: verification' '    required: false' \
-        '    default: local' '    values: [local, hosted-ci]' \
+        '    default: auto' '    values: [auto, local, hosted-ci]' \
         '  VERIFICATION_DEFERRAL_REASON:' '    description: deferral reason' '    required: false' \
         '  PROBE_NEAR_RULE:' '    description: the probe_near capture pr_creation reads' '    required: false' \
         'states:' '  start:' '    transitions:' '      - target: verification'
@@ -678,7 +684,7 @@ RR_TARGETS=$(printf '%s\n%s\n' "$RR_VER" "$RR_IMPL" | awk '/^      - target:/ { 
 
 if [ "$RR_OK" -eq 1 ]; then
     (cd "$RR_REPO" && koto init "$RS" --template "$RR_DIR/fixture.md" --var PLUGIN_ROOT="$RR_ROOT" \
-        --var ISSUE_NUMBER=7) >"$RR_DIR/init.out" 2>&1 \
+        --var ISSUE_NUMBER=7 --var VERIFICATION=local) >"$RR_DIR/init.out" 2>&1 \
         || { RR_OK=0; fail "rerun: koto init failed: $(head -c 300 "$RR_DIR/init.out")"; }
 fi
 
@@ -837,7 +843,7 @@ RR_SUP=""
 
 if [ "$R5_OK" -eq 1 ]; then
     (cd "$R5_REPO" && koto init "$R5S" --template "$RR_DIR/fixture.md" --var PLUGIN_ROOT="$RR_ROOT" \
-        --var ISSUE_NUMBER=7) >"$RR_DIR/init5.out" 2>&1 \
+        --var ISSUE_NUMBER=7 --var VERIFICATION=local) >"$RR_DIR/init5.out" 2>&1 \
         || { R5_OK=0; fail "rerun at the hold: koto init failed: $(head -c 300 "$RR_DIR/init5.out")"; }
 fi
 
@@ -1129,7 +1135,8 @@ EOF
 chmod +x "$LAD_ROOT/skills/work-on/scripts/check-pr-output.sh"
 N=$((N + 1)); LDIR="$WORKDIR/f$N"; LS="og-$N"; mkdir -p "$LDIR"
 build "$LDIR" pr_creation closing_keyword=0
-(cd "$REPO" && koto init "$LS" --template "$LDIR/fixture.md" --var PLUGIN_ROOT="$LAD_ROOT" --var ISSUE_NUMBER=7) >"$LDIR/init.out" 2>&1 \
+(cd "$REPO" && koto init "$LS" --template "$LDIR/fixture.md" --var PLUGIN_ROOT="$LAD_ROOT" --var ISSUE_NUMBER=7 \
+    --var VERIFICATION=local) >"$LDIR/init.out" 2>&1 \
     || fail "ladder run: koto init failed: $(head -c 300 "$LDIR/init.out")"
 LLOG="$(cd "$REPO" && koto session dir "$LS")/koto-$LS.state.jsonl"
 # tick <evidence-or-empty>: one koto next; LERR is the PR-body gate's stderr,
@@ -1440,6 +1447,16 @@ expect "hosted-ci: hosted_record_valid exit 1" verification_deferred
 reset_rc; set_rc verification-route.sh--read 1
 DRIVE_VARS=VERIFICATION=hosted-ci drive hosted_record "" ""
 expect "hosted-ci: hosted_read exit 1" verification_deferred
+
+# An auto session that resolved to local and took the route goes back through
+# verification_plan, which decides again at the new head.
+reset_rc; set_rc verification-route.sh--check-record 1
+DRIVE_VARS=VERIFICATION=auto drive verification_hosted "" ""
+expect "auto: hosted_record_valid exit 1" verification_plan
+reset_rc; set_rc verification-route.sh--read 1
+DRIVE_VARS=VERIFICATION=auto drive hosted_record "" ""
+expect "auto: hosted_read exit 1" verification_plan
+reset_rc
 
 # pr_creation: with a record, the created edge needs the draft and its lines.
 CREATED='{"pr_status":"created","pr_url":"https://github.com/o/r/pull/1"}'
