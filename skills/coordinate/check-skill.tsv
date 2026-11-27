@@ -34,7 +34,11 @@ all	run-tests.sh
 # wider than the walk and harmless: a change there runs every suite anyway),
 # and SKILL.md, every references/*.md and every koto-templates/*.md, which it
 # scans for an outward-kind state-entry.sh call without --on (and SKILL.md
-# for "the human merges", references/state-keys.md for the key table).
+# for "the human merges", references/state-keys.md for the key table);
+# entry-ceiling_test.sh renders SKILL.md and counts any file it includes with
+# `@`, which may be a reference.
+walk	entry-ceiling_test.sh	SKILL.md
+walk	entry-ceiling_test.sh	references/*
 walk	skill-hygiene_test.sh	*	*_test.sh
 walk	state-structure_test.sh	scripts/*
 walk	state-structure_test.sh	koto-templates/*
@@ -56,7 +60,9 @@ walk	coordinate-template-structure_engine_test.sh	koto-templates/*.md
 # runs on CI only (CI set) and SKIPs anywhere check-skill.sh runs it;
 # rule-sources_engine_test.sh, brief-intake_engine_test.sh,
 # discipline-carry_engine_test.sh, review-round-telemetry_engine_test.sh,
+# review-round-audit_engine_test.sh,
 # driver-check_engine_test.sh, directive-ceiling_engine_test.sh,
+# entry-ceiling_test.sh, coordinate-open-guidance_engine_test.sh,
 # successor-handover_engine_test.sh, standing-provenance_engine_test.sh and
 # state-write-race_test.sh were each measured alone in one run;
 # lib-status_test.sh, reconcile-owe_test.sh, roadmap-status-v4_test.sh and
@@ -190,7 +196,10 @@ cost	alignment-read_test.sh	6
 cost	alignment-sources_test.sh	15
 cost	discipline-carry_engine_test.sh	23
 cost	review-round-telemetry_engine_test.sh	0
+cost	review-round-audit_engine_test.sh	8
 cost	directive-ceiling_engine_test.sh	3
+cost	entry-ceiling_test.sh	2
+cost	coordinate-open-guidance_engine_test.sh	10
 cost	standing-provenance_engine_test.sh	4
 cost	cloud-hosts-start_test.sh	0
 cost	lib-status_test.sh	21

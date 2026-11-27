@@ -30,7 +30,10 @@
 # naming `koto session rebind <run> --to <this directory>` and the order, and
 # one cut short by another failure is failed=carry, each with the source live
 # and uncancelled and the new run cancelled holding no record; a start whose
-# candidate can't be read is refused with no session= and nothing opened; a
+# candidate can't be read is refused with no session= and nothing opened; both
+# of those bound-elsewhere refusals print the directory handover's guidance
+# block on stderr once, before the refusal's own line, and only key=value
+# lines on stdout; a
 # carry whose source is written while it runs is failed=carry, the source
 # live and the new run cancelled with the record/meta it got withdrawn; a
 # carry that lands cancels the source after it, the new run holding the
@@ -371,6 +374,20 @@ open_be() { # open_be <arm> <kind> <source>: a start from the plugin copy behind
 live_bound() { bash "$T/plugin/skills/coordinate/scripts/coord-log.sh" live-session --scope-slug roadmap-bound --all 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
 cancelled() { jq -s '[.[] | select(.type == "workflow_cancelled")] | length' "$(koto session dir "$1")/koto-$1.state.jsonl"; }
 opened_by() { jq -nr --arg b "$1" --arg a "$(sessions)" '($a | split(" ")) - ($b | split(" ")) | map(select(. != "")) | join(" ")'; }
+# handover_guided <label>: the last start printed the directory handover's
+# guidance block (the `coordinate-open guide: ` lines of $T/err) once, its
+# first row on exactly one line, every guide line before the refusal's own
+# last `coordinate-open: ` line, and nothing on stdout ($T/out) but key=value
+# lines.
+handover_guided() {
+    local n g m
+    n=$(grep '^coordinate-open guide: ' "$T/err" | grep -cF -- "A handover to a successor in another directory goes in this order:")
+    g=$(grep -n '^coordinate-open guide: ' "$T/err" | tail -1 | cut -d: -f1)
+    m=$(grep -n '^coordinate-open: ' "$T/err" | tail -1 | cut -d: -f1)
+    if [ "$n" = 1 ] && [ -n "$g" ] && [ -n "$m" ] && [ "$g" -lt "$m" ]; then pass "$1"
+    else fail "$1" "$(cat "$T/err")"; fi
+    eq "$1, stdout holding only key=value lines" "" "$(grep -v '^$' "$T/out" | grep -vE '^[a-z][a-z_-]*=')"
+}
 sleep 1
 OUT=$(open_ "$RMB"); BS=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
 session_seed "$BS" "$(jq -nc '{scope: {kind: "roadmap", name: "bound"}, holdings: [], deferrals: [], side_effects: [], reversals: []}')"
@@ -387,6 +404,7 @@ grep -qF "koto session rebind $BS --to $(pwd -P)" "$T/err" && pass "  ... naming
     || fail "  ... naming koto session rebind <run> --to <this directory>" "$(cat "$T/err")"
 grep -q 'stop the coordinator session.*rebind.*only then reap' "$T/err" && pass "  ... and the order: stop, rebind or carry, only then reap" \
     || fail "  ... and the order: stop, rebind or carry, only then reap" "$(cat "$T/err")"
+handover_guided "  ... its stderr carrying the handover's guidance block before the refusal's line"
 eq "  ... the source still live and uncancelled" "$BS 0" "$(live_bound) $(cancelled "$BS")"
 eq "  ... the new run cancelled" 1 "$( [ -n "$NB" ] && cancelled "$NB")"
 koto context exists "$NB" record/meta; eq "  ... holding no record" 1 $?
@@ -407,6 +425,7 @@ eq "a start whose candidate holds a record it can't read (session_bound_elsewher
 grep -q '^session=' "$T/out" && fail "  ... printing no session=" "$(cat "$T/out")" || pass "  ... printing no session="
 eq "  ... opening nothing" "$BEFORE" "$(sessions)"
 grep -qF "koto session rebind $BS --to $(pwd -P)" "$T/err" && pass "  ... naming the rebind" || fail "  ... naming the rebind" "$(cat "$T/err")"
+handover_guided "  ... its stderr carrying the handover's guidance block before the refusal's line"
 
 sleep 1
 BEFORE=$(sessions)

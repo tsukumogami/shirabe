@@ -10,7 +10,10 @@
 # window didn't close, with the new run cancelled holding no record and the
 # source live, uncancelled and untouched (its record/meta and its keys as they
 # were), as for a failed add. On a koto without `session flush` a carry lands
-# with no call carrying the variable.
+# with no call carrying the variable. Each start, landed or failed, prints the
+# carry's guidance block on stderr once, every guide line before the last
+# `coordinate-open:` line (the failure's own message, when it fails), and only
+# key=value lines on stdout.
 #
 # koto runs behind a shim that logs every call with the variable's value and,
 # with WF_FAIL set, fails `koto session flush <run>`. The starts run a copy of
@@ -88,6 +91,20 @@ live_window() { bash "$T/plugin/skills/coordinate/scripts/coord-log.sh" live-ses
 cancelled() { jq -s '[.[] | select(.type == "workflow_cancelled")] | length' "$(koto session dir "$1")/koto-$1.state.jsonl"; }
 opened_by() { jq -nr --arg b "$1" --arg a "$(sessions)" '($a | split(" ")) - ($b | split(" ")) | map(select(. != "")) | join(" ")'; }
 keys() { koto context list "$1" --prefix "$2" 2>/dev/null | jq -r '.[]' | tr '\n' ' '; }
+# carry_guided <label>: the last start printed the carry's guidance block (the
+# `coordinate-open guide: ` lines of $T/err) once, its first row on exactly one
+# line, every guide line before the last `coordinate-open: ` line when there
+# is one, and nothing on stdout ($T/out) but key=value lines.
+CARRY_ROW="A carry opens a new run and copies every record/ and legs/ key of the old run into it through the write core"
+carry_guided() {
+    local n g m
+    n=$(grep '^coordinate-open guide: ' "$T/err" | grep -cF -- "$CARRY_ROW")
+    g=$(grep -n '^coordinate-open guide: ' "$T/err" | tail -1 | cut -d: -f1)
+    m=$(grep -n '^coordinate-open: ' "$T/err" | tail -1 | cut -d: -f1)
+    if [ "$n" = 1 ] && [ -n "$g" ] && { [ -z "$m" ] || [ "$g" -lt "$m" ]; }; then pass "$1"
+    else fail "$1" "$(cat "$T/err")"; fi
+    eq "$1, stdout holding only key=value lines" "" "$(grep -v '^$' "$T/out" | grep -vE '^[a-z][a-z_-]*=')"
+}
 
 # The scope's live run, holding a record with a few entries and legs/ keys.
 printf '%s' "$RMW" > "$T/args.json"
@@ -110,6 +127,7 @@ if ! koto session flush --help > /dev/null 2>&1; then
     open_w; rc=$?
     eq "on a koto without session flush, a carry lands" "0 carried=$WS" "$rc $(grep '^carried=' "$T/out")"
     eq "  ... with no call carrying KOTO_WRITE_WINDOW" 0 "$(grep -vc '^W=- ' "$T/wcalls")"
+    carry_guided "  ... its stderr carrying the carry's guidance block"
     echo; echo "coordinate-open-carry-window engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]; exit $?
 fi
 
@@ -121,6 +139,7 @@ NW=$(opened_by "$BEFORE")
 eq "a carry whose write window doesn't flush is failed=carry, exit 1" "1 failed=carry" "$rc $(grep '^failed=' "$T/out")"
 grep -q "failed closing its write window: .*the bucket could not be reached" "$T/err" \
     && pass "  ... saying so, with koto's message" || fail "  ... saying so, with koto's message" "$(cat "$T/err")"
+carry_guided "  ... its stderr carrying the carry's guidance block before that message"
 eq "  ... after adds made in the window" 1 "$([ -n "$NW" ] && [ "$(grep -c "^W=$NW context add $NW " "$T/wcalls")" -gt 0 ] && echo 1)"
 eq "  ... and writing no record/meta into the new run" 0 "$(grep -c "context add $NW record/meta" "$T/wcalls")"
 eq "  ... the new run cancelled" 1 "$( [ -n "$NW" ] && cancelled "$NW")"
@@ -134,6 +153,7 @@ sleep 1
 open_w; rc=$?
 NW=$(sed -n 's/^session=//p' "$T/out")
 eq "a carry whose window flushes opens the new run" "0 carried=$WS" "$rc $(grep '^carried=' "$T/out")"
+carry_guided "  ... its stderr carrying the carry's guidance block"
 ADDS=$(grep -c "^W=[^ ]* context add $NW \(record/\|legs/\)" "$T/wcalls")
 eq "  ... every add of a key into the new run carries KOTO_WRITE_WINDOW set to it" "$((ADDS - 1))" \
     "$(grep -c "^W=$NW context add $NW " "$T/wcalls")"

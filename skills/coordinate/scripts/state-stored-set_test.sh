@@ -952,6 +952,33 @@ rule_case "  ... and so is one naming a relative path" 65 "record/host names no 
 rule_case "  ... a key naming a missing file exits 2, naming the label alone" 2 "cannot read the brief gone" --intake gone --by x
 grep -qF "$T/intake" "$T/err" && bad "  ... its stderr never names the path" "$(cat "$T/err")" || ok "  ... its stderr never names the path"
 
+echo "== briefs-digest:<label>: the digest the opener records beside a brief =="
+# coordinate-open.sh --brief writes briefs:<label> and briefs-digest:<label>
+# in one --host write; the intake refuses a brief whose contents no longer
+# match the recorded digest, and one over 262144 bytes.
+BHK="$KOTO_STORE/context/$SR/record/host"
+seed "$TWO"
+BSUM=$(shasum -a 256 < "$T/intake/brief.md" | cut -d' ' -f1)
+bash "$RS" "${W[@]}" --host briefs:worker "$T/intake/brief.md" --host briefs-digest:worker "sha256:$BSUM" >/dev/null 2>"$T/err"
+eq "a brief's path and its digest are written in one --host write" "0 $T/intake/brief.md sha256:$BSUM" \
+    "$? $(jq -r '.["briefs:worker"]' "$BHK") $(jq -r '.["briefs-digest:worker"]' "$BHK")"
+rule_case "  ... a digest that isn't sha256:<64 hex> is refused, 65" 65 "briefs-digest:worker takes sha256:<64 hex>" \
+    --host briefs-digest:worker "sha256:$DA64"0
+rule_case "  ... and so is a digest key with a label -x" 65 "refused" --host briefs-digest:-x "sha256:$DA64"
+bash "$RS" "${W[@]}" --intake worker --by coord >/dev/null 2>"$T/err"
+eq "  ... the intake takes the brief whose digest matches" 0 "$?"
+printf '%s' "$(jq -c --arg p "$T/intake/brief.md" '.["briefs:moved"] = $p | .["briefs-digest:moved"] = "sha256:'"$DA64"'"' "$BHK")" \
+    | koto context add "$SR" record/host
+rule_case "  ... and refuses one whose contents changed after it was recorded, 65" 65 \
+    "the brief briefs:moved changed after it was recorded" --intake moved --by coord
+grep -qF "$T/intake" "$T/err" && bad "  ... its stderr never names the path" "$(cat "$T/err")" || ok "  ... its stderr never names the path"
+head -c 262145 /dev/zero | tr '\0' a > "$T/intake/big.md"
+printf '%s' "$(jq -c --arg p "$T/intake/big.md" '.["briefs:big"] = $p' "$BHK")" | koto context add "$SR" record/host
+rule_case "  ... a brief over 262144 bytes is refused, 65" 65 "the brief briefs:big is larger than 262144 bytes" --intake big --by coord
+bash "$RS" "${W[@]}" --host briefs:worker "$T/intake/brief.md" >/dev/null 2>"$T/err"
+eq "  ... a --host briefs:<label> write without its digest drops that label's digest alone" "0 null sha256:$DA64" \
+    "$? $(jq -r '.["briefs-digest:worker"] // "null"' "$BHK") $(jq -r '.["briefs-digest:moved"] // "null"' "$BHK")"
+
 echo "== --rule-files: the start's rules rows, and the lists it refuses =="
 DA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 DB=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

@@ -269,6 +269,12 @@ badrules "an unknown level" "$(printf 'rule\theavy\tlines>1')" level
 badrules "an unknown fact" "$(printf 'rule\tfull\tauthors>3')" fact
 badrules "a rule naming an undefined class" "$(printf 'rule\tfull\tclass:nosuch')" class
 badrules "a non-numeric threshold" "$(printf 'rule\tfull\tlines>many')" threshold
+badrules "a cap that lists manifest" "$(printf 'cap\tlight\tlines<=10\tfiles<=2\tclasses=docs,manifest')" cap-manifest
+badrules "a cap to standard" "$(printf 'cap\tstandard\tlines<=10\tfiles<=2\tclasses=docs')" cap-level
+badrules "a cap with no classes" "$(printf 'cap\tlight\tlines<=10\tfiles<=2')" cap-noclasses
+badrules "a cap with an unknown term" "$(printf 'cap\tlight\tlines<=10\tfiles<=2\tclasses=docs\tauthors<=1')" cap-term
+badrules "a cap naming an undefined class" "$(printf 'cap\tlight\tlines<=10\tfiles<=2\tclasses=docs,nosuch')" cap-class
+badrules "a cap with a bad bound" "$(printf 'cap\tlight\tlines<=ten\tfiles<=2\tclasses=docs')" cap-bound
 
 # ==============================================================================
 echo "--- script: init"
@@ -544,20 +550,24 @@ facts_case template 'mkdir -p skills/a/koto-templates && printf "x\n" > skills/a
     '{"lines":1,"files":1,"classes":["template","docs"],"tests_changed":false,"criteria_changed":false,"floor":"full"}'
 facts_case executable 'printf "y\n" >> scripts/old.sh' \
     '{"lines":1,"files":1,"classes":["executable"],"tests_changed":false,"criteria_changed":false,"floor":"standard"}'
+# class:test floors at standard, and the light cap lowers it: one small test
+# file and nothing else.
 facts_case test 'mkdir -p lib && printf "x\n" > lib/a_test.go' \
-    '{"lines":1,"files":1,"classes":["test"],"tests_changed":true,"criteria_changed":false,"floor":"standard"}'
+    '{"lines":1,"files":1,"classes":["test"],"tests_changed":true,"criteria_changed":false,"floor":"light"}'
 facts_case criteria-plan 'mkdir -p docs/plans && printf "x\n" > docs/plans/PLAN-x.md' \
     '{"lines":1,"files":1,"classes":["docs"],"tests_changed":false,"criteria_changed":true,"floor":"standard"}'
 # Both sides of a rename are classified: scripts/old.sh moved under docs/ is
 # still an executable change. A rename is one file plus its changed lines.
 facts_case rename 'git mv scripts/old.sh docs/old.txt' \
     '{"lines":0,"files":1,"classes":["executable","docs"],"tests_changed":false,"criteria_changed":false,"floor":"standard"}'
+# A rename's line count says nothing about its size, so it is unclassified
+# and floors at standard, even between two documentation paths.
 facts_case rename-edit 'git mv docs/readme.md docs/guide.md && printf "x\n" >> docs/guide.md' \
-    '{"lines":1,"files":1,"classes":["docs"],"tests_changed":false,"criteria_changed":false,"floor":"light"}'
+    '{"lines":1,"files":1,"classes":["docs"],"tests_changed":false,"criteria_changed":false,"floor":"standard"}'
 facts_case deletion 'git rm -q docs/other.md' \
     '{"lines":10,"files":1,"classes":["docs"],"tests_changed":false,"criteria_changed":false,"floor":"light"}'
 
-echo "--- script: an edited test floors at full, an added one at standard"
+echo "--- script: an edited test is a fact; only a fix's rewritten red test floors at full"
 
 # edited_case <name> <change> <expected tests_edited> <expected floor>: one
 # fixture whose base already holds tests/a_test.sh (ten lines), then <change>.
@@ -576,17 +586,21 @@ edited_case() {
     [ "$got" = "$3 $4" ] && pass "$1: tests_edited $3, floor $4" \
         || fail "$1: got [$got], expected [$3 $4] ($(fact '{classes, rule, rules_fired}'))"
 }
-edited_case loses-a-line "sed -i.bak '3d' tests/a_test.sh && rm -f tests/a_test.sh.bak" true full
-edited_case changes-a-line "sed -i.bak 's/^5\$/five/' tests/a_test.sh && rm -f tests/a_test.sh.bak" true full
-edited_case deleted 'git rm -q tests/a_test.sh' true full
+# tests_edited is recorded, but `rule full red_test_edited` replaced `rule
+# full tests_edited`: with scripts/old.sh in every case the floor is
+# class:executable's standard.
+edited_case loses-a-line "sed -i.bak '3d' tests/a_test.sh && rm -f tests/a_test.sh.bak" true standard
+edited_case changes-a-line "sed -i.bak 's/^5\$/five/' tests/a_test.sh && rm -f tests/a_test.sh.bak" true standard
+edited_case deleted 'git rm -q tests/a_test.sh' true standard
 edited_case gains-lines 'printf "11\n12\n" >> tests/a_test.sh' false standard
 edited_case new-test-file 'seq 1 5 > tests/b_test.sh' false standard
 edited_case no-test 'true' false standard
 [ "$(fact .rule)" = '"class:executable"' ] && pass "no test change: the executable rule sets the floor" \
     || fail "no test change: rule is $(fact .rule)"
-edited_case loses-a-line "sed -i.bak '3d' tests/a_test.sh && rm -f tests/a_test.sh.bak" true full
-[ "$(fact .rule)" = '"tests_edited"' ] && pass "an edited test: the rule is tests_edited" \
-    || fail "an edited test: rule is $(fact .rule)"
+edited_case loses-a-line "sed -i.bak '3d' tests/a_test.sh && rm -f tests/a_test.sh.bak" true standard
+[ "$(fact '"\(.rule) \(.red_test_edited)"' | tr -d '"')" = "class:executable false" ] \
+    && pass "an ordinary edited test: no full rule fires, red_test_edited is false" \
+    || fail "an ordinary edited test: $(fact '{rule, red_test_edited, rules_fired}')"
 
 # A fix's reproducing test, changed after its red, is edited even when it only
 # gained lines: the same classifier the hold uses reads the red's record.
@@ -600,11 +614,16 @@ jq -n --arg b "$RBLOB" '{red: {tests: [{path: "tests/r_test.sh", blob: $b}], har
 run facts "$SESSION" light
 [ "$(fact .tests_edited)" = false ] && pass "a reproducing test unchanged since the red is not edited" \
     || fail "tests_edited is $(fact .tests_edited) before any change after the red"
+[ "$(fact .red_test_edited)" = false ] && pass "  ... nor red_test_edited" \
+    || fail "red_test_edited is $(fact .red_test_edited) before any change after the red"
 commit after-red 'printf "4\n" >> tests/r_test.sh'
 run facts "$SESSION" light
 [ "$(fact '"\(.tests_edited) \(.floor)"' | tr -d '"')" = "true full" ] \
     && pass "a reproducing test that gained a line after the red is edited, floor full" \
     || fail "after the red: $(fact '{tests_edited, floor}')"
+[ "$(fact '"\(.red_test_edited) \(.rule)"' | tr -d '"')" = "true red_test_edited" ] \
+    && pass "  ... through red_test_edited, the rule that names it" \
+    || fail "after the red: $(fact '{red_test_edited, rule, rules_fired}')"
 
 # The same two gathers, at two heads, both stay in the history; the facts key
 # holds only the second.
@@ -616,26 +635,27 @@ HIST="$(store review_facts.jsonl)"
     && pass "the history's last line is the latest facts" \
     || fail "the last history line differs from review_facts.json"
 [ "$(sed -n 1p "$HIST" | jq -r .head)" != "$(sed -n 2p "$HIST" | jq -r .head)" ] \
-    && [ "$(sed -n 1p "$HIST" | jq -r '"\(.tests_edited) \(.floor)"')" = "false standard" ] \
+    && [ "$(sed -n 1p "$HIST" | jq -r '"\(.tests_edited) \(.floor)"')" = "false light" ] \
     && pass "the first gather keeps its own head and facts" \
     || fail "first history line: $(sed -n 1p "$HIST")"
 [ "$(sed -n 1p "$HIST" | jq -r '[has("lines"), has("files"), has("classes"), has("tests_changed"), has("tests_edited"), has("criteria_changed"), has("unclassified"), has("floor"), has("rules_fired"), has("head")] | all')" = true ] \
     && pass "each history line carries lines, files, classes, the test and criteria flags, floor, rules fired and head" \
     || fail "a history line lacks a field: $(sed -n 1p "$HIST")"
 
-# A rules copy stored before the tests_edited rule existed keeps its own floor:
-# the fact is recorded, but no rule in that copy fires on it.
+# A rules copy stored before red_test_edited replaced it keeps its own floor:
+# a run that started under `rule full tests_edited` (and no cap) still floors
+# an edited test at full, because facts reads the stored copy.
 fixture te-old-rules
 commit base-test 'mkdir -p tests && seq 1 10 > tests/a_test.sh'
 (cd "$FX/repo" && git rev-parse HEAD) > "$(store impl_base)"
 run init "$SESSION" "" ""
-grep -v '^rule	full	tests_edited$' "$(store review_level_rules.tsv)" > "$WORKDIR/old-rules.tsv"
+{ grep -v '^cap	\|^rule	full	red_test_edited$' "$(store review_level_rules.tsv)"; printf 'rule\tfull\ttests_edited\n'; } > "$WORKDIR/old-rules.tsv"
 cp "$WORKDIR/old-rules.tsv" "$(store review_level_rules.tsv)"
 commit edit "sed -i.bak '3d' tests/a_test.sh && rm -f tests/a_test.sh.bak"
 run facts "$SESSION" light
-[ "$(fact '"\(.tests_edited) \(.floor)"' | tr -d '"')" = "true standard" ] \
-    && pass "an older stored rules copy records tests_edited but floors by its own rules" \
-    || fail "with an older rules copy: $(fact '{tests_edited, floor}')"
+[ "$(fact '"\(.tests_edited) \(.floor) \(.rule)"' | tr -d '"')" = "true full tests_edited" ] \
+    && pass "an older stored rules copy with rule full tests_edited still floors an edited test at full" \
+    || fail "with an older rules copy: $(fact '{tests_edited, floor, rule}')"
 
 fixture facts-criteria-text
 run init "$SESSION" "" ""
@@ -696,12 +716,19 @@ floor_case requirements-dev 'printf "x\n" > requirements-dev.txt' standard false
 floor_case package-json 'mkdir -p web && printf "{}\n" > web/package.json' standard false
 floor_case go-sum 'printf "x\n" > go.sum' standard false
 floor_case cargo-lock 'printf "x\n" > Cargo.lock' standard false
-# tests
-floor_case test-dir 'mkdir -p test && printf "x\n" > test/a.js' standard false
-floor_case spec-dir 'mkdir -p spec && printf "x\n" > spec/a_spec.rb' standard false
-floor_case spec-file 'mkdir -p src && printf "x\n" > src/a.spec.ts' standard false
-floor_case test-prefix 'printf "x\n" > test_a.py' standard false
-floor_case test-suffix 'mkdir -p src && printf "x\n" > src/a_test.rs' standard false
+# tests: class:test floors at standard and the light cap lowers one small
+# test file to light, so each of these shows the path is in the test class
+# (an unclassified path would stay standard, a docs one would not need the cap)
+floor_case test-dir 'mkdir -p test && printf "x\n" > test/a.js' light false
+floor_case spec-dir 'mkdir -p spec && printf "x\n" > spec/a_spec.rb' light false
+floor_case spec-file 'mkdir -p src && printf "x\n" > src/a.spec.ts' light false
+floor_case test-prefix 'printf "x\n" > test_a.py' light false
+floor_case test-suffix 'mkdir -p src && printf "x\n" > src/a_test.rs' light false
+for f in test-dir spec-dir spec-file test-prefix test-suffix; do
+    SESSION="fl-$f"
+    [ "$(fact '.rules_fired | index("standard:class:test") != null')" = true ] \
+        && pass "floor $f: class:test fired before the cap lowered it" || fail "floor $f: $(fact '.rules_fired')"
+done
 # secrets join security
 floor_case env 'printf "x\n" > .env' full false
 floor_case env-local 'mkdir -p app && printf "x\n" > app/.env.local' full false
@@ -991,15 +1018,23 @@ threshold_case() {
     [ "$got" = "$3" ] && pass "threshold $1: floor $got" || fail "threshold $1: floor [$got], expected $3 ($(fact '{lines, files}'))"
 }
 threshold_case lines-40 'seq 1 40 > docs/new.md' light
-threshold_case lines-41 'seq 1 41 > docs/new.md' standard
+# Documentation past 40 lines floors at standard, and the cap lowers it to
+# light up to 200 lines.
+threshold_case lines-41 'seq 1 41 > docs/new.md' light
+threshold_case lines-200 'seq 1 200 > docs/new.md' light
+threshold_case lines-201 'seq 1 201 > docs/new.md' standard
 threshold_case lines-400 'seq 1 400 > docs/new.md' standard
 threshold_case lines-401 'seq 1 401 > docs/new.md' full
 threshold_case files-12 'for i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo x > docs/f$i.md; done' light
 threshold_case files-13 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13; do echo x > docs/f$i.md; done' full
 threshold_case standard-and-full 'mkdir -p .github/workflows a/koto-templates && echo x > .github/workflows/w.yml && echo x > a/koto-templates/t.md' full
 
+# A copy with no cap row, so the one threshold edited below is all that moves
+# the floor.
 fixture th-edited-copy
 run init "$SESSION" "" ""
+grep -v '^cap	' "$(store review_level_rules.tsv)" > "$WORKDIR/nocap.tsv"
+cp "$WORKDIR/nocap.tsv" "$(store review_level_rules.tsv)"
 commit twenty 'seq 1 20 > docs/new.md'
 run facts "$SESSION" light
 BEFORE=$(fact 'del(.floor, .rule, .rules_fired)')
@@ -1013,6 +1048,201 @@ FLOOR_AFTER=$(jq -r .floor "$(store review_facts.json)")
     && pass "editing one threshold in the rules copy changes the floor (light -> standard)" \
     || fail "floor went $FLOOR_BEFORE -> $FLOOR_AFTER"
 [ "$BEFORE" = "$AFTER" ] && pass "and no other fact changes" || fail "facts changed: $BEFORE -> $AFTER"
+
+echo "--- script: the light cap"
+
+# cap_case <name> <change> <expected floor> <expected cap applied>: a fixture
+# whose base holds tests/a_test.sh, then <change>. The cap lowers a standard
+# floor to light only for a small change to documentation and tests.
+cap_case() {
+    fixture "cap-$1"
+    commit base-test 'mkdir -p tests && seq 1 10 > tests/a_test.sh'
+    (cd "$FX/repo" && git rev-parse HEAD) > "$(store impl_base)"
+    run init "$SESSION" "" ""
+    commit "$1" "$2"
+    run facts "$SESSION" light
+    if [ "$RC" -ne 0 ]; then fail "cap $1: exit $RC ($ERR)"; return; fi
+    local got
+    got=$(fact '"\(.floor) \(.cap.applied)"' | tr -d '"')
+    [ "$got" = "$3 $4" ] && pass "cap $1: floor $3, cap applied $4" \
+        || fail "cap $1: got [$got], expected [$3 $4] ($(fact '{lines, files, classes, unclassified, unsized, rule, rules_fired}'))"
+}
+cap_case docs-and-test 'seq 1 20 > docs/new.md && seq 11 20 >> tests/a_test.sh' light true
+[ "$(fact '"\(.rule)|\(.rules_fired | join(","))"' | tr -d '"')" = "cap:lines<=200 files<=5 classes=docs,test|standard:class:test,light:cap:lines<=200 files<=5 classes=docs,test" ] \
+    && pass "  ... the rule names the cap, and class:test fired before it" || fail "  ... $(fact '{rule, rules_fired}')"
+[ "$(fact '.cap | "\(.level) \(.lines) \(.files) \(.classes | join(","))"' | tr -d '"')" = "light 200 5 docs,test" ] \
+    && pass "  ... the facts record the cap row" || fail "  ... cap is $(fact .cap)"
+# An ordinary edited test, with no red: tests_edited, and the cap still applies.
+cap_case edited-test "sed -i.bak '3d' tests/a_test.sh && rm -f tests/a_test.sh.bak" light true
+[ "$(fact .tests_edited)" = true ] && pass "  ... tests_edited is still recorded" || fail "  ... tests_edited is $(fact .tests_edited)"
+# 200 lines in 5 files is inside the cap; one more line or one more file isn't.
+cap_case at-the-bounds 'seq 1 160 > tests/b_test.sh && for i in 1 2 3 4; do seq 1 10 > tests/c${i}_test.sh; done' light true
+[ "$(fact '"\(.lines) \(.files)"' | tr -d '"')" = "200 5" ] && pass "  ... 200 lines in 5 files" \
+    || fail "  ... the at-the-bounds fixture measures $(fact '"\(.lines) \(.files)"')"
+cap_case lines-200 'seq 1 190 > tests/b_test.sh && seq 1 10 > docs/n.md' light true
+[ "$(fact '"\(.lines) \(.files)"' | tr -d '"')" = "200 2" ] && pass "  ... 200 lines" || fail "  ... measures $(fact '"\(.lines) \(.files)"')"
+cap_case lines-201 'seq 1 191 > tests/b_test.sh && seq 1 10 > docs/n.md' standard false
+cap_case files-5 'for i in 1 2 3 4 5; do printf "x\n" > tests/f${i}_test.sh; done' light true
+cap_case files-6 'for i in 1 2 3 4 5 6; do printf "x\n" > tests/f${i}_test.sh; done' standard false
+# It never lowers full, and a class it doesn't list keeps standard.
+cap_case with-ci 'seq 11 12 >> tests/a_test.sh && mkdir -p .github/workflows && printf "on: push\n" > .github/workflows/ci.yml' full false
+cap_case with-manifest 'seq 11 12 >> tests/a_test.sh && printf "{}\n" > package.json' standard false
+cap_case with-executable 'seq 11 12 >> tests/a_test.sh && printf "y\n" >> scripts/old.sh' standard false
+cap_case with-instruction 'seq 11 12 >> tests/a_test.sh && mkdir -p skills/x && printf "x\n" > skills/x/SKILL.md' standard false
+# Changed criteria or an unclassified path keeps standard.
+cap_case with-criteria 'seq 11 12 >> tests/a_test.sh && mkdir -p docs/plans && printf "x\n" > docs/plans/PLAN-x.md' standard false
+cap_case with-unclassified 'seq 11 12 >> tests/a_test.sh && printf "x\n" > tool.sh' standard false
+# A change with no meaningful line count is unclassified: each of these is a
+# documentation path that the cap would otherwise lower to light.
+cap_case binary 'printf "\000\001\002\003" > docs/img.bin' standard false
+cap_case rename 'git mv docs/other.md docs/moved.md' standard false
+cap_case mode-change 'chmod +x docs/other.md' standard false
+cap_case submodule 'git init -q docs/sub && git -C docs/sub commit -q --allow-empty -m sub && git update-index --add --cacheinfo "160000,$(git -C docs/sub rev-parse HEAD),docs/sub"' standard false
+for c in binary rename mode-change submodule; do
+    SESSION="cap-$c"
+    [ "$(fact '"\(.unclassified) \(.unsized) \(.classes | join(","))"' | tr -d '"')" = "true 1 docs" ] \
+        && pass "cap $c: unclassified, one unsized change, its path in docs" \
+        || fail "cap $c: $(fact '{unclassified, unsized, classes}')"
+done
+SESSION=cap-docs-and-test
+[ "$(fact '"\(.unclassified) \(.unsized)"' | tr -d '"')" = "false 0" ] \
+    && pass "a plain edit is sized: unclassified false, unsized 0" || fail "$(fact '{unclassified, unsized}')"
+# A rules copy with no cap row: nothing lowers, and the facts record no cap.
+fixture cap-none
+run init "$SESSION" "" ""
+grep -v '^cap	' "$(store review_level_rules.tsv)" > "$WORKDIR/nocap2.tsv"
+cp "$WORKDIR/nocap2.tsv" "$(store review_level_rules.tsv)"
+commit t 'mkdir -p tests && printf "x\n" > tests/a_test.sh'
+run facts "$SESSION" light
+[ "$(fact '"\(.floor) \(.cap)"' | tr -d '"')" = "standard null" ] \
+    && pass "a stored copy without a cap row floors a test change at standard" || fail "$(fact '{floor, cap}')"
+
+echo "--- script: the compatibility file is a manifest"
+
+# A template's compatibility file left the template class for manifest; the
+# scripts its digest covers are engine paths, so a change to them still floors
+# at full on its own.
+compat_case() {
+    fixture "compat-$1"
+    run init "$SESSION" "" ""
+    commit "$1" "$2"
+    run facts "$SESSION" light
+    if [ "$RC" -ne 0 ]; then fail "compat $1: exit $RC ($ERR)"; return; fi
+    local got
+    got=$(fact '"\(.floor) \(.rule) \(.classes | join(","))"' | tr -d '"')
+    [ "$got" = "$3" ] && pass "compat $1: $got" || fail "compat $1: got [$got], expected [$3]"
+}
+COMPAT=skills/coordinate/koto-templates/coordinate.compat.json
+compat_case alone "mkdir -p skills/coordinate/koto-templates && printf '{\"compat\": 2}\n' > $COMPAT" \
+    "standard class:manifest manifest"
+compat_case with-gate-libraries "mkdir -p skills/coordinate/koto-templates skills/coordinate/scripts \
+    && printf '{\"compat\": 2}\n' > $COMPAT \
+    && seq 1 15 > skills/coordinate/scripts/state-holding.sh \
+    && seq 1 14 > skills/coordinate/scripts/state-write-core.sh \
+    && seq 1 14 > skills/coordinate/scripts/state-common.sh" \
+    "full class:engine engine,executable,manifest"
+SESSION=compat-with-gate-libraries
+[ "$(fact '"\(.lines) \(.files)"' | tr -d '"')" = "44 4" ] && pass "  ... 44 lines in four files" \
+    || fail "  ... measures $(fact '"\(.lines) \(.files)"')"
+GOT=$("$SCRIPT" classify skills/work-on/koto-templates/work-on.md skills/x/koto-templates/x.decider.jsonl "$COMPAT" | cut -f2 | paste -sd'|' -)
+[ "$GOT" = "template,docs|template|manifest" ] && pass "the template and its decider fixtures stay template, the compatibility file is manifest" \
+    || fail "classes are [$GOT]"
+
+echo "--- script: a branch that edits the rules is judged by the stored copy"
+
+# The branch widens the cap and takes the rules file out of the security
+# class in its own copy; facts reads the copy init stored, so the edit floors
+# at full and the stored copy is untouched.
+fixture rules-widen
+run init "$SESSION" "" ""
+cp "$(store review_level_rules.tsv)" "$WORKDIR/stored-before.tsv"
+mkdir -p "$FX/repo/skills/work-on/references"
+sed -e 's/^cap	light	lines<=200	files<=5	classes=docs,test$/cap	light	lines<=2000	files<=50	classes=docs,test,executable,instruction,security/' \
+    -e '/^class	security	skills\/work-on\/references\/review-level-rules.tsv$/d' \
+    "$RULES" > "$FX/repo/skills/work-on/references/review-level-rules.tsv"
+grep -q 'lines<=2000' "$FX/repo/skills/work-on/references/review-level-rules.tsv" || fail "setup: the widened cap row was not written"
+commit widen 'true'
+run facts "$SESSION" light
+[ "$(fact '"\(.floor) \(.rule) \(.cap.lines)"' | tr -d '"')" = "full class:security 200" ] \
+    && pass "a branch widening the cap floors at full by the stored copy, whose cap is still 200 lines" \
+    || fail "rules-widen: $(fact '{floor, rule, cap}')"
+cmp -s "$WORKDIR/stored-before.tsv" "$(store review_level_rules.tsv)" && pass "  ... the stored copy is unchanged" \
+    || fail "  ... the stored copy changed"
+
+echo "--- script: raise"
+
+fixture raise
+run init "$SESSION" "" ""
+commit docs 'printf "x\n" >> docs/readme.md'
+run facts "$SESSION" "" --no-check-line
+run set-from-facts "$SESSION"
+[ "$(last_level)" = light ] && pass "raise: the facts set light" || fail "raise: level is [$(last_level)]"
+run raise "$SESSION" standard
+expect_rc "raise with no --reason" 64
+run raise "$SESSION" standard --reason "  "
+expect_rc "raise with a blank --reason" 64
+run raise "$SESSION" standard --reason escalate
+expect_rc "raise standard --reason escalate" 0
+[ "$(ledger | tail -n 1 | jq -c '{event, from, to, reason, source}')" = '{"event":"raise","from":"light","to":"standard","reason":"escalate","source":"raise"}' ] \
+    && pass "raise records a raise line with its reason and source raise" || fail "last line: $(ledger | tail -n 1)"
+agree "raise"
+run raise "$SESSION" light --reason again
+expect_rc "raise to a lower level" 0
+expect_out "  ... changes nothing" "unchanged: the level is standard"
+[ "$(last_level)" = standard ] && pass "  ... and the level stays standard" || fail "  ... level is [$(last_level)]"
+run facts "$SESSION" "" --no-check-line
+run set-from-facts "$SESSION"
+expect_rc "set-from-facts after a raise" 0
+[ "$(last_level) $(fact .floor | tr -d '"')" = "standard light" ] && pass "set-from-facts keeps the raise over a light facts floor" \
+    || fail "after set-from-facts: level [$(last_level)], floor $(fact .floor)"
+run set "$SESSION" light --reason "it looked small"
+expect_rc "set lower below a kept raise" 1
+expect_out "  ... refused, naming the raise" "below the level review-level.sh raise recorded, standard"
+# A hand-edited ledger whose last level line is a lower (a template from
+# before raise, say) still settles at the raise.
+printf '{"ts":"2026-01-01T00:00:00Z","event":"lower","from":"standard","to":"light","reason":"x"}\n' >> "$(store review_level.jsonl)"
+run set-from-facts "$SESSION"
+[ "$(ledger | jq -r 'select(.event == "from_facts") | "\(.to)|\(.source)"' | tail -n 1)" = "standard|raise" ] \
+    && pass "set-from-facts takes the kept raise over a lower ledger level, naming source raise" \
+    || fail "ledger: $(ledger | tail -n 3)"
+
+echo "--- script: audit"
+
+AUD="$WORKDIR/audit"
+mkdir -p "$AUD"
+RL_AUDIT_ONE() { "$SCRIPT" audit "$1" >/dev/null 2>&1; echo $?; }
+i=1
+: > "$AUD/first"
+while [ "$i" -le 1000 ]; do
+    printf 'issue_%s %s\n' "$i" "$(RL_AUDIT_ONE "issue_$i")" >> "$AUD/first"
+    i=$((i + 1))
+done
+N=$(awk '$2 == 0' "$AUD/first" | wc -l | tr -d ' ')
+OTHER=$(awk '$2 != 0 && $2 != 1' "$AUD/first" | wc -l | tr -d ' ')
+[ "$OTHER" = 0 ] && pass "audit answers 0 or 1 for every name" || fail "audit gave another exit for $OTHER names"
+[ "$N" -ge 80 ] && [ "$N" -le 120 ] && pass "audit selects $N of 1,000 generated names (8% to 12%)" \
+    || fail "audit selects $N of 1,000 names"
+# Stable: a second pass over a sample of the same names answers the same,
+# and every answer matches sha256(name) mod 10 computed independently.
+: > "$AUD/second"
+awk 'NR % 7 == 1 || $2 == 0 { print $1 }' "$AUD/first" | while IFS= read -r n; do
+    printf '%s %s\n' "$n" "$(RL_AUDIT_ONE "$n")"
+done > "$AUD/second"
+GOT=$(LC_ALL=C join <(LC_ALL=C sort "$AUD/first") <(LC_ALL=C sort "$AUD/second") | awk '$2 != $3' | wc -l | tr -d ' ')
+[ -s "$AUD/second" ] && [ "$GOT" = 0 ] && pass "a second evaluation gives every sampled name the same answer" \
+    || fail "$GOT names changed between evaluations"
+if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import hashlib
+for i in range(1, 1001):
+    n = "issue_%d" % i
+    print(n, 0 if int(hashlib.sha256(n.encode()).hexdigest(), 16) % 10 == 0 else 1)' > "$AUD/expected"
+    cmp -s "$AUD/first" "$AUD/expected" && pass "every answer is sha256(name) mod 10 == 0" \
+        || fail "audit differs from sha256 mod 10: $(diff "$AUD/first" "$AUD/expected" | head -n 4)"
+fi
+"$SCRIPT" audit 'bad name' >/dev/null 2>&1; RC=$?
+[ "$RC" = 64 ] && pass "audit refuses a name outside the session pattern" || fail "audit on a bad name exited $RC"
+"$SCRIPT" audit >/dev/null 2>&1; RC=$?
+[ "$RC" = 64 ] && pass "audit with no session is a usage error" || fail "audit with no session exited $RC"
 
 echo "--- script: facts ledger lines"
 
@@ -1120,18 +1350,19 @@ done
     && pass "slice states the order of the levels" || fail "slice is [$OUT]"
 [ "$(printf '%s\n' "$OUT" | tail -n 1)" = "level: light" ] && pass "slice ends with the level line" || fail "slice is [$OUT]"
 GOT=$(printf '%s\n' "$OUT" | sed -n 1p | jq -c 'keys')
-[ "$GOT" = '["classes","criteria_changed","files","floor","lines","tests_changed","tests_edited","unclassified"]' ] \
+[ "$GOT" = '["classes","criteria_changed","files","floor","lines","red_test_edited","tests_changed","tests_edited","unclassified"]' ] \
     && pass "slice's first line is the fixed projection" || fail "slice keys are $GOT"
 # The definitions the question judges against, from the shipped rules that
 # init stored: what the facts call for at full, standard and light, then the
 # floor.
-WANT_DEFS='the facts call for full when classes has ci, security, template or engine; or lines > 400; or files > 12; or tests_edited
+WANT_DEFS='the facts call for full when classes has ci, security, template or engine; or lines > 400; or files > 12; or red_test_edited
 the facts call for standard when classes has instruction, executable, test or manifest; or unclassified; or criteria_changed; or lines > 40
+the facts call for light instead of standard when nothing calls for full, criteria_changed and unclassified are false, lines <= 200, files <= 5 and every class is docs or test
 the facts call for light otherwise
 floor: the most thorough level the facts call for'
-[ "$(printf '%s\n' "$OUT" | sed -n 3,6p)" = "$WANT_DEFS" ] && pass "slice carries the level definitions" \
-    || fail "slice definitions are [$(printf '%s\n' "$OUT" | sed -n 3,6p)]"
-[ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 7 ] && pass "slice prints seven lines" || fail "slice printed [$OUT]"
+[ "$(printf '%s\n' "$OUT" | sed -n 3,7p)" = "$WANT_DEFS" ] && pass "slice carries the level definitions, the cap among them" \
+    || fail "slice definitions are [$(printf '%s\n' "$OUT" | sed -n 3,7p)]"
+[ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 8 ] && pass "slice prints eight lines" || fail "slice printed [$OUT]"
 # The definitions name no glob or path, and don't say what "too light" means:
 # the criterion's pass and fail texts carry that.
 for leak in '*' '/' koto-templates 'too light'; do
@@ -1149,7 +1380,7 @@ sed -e 's/^rule	full	lines>400$/rule	full	lines>300/' -e 's/^rule	standard	class
     "$RULES" > "$(store review_level_rules.tsv)"
 run slice "$SESSION" light
 expect_rc "slice with an edited stored copy" 0
-[ "$(printf '%s\n' "$OUT" | sed -n 3p)" = "the facts call for full when classes has ci, security, template, engine or manifest; or lines > 300; or files > 12; or tests_edited" ] \
+[ "$(printf '%s\n' "$OUT" | sed -n 3p)" = "the facts call for full when classes has ci, security, template, engine or manifest; or lines > 300; or files > 12; or red_test_edited" ] \
     && pass "slice renders the stored copy's rules" || fail "slice line 3 is [$(printf '%s\n' "$OUT" | sed -n 3p)]"
 printf 'rule\tfull\tbogus\n' > "$(store review_level_rules.tsv)"
 run slice "$SESSION" light
@@ -1184,7 +1415,7 @@ OUT=$("$SCRIPT" project "$WORKDIR/facts-copy.json" light 2>&1); RC=$?
 
 printf '%s' '{"lines":12,"files":3,"classes":["docs","executable"],"tests_changed":true,"criteria_changed":false,"unclassified":false,"floor":"standard"}' > "$WORKDIR/known.json"
 OUT=$("$SCRIPT" project "$WORKDIR/known.json" full 2>&1)
-KNOWN_HEAD='{"lines":12,"files":3,"classes":["docs","executable"],"tests_changed":true,"tests_edited":false,"criteria_changed":false,"unclassified":false,"floor":"standard"}
+KNOWN_HEAD='{"lines":12,"files":3,"classes":["docs","executable"],"tests_changed":true,"tests_edited":false,"red_test_edited":false,"criteria_changed":false,"unclassified":false,"floor":"standard"}
 levels: light < standard < full'
 WANT="$KNOWN_HEAD
 $WANT_DEFS

@@ -1,6 +1,7 @@
 # The Loop: Mechanics for Reconcile, Pick and Failure
 
-The rules for each step are in `skills/coordinate/SKILL.md`. This file holds
+The rules for each step are in the template state that runs it
+(`koto-templates/coordinate.md`). This file holds
 the mechanics three of them need when they run: the order of reads in a
 full reconcile, the issue-timeline read before dispatching an issue, and
 the shape of an escalation. Load it on the first turn after a start or
@@ -98,8 +99,8 @@ measured, verified by reading, or inferred:
    the target reads closed, and a teardown by two listing reads and the disk.
    Any other side effect is reported as not re-checked.
 6. **Read the deferrals.** List every row for the report, disposed or not,
-   through the record feature's disposal check; SKILL.md's record section says
-   when each must be disposed of.
+   through the record feature's disposal check; the template's
+   `deferral_dispose` state says when each must be disposed of.
 
 After the report is up, read the scope. For a roadmap, read its Features section from the
 default branch, its Milestones section on a roadmap/v3 one (each feature's or

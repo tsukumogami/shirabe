@@ -138,6 +138,11 @@
 #                                is closed, 1 printing one finding per unclosed
 #                                one, 2 when the round is not fully recorded or
 #                                the ledger can't be read.
+#   --escalated light <session>  the light_escalate gate on light_review. Exit
+#                                0 when the light seat's latest verdict (its
+#                                `light/reviewer` entry) returned escalate, 1
+#                                when it didn't or nothing is recorded, 2 when
+#                                the ledger can't be read.
 #   --open-count <panel> <session>
 #                                the number of findings --verdict would print,
 #                                on stdout, with no side effect; for
@@ -197,6 +202,7 @@
 #        panel-scope.sh --mark-fixed <panel> <koto-session-name> <id>...
 #        panel-scope.sh --promote <panel> <koto-session-name> <id> <reason>
 #        panel-scope.sh --due-items <koto-session-name>
+#        panel-scope.sh --escalated light <koto-session-name>
 #
 # <panel> is scrutiny, review, qa (the qa_validation state) or light (the
 # light_review state, the `light` review level's one seat).
@@ -208,7 +214,8 @@
 #   [{"seat": "completeness", "run": "<the run id its decision names>",
 #     "cited": [{"path": "src/a.sh", "lines": "10-24"}, {"path": "README.md"}],
 #     "findings": [{"severity": "blocking", "summary": "...",
-#                   "path": "src/a.sh", "lines": "12-12", "rule_id": "<optional>"}],
+#                   "path": "src/a.sh", "lines": "12-12", "rule_id": "<optional>",
+#                   "category": "<optional: security, correctness or other>"}],
 #     "answers": [{"id": "<finding id>", "record": "holds|reverified|dismissed",
 #                  "reason": "...", "path": "<optional new location>"}],
 #     "test_edits": [{"path": "tests/a_test.sh", "judgment": "corrects|weakens",
@@ -296,6 +303,17 @@
 # decider on its own finding; a dismissal only by the raising seat), fixed and
 # promoted (the agent's) and unverified (a decider's no-verdict) are open.
 #
+# The light seat's entry may carry `"escalate": true` (the seat judged the
+# change riskier than one seat should pass; phase-4d-light.md). --record keeps
+# it as the seat entry's `escalate` (false when absent), and marks the round's
+# history entry `escalate: true`; any other seat, or a value that isn't a
+# boolean, refuses the round. --escalated reads it.
+#
+# A finding's optional `category` (security, correctness or other; any other
+# value refuses the round) is kept on the finding when it is first raised.
+# The light-cap audit names a miss by it (review-round.sh audit, which this
+# script runs after every scrutiny, review or qa round it records).
+#
 # `cited` is what the seat judged: the paths and, where it can say, the line
 # ranges ("N" or "N-M", in HEAD's numbering) its verdict rests on. Findings'
 # locations are kept beside it, as `finding_locations`. Both carry forward from
@@ -380,16 +398,18 @@
 #          ledger to check. --verdict: every blocking finding is closed, or
 #          panel/open-finding is below the block stage.
 #          --open-count: the count is printed. --open-ids: the ids are
-#          printed, none when nothing is open.
+#          printed, none when nothing is open. --escalated: the light seat's
+#          latest verdict returned escalate.
 #   1   -- --carried: something has to run, a blocking finding is unclosed,
 #          the working tree is dirty, or the scope is missing, stale,
 #          unreadable or has no carried results beside it. --recorded: a
 #          planned run wasn't recorded, or the keys can't be read. --verdict:
-#          a blocking finding is unclosed. --carried and --recorded exit
+#          a blocking finding is unclosed. --escalated: it didn't, or no
+#          light round is recorded. --carried and --recorded exit
 #          nothing else: a gate exit the template does not route would hold
 #          the state, and the safe answer to every doubt is "run the panel" or
 #          "record the round".
-#   2   -- --verdict, --open-count and --open-ids, for every doubt they
+#   2   -- --verdict, --open-count, --open-ids and --escalated, for every doubt they
 #          have: a run the scope planned has no record, a seat of the panel
 #          has no verdict at all, the ledger is unreadable or has no
 #          `findings` key, the scope can't be read, panel/open-finding can't
@@ -464,15 +484,15 @@ refuse() {
     # $1 exit code for the other modes, $2 message
     case "$MODE" in
         --carried|--recorded) echo "panel-scope: $2" >&2; exit 1 ;;
-        --verdict|--open-count|--open-ids|--due-items) echo "panel-scope: $2" >&2; exit 2 ;;
+        --verdict|--open-count|--open-ids|--due-items|--escalated) echo "panel-scope: $2" >&2; exit 2 ;;
     esac
     die "$1" "$2"
 }
 
 case "$MODE" in
-    --plan|--carried|--recorded|--verdict|--open-count|--open-ids|--record|--mark-fixed|--promote|--due-items) ;;
-    "") die 67 "missing mode: expected --plan, --carried, --recorded, --verdict, --open-count, --open-ids, --record, --mark-fixed, --promote or --due-items" ;;
-    *)  die 67 "unrecognised mode [$MODE]: expected --plan, --carried, --recorded, --verdict, --open-count, --open-ids, --record, --mark-fixed, --promote or --due-items" ;;
+    --plan|--carried|--recorded|--verdict|--open-count|--open-ids|--record|--mark-fixed|--promote|--due-items|--escalated) ;;
+    "") die 67 "missing mode: expected --plan, --carried, --recorded, --verdict, --open-count, --open-ids, --record, --mark-fixed, --promote, --due-items or --escalated" ;;
+    *)  die 67 "unrecognised mode [$MODE]: expected --plan, --carried, --recorded, --verdict, --open-count, --open-ids, --record, --mark-fixed, --promote, --due-items or --escalated" ;;
 esac
 
 # seats_of <panel>: the panel's real seats, or nothing for a panel that isn't
@@ -588,6 +608,8 @@ def finding_problem($seat):
         "seat [\($seat)]: a finding has lines without a path, or malformed lines"
     elif (.rule_id // null) != null and ((.rule_id | type) != "string" or (.rule_id | test(rule_re) | not)) then
         "seat [\($seat)]: a finding has a malformed rule_id"
+    elif (.category // null) != null and (.category != "security" and .category != "correctness" and .category != "other") then
+        "seat [\($seat)]: a finding has a category that is not security, correctness or other"
     else empty end;
 def answer_problem($seat; $d; $l; $panel):
     . as $a
@@ -648,6 +670,34 @@ gate_ledger() {
     printf '%s' "$ledger" | jq -e 'type == "object" and ((.findings // null) | type) == "object"' >/dev/null \
         || refuse "$1" "$LEDGER is unreadable, or predates finding records: re-plan the panel as a full round"
 }
+
+# -------------------------------------------------------------- --escalated ---
+
+# light_review's light_escalate gate. Exit 0 when the light seat's latest
+# verdict (its `light/reviewer` entry, which every full light round rewrites
+# and a re-verifier round leaves alone) returned escalate, 1 when it didn't or
+# no light round is recorded, 2 when the ledger can't be read. The passed
+# routes need 1, so a run whose seat escalated can't leave at light: it holds
+# until review-level.sh raise lifts the ledger's level and the escalate route
+# takes it back to the level check.
+if [ "$MODE" = "--escalated" ]; then
+    [ "$PANEL" = light ] || refuse 2 "--escalated reads the light panel only, not [$PANEL]"
+    # Fail closed: only a ledger that doesn't exist reads as "no escalate". A
+    # koto read that fails holds the run (2) rather than opening the passed
+    # routes.
+    koto context exists "$SESSION" "$LEDGER"
+    rc=$?
+    case "$rc" in
+        0) ledger=$(koto context get "$SESSION" "$LEDGER") || refuse 2 "$LEDGER could not be read" ;;
+        1) exit 1 ;;
+        *) refuse 2 "koto context exists $LEDGER exited $rc" ;;
+    esac
+    [ -n "$ledger" ] || refuse 2 "$LEDGER is empty"
+    v=$(printf '%s' "$ledger" | jq -r 'if type == "object" then ((.seats // {})["light/reviewer"].escalate // false) | tostring else error("not an object") end') \
+        || refuse 2 "$LEDGER is unreadable"
+    [ "$v" = true ] && exit 0
+    exit 1
+fi
 
 # ---------------------------------------------------------------- --carried ---
 
@@ -1138,7 +1188,11 @@ if [ "$MODE" = "--record" ]; then
                     (if ($e.answers // []) | type != "array" then "seat [\($seat)]: answers is not an array"
                      elif ($e.answers // [] | length) > 50 then "seat [\($seat)]: more than 50 answers"
                      else ($e.answers // [])[] | answer_problem($seat; $d; $l; $panel) end),
-                    (if ($e.cited // []) | type != "array" then "seat [\($seat)]: cited is not an array" else empty end) )
+                    (if ($e.cited // []) | type != "array" then "seat [\($seat)]: cited is not an array" else empty end),
+                    (if ($e.escalate // null) == null then empty
+                     elif ($e.escalate | type) != "boolean" then "seat [\($seat)]: escalate is not true or false"
+                     elif $e.escalate and ($panel != "light" or $seat != "reviewer") then "seat [\($seat)]: only the reviewer of the light panel returns escalate"
+                     else empty end) )
               end ]
         + ( [ .[] | select(.run? != null) | .run ] | group_by(.) | map(select(length > 1) | "run [\(.[0])] appears twice in the round file") )
         | .[]' "$ROUND_FILE" 2>"$WORK/jq.err") || die 65 "could not read round file [$ROUND_FILE]: $(head -n 1 "$WORK/jq.err")"
@@ -1473,6 +1527,7 @@ if [ "$MODE" = "--record" ]; then
                    severity: $f.severity, round: $round, raiser: $raiser, run: $run,
                    location: loc($f), summary: $f.summary, records: []}
                   + (if ($f.rule_id // "") != "" then {rule_id: $f.rule_id} else {} end)
+                  + (if ($f.category // "") != "" then {category: $f.category} else {} end)
                 else
                   $old
                   | .severity = (if .severity == "blocking" or $f.severity == "blocking" then "blocking" else "advisory" end)
@@ -1530,6 +1585,7 @@ if [ "$MODE" = "--record" ]; then
                     | .seats[$k] = ((.seats[$k] // {}) + {
                         panel: $panel, seat: $seat, judged_at: $head, rev: .rev, ac_sha: $ac,
                         test_edits: [($e.test_edits // [])[] | {path, judgment}],
+                        escalate: ($e.escalate == true),
                         cited: ($old_cited + (($e.cited // []) | norm) | unique),
                         finding_locations: ($old_locs
                             + ([($e.findings // [])[] | select(.path) | {path, lines}] | norm) | unique)})
@@ -1542,8 +1598,24 @@ if [ "$MODE" = "--record" ]; then
         | if $h != null and $h.value.head == $head then
             .history[$h.key].runs = (((.history[$h.key].runs // []) + [$E[] | select(.seat? != null) | .run]) | unique)
             | .history[$h.key].spawned = (.history[$h.key].runs | length)
+            | if any($E[]; .escalate? == true) then .history[$h.key].escalate = true else . end
           else . end' > "$WORK/ledger" || die 65 "could not merge [$ROUND_FILE] into the ledger"
     store_ledger "$WORK/ledger"
+    # The light-cap audit's outcome. On an audited light run the full panels
+    # run after the light seat passed, and their verdicts land here, so this
+    # is where review-round.sh audit reads them and records miss or no-miss
+    # as a koto decision (its header has the rule). Any other run is answered
+    # from the session name's hash alone, with no koto call. Best effort: the
+    # round is recorded either way, and a failure is one notice on stderr.
+    case "$PANEL" in
+        scrutiny|review|qa)
+            AUDIT_RR="$PLUGIN_ROOT_PS/skills/coordinate/scripts/review-round.sh"
+            if [ -f "$AUDIT_RR" ]; then
+                bash "$AUDIT_RR" audit --session "$SESSION" --panel "$PANEL" >/dev/null \
+                    || echo "panel-scope: the round is recorded, but review-round.sh audit couldn't record the light audit's outcome" >&2
+            fi
+            ;;
+    esac
     exit 0
 fi
 

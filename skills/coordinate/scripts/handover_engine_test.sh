@@ -23,7 +23,11 @@
 #      session name; from 0.32.0 B's opener, as a Claude session, prints
 #      imported= and takes the copy over (outcome=continued, predecessor= the
 #      copy, session= a new run, no resumed=, state= or tick=), its stderr
-#      only the note that the coordinator row keeps A's address. Either way
+#      only the note that the coordinator row keeps A's address and the
+#      guidance blocks, each once: the import's and the imported legs' before
+#      that note, and the takeover's, whose watch line names the new run.
+#      Before 0.32.0 stderr holds only guidance, the import's block among it,
+#      and on both stdout holds only key=value lines. Either way
 #      the imported copy keeps A's stamp and every record/ and legs/ key on B
 #      is the same as on A. Before 0.32.0 the copy's record/host keeps A's
 #      host facts and adds the source workspace, session and template hash;
@@ -158,6 +162,21 @@ ckeys() {
 }
 # outline <output> <name>...: the named lines of an opener's output, in its order, on one line.
 outline() { local o=$1 n; shift; for n in "$@"; do grep "^$n=" <<< "$o"; done | tr '\n' ' ' | sed 's/ $//'; }
+# guided <label> <text> [unordered]: the opener's last run printed a guidance
+# block (the `coordinate-open guide: ` lines of $T/open.err) with <text> on
+# exactly one line, that line before the last `coordinate-open: ` line when
+# there is one (unless the third argument says the block may follow it), and
+# nothing on stdout ($OUT) but key=value lines.
+guided() {
+    local n g m odd
+    n=$(grep '^coordinate-open guide: ' "$T/open.err" | grep -cF -- "$2")
+    g=$(grep -nF -- "$2" "$T/open.err" | grep '^[0-9]*:coordinate-open guide: ' | tail -1 | cut -d: -f1)
+    m=$(grep -n '^coordinate-open: ' "$T/open.err" | tail -1 | cut -d: -f1)
+    if [ "$n" = 1 ] && [ -n "$g" ] && { [ -n "${3:-}" ] || [ -z "$m" ] || [ "$g" -lt "$m" ]; }; then ok "$1"
+    else bad "$1" "$(cat "$T/open.err")"; fi
+    odd=$(printf '%s\n' "$OUT" | grep -v '^$' | grep -vE '^[a-z][a-z_-]*=')
+    eq "$1, stdout holding only key=value lines" "" "$odd"
+}
 
 # On koto 0.32.0 and later an import is taken over: the opener fences the
 # imported copy and opens a new run that carries its record and legs,
@@ -246,13 +265,24 @@ if [ -n "$TAKEOVER" ]; then
     eq "  ... with no resumed=, state= or tick= line (the new run opens at the template's first state)" "" "$(grep -E '^(resumed|state|tick)=' <<< "$OUT")"
     # B's session has no name the opener can read, so the new run's
     # coordinator row keeps A's address, and the opener says so.
-    eq "  ... with nothing on stderr but that the coordinator row keeps A's address" "" \
-        "$(grep -v "coordinator row still names the predecessor's" "$T/open.err")"
+    eq "  ... with nothing on stderr but that the coordinator row keeps A's address and the guidance" "" \
+        "$(grep -v "coordinator row still names the predecessor's" "$T/open.err" | grep -v '^coordinate-open guide: ')"
+    # The blocks this start is keyed to: the import's (--import), the legs'
+    # (imported=) and the takeover's (outcome=continued), whose watch line
+    # names the new run. That note is written while the takeover finishes,
+    # before its result lines, so it is no refusal the takeover's block has
+    # to come before.
+    guided "  ... the import's guidance block" "An import moves a run another host started here."
+    guided "  ... the imported legs' block" "An import brings every worker's leg (legs/<request>/<leg>) but not its request"
+    guided "  ... and the takeover's, its watch line naming the new run" \
+        "start one background \`koto request watch --session $SUCC --timeout-secs 7200\`" unordered
 else
     OUT=$(host_on b bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
     eq "the import succeeds" 0 $?
     eq "  ... printing imported, resumed, the session and its state (at reconcile, no tick)" "imported=$S resumed=1 session=$S state=reconcile" "$(printf '%s' "$OUT" | tr '\n' ' ' | sed 's/ $//')"
-    [ -s "$T/open.err" ] && bad "  ... with nothing on stderr" "$(cat "$T/open.err")" || ok "  ... with nothing on stderr"
+    grep -qv '^coordinate-open guide: ' "$T/open.err" && bad "  ... with nothing on stderr but the guidance" "$(cat "$T/open.err")" \
+        || ok "  ... with nothing on stderr but the guidance"
+    guided "  ... the import's guidance block" "An import moves a run another host started here."
 fi
 eq "the run keeps A's stamp" "$S" "$(host_on b koto session list | jq -r --arg s "$S" '.[] | select(.id == $s) | .id')"
 eq "every record/ and legs/ key is the same on B" "$SNAP" "$(keys b)"
