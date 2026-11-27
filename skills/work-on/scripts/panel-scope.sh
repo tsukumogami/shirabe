@@ -193,7 +193,8 @@
 #   [{"seat": "completeness", "run": "<the run id its decision names>",
 #     "cited": [{"path": "src/a.sh", "lines": "10-24"}, {"path": "README.md"}],
 #     "findings": [{"severity": "blocking", "summary": "...",
-#                   "path": "src/a.sh", "lines": "12-12", "rule_id": "<optional>"}],
+#                   "path": "src/a.sh", "lines": "12-12", "rule_id": "<optional>",
+#                   "category": "<optional: security, correctness or other>"}],
 #     "answers": [{"id": "<finding id>", "record": "holds|reverified|dismissed",
 #                  "reason": "...", "path": "<optional new location>"}],
 #     "test_edits": [{"path": "tests/a_test.sh", "judgment": "corrects|weakens",
@@ -252,6 +253,11 @@
 # writer was allowed to write them (a reviewer; a check on a check's finding; a
 # decider on its own finding; a dismissal only by the raising seat), fixed and
 # promoted (the agent's) and unverified (a decider's no-verdict) are open.
+#
+# A finding's optional `category` (security, correctness or other; any other
+# value refuses the round) is kept on the finding when it is first raised.
+# The light-cap audit names a miss by it (review-round.sh audit, which this
+# script runs after every scrutiny, review or qa round it records).
 #
 # `cited` is what the seat judged: the paths and, where it can say, the line
 # ranges ("N" or "N-M", in HEAD's numbering) its verdict rests on. Findings'
@@ -535,6 +541,8 @@ def finding_problem($seat):
         "seat [\($seat)]: a finding has lines without a path, or malformed lines"
     elif (.rule_id // null) != null and ((.rule_id | type) != "string" or (.rule_id | test(rule_re) | not)) then
         "seat [\($seat)]: a finding has a malformed rule_id"
+    elif (.category // null) != null and (.category != "security" and .category != "correctness" and .category != "other") then
+        "seat [\($seat)]: a finding has a category that is not security, correctness or other"
     else empty end;
 def answer_problem($seat; $d; $l; $panel):
     . as $a
@@ -1191,6 +1199,7 @@ if [ "$MODE" = "--record" ]; then
                    severity: $f.severity, round: $round, raiser: $raiser, run: $run,
                    location: loc($f), summary: $f.summary, records: []}
                   + (if ($f.rule_id // "") != "" then {rule_id: $f.rule_id} else {} end)
+                  + (if ($f.category // "") != "" then {category: $f.category} else {} end)
                 else
                   $old
                   | .severity = (if .severity == "blocking" or $f.severity == "blocking" then "blocking" else "advisory" end)
@@ -1260,6 +1269,21 @@ if [ "$MODE" = "--record" ]; then
             | .history[$h.key].spawned = (.history[$h.key].runs | length)
           else . end' > "$WORK/ledger" || die 65 "could not merge [$ROUND_FILE] into the ledger"
     store_ledger "$WORK/ledger"
+    # The light-cap audit's outcome. On an audited light run the full panels
+    # run after the light seat passed, and their verdicts land here, so this
+    # is where review-round.sh audit reads them and records miss or no-miss
+    # as a koto decision (its header has the rule). Any other run is answered
+    # from the session name's hash alone, with no koto call. Best effort: the
+    # round is recorded either way, and a failure is one notice on stderr.
+    case "$PANEL" in
+        scrutiny|review|qa)
+            AUDIT_RR="$PLUGIN_ROOT_PS/skills/coordinate/scripts/review-round.sh"
+            if [ -f "$AUDIT_RR" ]; then
+                bash "$AUDIT_RR" audit --session "$SESSION" --panel "$PANEL" >/dev/null \
+                    || echo "panel-scope: the round is recorded, but review-round.sh audit couldn't record the light audit's outcome" >&2
+            fi
+            ;;
+    esac
     exit 0
 fi
 

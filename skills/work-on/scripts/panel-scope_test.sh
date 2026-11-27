@@ -1115,8 +1115,16 @@ expect_rc "--record with one good finding and one null severity" 65
 printf '%s\n' '[{"seat":"intent","findings":"blocking"}]' > "$WORKDIR/round.json"
 run --record scrutiny "$SESSION" "$WORKDIR/round.json"
 expect_rc "--record with findings that are not a list" 65
+printf '%s\n' '[{"seat":"intent","findings":[{"severity":"blocking","summary":"x","category":"style"}]}]' > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+expect_rc "--record with a category other than security, correctness or other" 65
 cmp -s "$WORKDIR/ledger.before" "$SHIM_STORE/$SESSION/verdict_ledger.json" \
     && pass "a refused round leaves the ledger untouched" || fail "a refused round changed the ledger"
+# A finding's category, which the light-cap audit names a miss by, is kept.
+fixture category
+record scrutiny '[{"seat":"intent","findings":[{"severity":"blocking","summary":"categorized","category":"security"}]}]'
+GOT=$(jq -r '[.findings[] | select(.summary == "categorized") | .category] | join(",")' "$SHIM_STORE/$SESSION/verdict_ledger.json")
+[ "$GOT" = security ] && pass "--record keeps a finding's category" || fail "the categorized finding's category is [$GOT]"
 
 echo "--- script: --verdict, the panel's pass"
 
