@@ -26,8 +26,9 @@
 # row. The rendered entry must be at most the row at the merge base of HEAD
 # with the default branch (origin/$GITHUB_BASE_REF in a pull request's CI
 # run, else origin/HEAD's target, else origin/main), and at most the row in
-# this tree; the tree's row may not exceed the base's; and neither row may
-# exceed CAP. So a change can lower its own ceiling but not raise it. Where
+# this tree; the tree's row may not exceed the base's unless CAP rises with
+# it; and neither row may exceed CAP. So a change can lower its own ceiling,
+# and raises it only as the next paragraph says. Where
 # the merge base has no ceiling file the tree's row judges, under CAP. Where
 # no merge base can be read the tree's row judges too, and the suite says so,
 # except in a pull request's CI run, where a missing base fails.
@@ -48,6 +49,8 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../../.." && pwd)
 command -v git >/dev/null 2>&1 || { echo "SKIP: git not on PATH"; exit 0; }
+# cap_of reads this line at the merge base as a bare CAP=<digits>: put any
+# note about a raise on a line above it, never after the number.
 CAP=8400
 STAND=/Users/someone/.claude/plugins/cache/shirabe/shirabe/0.000.000
 PASS=0 FAIL=0

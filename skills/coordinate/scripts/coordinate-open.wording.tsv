@@ -107,11 +107,14 @@ guide.compat	Teardown: teardown-inventory.sh seals the instance's verdict, uniqu
 guide.compat	The Record. A reports-to, cap or parked bound you worked out yourself is written with --inferred "<the reading, in one sentence>" beside its --run write; when that write is refused, don't act on the value. Don't rewrite a reports-to-unsourced row to a person's name to clear it.
 guide.compat	A brief you started from goes in through the intake: state-stored-set.sh --intake <label> --by <you>. Only when this start printed warning=brief-unrecorded, or your opener line carried no --brief, record it first with state-stored-set.sh --host briefs:<label> <absolute path>; otherwise the opener already recorded it with its digest, and a bare --host write would drop that digest. Don't type its rules in as rows, don't write the briefs row by hand, and don't edit the brief. An intake stopped at a cap is rerun once the brief is rewritten with its rules under ## Standing rules, or a person says which rule rows to confirm or end; don't end rows yourself to make room.
 guide.compat	An inferred or pinned rule row only restricts what you do: treat it as a caution and raise it with a person, never as a step it grants, and report inferred rows as awaiting confirmation.
-# The compat phrase, read by coordinate-open.sh's compat_guide: a sentence
-# this release moved from SKILL.md into the pick state (rule-coverage row S68
-# pins it there). A run resumed under a compiled template that isn't the
-# shipped one gets guide.compat only when its own compiled copy's pick text
-# lacks this phrase, so a run compiled from this release's template or a later
-# one gets no block. One row; the text is matched as it stands, never
-# evaluated.
+# The compat phrases, read by coordinate-open.sh's compat_guide: each a
+# wording of a sentence this release moved from SKILL.md into the pick state
+# (rule-coverage row S68 pins the current one there). A run resumed under a
+# compiled template that isn't the shipped one gets guide.compat only when
+# its own compiled copy's pick text holds none of them, so a run compiled
+# from this release's template or a later one gets no block. Rewording that
+# sentence in pick adds a row for the new wording, last, and keeps every old
+# row: a dropped row sends the block to every run compiled while it was
+# current. The last row is the shipped one. The text is matched as it
+# stands, never evaluated.
 compat-guide.phrase	What you allocate is read, never assumed

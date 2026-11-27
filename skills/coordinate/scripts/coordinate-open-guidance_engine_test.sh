@@ -38,8 +38,9 @@
 # as the sha256 of its contents. Text a record holds, instruction-like
 # included, never reaches stderr on a resume or in a refusal's block.
 #
-# The older-compat continuation: the wording table's compat-guide.phrase row
-# is found in the shipped coordinate.md and in its compiled pick text. A run
+# The older-compat continuation: the wording table's last compat-guide.phrase
+# row is found in the shipped coordinate.md and in its compiled pick text
+# (older rows stay, for runs compiled while they were current). A run
 # compiled from the shipped template with that phrase taken out of pick, then
 # resumed under the shipped template, prints the compat block naming the run;
 # a run compiled from the shipped template plus one unrelated text line (the
@@ -295,14 +296,16 @@ rm -f "$T/repo/CLAUDE.md"
 koto cancel "$RC1" > /dev/null 2>&1
 
 echo "== the older-compat continuation =="
-# The phrase compat_guide looks for is the shipped template's: in
-# coordinate.md, and in its compiled pick text, so a run compiled from it
-# gets no block.
+# The phrases compat_guide looks for: any row counts, and the last row is
+# the shipped template's, in coordinate.md and in its compiled pick text, so
+# a run compiled from it gets no block. Older rows stay for runs compiled
+# while they were current.
 SHIP_TPL="$REPO_ROOT/skills/coordinate/koto-templates/coordinate.md"
-PHRASE=$(awk -F'\t' '$1 == "compat-guide.phrase" { print $2 }' "$WORDING")
-eq "the wording table holds one compat-guide.phrase row" 1 "$(awk -F'\t' '$1 == "compat-guide.phrase"' "$WORDING" | grep -c .)"
-if [ -n "$PHRASE" ] && grep -qF -- "$PHRASE" "$SHIP_TPL"; then pass "  ... its phrase found in the shipped coordinate.md"
-else fail "  ... its phrase found in the shipped coordinate.md" "[$PHRASE]"; fi
+PHRASE=$(awk -F'\t' '$1 == "compat-guide.phrase" { p = $2 } END { print p }' "$WORDING")
+if [ -n "$PHRASE" ]; then pass "the wording table holds a compat-guide.phrase row"
+else fail "the wording table holds a compat-guide.phrase row" "none"; fi
+if [ -n "$PHRASE" ] && grep -qF -- "$PHRASE" "$SHIP_TPL"; then pass "  ... its last phrase found in the shipped coordinate.md"
+else fail "  ... its last phrase found in the shipped coordinate.md" "[$PHRASE]"; fi
 eq "  ... and in the compiled shipped template's pick text" true \
     "$(jq -r --arg p "$PHRASE" '((.states.pick.directive // "") + "\n" + (.states.pick.details // "")) | contains($p)' "$(koto template compile "$SHIP_TPL" 2>/dev/null)" 2>/dev/null)"
 # A second plugin root: links to the repository, but its own koto-templates

@@ -324,8 +324,8 @@
 #                        refused=brief, warning=brief-unrecorded
 #   compat               session= of a resume whose compiled template isn't
 #                        the shipped one and whose own compiled copy's pick
-#                        text lacks the table's compat-guide.phrase
-#                        (compat_guide, below)
+#                        text holds none of the table's
+#                        compat-guide.phrase rows (compat_guide, below)
 #
 # The role. Every start that knows the run's role prints role=<manager|director>
 # with its result lines, and role_changed_from=<old> for an accepted change
@@ -751,26 +751,30 @@ compat_line() { bash "$HERE/coord-log.sh" compat --session "$1" 2>/dev/null; }
 # before the rules SKILL.md held moved into the states. The run's own
 # compiled copy says which: the template_path its log's workflow_initialized
 # event records, read as coord-log.sh's run_copy reads it. When that copy's
-# pick text (its directive and details together) lacks the wording table's
-# compat-guide.phrase, a sentence this release moved into pick (rule-coverage
-# row S68 pins it there), its directives don't hold the moved rules, and
-# guide compat prints them once. A run compiled from this release's template
-# or a later one keeps the phrase and gets no block, whatever else changed in
-# its text. A copy that can't be read, a pick that doesn't read as text, or a
-# table without the phrase prints nothing. A takeover or a carry opens the new
+# pick text (its directive and details together) holds none of the wording
+# table's compat-guide.phrase rows, each a wording that a sentence this
+# release moved into pick has had (rule-coverage row S68 pins the current one
+# there), its directives don't hold the moved rules, and guide compat prints
+# them once. A run compiled from this release's template or a later one holds
+# one of them and gets no block, whatever else changed in its text. Rewording
+# that sentence adds a row and keeps the old ones: dropping an old row sends
+# the block to every run compiled while it was current. A copy that can't be
+# read, a pick that doesn't read as text, or a table without a phrase prints
+# nothing. A takeover or a carry opens the new
 # run from the shipped template, so neither asks.
 compat_guide() {
     local hash phrase runlog copy has
     hash=$(bash "$HERE/coord-log.sh" template-hash --session "$1" 2> /dev/null) || return 0
     [[ $hash =~ ^[0-9a-f]{64}$ ]] && [ "$hash" != "${SHIPPED:-}" ] || return 0
-    phrase=$(awk -F'\t' '$1 == "compat-guide.phrase" { print $2; exit }' "$WORDING")
+    phrase=$(awk -F'\t' '$1 == "compat-guide.phrase" && $2 != "" { print $2 }' "$WORDING")
     [ -n "$phrase" ] || return 0
     runlog="$("$KOTO" session dir "$1" < /dev/null 2> /dev/null)/koto-$1.state.jsonl"
     copy=$(jq -r 'select(.type == "workflow_initialized") | .payload.template_path // empty' "$runlog" 2> /dev/null | head -1)
     [ -n "$copy" ] && [ -r "$copy" ] || return 0
     has=$(jq -r --arg p "$phrase" '.states.pick
         | if type == "object" and ((.directive // "") | type == "string") and ((.details // "") | type == "string")
-          then ((.directive // "") + "\n" + (.details // "")) | contains($p) else "unread" end' "$copy" 2> /dev/null)
+          then ((.directive // "") + "\n" + (.details // "")) as $t | any($p | split("\n")[]; . as $q | $t | contains($q))
+          else "unread" end' "$copy" 2> /dev/null)
     [ "$has" = false ] || return 0
     guide compat "$1"
 }
