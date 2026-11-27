@@ -2433,8 +2433,11 @@ fi
 # scope from coord-log.sh run-facts and vars (a stand-in here, through
 # DC_COORD_LOG), its role from the record's Run role row, and it writes the
 # Run successor row around the launch. Its own stand-in for the stored set's
-# script (SUCC_ROW, a Run successor row its --list prints) logs each
-# --successor write.
+# script holds the Run successor row in $ST/succ_row (seeded from SUCC_ROW),
+# which its --list prints and each --successor write moves as the real
+# writer's transitions allow (65 otherwise), and it logs every write.
+# SUCC_WRITE_RC fails the writes, or with SUCC_WRITE_ON only the writes of
+# that status. The coord-log stand-in answers fence with CL_FENCE_BY.
 if section "" "--successor: the run's own successor"; then
 cat >"$T/coord-log-succ.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -2442,16 +2445,33 @@ case "$1" in
     run-facts) [ "${CL_FACTS_RC:-0}" = 0 ] || exit "$CL_FACTS_RC"
                printf '{"scope":"%s","name":"%s","repo":"%s"}\n' "${CL_SCOPE:-roadmap}" "${CL_NAME-plugin-system}" "${CL_REPO-acme/widgets}" ;;
     vars) printf '{"SCOPE":"%s","ROADMAP":"%s","HOST_REPO":"acme/widgets"}\n' "${CL_SCOPE:-roadmap}" "${CL_ROADMAP-docs/roadmaps/ROADMAP-plugin-system.md}" ;;
+    fence) printf 'coord-log %s\n' "$*" >>"$ST/calls.log"
+           [ -n "${CL_FENCE_BY:-}" ] || exit 1
+           printf '{"by":"%s","by_session_id":"","claude_session":""}\n' "$CL_FENCE_BY" ;;
     *) exit 64 ;;
 esac
 EOF
 cat >"$T/state-stored-set-succ.sh" <<'EOF'
 #!/usr/bin/env bash
+cur=${SUCC_ROW:-}
+[ ! -f "$ST/succ_row" ] || cur=$(cat "$ST/succ_row")
 if [ "${1-}" != --list ]; then
     printf 'state-stored-set %s\n' "$*" >>"$ST/calls.log"
-    exit "${SUCC_WRITE_RC:-0}"
+    # --session S --successor <status> <topic> --by RUN
+    st=$4 tp=$5 os=${cur%% *} ot=${cur#* }; ot=${ot%% *}
+    if [ -n "${SUCC_WRITE_RC:-}" ] && [ "$SUCC_WRITE_RC" != 0 ] && { [ -z "${SUCC_WRITE_ON:-}" ] || [ "$SUCC_WRITE_ON" = "$st" ]; }; then
+        exit "$SUCC_WRITE_RC"
+    fi
+    case "$st" in
+        dispatching) [ -z "$cur" ] || { case "$os" in dispatch-failed|stranded) [ "$ot" != "$tp" ] ;; *) false ;; esac; } ;;
+        dispatched|dispatch-failed) [ "$os:$ot" = "dispatching:$tp" ] ;;
+        stranded) [ "$os:$ot" = "dispatched:$tp" ] ;;
+        *) false ;;
+    esac || { echo "state-stored-set: refused: the successor row reads ${cur:-nothing}" >&2; exit 65; }
+    printf '%s %s %s\n' "$st" "$tp" "$(date -u +%Y-%m-%d)" >"$ST/succ_row"
+    exit 0
 fi
-jq -nc --arg r "${RECORD_ROLE:-}" --arg s "${SUCC_ROW:-}" '{run: ([{key: "coordinator", value: "lane-coord", set_by: "lane-coord", set: "2026-09-26T08:00Z"}]
+jq -nc --arg r "${RECORD_ROLE:-}" --arg s "$cur" '{run: ([{key: "coordinator", value: "lane-coord", set_by: "lane-coord", set: "2026-09-26T08:00Z"}]
     + (if $r == "" then [] else [{key: "role", value: $r, set_by: "the human", set: "2026-09-26T08:00Z"}] end)
     + (if $s == "" then [] else [{key: "successor", value: $s, set_by: "coord", set: "2026-09-26T08:00Z"}] end)), standing: [], work: []}'
 EOF
@@ -2471,7 +2491,7 @@ sreset() {
     rm -f "$ST/ctx/brief_input.json" "$ST/ctx/dispatch_topic" "$ST/ctx/coord/pick.json"
     printf '%s' "${1:-$SUCC_INPUT}" >"$ST/ctx/successor_input.json"
     export NIWA_NAME=$SUCC_S RECORD_ROLE=manager
-    unset CL_FACTS_RC CL_SCOPE CL_ROADMAP CL_NAME CL_REPO SUCC_ROW SUCC_WRITE_RC
+    unset CL_FACTS_RC CL_SCOPE CL_ROADMAP CL_NAME CL_REPO CL_FENCE_BY SUCC_ROW SUCC_WRITE_RC SUCC_WRITE_ON
 }
 srun() { (cd "$W/inst" && DC_COORD_LOG="$T/coord-log-succ.sh" DC_RECORD_STATE="$T/state-stored-set-succ.sh" bash "$S" --session coord --successor "$@"); }
 nothing_written() { # nothing_written <label>: no row write, launch, leg or brief
@@ -2646,6 +2666,97 @@ sreset
 mkdir -p "$W/.niwa/dispatch-briefs"; printf '%s\n' "$$" >"$W/.niwa/dispatch-briefs/.successor.coord.lock"
 srun >/dev/null 2>"$T/err"; eq "successor: another run holding the run's lock exits 7" 7 "$?"
 rm -f "$W/.niwa/dispatch-briefs/.successor.coord.lock"
+# --- one pending successor at a time: the settle, exit 12, the same-topic re-run
+#
+# The row is settled against niwa's listing first (dc_successor_settle): a
+# listed dispatching row becomes dispatched, an unlisted dispatched one
+# stranded. Then a dispatching or dispatched row under another topic exits
+# 12, and a re-run with the row's own topic confirms or re-launches it.
+SDAY=$(date -u +%Y-%m-%d)
+S2_INPUT=$(jq -c '.topic = "plugin-system-successor-2"' <<<"$SUCC_INPUT")
+S2_S=plugin_system_successor_2-""5e6f7a8b
+S2_BRIEF="$W/.niwa/dispatch-briefs/plugin-system-successor-2.md"
+succ_row() { cat "$ST/succ_row" 2>/dev/null || printf '%s\n' "${SUCC_ROW:-}"; }
+list_s1() { printf '[{"name":"x","path":"/p","session_name":"%s"}]\n' "$SUCC_S" >"$ST/sessions.json"; }
+# s2reset <row>: a dispatch naming plugin-system-successor-2 over that row.
+s2reset() { sreset "$S2_INPUT"; export SUCC_ROW="$1" NIWA_NAME=$S2_S; }
+s2_nothing() { # s2_nothing <label>: no write, launch or brief for topic 2
+    eq "$1: nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|request create|--successor' "$ST/calls.log")"
+    if [ -e "$S2_BRIEF" ]; then bad "$1: no brief" "$S2_BRIEF"; else ok "$1: no brief"; fi
+}
+
+# A dispatched row whose session is listed: another topic exits 12.
+s2reset "dispatched plugin-system-successor-1 2026-09-26"; list_s1
+srun >/dev/null 2>"$T/err"; eq "pending: a listed dispatched row refuses another topic with exit 12" 12 "$?"
+has "pending: ... naming its status" "$(cat "$T/err")" "dispatched plugin-system-successor-1"
+eq  "pending: ... the row as before" "dispatched plugin-system-successor-1 2026-09-26" "$(succ_row)"
+s2_nothing "pending: a listed dispatched row"
+# A dispatching row nothing lists: exit 12, saying to run again with its topic.
+s2reset "dispatching plugin-system-successor-1 2026-09-26"
+srun >/dev/null 2>"$T/err"; eq "pending: an unlisted dispatching row refuses another topic with exit 12" 12 "$?"
+has "pending: ... naming its status and topic" "$(cat "$T/err")" "dispatching plugin-system-successor-1"
+has "pending: ... and to run again with that topic" "$(cat "$T/err")" "run the dispatch again with plugin-system-successor-1"
+eq  "pending: ... the row as before" "dispatching plugin-system-successor-1 2026-09-26" "$(succ_row)"
+s2_nothing "pending: an unlisted dispatching row"
+
+# The same topic again over a listed dispatched row: confirmed, nothing
+# written or launched.
+sreset; export SUCC_ROW="dispatched plugin-system-successor-1 2026-09-26"; list_s1
+OUT=$(srun 2>"$T/err"); eq "same topic: a listed dispatched row is confirmed" "0 session=$SUCC_S" "$? $OUT"
+eq  "same topic: ... no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+eq  "same topic: ... no successor write" "" "$(grep -e '--successor' "$ST/calls.log")"
+eq  "same topic: ... the row as before" "dispatched plugin-system-successor-1 2026-09-26" "$(succ_row)"
+# A listed dispatching row: the launch ran and its confirm didn't. The
+# settle writes dispatched, with no launch.
+sreset; export SUCC_ROW="dispatching plugin-system-successor-1 2026-09-26"; list_s1
+OUT=$(srun 2>"$T/err"); eq "same topic: a listed dispatching row is settled and confirmed" "0 session=$SUCC_S" "$? $OUT"
+eq  "same topic: ... the row dispatched" "dispatched plugin-system-successor-1 $SDAY" "$(succ_row)"
+eq  "same topic: ... no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+# An unlisted dispatching row: launched again under the same row, once,
+# with no second dispatching write.
+sreset; export SUCC_ROW="dispatching plugin-system-successor-1 2026-09-26"
+OUT=$(srun 2>"$T/err"); eq "same topic: an unlisted dispatching row is launched again" "0 session=$SUCC_S" "$? $OUT"
+eq  "same topic: ... once" 1 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+eq  "same topic: ... no second dispatching write" "" "$(grep -e '--successor dispatching' "$ST/calls.log")"
+eq  "same topic: ... the row dispatched" "dispatched plugin-system-successor-1 $SDAY" "$(succ_row)"
+sreset; export SUCC_ROW="dispatching plugin-system-successor-1 2026-09-26" NIWA_MODE=fail
+srun >/dev/null 2>"$T/err"; eq "same topic: a re-launch that fails exits 4" 4 "$?"
+eq  "same topic: ... the row dispatch-failed" "dispatch-failed plugin-system-successor-1 $SDAY" "$(succ_row)"
+sreset; export SUCC_ROW="dispatching plugin-system-successor-1 2026-09-26" NIWA_LIST_FAIL=1
+srun >/dev/null 2>"$T/err"; eq "same topic: a re-run that can't read the listing exits 6" 6 "$?"
+eq  "same topic: ... the row still dispatching" "dispatching plugin-system-successor-1 2026-09-26" "$(succ_row)"
+eq  "same topic: ... no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+
+# A dispatched row missing from a listing that was read is stranded first.
+s2reset "dispatched plugin-system-successor-1 2026-09-26"
+OUT=$(srun 2>"$T/err"); eq "stranded: an unlisted dispatched row lets another topic through" "0 session=$S2_S" "$? $OUT"
+has "stranded: ... the row stranded first" "$(calls)" "--successor stranded plugin-system-successor-1 --by coord"
+eq  "stranded: ... then dispatched under the new topic" "dispatched plugin-system-successor-2 $SDAY" "$(succ_row)"
+sreset; export SUCC_ROW="dispatched plugin-system-successor-1 2026-09-26"
+srun >/dev/null 2>"$T/err"; eq "stranded: ... and the same topic exits 3" 3 "$?"
+eq  "stranded: ... with the row stranded" "stranded plugin-system-successor-1 $SDAY" "$(succ_row)"
+eq  "stranded: ... no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+
+# A listing that can't be read writes nothing.
+s2reset "dispatched plugin-system-successor-1 2026-09-26"; export NIWA_LIST_FAIL=1
+srun >/dev/null 2>"$T/err"; eq "unread listing: another topic still exits 12" 12 "$?"
+eq  "unread listing: ... the row as before" "dispatched plugin-system-successor-1 2026-09-26" "$(succ_row)"
+s2_nothing "unread listing: another topic"
+sreset; export SUCC_ROW="dispatched plugin-system-successor-1 2026-09-26" NIWA_LIST_FAIL=1
+srun >/dev/null 2>"$T/err"; eq "unread listing: the same topic exits 6" 6 "$?"
+eq  "unread listing: ... the row as before, never stranded" "dispatched plugin-system-successor-1 2026-09-26" "$(succ_row)"
+eq  "unread listing: ... no write" "" "$(grep -e '--successor' "$ST/calls.log")"
+
+# The confirm write refused because a successor took the run over.
+sreset; export SUCC_WRITE_RC=10 SUCC_WRITE_ON=dispatched CL_FENCE_BY=coord-next
+OUT=$(srun 2>"$T/err"); RC=$?
+eq  "fenced: a confirm refused by a takeover exits 0" 0 "$RC"
+eq  "fenced: ... printing the session and the run that took over" "session=$SUCC_S
+taken_over=coord-next" "$OUT"
+sreset; export SUCC_WRITE_RC=10 SUCC_WRITE_ON=dispatched
+srun >/dev/null 2>"$T/err"; eq "fenced: the same refusal with no fence exits 8" 8 "$?"
+has "fenced: ... the fence was asked" "$(calls)" "coord-log fence --session coord"
+
 # --successor goes alone.
 for other in --rebrief --releg "--releg-imported plugin-api"; do
     sreset

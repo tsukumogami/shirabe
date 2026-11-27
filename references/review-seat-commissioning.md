@@ -104,8 +104,17 @@ as a new finding with `severity: blocking`, its location and a `category`:
 `security` when it weakens a trust boundary, `correctness` when the change
 does the wrong thing, `other` for anything else that must be fixed.
 
+When the packet has a `## Test changes` section, it lists the edited
+tests that changed since this panel last judged them. Judge each one,
+and no other test: `corrects` if the edit fixes a test that checked the
+wrong thing, `weakens` if it checks less than before or something easier
+to pass, with a one-line reason. The run's note on an edit is its own
+claim; judge the hunks. A test the section names as cut counts as judged
+only if you read the file and list its path in `cited`.
+
 Return your answers as {"id", "record", "reason"} entries in an
-`answers` list, and any new defects in `findings`.
+`answers` list, any new defects in `findings`, and one {"path",
+"judgment", "reason"} entry per due test in `test_edits`.
 ```
 
 The QA panel's re-verifier also runs each due failing scenario again, since

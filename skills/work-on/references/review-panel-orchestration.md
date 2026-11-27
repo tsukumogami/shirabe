@@ -59,7 +59,9 @@ findings by id. Any other round keeps every seat and plans at most one run, the 
 re-verifier (seat `reverifier`, decision `recheck`): it answers each finding the fix made
 due by id, from a `scripts/review-packet.sh recheck` packet built from that scope, and,
 at the first panel a retry enters with a non-empty fix diff, reviews that diff against
-every panel's criteria. A panel with nothing to run and no unclosed blocking finding is
+every panel's criteria. It also judges each edited test the panel hasn't judged at its
+content now (its decision's `due_items`, "Edited tests" below), and is planned for those
+alone when nothing else is due. A panel with nothing to run and no unclosed blocking finding is
 carried: the script writes its results key, the `<panel>_carried` gate passes, and koto
 advances with no evidence. One with nothing to run but an unclosed blocking finding the
 fix didn't touch blocks at `<panel>_verdict` without a run. The panel state is still
@@ -103,8 +105,59 @@ panel has no `corrects` or `weakens` item for an edited test, and records each `
 as a blocking finding raised by that seat, under rule `review/test-edit-weakens`, with the
 reason in its summary. That finding blocks the panel like any other until the seat
 answers it by id. A round with every edited test judged `corrects` records as before.
-The re-verifier answers findings by id and judges no test edit; a test edited during a
-retry is still held at `pass_counting` until an acceptance seat accepts it.
+
+Each judgment `--record` accepts is also kept per panel, keyed by the test's content (its
+blob at the commit judged). An edited test is **due** for a panel once no judgment of
+that panel matches its content now: a later commit changed it. Outside a full round,
+`--plan` lists the panel's due tests on the re-verifier's decision as `due_items`, and
+plans the re-verifier for them alone (a reason starting `items-due`) when nothing else
+would run; when every path the fix diff touches is a due test, no fix-diff review is
+planned beside it. The `recheck` packet then carries a `## Test changes` section with
+each due test's hunks and the run's note on it, and the re-verifier's entry carries one
+`test_edits` item per due test, and none for any other:
+
+```json
+{"seat": "reverifier", "run": "<run id>", "findings": [], "answers": [],
+ "test_edits": [{"path": "tests/greet_test.sh", "judgment": "corrects", "reason": "<one line>"}]}
+```
+
+`--record` refuses the round (65, rule `review/test-edit-judgment`) when the re-verifier
+misses a due test or judges one its decision didn't list, so the test stays due, and
+records its `weakens` as a blocking finding raised by `fix-review`. A test whose hunks the
+packet cut (it says so, under "Cut") counts as judged only when the judging entry's
+`cited` names its path. Once any panel has recorded, `test-change.sh status`, the counting
+gates' command, holds an edited test while `panel-scope.sh --due-items` reports it due
+for a panel or carrying an open `weakens`, and no acceptance line counts or holds it.
+
+### Observations
+
+A fix whose bug no check reproduces records a before- and an after-observation in place of
+a red and a green (`red-first.sh observe`). The code packet carries them in an
+`## Observations` section: the report passage and both texts, each fenced, labelled as the
+run's claim and cut at 4 KiB. Every seat judges a complete pair in its entry's
+`observations`:
+
+```json
+{"seat": "intent", "run": "<run id>", "findings": [], "answers": [], "test_edits": [],
+ "observations": {"judgment": "shown", "reason": "<optional: what the pair shows or misses>"}}
+```
+
+A seat judges the observation pair `shown` or `not_shown`. `shown` means the before-observation
+shows the reported failure and the after-observation shows it gone, under the same conditions;
+`not_shown` means the pair doesn't show that. `--record` refuses the round (65) when a seat
+of the panel has no judgment of a complete pair, judges a pair the unit doesn't have, or
+gives any other value, and records each `not_shown` as a blocking finding raised by that
+seat, under rule `review/observation-not-shown`, with the reason in its summary. That
+finding blocks the panel like any other until the seat answers it by id.
+
+The pair's judgments are kept in the panel's list like a test's, keyed by its two digests,
+so re-recording either observation makes the pair due again (`observation` in
+`--due-items` and in the re-verifier's `due_items`). The `recheck` packet then carries the
+same section and the re-verifier's entry carries `observations`; `--record` refuses a round
+in which the re-verifier misses a due pair or judges one it wasn't given. Once any panel has
+recorded, `test-change.sh status` and `red-first.sh check-green` (through
+`test-change.sh covered`) hold the pair while `--due-items` names it, and no acceptance line
+counts it.
 
 `blocking_escalate` requires a `failure_reason`
 field; omitting it prevents koto context_assignments from propagating the reason downstream.

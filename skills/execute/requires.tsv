@@ -85,7 +85,7 @@
 # shared script, which the one-directional requires check does not treat as a
 # finding.
 # The records catch a koto older than 0.13.0 only. shirabe's koto minimum is
-# 0.33.0 (scripts/assert-koto-floor.sh). What 0.14.0 added (a failure terminal
+# 0.37.0 (scripts/assert-koto-floor.sh). What 0.14.0 added (a failure terminal
 # keeps its session, and a child's result is delivered under --no-cleanup) is
 # behaviour with no flag to declare, so no record here carries it. The preflight
 # compares koto's version with that minimum at load instead
@@ -141,6 +141,18 @@ koto	context exists	-	always
 koto	status	-	always
 koto	workflows	--children	always
 koto	session cleanup	-	always
+# ci_monitor's ci_fix_tests_judged gate runs ci-fix-tests.sh on every plan:
+# `koto workflows --children` lists the run's children, and
+# `koto context exists`/`get` read each one's counted_head and rules copy, all
+# under the records above. The `-n` the scan finds there is tail's, in the
+# messages that quote koto's stderr.
+#not-a-call-site	skills/execute/scripts/ci-fix-tests.sh	koto	-n	The -n is tail's, in error messages quoting koto's stderr; koto itself is called without it.
+# The lead shape's groups (scripts/step-group.sh): `cut` binds a step's child
+# to the step's own worktree with `koto session rebind --to`, and a landed or
+# stopped step's child is bound back to the checkout the same way. Its other
+# koto calls (status, workflows --children, context exists/get/add) fall under
+# the records above.
+koto	session rebind	--to	always
 shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--pr-body,--pr-title,--writing-style,--visibility	always
 shirabe	finalize-chain	-	always
 shirabe	transition	-	always

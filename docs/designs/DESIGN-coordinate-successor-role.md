@@ -985,3 +985,15 @@ None of these blocks the PRD's acceptance criteria.
   template's compat is 3, raised by a change outside this design, so each
   phase re-records `gate_scripts` at compat 3 where the sections above
   say 2.
+- 2026-11-27: Exit 13 doesn't run first, as Decision 7 says. It runs
+  after the settled `successor` row decides and before the live-session
+  check, so a pending row of another topic still exits 12, a same-topic
+  confirm that launches nothing still exits 0, and only a dispatch that
+  would launch is held. The mode runs `decision-next.sh --session <run>
+  --owed dispatch`, which seals no `decision_next` verdict and writes no
+  `coord/decision.json`, and refuses only on the four `unrecorded-*`
+  rules. A `decision-next.sh` that exits non-zero makes the mode exit 2
+  with nothing written beyond the settle, rather than launching past an
+  arrival it couldn't read. The role-word refusal sits with the other
+  input refusals, before the run's lock and the settle, so it writes
+  nothing.

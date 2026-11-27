@@ -233,29 +233,27 @@ the rules; this is the route.
   with `red-first.sh green` and exiting 0, before `fix_green` lets it finalize.
   `tests_counted` (`scripts/test-change.sh status`) holds a unit whose committed
   diff edits a test (removes a line, deletes it, renames it with a change) or
-  that rests on observations, until someone other than the run accepts it. In a
-  repository that isn't person-required the run mints an acceptance seat with
-  `test-change.sh seat`, commissions it with the brief the script prints, and the
-  seat accepts or declines under its minted identity; nothing waits for a person.
-  A decline returns the run to implementation, and the third decline of the same
-  tests ends it at `done_blocked`. A run that finds a gap in its own tests while
-  held submits `counting_status: test_gap`, naming the gap: it returns to
-  implementation for a test-only fix, which the first panel's re-verifier reviews
-  before verification runs again, and no decline is recorded. A unit that only
+  that rests on observations, until the review panels have judged each such item
+  at its content now. It reads the panels' record through
+  `panel-scope.sh --due-items`: an item is due for a panel that has no judgment
+  of it at its current content (before any panel has recorded, every item is
+  due), and a `weakens` or `not_shown` judgment is an open blocking finding. A
+  held run submits `counting_status: declined` and goes back through
+  implementation to the panels, whose re-verifier judges what is due; nothing
+  waits for a person. When `panel-retry-budget.sh --remaining` reports no retry
+  left, or the run already went back once and still no panel has recorded,
+  `status` exits 3 and the run ends at `done_blocked`. A run that finds a
+  gap in its own tests while held submits `counting_status: test_gap`, naming
+  the gap: it returns to implementation for a test-only fix, which the first
+  panel's re-verifier judges before verification runs again. A unit that only
   adds tests is counted at once.
-  A repository whose `CLAUDE.md` declares `## Test Change Acceptance: person` takes
-  no seat: the run stops at `pass_counting`, `status` prints the exact
-  `test-change.sh accept` command a person runs in a terminal, and the run is
-  resumed once they have. A higher authority can overrule an acceptance with
-  `test-change.sh overrule`, before or after the run finished.
 - **`pr_precheck`** re-runs `status` as `tests_still_counted`, so a commit made
   after counting that edits a test is held again (`precheck_status: recount`
   goes back to `pass_counting`).
 - **`ci_pass_counting`**, after CI passes on the open pull request. The same two
-  gates run again, since a commit that fixed CI may have edited a test; a decline
-  returns the run to `ci_monitor`. Who accepted, under what authority, reads back
-  from the session with `test-change.sh record`; nothing is written to the pull
-  request.
+  gates run again, since a commit that fixed CI may have edited a test;
+  `declined` returns the run to `ci_monitor`. The record reads back from the
+  session with `test-change.sh record`; nothing is written to the pull request.
 
 ### Finalization and No Silent Deferral
 
@@ -774,19 +772,19 @@ leg, since one leg answers one session.
   asked; 1 otherwise, and the agent answers `issue_type`. Bad arguments also
   exit 1, with a `route: ask` line, since the gate's edges name only 0 and 1.
   `scripts/issue-type-route_test.sh` is its harness.
-- `scripts/test-change.sh init|classify|note|seat|accept|decline|overrule|status|covered|record`
+- `scripts/test-change.sh init|classify|note|status|covered|record`
   — the held test change (`references/red-first.md`), the only writer of the
-  `test_change_ledger.jsonl` context key. koto runs `init --entry` in
+  `test_change_ledger.jsonl` context key. A passing `status` also records
+  the head it counted at as `counted_head`, which `/execute`'s
+  `ci-fix-tests.sh` reads. koto runs `init --entry` in
   `fix_determination`'s action and `status` as `pass_counting`'s and
   `ci_pass_counting`'s `tests_counted` gate and `pr_precheck`'s
   `tests_still_counted` (finding `test-change/held`); the agent runs `note` while
-  implementing and `seat` at a hold, and the seat runs `accept` or `decline`. A
-  person runs `accept` at a terminal, a coordinator or person `overrule`, and
-  anyone `record` to read the ledger back. Every decision is
-  asked of `scripts/lib/acceptance-rule.sh`, the interim rule, which a later
-  shared decision rule replaces in that one file. Exit codes are in its header;
-  `scripts/test-change_test.sh`, `scripts/test-change-routes_test.sh` and
-  `scripts/lib/acceptance-rule_test.sh` are its harnesses.
+  implementing, and anyone runs `record` to read the ledger back. `status` and
+  `covered` answer from the panels' record (`panel-scope.sh --due-items`) and
+  `panel-retry-budget.sh --remaining`, never from a ledger line but the header.
+  Exit codes are in its header; `scripts/test-change_test.sh` and
+  `scripts/test-change-routes_test.sh` are its harnesses.
 - `scripts/work-on-open.sh --workflow <WF> [--var NAME=VALUE]... [--dispatched-by <dispatcher>] <tokens-file>`
   — the one entry for every issue-backed and free-form run (see **Initialize**
   and **Answering a Caller's Leg**): maps `--review-floor=`/`--review-ceiling=`,
@@ -819,6 +817,9 @@ leg, since one leg answers one session.
   directives run it before the retry loop. Exit codes: 0 granted, 1 refused,
   64 the record could not be read or is malformed, 66 the grant could not be
   recorded, 67 bad arguments; every exit but 0 means escalate.
+  `--remaining <session-name>` is its read-only mode for `test-change.sh
+  status`: it prints how many retries the ceiling still allows and writes
+  nothing.
 - `scripts/check-closing-keyword.sh` — run by koto, never by the agent, as
   `pr_creation`'s `closing_keyword` gate, in three modes. `--approved-pass <log>`
   is the log probe, run on every issue-backed run that didn't declare

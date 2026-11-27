@@ -74,6 +74,18 @@
 #
 # Usage: panel-retry-budget.sh <koto-session-name> <panel>
 #   <panel>           scrutiny | review | qa_validation | light_review
+#        panel-retry-budget.sh --remaining <koto-session-name>
+#
+# --remaining is read-only, for test-change.sh status at the counting gates: it
+# reads the record and prints `remaining=<n> used=<u> ceiling=<CEILING>`, where
+# <n> is CEILING less the retries the run has used, never below 0. It writes
+# nothing and reads no count. A unit held on a due item or an adverse judgment
+# with no retry left can't be cleared by another panel round, so the counting
+# gate ends the run (exit 3) instead of sending it back. Past the floor a retry
+# also needs progress, which only the next blocking round can show, so a
+# remaining retry is one the ceiling still allows, not one that is sure to be
+# granted. Exit 0 with the line, 64 when the record can't be read or holds a
+# line this script didn't write, 67 on bad arguments.
 #
 # Prints one line on stdout:
 #   verdict=retry retry=<n> ceiling=<CEILING>
@@ -124,20 +136,87 @@ refuse() {
     exit 1
 }
 
-[ "$#" -ne 3 ] || usage "the count is read from the ledger, not given: pass only the session and the panel"
-[ "$#" -eq 2 ] || usage "expected 2 arguments, got $#"
-SESSION=$1
-PANEL=$2
+REMAINING=0
+if [ "${1:-}" = --remaining ]; then
+    [ "$#" -eq 2 ] || usage "--remaining takes the session name alone"
+    REMAINING=1
+    SESSION=$2
+    PANEL=""
+else
+    [ "$#" -ne 3 ] || usage "the count is read from the ledger, not given: pass only the session and the panel"
+    [ "$#" -eq 2 ] || usage "expected 2 arguments, got $#"
+    SESSION=$1
+    PANEL=$2
+fi
 
 [ -n "$SESSION" ] || usage "missing session name"
 # The ledger names the panels after their seats' panel, not their state.
-case "$PANEL" in
-    scrutiny) LEDGER_PANEL=scrutiny ;;
-    review) LEDGER_PANEL=review ;;
-    qa_validation) LEDGER_PANEL=qa ;;
-    light_review) LEDGER_PANEL=light ;;
+case "$REMAINING:$PANEL" in
+    1:) LEDGER_PANEL="" ;;
+    0:scrutiny) LEDGER_PANEL=scrutiny ;;
+    0:review) LEDGER_PANEL=review ;;
+    0:qa_validation) LEDGER_PANEL=qa ;;
+    0:light_review) LEDGER_PANEL=light ;;
     *) usage "unknown panel [$PANEL]" ;;
 esac
+
+# read_record: RECORD, USED, LAST_SAME, LAST_IDS and LAST_HAS_IDS from the
+# retry record, or no answer.
+read_record() {
+    RECORD=""
+    # `exists` is used only to find a record that is there; its "absent" is
+    # taken as absent because koto offers nothing better (see the header).
+    if koto context exists "$SESSION" "$KEY" >/dev/null; then
+        RECORD=$(koto context get "$SESSION" "$KEY") \
+            || no_answer "could not read the retry record ($KEY) for session $SESSION"
+    fi
+    USED=0
+    LAST_SAME=""
+    # The ids on the record's last line, the run's previous blocking round, and
+    # whether that line carried any (a line written before #2061 doesn't).
+    LAST_IDS=""
+    LAST_HAS_IDS=0
+    # Matched with [[ =~ ]] rather than piped into grep -q, which can stop
+    # reading early and fail the pipe (scripts/check-pipe-readers.sh).
+    IDS_RE='^[0-9a-f]{16}(,[0-9a-f]{16})*$'
+    while IFS=' ' read -r rec_panel rec_count rec_ids rest; do
+        [ -n "$rec_panel" ] || continue
+        case "$rec_panel" in
+            scrutiny|review|qa_validation|light_review) ;;
+            *) no_answer "the retry record ($KEY) has a line this script did not write: [$rec_panel $rec_count]" ;;
+        esac
+        case "$rec_count" in
+            ''|*[!0-9]*) no_answer "the retry record ($KEY) has a malformed count: [$rec_panel $rec_count]" ;;
+        esac
+        [ "${#rec_count}" -le 6 ] && [ -z "$rest" ] \
+            || no_answer "the retry record ($KEY) has a line this script did not write: [$rec_panel $rec_count $rec_ids $rest]"
+        if [ -n "$rec_ids" ]; then
+            # 16 hex characters per id, joined by single commas, and as many
+            # ids as the line's count: anything else is a line this script
+            # didn't write.
+            [[ $rec_ids =~ $IDS_RE ]] \
+                && [ "$(printf '%s\n' "$rec_ids" | tr ',' '\n' | grep -c .)" -eq "$((10#$rec_count))" ] \
+                || no_answer "the retry record ($KEY) has a line this script did not write: [$rec_panel $rec_count $rec_ids]"
+            LAST_IDS=$rec_ids
+            LAST_HAS_IDS=1
+        else
+            LAST_IDS=""
+            LAST_HAS_IDS=0
+        fi
+        USED=$((USED + 1))
+        [ "$rec_panel" = "$PANEL" ] && LAST_SAME=$rec_count
+    done <<EOF_RECORD
+$RECORD
+EOF_RECORD
+}
+
+if [ "$REMAINING" -eq 1 ]; then
+    read_record
+    left=$((CEILING - USED))
+    [ "$left" -ge 0 ] || left=0
+    echo "remaining=$left used=$USED ceiling=$CEILING"
+    exit 0
+fi
 
 # --- read the count ------------------------------------------------------------
 
@@ -170,51 +249,7 @@ esac
 
 # --- read the record ---------------------------------------------------------
 
-# `exists` is used only to find a record that is there; its "absent" is taken
-# as absent because koto offers nothing better (see the header).
-RECORD=""
-if koto context exists "$SESSION" "$KEY" >/dev/null; then
-    RECORD=$(koto context get "$SESSION" "$KEY") \
-        || no_answer "could not read the retry record ($KEY) for session $SESSION"
-fi
-
-USED=0
-LAST_SAME=""
-# The ids on the record's last line, the run's previous blocking round, and
-# whether that line carried any (a line written before #2061 doesn't).
-LAST_IDS=""
-LAST_HAS_IDS=0
-# Matched with [[ =~ ]] rather than piped into grep -q, which can stop
-# reading early and fail the pipe (scripts/check-pipe-readers.sh).
-IDS_RE='^[0-9a-f]{16}(,[0-9a-f]{16})*$'
-while IFS=' ' read -r rec_panel rec_count rec_ids rest; do
-    [ -n "$rec_panel" ] || continue
-    case "$rec_panel" in
-        scrutiny|review|qa_validation|light_review) ;;
-        *) no_answer "the retry record ($KEY) has a line this script did not write: [$rec_panel $rec_count]" ;;
-    esac
-    case "$rec_count" in
-        ''|*[!0-9]*) no_answer "the retry record ($KEY) has a malformed count: [$rec_panel $rec_count]" ;;
-    esac
-    [ "${#rec_count}" -le 6 ] && [ -z "$rest" ] \
-        || no_answer "the retry record ($KEY) has a line this script did not write: [$rec_panel $rec_count $rec_ids $rest]"
-    if [ -n "$rec_ids" ]; then
-        # 16 hex characters per id, joined by single commas, and as many ids
-        # as the line's count: anything else is a line this script didn't write.
-        [[ $rec_ids =~ $IDS_RE ]] \
-            && [ "$(printf '%s\n' "$rec_ids" | tr ',' '\n' | grep -c .)" -eq "$((10#$rec_count))" ] \
-            || no_answer "the retry record ($KEY) has a line this script did not write: [$rec_panel $rec_count $rec_ids]"
-        LAST_IDS=$rec_ids
-        LAST_HAS_IDS=1
-    else
-        LAST_IDS=""
-        LAST_HAS_IDS=0
-    fi
-    USED=$((USED + 1))
-    [ "$rec_panel" = "$PANEL" ] && LAST_SAME=$rec_count
-done <<EOF
-$RECORD
-EOF
+read_record
 
 # --- decide ------------------------------------------------------------------
 

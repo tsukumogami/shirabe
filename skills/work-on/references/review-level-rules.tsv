@@ -91,9 +91,8 @@ class	template	skills/execute/references/step-agent-handoff.md
 # gate or default_action command names a script no `engine` line covers.
 class	engine	**/*-open.sh
 # Libraries the red-first gates read through: a change to which header a
-# fix label comes from, to what counts as an edited test, or to who may
-# accept one, changes what those gates decide.
-class	engine	scripts/lib/acceptance-rule.sh
+# fix label comes from, or to what counts as an edited test, changes what
+# those gates decide.
 class	engine	scripts/lib/claude-md-header.sh
 class	engine	scripts/lib/test-classify.sh
 class	engine	scripts/plan-mode.sh
@@ -134,6 +133,7 @@ class	engine	skills/deliver/scripts/deliver-absent.sh
 class	engine	skills/deliver/scripts/deliver-execute-leg.sh
 class	engine	skills/deliver/scripts/deliver-open-request.sh
 class	engine	skills/deliver/scripts/deliver-probe.sh
+class	engine	skills/execute/scripts/ci-fix-tests.sh
 class	engine	skills/execute/scripts/drift-facts.sh
 class	engine	skills/execute/scripts/owned-pr.sh
 class	engine	skills/execute/scripts/record-coordination-verdict.sh
@@ -143,6 +143,7 @@ class	engine	skills/execute/scripts/record-write-set.sh
 class	engine	skills/execute/scripts/run-id.sh
 class	engine	skills/execute/scripts/shared-deferral-record.sh
 class	engine	skills/execute/scripts/shared-rerun-record.sh
+class	engine	skills/execute/scripts/step-group.sh
 class	engine	skills/execute/scripts/worktree-isolation.sh
 class	engine	skills/scope/scripts/check-hop-document.sh
 class	engine	skills/scope/scripts/check-plan-filing.sh

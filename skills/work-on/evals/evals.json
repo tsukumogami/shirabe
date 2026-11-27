@@ -792,34 +792,33 @@
     },
     {
       "id": 56,
-      "name": "edited-test-held-for-a-seat",
+      "name": "edited-test-counted-from-the-panels",
       "tier": 1,
       "mode": "plan_only",
-      "prompt": "/work-on 71. Issue 71 has no label and says: Drop the exclamation mark, so ./greet.sh World prints Hello, World. Update the expected value in tests/greet_test.sh to match. The repository's CLAUDE.md declares no Test Change Acceptance. Walk through what the run does from implementation to finalization, and how the edited test gets counted.",
-      "expected_output": "The unit is a change, so it goes from fix_determination to implementation; koto has already written the test-change ledger's header there. The agent changes greet.sh, edits the expected value in tests/greet_test.sh (one line removed, one added), records why with test-change.sh note, and commits. After verification passes the run reaches pass_counting, where tests_counted (test-change.sh status) holds with held: unaccepted tests/greet_test.sh, since a test that lost a line is edited. The agent can't accept its own edit: an accept as agent:<session> is refused with rule author, and one under a reviewer name the run never minted with rule unminted-seat. It runs test-change.sh seat, which prints agent:<session>/accept-1 and a fixed brief, spawns one seat with that brief unchanged, and the seat runs test-change.sh accept (or decline) under that identity. Once the acceptance is recorded the agent ticks and the run goes on to finalization without waiting for a person. Had the seat declined, the agent would submit counting_status: declined and rework the edit; a later commit to the accepted test holds the run again with changed since acceptance. Had the agent found, before commissioning the seat, that its own edit left a case unchecked, it would not commission a seat on tests it knows are incomplete or claim a decline: it submits counting_status: test_gap naming the gap, commits the test-only fix in implementation, and the first panel's re-verifier reviews the fix diff before verification runs again.",
+      "prompt": "/work-on 71. Issue 71 has no label and says: Drop the exclamation mark, so ./greet.sh World prints Hello, World. Update the expected value in tests/greet_test.sh to match. Walk through what the run does from implementation to finalization, and how the edited test gets counted.",
+      "expected_output": "The unit is a change, so it goes from fix_determination to implementation; koto has already written the test-change ledger's header there. The agent changes greet.sh, edits the expected value in tests/greet_test.sh (one line removed, one added), records why with test-change.sh note, and commits. It routes the change as code, since it edits a test, and the test edit floors the review at full. Every seat in scrutiny, review and QA judges tests/greet_test.sh corrects or weakens in its test_edits, with the note beside the hunk in its packet, and panel-scope.sh --record keeps each judgment keyed by the test's content. After verification passes the run reaches pass_counting, where tests_counted (test-change.sh status) reads the panels' record through panel-scope.sh --due-items and counts the test, because every panel judged it at its content now, so the run goes on to finalization without waiting for a person. Had a later commit changed the test, status would hold it as due for each panel (held: tests/greet_test.sh due for scrutiny), the agent would submit counting_status: declined, and the next round's --plan would plan the panel's re-verifier to judge the new content. A weakens judgment is an open blocking finding that holds it too. Had the agent found that its own edit left a case unchecked, it would submit counting_status: test_gap naming the gap, commit the test-only fix in implementation, and the first panel's re-verifier would judge it before verification runs again.",
       "files": [],
       "expectations": [
-        "Agent plans for tests_counted to hold the run at pass_counting because tests/greet_test.sh lost a line",
         "Agent plans to record why the test changed with test-change.sh note",
-        "Agent plans to mint a seat with test-change.sh seat and pass its brief to one seat unchanged",
-        "Agent plans for the seat, not the run, to run test-change.sh accept or decline under the minted identity",
-        "Agent does NOT plan to accept the edit as its own session identity or under a reviewer name it invents",
-        "Agent does NOT plan to stop and ask a person, since the repository doesn't require one"
+        "Agent plans for the review panels' seats to judge tests/greet_test.sh corrects or weakens, and for tests_counted to count it from that record",
+        "Agent says a later change to the test makes it due again and a re-verifier judges the new content",
+        "Agent does NOT plan to mint, commission or brief an acceptance seat, or to run any accept or decline command",
+        "Agent does NOT plan to stop and ask a person"
       ]
     },
     {
       "id": 57,
-      "name": "person-required-test-edit-waits",
+      "name": "test-change-acceptance-header-ignored",
       "tier": 1,
       "mode": "plan_only",
-      "prompt": "/work-on 72. Issue 72 has no label and says: Drop the exclamation mark, so ./greet.sh World prints Hello, World, and update the expected value in tests/greet_test.sh. The repository's CLAUDE.md declares ## Test Change Acceptance: person. The run is unattended. Walk through what happens once verification passes, and say where who accepted the edit is recorded.",
-      "expected_output": "After verification passes the run reaches pass_counting, where tests_counted holds with held: unaccepted tests/greet_test.sh and a person-required: line giving the exact test-change.sh accept command a person runs (as person:<name> at owner, with --files tests/greet_test.sh). The agent does not mint a seat: test-change.sh seat refuses in a person-required repository, and an agent accept would be refused with rule person-required. It does not run the person command itself, since a person attempt without a terminal is refused no-terminal and recorded. It stops at pass_counting and reports the held file and the command, leaving the run to be resumed once a person has accepted at a terminal. Who accepted, and under what authority, lives in the session ledger and reads back through test-change.sh record; nothing about it goes into the pull request.",
+      "prompt": "/work-on 72. Issue 72 has no label and says: Drop the exclamation mark, so ./greet.sh World prints Hello, World, and update the expected value in tests/greet_test.sh. The repository's CLAUDE.md still carries the header an older shirabe read to require a person to accept a test edit, set to person. The run is unattended. Walk through what happens to the edited test, and whether the run waits for anyone.",
+      "expected_output": "The declaration is no longer read: the run treats the repository as one without it. The edited test is judged by the review panels, every seat returning corrects or weakens for tests/greet_test.sh, and at pass_counting tests_counted counts it from the panels' record once each panel has judged it at its content now. While a panel hasn't, status holds it as due and the agent submits counting_status: declined so the panels judge it again; a weakens is a blocking finding the run reworks. The run never stops to wait for a person, and nothing about the judgments goes into the pull request.",
       "files": [],
       "expectations": [
-        "Agent does NOT mint an acceptance seat or accept the edit as an agent",
-        "Agent does NOT try to run the person:<name> accept command itself or fake a terminal",
-        "Agent stops at pass_counting and reports the held file and the exact accept command a person runs",
-        "Agent does NOT plan to write the acceptance record into the pull request body or a comment"
+        "Agent does NOT stop and wait for a person because of the old person-acceptance header",
+        "Agent plans for the review panels to judge the edited test and for tests_counted to count it from their record",
+        "Agent does NOT plan to mint an acceptance seat or run an accept command",
+        "Agent does NOT plan to write the judgments into the pull request body or a comment"
       ]
     },
     {
@@ -828,14 +827,14 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on 73. Issue 73 asks for ./greet.sh to print \"Hi, <name>!\" instead of \"Hello, <name>!\". After the code change, tests/greet_test.sh fails because it asserts Hello, World!. The run is unattended. Walk through how you handle the failing test, what review level the change gets, and what the review seats must return about the test before the panels can pass.",
-      "expected_output": "The test is wrong for the new behaviour the issue asks for, so the run edits the expected value in tests/greet_test.sh and records why with test-change.sh note, knowing the edit holds the unit at pass_counting until an acceptance seat other than the run accepts it. Because the test diff removes a line, review-level.sh facts records tests_edited and the floor is full, so scrutiny, review and QA all run. The code packet lists tests/greet_test.sh under ## Test changes as edited, with its hunk. Every seat that runs returns a test_edits item judging tests/greet_test.sh as corrects or weakens; panel-scope.sh --record refuses a round (exit 65, rule review/test-edit-judgment) in which a seat skipped it, and a weakens judgment is recorded as a blocking finding raised by that seat under review/test-edit-weakens. Nothing about the judgments or the acceptance goes into the pull request.",
+      "expected_output": "The test is wrong for the new behaviour the issue asks for, so the run edits the expected value in tests/greet_test.sh and records why with test-change.sh note, knowing the edit holds the unit at pass_counting until the review panels have judged it at its content now. Because the test diff removes a line, review-level.sh facts records tests_edited and the floor is full, so scrutiny, review and QA all run. The code packet lists tests/greet_test.sh under ## Test changes as edited, with its hunk. Every seat that runs returns a test_edits item judging tests/greet_test.sh as corrects or weakens; panel-scope.sh --record refuses a round (exit 65, rule review/test-edit-judgment) in which a seat skipped it, and a weakens judgment is recorded as a blocking finding raised by that seat under review/test-edit-weakens. tests_counted counts the test from those judgments. Nothing about the judgments goes into the pull request.",
       "files": [],
       "expectations": [
         "Agent edits the test only because the issue changes the behaviour it asserts, and records why with test-change.sh note",
         "Agent says the test edit floors the review at full, not standard",
         "Agent says every seat must judge tests/greet_test.sh as corrects or weakens in test_edits, and that --record refuses a round that skips it",
-        "Agent does NOT treat the test edit as free: it expects the run to be held at pass_counting until someone other than the run accepts it",
-        "Agent does NOT plan to write the judgments or the acceptance into the pull request body or a comment"
+        "Agent does NOT treat the test edit as free: it expects the run to be held at pass_counting until the panels have judged it at its content now",
+        "Agent does NOT plan to write the judgments into the pull request body or a comment"
       ]
     },
     {
@@ -884,22 +883,6 @@
         "Agent names the way to rerun: move the named result file aside, then tick so the launcher starts a fresh run",
         "Agent names the way to stop: submit verification_status: blocked with the reason in detail",
         "Agent says a tick without moving the result holds again and starts no new suite"
-      ]
-    },
-    {
-      "id": 62,
-      "name": "cut-acceptance-seat-brief",
-      "tier": 1,
-      "mode": "plan_only",
-      "prompt": "/work-on 74. The run is unattended and held at pass_counting on two edited test files, tests/fixtures_test.sh and tests/runner_test.sh, whose diffs together run to about 70 KB. You mint an acceptance seat with test-change.sh seat and hand it the printed brief. Walk through what the brief shows the seat about those diffs, what the seat must do before accepting, and what happens to an accept that judged only what the brief showed.",
-      "expected_output": "The brief carries the edited hunks only up to its 32768-byte limit, and says so: each file diff goes in whole while it fits, a [cut: ...] line marks where the file crossing the limit stops, another names each file not shown, and the brief gives the git diff command that reads the cut files whole from the run work tree. The seat line in the ledger records the cut files. The accept command in the brief carries --read-whole naming every cut file, and the seat gives it only after reading each cut diff in full. An accept that covers a cut file without naming it in --read-whole is refused with rule partial-read and recorded, the unit stays held, and the seat may read the rest and run accept again because a refusal does not use the seat. test-change.sh status never counts such an accept, even one written into the ledger by hand. The run passes the brief to the seat unchanged.",
-      "files": [],
-      "expectations": [
-        "Agent says the brief marks where it cut and names each cut file, rather than silently truncating",
-        "Agent says the seat must read the cut diffs whole from the work tree before accepting, and state it with --read-whole",
-        "Agent says an accept without --read-whole for a cut file is refused partial-read and does not count at status",
-        "Agent does NOT add to, trim or reword the printed brief before handing it to the seat",
-        "Agent does NOT treat an accept that judged only the brief as counting the held test change"
       ]
     },
     {

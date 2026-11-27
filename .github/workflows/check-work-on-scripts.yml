@@ -63,9 +63,6 @@ on:
       # test sits beside it.
       - 'scripts/lib/default-remote-ref.sh'
       - 'scripts/lib/default-remote-ref_test.sh'
-      # test-change.sh sources the interim acceptance rule.
-      - 'scripts/lib/acceptance-rule.sh'
-      - 'scripts/lib/acceptance-rule_test.sh'
       # The suites that walk work-on.md past fix_determination serve its gh
       # call from this stand-in.
       - 'scripts/lib/gh-issue-testlib.sh'
@@ -120,8 +117,6 @@ on:
       - 'scripts/lib/default-merge_test.sh'
       - 'scripts/lib/default-remote-ref.sh'
       - 'scripts/lib/default-remote-ref_test.sh'
-      - 'scripts/lib/acceptance-rule.sh'
-      - 'scripts/lib/acceptance-rule_test.sh'
       - 'scripts/lib/gh-issue-testlib.sh'
       - 'scripts/lib/dispatch-link.sh'
       - '.claude/shirabe-extensions/verification-map.json'

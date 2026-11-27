@@ -119,6 +119,14 @@ Two more flags, on both paths:
   only when given and only on a single-pr PLAN; a coordinated PLAN has no step
   agents' drafts, so the flag is ignored there. A value other than `on` or `off`
   is koto's `invalid_var`.
+- `--max-concurrent-steps=<N>` (1 to 6, default 2; single-pr only) — how many
+  ready plan steps the lead shape starts together (see "The lead shape"). `1`
+  is one step at a time in PLAN order, the run as it was before the limit, and
+  the opt-out. It becomes the koto variable `MAX_CONCURRENT_STEPS`, passed only
+  when given and only on a single-pr PLAN; a coordinated PLAN dispatches one
+  work item at a time, so the flag is ignored there. Like the bound it belongs
+  to one invocation: a run resumed without it goes back to the default. A
+  value outside 1 to 6 is koto's `invalid_var`, a repeat its `duplicate_var`.
 - `--verification=<local|hosted-ci>` and `--verification-reason=<text>`
   (default `local`, no reason) — the verification deferral `/work-on` takes
   (`skills/work-on/SKILL.md`), for the whole plan. They become the koto
@@ -270,7 +278,8 @@ maps them to the session's variables with `jq` (never `eval`) and makes the one
 ARGS_DIR=$(${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
 # The invocation's tokens, one JSON string each, in order: the PLAN path and any
 # of --auto, --interactive, --merge, --review-floor=<level>,
-# --review-ceiling=<level>, --verification=<local|hosted-ci>,
+# --review-ceiling=<level>, --step-drafts=<on|off>,
+# --max-concurrent-steps=<N>, --verification=<local|hosted-ci>,
 # --verification-reason=<text>, --koto-leg=<request-id>:execute, and on a
 # coordinated PLAN --store, --coordination-pr, --follow-up [--remove],
 # --adopt-run with their values.
@@ -347,7 +356,9 @@ the shared branch's commits and its `docs/` visibility pass, and whether the
 body records every verification deferral the run carries and has each
 child's re-run lines (`pr_finalization`), the cascade's verdict (`plan_completion`, from the
 `cascade_result.json` that `run-cascade.sh --session` records), the CI and merge
-state, and whether GitHub reports the PR `MERGED` (`ci_monitor`), and the pause
+state, whether GitHub reports the PR `MERGED`, and whether a CI fix changed a
+test no fix round's panels judged (`ci_monitor`, the last through
+`ci-fix-tests.sh`), and the pause
 (`PAUSE_BEFORE_FINALIZE`). A failing output check holds the run in its state
 with findings naming the rule; fix the output
 and tick again. The evidence a state still takes is the agent's own account:
@@ -369,23 +380,84 @@ wants is readable afterwards: `koto status <child>` for where it stopped, and
 A single-pr run takes the lead shape: the owning session, the one ticking
 `execute-<plan-slug>`, hands each `/work-on` child to its own step agent and
 spends its own context on the plan, not on the steps. The step agent is a
-subagent started in the foreground, in this checkout, from the one hand-off
-template in
+subagent started in the foreground, in this checkout or in its step's own
+worktree, from the one hand-off template in
 [`references/step-agent-handoff.md`](references/step-agent-handoff.md), and it
 drives its child from where it stands to its terminal, panels included. The
 owning session never runs `koto next` on a child.
 
-Steps go one at a time, in PLAN order, even when `waits_on` would let two start
-together. The next step starts only after `koto status` on the previous child
-shows a terminal; the step agent's report never decides that. Before each step
-after the first, after the previous step's child reaches its terminal and
-before the next step's agent starts, the owning session details that step: it
-reads what the previous step landed, rewrites the step's entry in the PLAN to
-match it, commits that one path on the shared branch, and records the entry as
-`step_refine/<step>.md` in `execute-<plan-slug>`. No step agent edits a step's
-entry. The `spawn_and_await` directive in `koto-templates/execute.md` carries
-the whole loop: the report's two fixed lines, the one retry for a child left
-non-terminal, the outline case, and what counts as data.
+Ready steps start together, up to a limit. `--max-concurrent-steps=N` sets it
+(1 to 6, default 2), and `scripts/step-group.sh next` names each group: the
+steps whose child koto lists and whose `waits_on` have all landed, in PLAN
+order, up to the limit. On a plan where steps 2 and 3 wait only on step 1,
+both start once step 1 has landed and before either finishes; step 4, which
+waits on step 2, does not start before step 2 lands; three ready steps under a
+limit of 2 start two. A group of one runs as a step always has, in this
+checkout on the shared branch, and `--max-concurrent-steps=1` makes every
+group one step, in PLAN order. The next group starts only after `koto status`
+shows every child of the previous one terminal and that group has landed; the
+step agent's report never decides that.
+
+**Per-step worktrees.** In a group of two or more, each step works in its own
+worktree on its own step branch. `scripts/step-group.sh cut` makes the
+worktree `<top-level>-step-worktrees/<session>.<step>`, next to the checkout
+and outside every work tree, on the branch `<shared branch>--<step>` cut from
+the shared branch's head, and binds the step's child to it with `koto session
+rebind`, so no two steps share a tree or a koto session. The group's step
+agents are started together, each in its step's worktree. A child at `done`
+there was built, reviewed and verified on its step branch. It has not landed.
+
+**Landing by rebase, in PLAN order.** The owning session lands the group with
+`scripts/step-group.sh land`, one step at a time: each step branch is rebased
+onto the shared head, or onto the step of the group rebased before it. Then
+`scripts/step-group.sh check` fast-forwards the shared branch to the rebased
+tip and removes the worktrees. A step reaches the shared branch either
+there or, when it needs a panel, in its own fix round; four things can stand
+in the way:
+
+- **A conflict.** The rebase is aborted and that step is held. It does not
+  fail the run or stop the others: the rest of the group lands, steps that
+  wait only on landed steps go on, and a step that waits on the held one does
+  not start. The owning session resolves the conflict by rebasing the step
+  branch itself, in the step's worktree, and the resolution is reviewed as
+  its own change: `land` then answers `round`. It can do that after later
+  groups have started and landed. A conflict it can't resolve ends the
+  invocation with the forced-stop summary, the run resumable and the step
+  still held.
+- **A rebase that changed the step's files.** When the rebase brought in a
+  change to a file the step also changed, the step's level check and its
+  verification run again at the rebased head, in the step's worktree, against
+  the step's own child, before it counts as landed. The level check measures
+  from the step's base, so it counts what the step was rebased onto as well:
+  it can ask for more review than the step had, never less. A child that
+  deferred verification to hosted CI re-runs the level check alone.
+- **The group's combined diff.** `check` runs the level check once over
+  everything the group lands together. A floor above the highest level any of
+  its steps got means the steps were judged apart at a level their sum does
+  not allow, and the group lands through one fix round that judges it whole.
+- **A fix round.** Whatever needs a panel (a resolved conflict, a re-check
+  that holds or fails, a higher combined floor) lands through
+  `fix-round.sh start --from <child> --fresh` on the shared branch. The
+  round's implementation is one `git merge --ff-only <step branch>`, so its
+  level check, panels and verification cover exactly what the fast-forward
+  brought in. That is the whole step as rebased, not the resolution alone: a
+  step that lands this way is reviewed twice, which is the price of a
+  conflict.
+
+`spawn_and_await`'s `steps_landed` gate (`scripts/step-group.sh landed`) keeps
+the run out of `pr_finalization` while a step that was cut has not landed, so a
+held step can't be left behind. The record of every group, cut, rebase and
+landing is the `step_group.jsonl` key in `execute-<plan-slug>`.
+
+Before each step after the first, after the steps it waits on have landed and
+before its agent starts or its worktree is cut, the owning session details
+that step: it reads what those steps landed, rewrites the step's entry in the
+PLAN to match it, commits that one path on the shared branch, and records the
+entry as `step_refine/<step>.md` in `execute-<plan-slug>`. No step agent edits
+a step's entry. The `spawn_and_await` directive in `koto-templates/execute.md`
+carries the whole loop: the groups, the landing outcomes, the report's two
+fixed lines, the one retry for a child left non-terminal, the outline case,
+and what counts as data.
 
 The step agent that just finished does draft the next entry. Once its child
 reaches a terminal, it writes a proposed entry for each outlined step whose
@@ -408,7 +480,10 @@ be running once the owning session acts again; once the harness shows none
 running, a non-terminal child goes to a new step agent, which resumes it from
 its current state. An outline child at
 `validation_exit` is detailed, rewound with `koto rewind <child>`, and handed
-off to a step agent.
+off to a step agent. `scripts/step-group.sh next` says where a group stands:
+`mode=open` lists each of its steps with the last thing recorded for it, and
+`git worktree list` shows the step worktrees still in place. A child of a
+group is bound to its step's worktree, so its step agent resumes it there.
 
 ## Coordinated Execution Path
 

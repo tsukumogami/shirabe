@@ -262,6 +262,12 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/shared-deferral-record_test.sh
 
+      # ci_monitor's ci_fix_tests_judged gate: ci-fix-tests.sh over a koto
+      # stand-in and real git, so every case runs on 3.2.
+      - name: Run CI fix tests judgment tests
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/ci-fix-tests_test.sh
+
       # pr_finalization's rerun_recorded gate: its script through koto, gh
       # and owned-pr.sh stubs with the real check-pr-output.sh, then over real
       # child sessions, one holding a verification_attempts ledger.

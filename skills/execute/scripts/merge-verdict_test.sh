@@ -80,6 +80,7 @@ case "$1 ${2:-}" in
     "pr merge") key=merge ;;
     "api "*)
         case "$2" in
+            graphql) key=ready ;;
             repos/*/*/rules/branches/*) key=rules ;;
             repos/*/*/pulls/*/files) key=files ;;
             repos/*/*/commits/*) key=commit ;;
@@ -133,6 +134,8 @@ new_case() {
     echo '{"allow_squash_merge":true,"allow_merge_commit":true,"allow_rebase_merge":true}' > "$CASE/repo.out"
     echo '{"state":"MERGED"}' > "$CASE/confirm.out"
     : > "$CASE/merge.out"
+    # No ready_for_review event: a PR opened ready keeps the head-commit anchor.
+    echo '{"data":{"repository":{"pullRequest":{"timelineItems":{"nodes":[]}}}}}' > "$CASE/ready.out"
 }
 
 # view <jq filter> — edit the PR snapshot fixture.
@@ -143,6 +146,13 @@ view() {
 # age <seconds> — set the head commit's committedDate that many seconds ago.
 age() {
     view ".commits[0].committedDate = ((now - $1) | todate)"
+}
+
+# ready_ago <seconds> — the PR's latest ready_for_review event, that many
+# seconds ago.
+ready_ago() {
+    jq -n --argjson s "$1" '{data: {repository: {pullRequest: {timelineItems: {nodes: [
+        {createdAt: ((now - $s) | todate)}]}}}}}' > "$CASE/ready.out"
 }
 
 # fixture <key> <json> — replace one fixture's stdout.
@@ -325,6 +335,9 @@ new_case r6-start-young-head; age 60
 fixture checks '[{"name":"build","bucket":"pending","startedAt":"0001-01-01T00:00:00Z"}]'
 expect "row 6 zero start time on a young head is pending" "pending:checks"
 
+# The default fixture has no ready_for_review event, so the head commit is still
+# the anchor here; r6-ready-unreported below covers the same check after a
+# ready event.
 new_case r6-start-unreported; age 2000
 fixture checks "[{\"name\":\"lint\",\"bucket\":\"pending\",\"startedAt\":$(started 60)}]"
 expect "row 6 unreported required check falls back to the commit" "error:execute:ci-timeout"
@@ -332,6 +345,92 @@ expect "row 6 unreported required check falls back to the commit" "error:execute
 new_case r6-start-future; age 2000
 fixture checks "[{\"name\":\"build\",\"bucket\":\"pending\",\"startedAt\":$(started -300)}]"
 expect "row 6 start time in the future counts as just started" "pending:checks"
+
+# A PR marked ready after its head commit registers its checks after the ready
+# event (#2173), so the grace window and the fallbacks for a check with no start
+# time or not yet reported run from the later of the head commit and the
+# latest ready_for_review event. The ready time is read only when the head
+# commit's anchor would have expired.
+graphql_calls() {
+    grep -c '^api graphql' "$CASE/calls.log"
+}
+new_case r6-ready-grace; fixture checks '[]'; fixture rules '[]'; age 600; ready_ago 60
+expect "row 6 zero checks, head 600 s old, ready 60 s ago: the grace window runs from the ready event" "pending:checks"
+if [ "$(graphql_calls)" -eq 1 ]; then
+    pass "row 6 the ready time is read once"
+else
+    fail "row 6 the ready time was read $(graphql_calls) times: $(cat "$CASE/calls.log")"
+fi
+
+new_case r6-ready-expired; fixture checks '[]'; fixture rules '[]'; age 600; ready_ago 300
+expect "row 9 zero checks, ready 300 s ago" "awaiting:no-checks"
+
+new_case r6-ready-old-head; fixture checks '[]'; fixture rules '[]'; age 2000; ready_ago 60
+expect "row 6 zero checks, head 2000 s old, ready 60 s ago" "pending:checks"
+
+new_case r6-ready-before-head; fixture checks '[]'; fixture rules '[]'; age 600; ready_ago 900
+expect "row 9 ready event older than the head commit keeps the head anchor" "awaiting:no-checks"
+
+new_case r6-ready-before-young-head; fixture checks '[]'; fixture rules '[]'; age 60; ready_ago 900
+expect "row 6 young head after an old ready event" "pending:checks"
+
+new_case r6-ready-future; fixture checks '[]'; fixture rules '[]'; age 600; ready_ago -300
+expect "row 6 ready time in the future counts as just ready" "pending:checks"
+
+new_case r6-ready-fails; fixture checks '[]'; fixture rules '[]'; age 600; failing ready
+expect "row 9 unreadable ready time keeps the head anchor" "awaiting:no-checks"
+if [ "$(graphql_calls)" -eq 3 ]; then
+    pass "row 9 the ready read is retried like every other read"
+else
+    fail "row 9 the ready read was tried $(graphql_calls) times: $(cat "$CASE/calls.log")"
+fi
+
+new_case r6-ready-garbage; fixture checks '[]'; fixture rules '[]'; age 600
+fixture ready 'not json'
+expect "row 9 malformed ready read keeps the head anchor" "awaiting:no-checks"
+
+new_case r6-ready-errors; fixture checks '[]'; fixture rules '[]'; age 600
+fixture ready '{"data":null,"errors":[{"message":"Resource not accessible by integration"}]}'
+expect "row 9 ready read with GraphQL errors keeps the head anchor" "awaiting:no-checks"
+
+new_case r6-ready-bad-time; fixture checks '[]'; fixture rules '[]'; age 600
+fixture ready '{"data":{"repository":{"pullRequest":{"timelineItems":{"nodes":[{"createdAt":"not-a-time"}]}}}}}'
+expect "row 9 unreadable ready time value keeps the head anchor" "awaiting:no-checks"
+
+new_case r6-ready-zero-start; age 2000; ready_ago 60
+fixture checks '[{"name":"build","bucket":"pending","startedAt":"0001-01-01T00:00:00Z"}]'
+expect "row 6 queued check on an old head, ready 60 s ago" "pending:checks"
+
+new_case r6-ready-zero-start-late; age 3000; ready_ago 2000
+fixture checks '[{"name":"build","bucket":"pending","startedAt":"0001-01-01T00:00:00Z"}]'
+expect "row 6 queued check, ready past the deadline" "error:execute:ci-timeout"
+
+new_case r6-ready-unreported; age 2000; ready_ago 60
+fixture checks "[{\"name\":\"lint\",\"bucket\":\"pending\",\"startedAt\":$(started 60)}]"
+expect "row 6 unreported required check on an old head, ready 60 s ago" "pending:checks"
+
+new_case r6-ready-started-old; age 3000; ready_ago 60
+fixture checks "[{\"name\":\"build\",\"bucket\":\"pending\",\"startedAt\":$(started 2000)}]"
+expect "row 6 a check's own start time still sets its deadline" "error:execute:ci-timeout"
+
+new_case r6-ready-unknown; view '.mergeStateStatus = "UNKNOWN"'; age 2000; ready_ago 60
+expect "row 10 UNKNOWN stays on the head commit after a ready event" "awaiting:merge-state:UNKNOWN"
+
+for C in r6-ready-none-ok r6-ready-none-grace r6-ready-none-fresh; do
+    new_case "$C"; ready_ago 60
+    case "$C" in
+        r6-ready-none-ok) WANT="mergeable:squash:$HEAD" ;;
+        r6-ready-none-grace) fixture checks '[]'; fixture rules '[]'; age 60; WANT="pending:checks" ;;
+        r6-ready-none-fresh) age 2000; WANT="pending:checks"
+            fixture checks "[{\"name\":\"build\",\"bucket\":\"pending\",\"startedAt\":$(started 60)}]" ;;
+    esac
+    expect "$C verdict" "$WANT"
+    if [ "$(graphql_calls)" -eq 0 ]; then
+        pass "$C reads no ready time while the head anchor holds"
+    else
+        fail "$C read the ready time: $(cat "$CASE/calls.log")"
+    fi
+done
 
 new_case r7
 expect "row 7 merge not requested" "awaiting:merge-not-requested" --repo o/r --pr 7 --merge false --expected-head "$HEAD"

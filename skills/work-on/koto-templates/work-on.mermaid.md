@@ -40,6 +40,8 @@ stateDiagram-v2
     ci_pass_counting --> ci_monitor : counting_status: green_failed, gates.fix_green.exit_code: 1, gates.tests_counted.exit_code: 0
     ci_pass_counting --> ci_monitor : counting_status: green_failed, gates.fix_green.exit_code: 1, gates.tests_counted.exit_code: 1
     ci_pass_counting --> ci_monitor : counting_status: declined, gates.tests_counted.exit_code: 1
+    ci_pass_counting --> implementation : counting_status: test_gap, gates.tests_counted.exit_code: 1
+    ci_pass_counting --> implementation : counting_status: test_gap, gates.fix_green.exit_code: 1, gates.tests_counted.exit_code: 0
     ci_pass_counting --> done_blocked : counting_status: blocked, gates.fix_green.exit_code: 1, gates.tests_counted.exit_code: 0
     ci_pass_counting --> done_blocked : counting_status: blocked, gates.fix_green.exit_code: 2, gates.tests_counted.exit_code: 0
     ci_pass_counting --> done_blocked : counting_status: blocked, gates.tests_counted.exit_code: 1
