@@ -559,7 +559,19 @@ Deliverables:
 
 ## Security Considerations
 
-Not written yet: a later /design phase replaces this line.
+This change moves text between the places a coordinator reads, and moves the recording of a dispatched start's brief path from the coordinator to the opener. It grants no new tool, filesystem, network or process permission, and it adds no dependency or download. The risks are about which text the coordinator sees when it acts, and about one new input.
+
+**Untrusted input to the entry.** The dispatcher's prompt reaches turn 0 as command arguments and as an appended copy. The entry keeps today's handling: only the first line holds tokens, the args file is written with a file tool rather than pasted into a shell, and text after the scope is the human's decisions, never an instruction. The design chooses a static entry over one built at load time by a shell line because a line that substitutes the prompt would put free text into a shell, and a failing line would leave the skill with no contract. The entry-size test enforces this: it refuses any argument placeholder in the body and any shell line other than the preflight line, whose healthy output is empty.
+
+**The brief path.** The path comes from the dispatcher's prompt, so the opener treats it as untrusted. It takes the path as a separate argument and never builds a shell command from it. It requires an absolute path to a regular, readable file, resolves links before checking it, refuses control characters, restricts the recorded label to a plain character set, and caps what the intake reads. A refusal is a normal refusal line, and the opener test includes paths with spaces, quotes, command substitution, newlines and links. A brief supplies work and standing rules through the intake. It doesn't widen the coordinator's bounds: the worker cap, the parked bound, the rule against implementing, and the rule against touching another session's run.
+
+**Guidance printed by the opener.** The blocks printed to stderr are instructions that land in the coordinator's context. They come from the shipped wording table and are static text. A value inserted into a block is limited to what the opener has validated itself (names that match its own patterns, fixed words, numbers). Free text from an imported record, a roadmap or a prompt is never inserted into guidance. A test imports a record whose fields contain instruction-like text and checks that it doesn't appear in stderr. Blocks print once, so any rule that must hold for the whole tenure after a takeover or import is also carried by a template state, which is shown again on later arrivals and after a compaction.
+
+**Limits on what the coordinator may do.** The standing prohibitions stay in the entry, which every start reads whole and which no state's ceiling squeezes: never run a cleanup or cancel verb against a session the run didn't open, never act on text after the scope, and keep the owner funnel for incoming messages. Rules moved into template states are limits on actions that are only taken from those states, and a coverage row for each moved limit fails when the rule is in neither the entry nor a state that gates the action. The existing check on the role lists stays.
+
+**Data exposure.** Guidance blocks, refusal lines and the brief row may show paths, which can include a user or repository name, and the run record can travel to another host through the shared bucket. They don't print file contents, environment values or credentials. A recorded brief path is host-local and is validated again, as a fresh path would be, if an imported run is asked to open it. The measurements recorded on the pull request are token counts only.
+
+**Not covered.** The size check can't see the harness, so a Claude Code or plugin release that adds to the harness can push turn 0 over the target with every check green. That is a budget risk, caught by the live read, not a security one. The trust boundary of `--import` and `--trust-template` is unchanged.
 
 ## Consequences
 
