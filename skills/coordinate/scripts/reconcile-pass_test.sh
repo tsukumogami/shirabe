@@ -736,7 +736,9 @@ succ_out not_verified "" "" false "" "" "another process holds the run's success
 pass
 rep=$(ctx reconcile/report.md)
 sed -n '/^## Not verified/,$p' <<<"$rep" | grep -q "holds the run's successor lock"; check "a held lock is listed as not verified" $? "$rep"
-grep -q '^Successor pending: the Run successor row reads `dispatched succ-one 2026-09-26`' <<<"$rep"; check "  ... and the row as read is named pending" $? "$rep"
+HMSG=$(bash -c '. "$1" && dc_successor_pending_msg "$2" "dispatched succ-one 2026-09-26" unread' _ "$HERE/dispatch-common.sh" "$SESSION")
+[ "$(grep '^Successor pending:' <<<"$rep")" = "Successor pending: $HMSG" ]
+check "  ... and the row as read is named pending with the unread sentence, no listing having been read" $? "$rep"
 
 echo "== the owed verdicts of Completed milestones =="
 # Once per visit, before the record read, the pass owes the verdict of every
@@ -1301,6 +1303,8 @@ eq "the same line and koto calls with 3 entries and with 300 (${FEW##* } calls)"
 eq "  ... the visit sealed" reconciled "${MANY% *}"
 eq "  ... reading no entry and never listing record/" "0 0" \
     "$(grep -c '^koto context get [^ ]* record/entries/' "$T/kc.calls") $(grep -c '^koto context list [^ ]* --prefix record/$' "$T/kc.calls")"
+# The pass reads the Run section beside the other four, for the successor
+# row the pass settles; each section is still got once.
 eq "  ... the five sections of the view, each got once" "decisions deferrals holdings run side-effects" \
     "$(sed -n "s|^koto context get $SESSION record/\([a-z-]*\)\$|\1|p" "$T/kc.calls" | grep -vx meta | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 

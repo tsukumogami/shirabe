@@ -705,9 +705,12 @@ fi
 # didn't finish) with what the listing showed. dc_successor_pending_msg
 # gives the sentence of the report's Successor pending: line, the one
 # dispatch-worker.sh's exit 12 prints; a row the settle left
-# dispatch-failed or stranded gets none, since the slot is free. A record
-# with no pending row gives the facts no successor, so its report is as
-# before.
+# dispatch-failed or stranded gets none, since the slot is free. A fact
+# with no listing (a held lock, an unreadable row, a settle that didn't
+# finish) means no listing was read this pass, so the sentence is the
+# unread one: it names the row as read and never says a session is live.
+# A record with no pending row gives the facts no successor, so its report
+# is as before.
 SUCC=null
 SREAD=$(wj -r '.record.successor // "" | strings') || die "the successor row could not be read from the work file"
 case "${SREAD%% *}" in
