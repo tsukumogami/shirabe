@@ -137,7 +137,9 @@ and `text`.
 Refusals:
 
 - exit 1 before any koto call in an unattended run (`KOTO_RUN_MODE=unattended`
-  or `CLAUDE_CODE_SESSION_ATTENDED=0`);
+  or `CLAUDE_CODE_SESSION_ATTENDED=0`). A skill started with `--auto` sets
+  neither, so this check can't see it; koto's own reading of the run mode
+  still applies;
 - exit 4 with `check: call` when no call carries the header, and with
   `check: record` when `CLAUDE_CONFIG_DIR` is set, since koto reads the record
   only from the default place. Either message says the question is still open

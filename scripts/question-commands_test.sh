@@ -29,8 +29,13 @@
 #     header is koto's prompt_header
 #   an answered prompt is recorded as the owner's, reads verified and is
 #     listed under answered until a decision cites it
-#   a prompt whose question text, option label or reply differs is refused
-#     with koto's check named, and the question stays open
+#   each check koto makes of the prompt refuses with its own name, nothing
+#     recorded, the question still open and no text of the record printed:
+#     call, question-text, options, result, time, session, sidechain,
+#     identity and call-position-reused
+#   a free-text reply is recorded verbatim; a second answer from a new prompt
+#     names the first in its basis; an identity no question has is refused
+#     with decision_not_found
 #   a twenty-first question for the owner is refused by koto
 #
 # Usage: bash scripts/question-commands_test.sh
@@ -260,14 +265,22 @@ harness_id() {
         | sed 's/^\(........\)\(....\)\(....\)\(....\)\(............\)$/\1-\2-\3-\4-\5/'
 }
 
-# record <render file> <harness id> <label picked> <mutation: none|text|label|reply>
+# record <render file> <harness id> <label picked> <mutation> [other]
+# Mutations: none; text (the question text one sentence longer); label (an
+# option label changed); reply (a reply not from the user); time (the call made
+# long before the question was raised); session (the record's lines name the
+# harness session given as [other]); sidechain (the call in a subagent's
+# conversation); header (the call shows [other], another question's header).
 record() {
     local now
     now=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
-    jq -c --slurpfile r "$1" --arg h "$2" --arg pick "$3" --arg mut "$4" --arg now "$now" '
+    [ "$4" = time ] && now="2020-01-01T00:00:00.000Z"
+    jq -c --slurpfile r "$1" --arg h "$2" --arg pick "$3" --arg mut "$4" --arg now "$now" \
+        --arg other "${5:-}" '
         ($r[0].prompts[0].questions) as $qs
         | (if $mut == "text" then ($qs | .[0].question += " Edited.")
            elif $mut == "label" then ($qs | .[0].options[0].label += " (Recommended)")
+           elif $mut == "header" then ($qs | .[0].header = $other)
            else $qs end) as $shown
         | if .type == "assistant" then
               .message.content[0].input.questions = $shown
@@ -277,7 +290,10 @@ record() {
               | .toolUseResult.answers = {($shown[0].question): $pick}
               | (if $mut == "reply" then .permissionDecision.source = "rule" else . end)
           end
-        | .timestamp = $now | .session_id = $h | .sessionId = $h' "$FIXTURE" > "$RECORDS/$2.jsonl"
+        | (if $mut == "sidechain" then .isSidechain = true else . end)
+        | .timestamp = $now
+        | (if $mut == "session" then .session_id = $other | .sessionId = $other
+           else .session_id = $h | .sessionId = $h end)' "$FIXTURE" > "$RECORDS/$2.jsonl"
 }
 
 # The call must come no earlier than the question was raised.
@@ -312,29 +328,105 @@ else
     fail "citing the answer failed: $(cat "$T/cite.err")"
 fi
 
+entries() { koto decisions list "$1" --format v1 2>/dev/null | cksum; }
+
+# refused_ok <what> <check> <question> <manager before> [open: 1|0] -> PASS/FAIL
+# on $T/r.out, $T/r.err and $RC: exit 4, the check named, nothing added to
+# manager, the question still open, and no text value of the harness record
+# (each one carries ZQX-MARKER) in anything printed. The call id is the
+# pointer's own part, which the command is given, so it may be named.
+refused_ok() {
+    local what=$1 check=$2 q=$3 before=$4 open=${5:-1}
+    if [ "$RC" -eq 4 ] && [ "$(jq -r '.error.code' "$T/r.out")" = prompt_unverified ] \
+        && [ "$(jq -r '.error.check' "$T/r.out")" = "$check" ] \
+        && [ "$(entries manager)" = "$before" ] \
+        && ! grep -q 'ZQX-MARKER' "$T/r.out" "$T/r.err" \
+        && { [ "$open" = 0 ] || "$SHIRABE" question pending --in solo \
+            | jq -e --arg q "$q" '[.questions[] | select(.identity == $q)] | length == 1' >/dev/null; }; then
+        pass "$what is refused with koto's '$check' check and nothing is recorded"
+    else
+        fail "$what: exit $RC, check $(jq -r '.error.check' "$T/r.out" 2>/dev/null), manager $(entries manager) (was $before): $(cat "$T/r.out" "$T/r.err")"
+    fi
+}
+
+# refused <mutation> <check> <label> <what> [other] [answer args...]
 # Each refusal on a question of its own, so no other check is reached first.
 refused() {
-    local mut=$1 check=$2 label=$3 s q h
-    content "$T/r-$mut.json" "$label" "Which store, case $mut?"
-    s=solo
-    raise "$s" "$T/r-$mut.json" --attempt "$(attempt "$s")"
+    local mut=$1 check=$2 label=$3 what=$4 other=${5:-} q h before
+    shift 5 2>/dev/null || shift $#
+    content "$T/r-$mut.json" "$label" "Which store, case $label?"
+    raise solo "$T/r-$mut.json" --attempt "$(attempt solo)"
     q=$(jq -r '.identity' "$T/raise.out")
     "$SHIRABE" question render "$q" >"$T/r-$mut.render" 2>/dev/null
     sleep 1
     h=$(harness_id)
-    record "$T/r-$mut.render" "$h" "SQLite" "$mut"
-    CLAUDE_CODE_SESSION_ID="$h" "$SHIRABE" question answer "$q" --in manager >"$T/r.out" 2>"$T/r.err"
+    record "$T/r-$mut.render" "$h" "SQLite" "$mut" "$other"
+    before=$(entries manager)
+    CLAUDE_CODE_SESSION_ID="$h" "$SHIRABE" question answer "$q" --in manager "$@" >"$T/r.out" 2>"$T/r.err"
     RC=$?
-    if [ "$RC" -eq 4 ] && [ "$(jq -r '.error.check' "$T/r.out")" = "$check" ] \
-        && "$SHIRABE" question pending --in "$s" | jq -e --arg q "$q" '[.questions[] | select(.identity == $q)] | length == 1' >/dev/null; then
-        pass "a prompt with a changed $mut is refused with koto's '$check' check and the question stays open"
-    else
-        fail "changed $mut: exit $RC, check $(jq -r '.error.check' "$T/r.out" 2>/dev/null): $(cat "$T/r.err")"
-    fi
+    refused_ok "$what" "$check" "$q" "$before"
 }
-refused text question-text "case text"
-refused label options "case label"
-refused reply result "case reply"
+CALL=toolu_ZQXMARKERcall000000000001
+refused text question-text "case text" "a prompt whose question text differs"
+refused label options "case label" "a prompt with an option label changed"
+refused reply result "case reply" "a reply not from the user"
+refused none call "case call" "a pointer to no such call" "" --call toolu_ZQXMARKERnosuchcall00001 --position 1
+refused time time "case time" "a call made before the question was raised"
+refused session session "case session" "a record naming another harness session" "$(harness_id)" --call "$CALL" --position 1
+refused sidechain sidechain "case sidechain" "a call in a subagent's conversation"
+refused header identity "case identity" "a call showing another question's header" "$SOLO_HEADER" --call "$CALL" --position 1
+
+# The prompt that answered the first question, pointed at again.
+before=$(entries manager)
+CLAUDE_CODE_SESSION_ID="$H" "$SHIRABE" question answer "$Q_SOLO" --in manager >"$T/r.out" 2>"$T/r.err"
+RC=$?
+refused_ok "a call and position an earlier answer used" call-position-reused "$Q_SOLO" "$before" 0
+
+# answer_fresh <question> <label picked> -> a new prompt answering it; output
+# in $T/a.out, exit in $RC.
+answer_fresh() {
+    local h
+    "$SHIRABE" question render "$1" >"$T/a.render" 2>/dev/null
+    sleep 1
+    h=$(harness_id)
+    record "$T/a.render" "$h" "$2" none
+    CLAUDE_CODE_SESSION_ID="$h" "$SHIRABE" question answer "$1" --in manager >"$T/a.out" 2>"$T/a.err"
+    RC=$?
+}
+
+# A reply typed into the prompt rather than chosen is recorded as typed.
+content "$T/free.json" "case free text" "Which store, case free text?"
+raise solo "$T/free.json" --attempt "$(attempt solo)"
+Q_FREE=$(jq -r '.identity' "$T/raise.out")
+FREE='Neither: keep the cache on the shared volume, "as is".'
+answer_fresh "$Q_FREE" "$FREE"
+if [ "$RC" -eq 0 ] && [ "$(jq -r '.text' "$T/a.out")" = "$FREE" ] \
+    && [ "$(jq -r '.reading' "$T/a.out")" = verified ]; then
+    pass "a free-text reply is recorded verbatim"
+else
+    fail "free-text reply: exit $RC: $(cat "$T/a.out" "$T/a.err")"
+fi
+
+# A second answer from a new prompt names the first in its basis.
+FIRST=$(jq -r '.id' "$T/a.out")
+answer_fresh "$Q_FREE" "Postgres"
+SECOND=$(jq -r '.id // empty' "$T/a.out")
+if [ "$RC" -eq 0 ] && [ -n "$SECOND" ] \
+    && koto decisions show manager "$SECOND" 2>/dev/null \
+        | jq -e --arg f "$FIRST" '[.. | strings | select(endswith(":" + $f) or . == $f)] | length >= 1' >/dev/null; then
+    pass "a second owner answer from a new prompt names the first in its basis"
+else
+    fail "second answer: exit $RC, first $FIRST: $(cat "$T/a.out" "$T/a.err"; koto decisions show manager "$SECOND" 2>&1 | head -c 800)"
+fi
+
+# An identity no question has.
+"$SHIRABE" question answer "${Q_SOLO%/*}/999999999999" --in manager >"$T/r.out" 2>"$T/r.err"
+RC=$?
+if [ "$RC" -eq 4 ] && [ "$(jq -r '.error.code' "$T/r.out")" = decision_not_found ]; then
+    pass "answer aimed at an identity that does not exist exits 4 with decision_not_found"
+else
+    fail "unknown identity: exit $RC: $(cat "$T/r.out" "$T/r.err")"
+fi
 
 # --- the twenty-question limit ---------------------------------------------
 
