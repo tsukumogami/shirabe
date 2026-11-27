@@ -52,7 +52,7 @@ command -v git >/dev/null 2>&1 || { echo "SKIP: git not on PATH"; exit 0; }
 # cap_of reads this line at the merge base as a bare CAP=<digits>: put any
 # note about a raise on a line above it, never after the number.
 CAP=8400
-STAND=/Users/someone/.claude/plugins/cache/shirabe/shirabe/0.000.000
+STAND=/opt/somewhere/.claude/plugins/cache/shirabe/shirabe/0.000.000
 PASS=0 FAIL=0
 pass() { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 fail() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
