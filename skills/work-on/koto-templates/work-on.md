@@ -298,10 +298,22 @@ variables:
     required: false
 
 states:
+  # decide_resume reads whether this session continues a run that ended at
+  # done_waiting (decide-first-gate.sh --resume). It exits 0 for every run
+  # that does not, so a fresh run starts as it always did; in a session that
+  # continues one it exits the code of the covered state the question's
+  # state names once a deciding attempt here cites the answer, and 1, with a
+  # finding, until then. An old plugin root without the script passes.
   entry:
     skip_if:
       vars.ISSUE_SOURCE: plan_outline
       mode: plan_backed
+      gates.decide_resume.exit_code: 0
+    gates:
+      decide_resume:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 0; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --resume "{{SESSION_NAME}}"'
+        overridable: false
     accepts:
       mode:
         type: enum
@@ -321,15 +333,40 @@ states:
       - target: context_injection
         when:
           mode: issue_backed
+          gates.decide_resume.exit_code: 0
       - target: task_validation
         when:
           mode: free_form
+          gates.decide_resume.exit_code: 0
       - target: plan_context_injection
         when:
           mode: plan_backed
+          gates.decide_resume.exit_code: 0
       - target: skipped_due_to_dep_failure
         when:
           mode: skipped
+          gates.decide_resume.exit_code: 0
+      - target: analysis
+        when:
+          gates.decide_resume.exit_code: 10
+      - target: implementation
+        when:
+          gates.decide_resume.exit_code: 11
+      - target: introspection
+        when:
+          gates.decide_resume.exit_code: 12
+      - target: task_validation
+        when:
+          gates.decide_resume.exit_code: 13
+      - target: post_research_validation
+        when:
+          gates.decide_resume.exit_code: 14
+      - target: plan_validation
+        when:
+          gates.decide_resume.exit_code: 15
+      - target: deferral_approval
+        when:
+          gates.decide_resume.exit_code: 16
 
   # await_removals holds a run before setup, whose baseline builds, while a
   # build-output removal is still deleting in this work tree
@@ -392,9 +429,12 @@ states:
       - target: research
         when:
           verdict: proceed
-      - target: validation_exit
+      - target: decide_first
         when:
           verdict: exit
+        context_assignments:
+          decide_origin: task_validation
+          decide_fresh: "yes"
 
   validation_exit:
     terminal: true
@@ -434,12 +474,18 @@ states:
         when:
           verdict: ready
           gates.await_removals.exit_code: 0
-      - target: validation_exit
+      - target: decide_first
         when:
           verdict: needs_design
-      - target: validation_exit
+        context_assignments:
+          decide_origin: post_research_validation
+          decide_fresh: "yes"
+      - target: decide_first
         when:
           verdict: exit
+        context_assignments:
+          decide_origin: post_research_validation
+          decide_fresh: "yes"
 
   # The setup_issue_backed and setup_free_form directives in the body below are
   # word-for-word twins; an edit to one belongs in the other.
@@ -614,9 +660,12 @@ states:
         when:
           verdict: proceed
           gates.step_detail.exit_code: 0
-      - target: validation_exit
+      - target: decide_first
         when:
           verdict: exit
+        context_assignments:
+          decide_origin: plan_validation
+          decide_fresh: "yes"
 
   setup_plan_backed:
     # A key in skip_if that isn't a vars. key must already be in the state's
@@ -745,11 +794,13 @@ states:
         type: string
         description: What changed or why the issue is superseded
     transitions:
-      - target: done_blocked
+      - target: decide_first
         when:
           introspection_outcome: issue_superseded
         context_assignments:
           failure_reason: "issue superseded: ${evidence.rationale}"
+          decide_origin: introspection
+          decide_fresh: "yes"
       - target: analysis
         when:
           introspection_outcome: approach_unchanged
@@ -853,16 +904,20 @@ states:
       - target: analysis
         when:
           plan_outcome: scope_changed_retry
-      - target: done_blocked
+      - target: decide_first
         when:
           plan_outcome: scope_changed_escalate
         context_assignments:
           failure_reason: "scope changed: escalation required: ${evidence.approach_summary}"
-      - target: done_blocked
+          decide_origin: analysis
+          decide_fresh: "yes"
+      - target: decide_first
         when:
           plan_outcome: blocked_missing_context
         context_assignments:
           failure_reason: "analysis blocked: missing context: ${evidence.approach_summary}"
+          decide_origin: analysis
+          decide_fresh: "yes"
 
   # The live offload canary (DESIGN-offload-live-canary.md). The
   # draw records the run's group in the session directory and prints the
@@ -1234,16 +1289,20 @@ states:
       - target: analysis
         when:
           implementation_status: scope_expanded_retry
-      - target: done_blocked
+      - target: decide_first
         when:
           implementation_status: partial_tests_failing_escalate
         context_assignments:
           failure_reason: "implementation blocked: ${evidence.rationale}"
-      - target: done_blocked
+          decide_origin: implementation
+          decide_fresh: "yes"
+      - target: decide_first
         when:
           implementation_status: blocked
         context_assignments:
           failure_reason: "implementation blocked: ${evidence.rationale}"
+          decide_origin: implementation
+          decide_fresh: "yes"
 
   changed_paths_record:
     # Mechanical, and normally invisible. The action writes changed_paths.txt
@@ -2926,12 +2985,20 @@ states:
 
   deferral_approval:
     # Blocking human-approval gate for a deferred acceptance criterion (Decision E,
-    # PRD R4/R5). The agent halts here and surfaces the unmet criterion to the human.
-    # The human's decision is the evidence:
+    # PRD R4/R5). The halt is needs_answer, which routes to decide_first: the
+    # unmet criterion becomes a question there, and the person's decision is
+    # its answer. answer_cited holds approved and rejected until the run's
+    # record has, for this arrival, a deciding attempt whose basis names an
+    # answer in effect (decide-first-gate.sh --approval), so an approval rests
+    # on an answer someone other than the run gave:
     #   approved -> record the deferral via `koto decisions record`, then proceed to PR
     #               with the deferral recorded in the audit trail (and PR body).
     #   rejected -> the issue is not done; route to the non-clean done_blocked terminal.
     gates:
+      answer_cited:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --approval "{{SESSION_NAME}}"'
+        overridable: false
       summary_exists:
         type: context-exists
         key: summary.md
@@ -2956,7 +3023,7 @@ states:
     accepts:
       approval_decision:
         type: enum
-        values: [approved, rejected]
+        values: [approved, rejected, needs_answer]
         required: true
       cleanup_done:
         type: enum
@@ -2990,6 +3057,7 @@ states:
           gates.cleanup_referent.exit_code: 0
           gates.diagram_referent.exit_code: 0
           gates.commit_convention.exit_code: 0
+          gates.answer_cited.exit_code: 0
       - target: pr_precheck
         when:
           approval_decision: approved
@@ -3000,6 +3068,7 @@ states:
           gates.cleanup_referent.exit_code: 0
           gates.diagram_referent.exit_code: 0
           gates.commit_convention.exit_code: 0
+          gates.answer_cited.exit_code: 0
       - target: pr_precheck
         when:
           approval_decision: approved
@@ -3010,6 +3079,7 @@ states:
           gates.cleanup_referent.exit_code: 0
           gates.diagram_referent.exit_code: 0
           gates.commit_convention.exit_code: 0
+          gates.answer_cited.exit_code: 0
       - target: pr_precheck
         when:
           approval_decision: approved
@@ -3020,11 +3090,157 @@ states:
           gates.cleanup_referent.exit_code: 0
           gates.diagram_referent.exit_code: 0
           gates.commit_convention.exit_code: 0
+          gates.answer_cited.exit_code: 0
       - target: done_blocked
         when:
           approval_decision: rejected
+          gates.answer_cited.exit_code: 0
         context_assignments:
           failure_reason: "deferral rejected by human: ${evidence.deferral_detail}"
+      - target: decide_first
+        when:
+          approval_decision: needs_answer
+        context_assignments:
+          decide_origin: deferral_approval
+          decide_fresh: "yes"
+
+  # decide_first stands in front of every covered exit: the ten edges above
+  # that used to end the run at done_blocked or validation_exit when it could
+  # not settle something. The run leaves only once koto holds an attempt for
+  # this arrival (attempt_recorded, which cannot be overridden). A deciding
+  # attempt submits decided: resume goes back to the state the run left, and
+  # stop takes the exit it was about to take, to the same terminal, with the
+  # failure_reason the covered edge already wrote. An undecided attempt with
+  # the question it raised submits raised and ends at done_waiting. decide_from
+  # exits the code of decide_origin, so each edge pairs the outcome with the
+  # origin; deferral_approval has no stop edge, since its rejected edge is
+  # where that run stops. The default action counts the arrival and names it
+  # (decide-first-gate.sh --arrive); a failing gate's ::koto-finding:: line
+  # says what is missing.
+  decide_first:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --arrive "{{SESSION_NAME}}"'
+      capture_stdout_as: DECIDE_ARRIVAL
+      fallback: >-
+        koto could not name this arrival at decide_first. Read the command's
+        own output above: decide-first-gate.sh exits 2 when koto is missing,
+        a context read or write failed, or decide_origin names no covered
+        state. Stop and report it; do not submit an outcome without an
+        arrival name.
+    gates:
+      attempt_recorded:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" "{{SESSION_NAME}}"'
+        overridable: false
+      decide_from:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --from "{{SESSION_NAME}}"'
+        overridable: false
+    accepts:
+      decide_outcome:
+        type: enum
+        values: [decided, raised]
+        required: true
+      decided_next:
+        type: enum
+        values: [resume, stop]
+        description: >-
+          With decided: resume goes back to the state the run left, stop takes
+          the exit it was about to take.
+    transitions:
+      - target: done_waiting
+        when:
+          decide_outcome: raised
+          gates.attempt_recorded.exit_code: 3
+      - target: analysis
+        when:
+          decide_outcome: decided
+          decided_next: resume
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 10
+      - target: implementation
+        when:
+          decide_outcome: decided
+          decided_next: resume
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 11
+      - target: introspection
+        when:
+          decide_outcome: decided
+          decided_next: resume
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 12
+      - target: task_validation
+        when:
+          decide_outcome: decided
+          decided_next: resume
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 13
+      - target: post_research_validation
+        when:
+          decide_outcome: decided
+          decided_next: resume
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 14
+      - target: plan_validation
+        when:
+          decide_outcome: decided
+          decided_next: resume
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 15
+      - target: deferral_approval
+        when:
+          decide_outcome: decided
+          decided_next: resume
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 16
+      - target: done_blocked
+        when:
+          decide_outcome: decided
+          decided_next: stop
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 10
+      - target: done_blocked
+        when:
+          decide_outcome: decided
+          decided_next: stop
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 11
+      - target: done_blocked
+        when:
+          decide_outcome: decided
+          decided_next: stop
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 12
+      - target: validation_exit
+        when:
+          decide_outcome: decided
+          decided_next: stop
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 13
+      - target: validation_exit
+        when:
+          decide_outcome: decided
+          decided_next: stop
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 14
+      - target: validation_exit
+        when:
+          decide_outcome: decided
+          decided_next: stop
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 15
+
+  # The run is waiting on the question it raised at decide_first. failure is
+  # true so a caller not taught this terminal reads it as it reads a blocked
+  # run, never as success; the result names the question, with no free-text
+  # reason. A session continuing the run (work-on-open.sh, through koto's
+  # succession) is held at entry until it cites the answer.
+  done_waiting:
+    terminal: true
+    failure: true
+    result:
+      question: "${context.decide_question}"
 
   pr_precheck:
     # The single edge into pr_creation, so the branch is read once here instead
@@ -5184,7 +5400,12 @@ Evidence schema:
 
 A blocking human-approval gate for a deferred acceptance criterion. You arrive here
 because finalization reported `deferral_requested` — an acceptance criterion is unmet.
-Halt and surface the specific unmet criterion to the human as an explicit decision.
+The decision is the person's, not yours. Unless your record already holds a
+deciding attempt for this deferral that cites their answer, submit
+`approval_decision: needs_answer`: the run goes to `decide_first`, where the unmet
+criterion is put to them as a question, and comes back here once it is answered.
+`approved` and `rejected` hold, naming `answer_cited`, until a deciding attempt
+cites an answer in effect.
 
 - If the human **approves** the deferral: record it as their decision. Write
   `{"choice": "...", "rationale": "...", "alternatives_considered": ["..."]}` to
@@ -5217,10 +5438,47 @@ Halt and surface the specific unmet criterion to the human as an explicit decisi
   `approval_decision: rejected` with `deferral_detail` — this routes to `done_blocked`.
 
 Evidence schema:
-- `approval_decision`: `approved` or `rejected`
+- `approval_decision`: `approved`, `rejected`, or `needs_answer` to put the deferral
+  to the person first
 - `cleanup_done` and `design_diagram`, with `approved`, as `finalization` takes them
   with `ready_for_pr`; an approval without them holds
 - `deferral_detail`: the unmet criterion and the human's rationale
+
+## decide_first
+
+You were about to leave this run without settling something. This is arrival
+`{{DECIDE_ARRIVAL}}`: pass it as `--state` to every command below. Follow
+`{{PLUGIN_ROOT}}/references/question-procedure.md`; it says when the run settles
+the matter itself and when it asks, and what each command takes. The commands
+here are:
+
+- `shirabe question precedent --in {{SESSION_NAME}} --label <label>`: an answer
+  already given in this run's chain, read before anything is raised.
+- `shirabe question attempt --in {{SESSION_NAME}} --state {{DECIDE_ARRIVAL}} ...`:
+  your attempt for this arrival, required before you leave.
+- `shirabe question raise --in {{SESSION_NAME}} --attempt <id> --state {{DECIDE_ARRIVAL}} ...`:
+  the one question, when the attempt is undecided.
+
+Then submit:
+
+- `decide_outcome: decided` with `decided_next: resume` to go back to the state
+  you left and carry on, or `decided_next: stop` to take the exit you were
+  about to take, when stopping is the session's own call. Needs a decided or
+  provisional attempt for this arrival. An arrival from `deferral_approval`
+  has no stop: resume, and settle the deferral there.
+- `decide_outcome: raised` once the undecided attempt and its open question are
+  on the record. The run ends at `done_waiting`, waiting on that question.
+
+In a turn a person started, after raising, present the question to them:
+`shirabe question render`, open the question prompt with what it printed,
+record their reply with `shirabe question answer <identity> --in <session>`,
+naming the session the prompt was opened from, never this run's: koto records
+an answer where it was given. Then record a deciding attempt citing that
+answer and submit `decided`. In any other turn, and in
+every unattended run, open no prompt and submit `raised`.
+
+`attempt_recorded` holds the submission when the record does not match it,
+and its finding says what is missing; it cannot be overridden.
 
 ## pr_precheck
 
@@ -5738,6 +5996,14 @@ back to the originating state. `koto rewind` rewinds one step per call; call
 it repeatedly to reach a non-adjacent origin state. For example, if blocked
 from ci_monitor, one rewind reaches pr_creation; from analysis, one rewind
 reaches the previous state in the path.
+
+## done_waiting
+
+The run is waiting on the question it raised; the result names it. Do not
+start this work again fresh. Once the question is answered, invoking `/work-on`
+again continues this run with the answer in hand. If the answer is no longer
+needed, withdraw it with `shirabe question withdraw <identity> --in <session>
+--reason <why>`.
 
 ## skipped_due_to_dep_failure
 

@@ -165,3 +165,9 @@ issue's shipped artifacts is legitimate only where it records a human-approved d
 If you find yourself writing one, the matching acceptance criterion is unmet: submit
 `deferral_requested` and take it through the `deferral_approval` gate rather than
 shipping the caveat unapproved.
+
+At `deferral_approval`, `approved` and `rejected` rest on an answer someone
+other than the run gave: both hold until a deciding attempt for the arrival
+cites an answer in effect. With no such answer yet, submit
+`approval_decision: needs_answer`, which goes to `decide_first` to read
+precedent or raise the question.

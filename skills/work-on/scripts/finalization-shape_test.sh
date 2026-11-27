@@ -61,6 +61,11 @@ ktg_on_exit cleanup
 export HOME="$WORKDIR/home"
 export XDG_STATE_HOME="$WORKDIR/state"
 mkdir -p "$HOME"
+# deferral_approval's answer_cited gate holds approved until an answer is
+# cited; cite_deferral provides one, and df_setup puts the shirabe it needs on
+# PATH. Without that shirabe the deferral cases fail, saying so.
+. "$SCRIPT_DIR/fixtures/decide-first/testlib.sh"
+df_setup "$WORKDIR" || echo "the deferral cases will fail: no shirabe with question precedent"
 
 # koto rejects a variable value outside ^[a-zA-Z0-9._/:@ \-]*$, so a checkout
 # under such a path is reached through a symlink (as in retry-clearing_test.sh).
@@ -343,6 +348,7 @@ if to_finalization defer; then
     submit defer '{"finalization_status":"deferral_requested"}'
     if [ "$NEXT_STATE" = deferral_approval ]; then
         pass "deferral_requested reaches deferral_approval with a malformed summary and no pre_pr.md"
+        cite_deferral defer || fail "defer: no answer could be cited for the deferral"
         put defer pre_pr.md "$GOOD_PREPR"
         submit defer '{"approval_decision":"approved","deferral_detail":"x","cleanup_done":"none_found","design_diagram":"not_applicable"}'
         if [ "$NEXT_STATE" = deferral_approval ] && names_gate summary_shape; then
@@ -369,6 +375,7 @@ if to_finalization noenum; then
     put noenum summary.md "$GOOD_SUMMARY"
     put noenum pre_pr.md "$GOOD_PREPR"
     submit noenum '{"finalization_status":"deferral_requested"}'
+    cite_deferral noenum || fail "noenum: no answer could be cited for the deferral"
     submit noenum '{"approval_decision":"approved","deferral_detail":"x"}'
     if [ "$NEXT_STATE" = deferral_approval ]; then
         pass "approved without cleanup_done and design_diagram holds at deferral_approval"
@@ -384,6 +391,7 @@ if to_finalization noenum; then
 fi
 if to_finalization reject; then
     submit reject '{"finalization_status":"deferral_requested"}'
+    cite_deferral reject || fail "reject: no answer could be cited for the deferral"
     submit reject '{"approval_decision":"rejected","deferral_detail":"x"}'
     if [ "$NEXT_STATE" = done_blocked ]; then
         pass "rejected still reaches done_blocked with neither artifact written"

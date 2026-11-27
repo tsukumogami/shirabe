@@ -87,11 +87,13 @@ session recording `decided` for a matter it should have raised.
 ### 2. Read the owner's earlier answers for the subject
 
 ```bash
-koto decisions precedent --person owner --chain <session> [--label <label>]
+shirabe question precedent --in <session> [--label <label>]
 ```
 
-When an earlier answer covers the case, settle the question from it and
-record a decision whose `--basis` names that answer. Deciding that an answer
+It reads `koto decisions precedent --person owner --chain <session>` and
+lists each verified answer with the `basis` to cite. When an earlier answer
+covers the case, settle the question from it and record a deciding attempt
+whose `--basis` names that answer. Deciding that an answer
 covers the case is the session's own judgment; reusing it binds nobody else.
 
 ### 3. Sort the question by who it belongs to
@@ -142,6 +144,11 @@ them: koto compares them with the stored question when the answer is
 recorded. A session that cannot open a prompt leaves the question waiting and
 carries on with work that does not depend on it; the `text` form is for
 reading, not for asking.
+
+A question whose answer is no longer needed is closed, not left open:
+`shirabe question withdraw <identity> --in <session> --reason <why>`. koto
+keeps a session that holds an open question past cleanup, so a waiting run
+that will never be continued is withdrawn first.
 
 ### 6. Record the owner's answer through `answer`, and a relayed claim as the session's own
 

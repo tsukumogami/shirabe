@@ -176,6 +176,28 @@ koto	decisions record	--with-data	always
 koto	overrides list	-	always
 koto	overrides record	--gate,--rationale,--by,--surface,--link	always
 koto	decider answer	--gate,--criterion,--answer	always
+# decide_first (scripts/decide-first-gate.sh, koto's default action and three
+# command gates) reads the run's record: `decisions attempts --in` for the
+# arrival's attempt, `decisions show` for an attempt's basis, `decisions list
+# --format v1 --kind escalate` for the open question naming it, and `decisions
+# history` for whether a question is still open. Its directive has the agent run
+# the `shirabe question` subcommands below. A waiting run is continued by
+# work-on-open.sh --continue-waiting: `session hierarchy --json` finds the
+# newest session in the run's chain, and the init records the succession. That
+# init runs only on a continued run, so it is declared under its own mode and
+# checked by `skill-preflight.sh work-on --mode continue-waiting` before the open.
+koto	decisions attempts	--in	always
+koto	decisions show	-	always
+koto	decisions list	--format,--kind	always
+koto	decisions history	-	always
+koto	session hierarchy	--json	always
+koto	init	--template,--vars-file,--continues,--supersede,--carry,--expect-state	mode:continue-waiting
+shirabe	question precedent	--in,--label,--help	always
+shirabe	question attempt	--in,--state,--result,--basis,--chosen	always
+shirabe	question raise	--in,--attempt,--state	always
+shirabe	question render	-	always
+shirabe	question answer	-	always
+shirabe	question withdraw	--in,--reason	always
 shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--pr-body,--pr-title,--writing-style,--visibility	always
 shirabe	finalize-chain	-	always
 shirabe	transition	-	always
@@ -184,3 +206,6 @@ git	-	-	always
 jq	-	-	always
 ps	-	-	always
 python3	-	-	always
+#not-a-call-site	skills/work-on/scripts/fixtures/decide-first/testlib.sh	koto	--text	a test fixture sourced by the route suites, never by a run
+#not-a-call-site	skills/work-on/scripts/fixtures/decide-first/testlib.sh	shirabe	--content	a test fixture sourced by the route suites, never by a run
+#not-a-call-site	skills/work-on/scripts/fixtures/decide-first/testlib.sh	shirabe	--what	a test fixture sourced by the route suites, never by a run

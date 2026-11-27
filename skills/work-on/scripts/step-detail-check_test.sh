@@ -17,7 +17,8 @@
 #
 # Engine cases (koto): the shipped work-on.md driven through plan_validation
 # on an outline step (the gate fails with the refusal line, proceed is
-# refused, exit reaches validation_exit), then the same child, rewound after
+# refused, exit reaches decide_first and a decided stop there reaches
+# validation_exit), then the same child, rewound after
 # the plan's owner commits the step's detail, passes the gate and proceeds;
 # a plan/v1 task, which the gate passes without reading the plan; and a child
 # initialized with exactly the vars /execute's spawn line (read from the
@@ -79,6 +80,10 @@ ktg_on_exit cleanup
 export HOME="$WORKDIR/home"
 export XDG_STATE_HOME="$WORKDIR/state"
 mkdir -p "$HOME"
+# plan_validation's exit goes to decide_first, which lets the run stop only
+# with an attempt recorded for the arrival; decided_stop records one.
+. "$SCRIPT_DIR/fixtures/decide-first/testlib.sh"
+df_setup "$WORKDIR" || echo "the exit case will fail: no shirabe with question precedent"
 export GIT_CONFIG_NOSYSTEM=1
 git config --global user.email t@example.com
 git config --global user.name t
@@ -347,8 +352,12 @@ else
     [ "$STATE" = plan_validation ] && pass "proceed is refused while the step is an outline" \
         || fail "proceed on an outline step reached [$STATE]"
     tick s-outline "$(jq -cn --arg m "$MSG" '{verdict: "exit", rationale: $m}')"
-    [ "$STATE" = validation_exit ] && pass "verdict exit with the refusal line reaches validation_exit" \
+    [ "$STATE" = decide_first ] && pass "verdict exit with the refusal line reaches decide_first" \
         || fail "exit reached [$STATE]"
+    (cd "$ER" && PATH="$ENGINE_PATH" decided_stop s-outline) || fail "s-outline: the stop at decide_first was not taken"
+    STATE=$(cd "$ER" && koto status s-outline | jq -r '.current_state // empty')
+    [ "$STATE" = validation_exit ] && pass "a decided stop there reaches validation_exit" \
+        || fail "the decided stop reached [$STATE]"
 
     # The plan's owner details step 3 in a commit of its own; the same child,
     # run again from plan_validation, reads the plan as committed now.
@@ -374,8 +383,15 @@ else
     else
         fail "the detailed plan does not validate"
     fi
-    (cd "$ER" && koto rewind s-outline) >/dev/null 2>&1
-    tick s-outline
+    # The exit now passes decide_first, so a rewind lands there, not at
+    # plan_validation (a second rewind goes forward again: koto rewinds to the
+    # state before the current one in the log). The stop's decided attempt
+    # for the arrival is on the record, so decided with resume goes back.
+    (cd "$ER" && koto rewind s-outline) > /dev/null 2>"$WORKDIR/rewind.err" \
+        || fail "koto rewind s-outline: $(cat "$WORKDIR/rewind.err")"
+    REWOUND=$(cd "$ER" && koto status s-outline | jq -r '.current_state // empty')
+    [ "$REWOUND" = decide_first ] && pass "the rewind lands at decide_first" || fail "the rewind landed at [$REWOUND]"
+    tick s-outline '{"decide_outcome":"decided","decided_next":"resume"}'
     MSG=$(gate_message)
     if [ "$STATE" = plan_validation ] && [ -z "$MSG" ]; then
         pass "after the detail commit, the same child's gate passes"

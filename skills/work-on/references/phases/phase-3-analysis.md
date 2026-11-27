@@ -78,6 +78,11 @@ enough that the main agent writes it directly:
    deleted after ingestion (see `../koto-context-conventions.md`).
 4. Proceed to phase 4 with `plan_outcome: plan_ready`.
 
+`plan_outcome: scope_changed_escalate` and `blocked_missing_context` go to
+`decide_first` rather than ending the run: record an attempt to settle what is
+missing there, then resume analysis, stop at `done_blocked`, or raise a
+question and end at `done_waiting` (SKILL.md, **Deciding Before Stopping**).
+
 Delegate for simplified plans only when the main agent's context is genuinely
 too limited to write the plan accurately (e.g., resuming a session with no
 prior context on the issue).

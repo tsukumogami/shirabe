@@ -80,6 +80,14 @@ enum QuestionCommands {
     /// unattended run, provisional. Prints the attempt's id, session, result
     /// and state as one JSON object.
     Attempt(AttemptArgs),
+    /// List the owner's answers in effect in a session's chain, for a label
+    /// or for every label, each with the `<session>:<id>` form `--basis`
+    /// takes. Reads only.
+    Precedent(PrecedentArgs),
+    /// Withdraw an open question the session raised, or one raised by a
+    /// session it continues, with a reason. Nothing is answered: the question
+    /// is closed as withdrawn.
+    Withdraw(WithdrawArgs),
 }
 
 #[derive(Args)]
@@ -189,6 +197,30 @@ struct AttemptArgs {
     /// Repeatable.
     #[arg(long, value_name = "SESSION:ID")]
     basis: Vec<String>,
+}
+
+#[derive(Args)]
+struct PrecedentArgs {
+    /// The session whose chain is read.
+    #[arg(long = "in", value_name = "SESSION")]
+    in_: String,
+    /// List only the answers to questions raised under this label. Without
+    /// it, every answer in effect.
+    #[arg(long, value_name = "TEXT")]
+    label: Option<String>,
+}
+
+#[derive(Args)]
+struct WithdrawArgs {
+    /// The question's identity, <raiser session id>/<decision id>.
+    #[arg(value_name = "IDENTITY")]
+    identity: String,
+    /// The session withdrawing it: the raiser, or a session continuing it.
+    #[arg(long = "in", value_name = "SESSION")]
+    in_: String,
+    /// Why the answer is no longer needed. Required and not empty.
+    #[arg(long, value_name = "TEXT")]
+    reason: Option<String>,
 }
 
 /// The run mode a session reads as, from the environment the harness and
@@ -315,6 +347,8 @@ pub fn run(args: QuestionArgs) -> ExitCode {
         QuestionCommands::Render(a) => ("render", render_cmd(&a)),
         QuestionCommands::Answer(a) => ("answer", answer_cmd(&a)),
         QuestionCommands::Attempt(a) => ("attempt", attempt_cmd(&a)),
+        QuestionCommands::Precedent(a) => ("precedent", precedent_cmd(&a)),
+        QuestionCommands::Withdraw(a) => ("withdraw", withdraw_cmd(&a)),
     };
     match result {
         Ok(v) => {
@@ -1399,6 +1433,127 @@ fn attempt_cmd(a: &AttemptArgs) -> Result<Value, Failure> {
         ground: a.ground.as_deref(),
         basis: &a.basis,
     })
+}
+
+// ---------------------------------------------------------------------------
+// precedent
+
+/// The answer fields `precedent` prints, from one element of koto's
+/// `decisions precedent` output. koto lists only a person's answers in effect
+/// in the chain, each with its reading; an element that is not `verified`, or
+/// that lacks a field, is left out rather than printed half-formed.
+fn precedent_entry(a: &Value) -> Option<Value> {
+    let s = |k: &str| a.get(k).and_then(Value::as_str);
+    if s("reading") != Some("verified") {
+        return None;
+    }
+    let (identity, session, id) = (s("identity")?, s("session")?, s("id")?);
+    Some(json!({
+        "identity": identity,
+        "label": s("label"),
+        "text": s("text"),
+        "session": session,
+        "id": id,
+        "basis": format!("{session}:{id}"),
+        "reading": "verified",
+    }))
+}
+
+fn precedent_cmd(a: &PrecedentArgs) -> Result<Value, Failure> {
+    check_name("in", "--in", &a.in_)?;
+    if let Some(l) = &a.label {
+        if l.trim().is_empty() {
+            return Err(Failure::refused(
+                "label",
+                "--label is empty; give the label the question was raised under, or leave --label out for every answer",
+            ));
+        }
+    }
+    koto::check_version()?;
+    let chain_arg = format!("--chain={}", a.in_);
+    let label_arg = a.label.as_ref().map(|l| format!("--label={l}"));
+    let mut args = vec![
+        "decisions",
+        "precedent",
+        "--person=owner",
+        chain_arg.as_str(),
+    ];
+    if let Some(l) = &label_arg {
+        args.push(l.as_str());
+    }
+    let prec = koto::run(&args)?;
+    let mut answers: Vec<Value> = prec
+        .get("answers")
+        .and_then(Value::as_array)
+        .map(|v| v.iter().filter_map(precedent_entry).collect())
+        .unwrap_or_default();
+    // Sorted on stable fields, so two reads of the same record print the
+    // same bytes whatever order koto lists them in.
+    let key = |v: &Value| {
+        (
+            v["identity"].as_str().unwrap_or_default().to_string(),
+            v["basis"].as_str().unwrap_or_default().to_string(),
+        )
+    };
+    answers.sort_by_key(key);
+    answers.dedup();
+    Ok(json!({
+        "v": 1,
+        "in": a.in_,
+        "label": a.label,
+        "answers": answers,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// withdraw
+
+fn withdraw_cmd(a: &WithdrawArgs) -> Result<Value, Failure> {
+    check_name("in", "--in", &a.in_)?;
+    check_identity(&a.identity)?;
+    let reason = match a.reason.as_deref().map(str::trim) {
+        Some(r) if !r.is_empty() => r.to_string(),
+        _ => return Err(Failure::refused(
+            "reason",
+            "withdraw needs --reason: say why the answer is no longer needed; nothing was recorded",
+        )),
+    };
+    koto::check_version()?;
+    // The identity names the raiser by session id; koto's answer takes the
+    // raiser's name and the decision id, which its history gives. An identity
+    // no session holds is koto's decision_not_found, passed through. Who may
+    // withdraw (the raiser or a session continuing it) and whether the
+    // question is still open are koto's checks, and its refusals pass through
+    // with exit 4.
+    let h = History::read(&a.identity)?;
+    let (raiser, id) = (h.raiser(), h.id());
+    let in_arg = format!("--in={}", a.in_);
+    let reason_arg = format!("--reason={reason}");
+    let rec = koto::run(&[
+        "decisions",
+        "answer",
+        &in_arg,
+        "--outcome=withdrawn",
+        &reason_arg,
+        "--by=session",
+        "--",
+        &raiser,
+        &id,
+    ])?;
+    let entry = rec
+        .pointer("/decision/id")
+        .or_else(|| rec.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    Ok(json!({
+        "v": 1,
+        "identity": a.identity,
+        "in": a.in_,
+        "outcome": "withdrawn",
+        "entry": format!("{}:{entry}", a.in_),
+        "reason": reason,
+    }))
 }
 
 fn answer_cmd(a: &AnswerArgs) -> Result<Value, Failure> {

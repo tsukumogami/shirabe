@@ -49,7 +49,8 @@
 #     an issue-backed run opened under --koto-leg is bound to the leg, driven
 #       to done_blocked, and the leg reads back the promoted result: status
 #       failure, final state done_blocked
-#     a free-form run driven to validation_exit: status success, final state
+#     a free-form run driven through decide_first, with a decided attempt and
+#       stop, to validation_exit: status success, final state
 #       validation_exit
 #     a session opened without the flag (the plain open SKILL.md uses) is
 #       new; a second plain open of the live session is refused and leaves it
@@ -112,6 +113,10 @@ WORK=$(cd -P "$WORK" && pwd -P) || exit 1
 ktg_on_exit 'case "$WORK" in */work-on-open-test.*) rm -rf "$WORK" ;; esac'
 export HOME="$WORK/home"
 mkdir -p "$HOME"
+# task_validation's exit goes to decide_first, which lets the run stop only
+# with an attempt recorded for the arrival; decided_stop records one.
+. "$SCRIPT_DIR/fixtures/decide-first/testlib.sh"
+df_setup "$WORK" || echo "the free-form exit case will fail: no shirabe with question precedent"
 export GIT_CEILING_DIRECTORIES="$WORK"
 
 FIXREPO="$WORK/repo"
@@ -799,10 +804,19 @@ eq "the leg's status is failure" '"failure"' "$(leg "$REQ" .result.status)"
 
 # A free-form run, driven to validation_exit.
 REQ=$(new_request '{}')
-run_open task_ff "[\"tidy notes.md\",\"--koto-leg\",\"$REQ:work-on\"]" --var ARTIFACT_PREFIX=task_ff
+# decide_first's default action runs decide-first-gate.sh from PLUGIN_ROOT,
+# so this run is opened with the real plugin root, not /koto-probe; a checkout
+# whose path koto would refuse as a variable is reached through a symlink.
+FF_ROOT=$REPO_ROOT
+case "$FF_ROOT" in
+    *[!a-zA-Z0-9._/:@+\ -]*) ln -s "$FF_ROOT" "$WORK/plugin"; FF_ROOT="$WORK/plugin" ;;
+esac
+CLAUDE_PLUGIN_ROOT=$FF_ROOT run_open task_ff "[\"tidy notes.md\",\"--koto-leg\",\"$REQ:work-on\"]" --var ARTIFACT_PREFIX=task_ff
 eq "free-form under --koto-leg: exit 0" 0 "$RC"
 tick task_ff --with-data '{"mode":"free_form","task_description":"do a thing"}'
 tick task_ff --with-data '{"verdict":"exit","rationale":"not needed"}'
+eq "exit goes to decide_first" decide_first "$(state_of task_ff)"
+(cd "$FIXREPO" && decided_stop task_ff) || fail "task_ff: the stop at decide_first was not taken"
 eq "the run ends at validation_exit" validation_exit "$(state_of task_ff)"
 eq "the leg records the terminal state" '"validation_exit"' "$(leg "$REQ" .result_final_state)"
 eq "the leg's status is success" '"success"' "$(leg "$REQ" .result.status)"

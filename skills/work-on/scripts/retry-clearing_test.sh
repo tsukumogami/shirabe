@@ -96,6 +96,11 @@ export HOME="$WORKDIR/home"
 # The verification runner keeps its results under the state directory.
 export XDG_STATE_HOME="$WORKDIR/state"
 mkdir -p "$HOME"
+# deferral_approval's answer_cited gate holds approved and rejected until an
+# answer is cited; cite_deferral provides one, and df_setup puts the shirabe it
+# needs on PATH. Without that shirabe the deferral cases fail, saying so.
+. "$SCRIPT_DIR/fixtures/decide-first/testlib.sh"
+df_setup "$WORKDIR" || echo "the deferral cases will fail: no shirabe with question precedent"
 
 case "$PLUGIN_ROOT" in
     *[!a-zA-Z0-9._/:@\ -]*)
@@ -462,6 +467,7 @@ to_finalization defer-hold
 seed_finishing defer-hold
 submit defer-hold '{"finalization_status":"deferral_requested"}'
 if [ "$NEXT_STATE" = "deferral_approval" ]; then
+    cite_deferral defer-hold || fail "defer-hold: no answer could be cited for the deferral"
     koto context remove defer-hold summary.md >/dev/null 2>&1
     submit defer-hold '{"approval_decision":"approved","cleanup_done":"none_found","design_diagram":"not_applicable"}'
     if [ "$NEXT_STATE" = "deferral_approval" ]; then
@@ -491,6 +497,7 @@ if [ "$NEXT_STATE" = "deferral_approval" ]; then
     to_finalization defer-reject
     seed defer-reject summary.md
     submit defer-reject '{"finalization_status":"deferral_requested"}'
+    cite_deferral defer-reject || fail "defer-reject: no answer could be cited for the deferral"
     koto context remove defer-reject summary.md >/dev/null 2>&1
     submit defer-reject '{"approval_decision":"rejected","deferral_detail":"x"}'
     if [ "$NEXT_STATE" = "done_blocked" ]; then
@@ -1025,31 +1032,34 @@ else
 fi
 
 # The other three escalate exits, on a store that is writable -- the transitions
-# carry no gate reference, and this is the check that keeps that true.
+# carry no gate reference, and this is the check that keeps that true. Each now
+# goes to decide_first, where the run records an attempt before it stops
+# (decide-first-routes_test.sh drives the stop); reaching it with plan.md
+# absent is what this case pins.
 echo "--- Case 14b: the remaining escalate exits stay reachable"
 
 to_analysis esc-analysis
 submit esc-analysis '{"plan_outcome":"scope_changed_escalate"}'
-if [ "$NEXT_STATE" = "done_blocked" ]; then
-    pass "analysis: scope_changed_escalate reaches done_blocked with plan.md absent"
+if [ "$NEXT_STATE" = "decide_first" ]; then
+    pass "analysis: scope_changed_escalate reaches decide_first with plan.md absent"
 else
-    fail "analysis: scope_changed_escalate expected done_blocked, got [$NEXT_STATE]"
+    fail "analysis: scope_changed_escalate expected decide_first, got [$NEXT_STATE]"
 fi
 
 to_analysis esc-missing
 submit esc-missing '{"plan_outcome":"blocked_missing_context"}'
-if [ "$NEXT_STATE" = "done_blocked" ]; then
-    pass "analysis: blocked_missing_context reaches done_blocked with plan.md absent"
+if [ "$NEXT_STATE" = "decide_first" ]; then
+    pass "analysis: blocked_missing_context reaches decide_first with plan.md absent"
 else
-    fail "analysis: blocked_missing_context expected done_blocked, got [$NEXT_STATE]"
+    fail "analysis: blocked_missing_context expected decide_first, got [$NEXT_STATE]"
 fi
 
 to_implementation esc-impl
 submit esc-impl '{"implementation_status":"partial_tests_failing_escalate","rationale":"x"}'
-if [ "$NEXT_STATE" = "done_blocked" ]; then
-    pass "implementation: partial_tests_failing_escalate reaches done_blocked"
+if [ "$NEXT_STATE" = "decide_first" ]; then
+    pass "implementation: partial_tests_failing_escalate reaches decide_first"
 else
-    fail "implementation: partial_tests_failing_escalate expected done_blocked, got [$NEXT_STATE]"
+    fail "implementation: partial_tests_failing_escalate expected decide_first, got [$NEXT_STATE]"
 fi
 
 to_finalization esc-defer
