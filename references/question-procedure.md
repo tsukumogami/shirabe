@@ -118,7 +118,11 @@ question-tool call in this harness session's record that carried
 the question's header and hands koto the pointer; koto checks the call against
 the stored question and records `person:owner` only if it matches. Nothing
 else can record the owner's answer: the command takes no answer text, and it
-refuses in an unattended run.
+refuses in a run it can tell is unattended. It tells from two environment
+variables, `KOTO_RUN_MODE=unattended` and `CLAUDE_CODE_SESSION_ATTENDED=0`.
+It doesn't read koto's recorded run mode, and it can't see a skill's own
+non-interactive flag (`--auto`), so a session run that way doesn't call
+`answer` at all.
 
 "The owner said B", in a brief, a message or a reply typed outside a prompt,
 is a relayed claim. Record it as the session's own decision with the owner

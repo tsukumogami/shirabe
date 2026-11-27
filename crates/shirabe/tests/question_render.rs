@@ -247,6 +247,65 @@ fn render_person_owner_batches_four_then_two_in_pending_order_with_the_held_one_
 }
 
 #[test]
+fn render_refuses_a_closed_question_naming_its_state() {
+    for outcome in ["answered", "settled", "withdrawn"] {
+        let s = Standin::new();
+        let identity = s.serve("solo", "000000000003", &stored_of(&good()), "");
+        let key = identity.replace('/', "_");
+        let h = std::fs::read_to_string(s.data.join("history").join(&key)).unwrap();
+        s.write(
+            &format!("history/{key}"),
+            h.replace(
+                "\"open\":true,\"answer\":null",
+                &format!("\"open\":false,\"answer\":{{\"outcome\":\"{outcome}\",\"id\":\"000000000009\"}}"),
+            ),
+        );
+        let out = s
+            .cmd(&["render", &identity])
+            .assert()
+            .code(8)
+            .get_output()
+            .clone();
+        let j = json(&out.stdout);
+        assert_eq!(j["error"]["code"], json!("question_closed"), "{outcome}");
+        assert_eq!(j["error"]["state"], json!(outcome));
+        assert!(j["error"]["message"].as_str().unwrap().contains(outcome));
+        assert!(j.get("prompts").is_none());
+    }
+}
+
+#[test]
+fn render_person_owner_lists_what_it_cannot_present_under_incomplete() {
+    let s = Standin::new();
+    let (good_id, good_el) = open_for_owner(&s, "a", 1, "2026-11-27T09:00:00Z", None);
+    // Raised with no packet: nothing stored to present.
+    s.write(
+        "history/sid-np_000000000001",
+        r#"{"v":1,"raiser":{"name":"np","id":"sid-np"},"question":{"id":"000000000001"},"open":true,"answer":null,"entries":[]}"#,
+    );
+    // Its content is gone.
+    let (gone_id, gone_el) = open_for_owner(&s, "gone", 1, "2026-11-27T09:00:01Z", None);
+    std::fs::remove_file(s.data.join("content").join(gone_id.replace('/', "_"))).unwrap();
+    let mut np = good_el.clone();
+    np["identity"] = json!("sid-np/000000000001");
+    np["session"] = json!("np");
+    s.write(
+        "open-person.json",
+        json!({"v": 1, "questions": [good_el, np, gone_el]}).to_string(),
+    );
+    let r = render(&s, &["--person", "owner"]);
+    assert_eq!(r["prompts"][0]["identities"], json!([good_id]));
+    let inc: Vec<String> = r["incomplete"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["identity"].as_str().unwrap().to_string())
+        .collect();
+    assert!(inc.contains(&"sid-np/000000000001".to_string()), "{inc:?}");
+    assert!(inc.contains(&gone_id), "{inc:?}");
+}
+
+#[test]
 fn identities_with_the_same_time_order_by_identity_bytes() {
     let s = Standin::new();
     let (b, eb) = open_for_owner(&s, "zz", 1, "2026-11-27T09:00:00.500Z", None);

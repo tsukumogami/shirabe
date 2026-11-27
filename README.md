@@ -490,7 +490,8 @@ decision record. `question raise` validates the question's content, records it
 in koto and stores the content once; `question pending` lists what's open for
 the owner and at and below a session, plus answers nobody has cited yet;
 `question render` turns stored questions into question-prompt input that comes
-out byte-identical in any session, after a restart or a compaction; and
+out byte-identical across runs and sessions and after the raising session has
+ended; and
 `question answer` records the owner's answer by handing koto the pointer to
 the prompt the owner answered. It never takes the answer as text. The
 arguments, output fields, exit codes and stored format are in

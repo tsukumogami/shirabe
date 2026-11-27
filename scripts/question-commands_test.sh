@@ -26,15 +26,17 @@
 #   pending lists the dispatched session's question at the dispatcher and the
 #     owner's questions, each once, and writes nothing
 #   render prints the same bytes from another directory under env -i, and its
-#     header is koto's prompt_header
+#     header is koto's prompt_header; a question renders the same bytes after
+#     the session that raised it reached its terminal state
 #   an answered prompt is recorded as the owner's, reads verified and is
 #     listed under answered until a decision cites it
 #   each check koto makes of the prompt refuses with its own name, nothing
 #     recorded, the question still open and no text of the record printed:
 #     call, question-text, options, result, time, session, sidechain,
 #     identity and call-position-reused
-#   a free-text reply is recorded verbatim; a second answer from a new prompt
-#     names the first in its basis; an identity no question has is refused
+#   a free-text reply is recorded verbatim; render then refuses the answered
+#     question (exit 8); a second answer from a new prompt, opened from the
+#     first render, names the first in its basis; an identity no question has is refused
 #     with decision_not_found
 #   a twenty-first question for the owner is refused by koto
 #
@@ -251,6 +253,25 @@ else
     fail "rendered header $(jq -r '.prompts[0].questions[0].header' "$T/render1.out"), koto's $SOLO_HEADER"
 fi
 
+# A question renders to the same bytes after the session that raised it has
+# reached its terminal state.
+koto init ender --template "$T/two.md" >/dev/null 2>"$T/init.err" || fail "koto init ender: $(cat "$T/init.err")"
+content "$T/end.json" "ended raiser store" "Which store, once the raiser has ended?"
+raise ender "$T/end.json" --attempt "$(attempt ender)" --to session:manager
+Q_END=$(jq -r '.identity // empty' "$T/raise.out" 2>/dev/null)
+"$SHIRABE" question render "$Q_END" >"$T/end1.out" 2>"$T/end.err"
+RC1=$?
+koto next ender --with-data '{"done":"yes"}' --no-cleanup >"$T/end-next.out" 2>&1
+END_STATE=$(koto status ender 2>/dev/null | jq -r '.current_state // empty')
+"$SHIRABE" question render "$Q_END" >"$T/end2.out" 2>>"$T/end.err"
+RC2=$?
+if [ -n "$Q_END" ] && [ "$RC1" -eq 0 ] && [ "$RC2" -eq 0 ] && [ "$END_STATE" = end ] \
+    && cmp -s "$T/end1.out" "$T/end2.out"; then
+    pass "render prints the same bytes after the raising session has ended"
+else
+    fail "render after the raiser ended: raise $Q_END, exits $RC1/$RC2, state [$END_STATE]: $(cat "$T/raise.err" "$T/end.err" "$T/end-next.out" | head -c 600)"
+fi
+
 # --- answer ------------------------------------------------------------------
 
 # koto records an answer in the session that gives it, never in the asker's:
@@ -382,11 +403,17 @@ CLAUDE_CODE_SESSION_ID="$H" "$SHIRABE" question answer "$Q_SOLO" --in manager >"
 RC=$?
 refused_ok "a call and position an earlier answer used" call-position-reused "$Q_SOLO" "$before" 0
 
-# answer_fresh <question> <label picked> -> a new prompt answering it; output
-# in $T/a.out, exit in $RC.
+# answer_fresh <question> <label picked> [render] -> a new prompt answering
+# it; output in $T/a.out, exit in $RC. With [render], the prompt is opened
+# from that earlier render: `render` refuses a question already answered, so
+# a second answer is given from the render that opened the first prompt.
 answer_fresh() {
     local h
-    "$SHIRABE" question render "$1" >"$T/a.render" 2>/dev/null
+    if [ -n "${3:-}" ]; then
+        cp "$3" "$T/a.render"
+    else
+        "$SHIRABE" question render "$1" >"$T/a.render" 2>/dev/null
+    fi
     sleep 1
     h=$(harness_id)
     record "$T/a.render" "$h" "$2" none
@@ -409,7 +436,16 @@ fi
 
 # A second answer from a new prompt names the first in its basis.
 FIRST=$(jq -r '.id' "$T/a.out")
-answer_fresh "$Q_FREE" "Postgres"
+cp "$T/a.render" "$T/first.render"
+# An answered question is not rendered again: render exits 8 naming its state.
+"$SHIRABE" question render "$Q_FREE" >"$T/closed.out" 2>/dev/null
+RC=$?
+if [ "$RC" -eq 8 ] && [ "$(jq -r '.error.state' "$T/closed.out")" = answered ]; then
+    pass "render refuses an answered question (exit 8, state answered)"
+else
+    fail "render of an answered question: exit $RC: $(cat "$T/closed.out")"
+fi
+answer_fresh "$Q_FREE" "Postgres" "$T/first.render"
 SECOND=$(jq -r '.id // empty' "$T/a.out")
 if [ "$RC" -eq 0 ] && [ -n "$SECOND" ] \
     && koto decisions show manager "$SECOND" 2>/dev/null \

@@ -305,6 +305,28 @@ fn refuses_a_secret_shape_without_printing_it() {
 }
 
 #[test]
+fn refuses_a_secret_shaped_unknown_key_without_printing_it() {
+    let token = format!("ghp_{}", "A1b2C3d4E5f6G7h8I9j0K1l2");
+    let s = Standin::new();
+    undecided_attempt(&s, "solo");
+    let mut v = good();
+    v[token.as_str()] = json!(1);
+    let out = raise_value(&s, &v, &["--attempt", "000000000001"])
+        .code(1)
+        .get_output()
+        .clone();
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!all.contains(&token), "the key was printed: {all}");
+    assert!(!all.contains("ghp_"), "part of the key was printed: {all}");
+    assert!(all.contains("secret"));
+    assert!(s.writes().is_empty());
+}
+
+#[test]
 fn refuses_a_dependency_that_does_not_exist() {
     refused(
         with("depends_on", json!("sid-other/000000000007")),

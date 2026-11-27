@@ -89,6 +89,16 @@ impl Standin {
             .collect()
     }
 
+    /// Every koto call exactly as shirabe gave it, before the stand-in
+    /// reorders it.
+    pub fn rawlog(&self) -> Vec<String> {
+        std::fs::read_to_string(self.data.join("rawlog"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
     /// Calls other than reads: what would change koto's store.
     pub fn writes(&self) -> Vec<String> {
         self.log()

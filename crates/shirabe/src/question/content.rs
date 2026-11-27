@@ -20,8 +20,9 @@ pub const MAX_STORED: usize = 16 * 1024;
 /// The most bytes a question's subject label may hold (koto's own cap).
 pub const MAX_LABEL: usize = 128;
 /// The most bytes of the composed question text (context, problem and
-/// question) the prompt is given. shirabe's bound; see
-/// references/decision-presentation.md.
+/// question) the prompt is given. shirabe's bound and an estimate: the length
+/// the question tool accepts has not been measured, and this moves to the
+/// measured figure once it is. See references/decision-presentation.md.
 pub const MAX_QUESTION_TEXT: usize = 8 * 1024;
 /// The most bytes an option label may hold. shirabe's bound.
 pub const MAX_OPTION_LABEL: usize = 64;
@@ -183,6 +184,9 @@ pub fn parse_input(bytes: &[u8]) -> Result<Content, Refusal> {
     let obj = value
         .as_object()
         .ok_or_else(|| refuse("content", "the content must be one JSON object"))?;
+    // The secret scan runs before anything that names a key or a value, so a
+    // refusal never prints text the scan would flag.
+    scan_secrets(&value)?;
     for key in obj.keys() {
         if !INPUT_KEYS.contains(&key.as_str()) {
             return Err(refuse(
@@ -191,7 +195,6 @@ pub fn parse_input(bytes: &[u8]) -> Result<Content, Refusal> {
             ));
         }
     }
-    scan_secrets(&value)?;
 
     let context = plain_text(obj, "context", "context")?;
     let problem = plain_text(obj, "problem", "problem")?;

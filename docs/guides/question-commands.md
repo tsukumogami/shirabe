@@ -21,9 +21,26 @@ standard error.
 | 3 | koto is missing, or below the minimum (the message names both versions) |
 | 4 | koto refused: its `code`, `field` and the `check` it names are passed through |
 | 5 | a question that can't be presented, or an answer that doesn't read as verified |
+| 6 | a koto call ran past its time bound and was stopped (`code: koto_timeout`) |
+| 7 | `answer`: koto recorded the owner's answer, but reading it back failed |
+| 8 | `render`: the question given is no longer open |
 
 A failure prints `{"v":1,"error":{"exit","code","field","check","message",...}}`,
 with `field` and `check` present only when known.
+
+Every koto call is bounded at 10 seconds. A call still running then, most
+likely blocked on a store lock, is stopped; the command exits 6 with a message
+naming the koto command and writes nothing further. The one exception is
+`raise`: once the `escalate` is recorded, a timeout on the content write or
+its read-back withdraws the `escalate`, as a failed content write does, and
+the error carries `withdrawn`.
+
+A session or anchor name given to any subcommand (`--in`, `--at`, the session
+in `--attempt`) must have koto's session-name shape: a letter or digit first,
+then letters, digits, `.`, `_` and `-`. Anything else exits 1 before any koto
+call, so a value such as `--help` never reaches koto as an option. Every koto
+call puts its options first, caller values as `--option=value`, and its
+positionals after `--`.
 
 ## `shirabe question raise`
 
@@ -107,10 +124,22 @@ with `Recommended.` and every marked option with `This answer sets a standing
 rule.` A prompt holds at most four questions; a need is never in one and comes
 under `requests`.
 
+With `--person owner` the output also has `incomplete`: each open question
+for the owner that can't be presented (raised with no stored content, content
+missing, or content that doesn't hash to its `packet`), with its `identity`
+and `reason`, as `pending` lists them.
+
 The output depends on the stored bytes and the header only, so it's the same
-from any session, directory or environment, after the raising workflow ended
-and after a compaction. A question whose content is missing or doesn't hash to
-its `packet` exits 5 and prints nothing from the content.
+across runs, sessions, directories and environments, and after the raising
+session has ended, and the tests check each of those. Rendering after a
+compaction, or after a successor replaces the raising session, rests on the
+same inputs, but no automated case covers it; the plan's dogfooding step
+exercises both.
+
+A question given by identity that is no longer open (answered, settled or
+withdrawn) exits 8 with `state` naming how it closed, since presenting it
+would ask the owner again. A question whose content is missing or doesn't
+hash to its `packet` exits 5 and prints nothing from the content.
 
 ## `shirabe question answer`
 
@@ -136,10 +165,13 @@ and `text`.
 
 Refusals:
 
-- exit 1 before any koto call in an unattended run (`KOTO_RUN_MODE=unattended`
-  or `CLAUDE_CODE_SESSION_ATTENDED=0`). A skill started with `--auto` sets
-  neither, so this check can't see it; koto's own reading of the run mode
-  still applies;
+- exit 3 first, whatever else is wrong, when koto is missing or below the
+  minimum; a pre-release of the minimum (`0.42.0-rc1`) doesn't meet it;
+- exit 1 before any other koto call in an unattended run
+  (`KOTO_RUN_MODE=unattended` or `CLAUDE_CODE_SESSION_ATTENDED=0`). It reads
+  those two environment variables only: it doesn't read koto's recorded run
+  mode, and a skill started with `--auto` sets neither, so this check can't see
+  it. koto's own reading of the run mode still applies;
 - exit 4 with `check: call` when no call carries the header, and with
   `check: record` when `CLAUDE_CONFIG_DIR` is set, since koto reads the record
   only from the default place. Either message says the question is still open
@@ -147,7 +179,11 @@ Refusals:
 - exit 4 with koto's `prompt_unverified` and the check that failed:
   `call`, `question-text`, `options`, `result`, `call-position-reused`, `time`,
   `session`, `sidechain`, `identity` and the others koto names;
-- exit 5 when the entry doesn't read `verified`, printing koto's `reading`.
+- exit 5 when the entry doesn't read `verified`, printing koto's `reading`;
+- exit 7 when koto recorded the answer but reading the entry back failed. The
+  error names the `entry`; don't answer again, since the same call and
+  position would fail koto's `call-position-reused` check. Read the entry with
+  `koto decisions show`.
 
 ### What koto verifies, and its limits
 
@@ -158,6 +194,15 @@ no authority of the owner there. The check covers what the harness record
 shows: the call, its question text and labels, the reply and that a person
 gave it in that session. It can't show that the person at the keyboard was the
 owner.
+
+The harness session in the pointer comes from the environment
+(`CLAUDE_CODE_SESSION_ID`), and `answer` takes it as given. It doesn't check
+that the variable names the session it runs in; koto's own `session` check is
+what catches a pointer into another session's record.
+
+The 8,192-byte bound on a question's text is an estimate. The length the
+question tool accepts hasn't been measured yet (see
+`references/decision-presentation.md`).
 
 ## The stored content
 

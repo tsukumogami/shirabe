@@ -17,12 +17,47 @@
 #   content/<key>      the bytes `decisions content read <identity>` prints
 #   answer.json        the JSON `decisions answer` (not a withdrawal) prints
 #   show-answer.json   the JSON `decisions show` of an answer entry prints
+#   sleep              one line per call prefix that hangs (sleeps 60 seconds),
+#                      matched against the call as `log` records it
 # <key> is the identity with its "/" replaced by "_". A session's id is
 # "sid-<session name>".
+#
+# shirabe puts options before a `--` and the positionals after it, with
+# caller values as `--option=value`. The stand-in records each call exactly
+# as given in $KOTO_STANDIN/rawlog, then rewrites it to subcommand words,
+# positionals, then options, each `--option=value` split in two, and logs and
+# serves that form.
 set -euo pipefail
 
 D="${KOTO_STANDIN:?KOTO_STANDIN is not set}"
+printf '%s\n' "$*" >> "$D/rawlog"
+
+words=()
+pos=()
+opts=()
+after_dash=0
+for a in "$@"; do
+    if [ "$after_dash" = 1 ]; then pos+=("$a"); continue; fi
+    case "$a" in
+        --) after_dash=1 ;;
+        --*=*) opts+=("${a%%=*}" "${a#*=}") ;;
+        -*) opts+=("$a") ;;
+        *)
+            if [ "${#opts[@]}" -gt 0 ]; then opts+=("$a"); else words+=("$a"); fi
+            ;;
+    esac
+done
+set -- ${words[@]+"${words[@]}"} ${pos[@]+"${pos[@]}"} ${opts[@]+"${opts[@]}"}
 printf '%s\n' "$*" >> "$D/log"
+
+if [ -f "$D/sleep" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ -n "$line" ] || continue
+        case "$*" in
+            "$line"*) exec sleep 60 ;;
+        esac
+    done < "$D/sleep"
+fi
 
 refuse() {
     printf '{"code":"%s","command":"standin","error":"%s","field":null}\n' "$1" "$2"
@@ -132,7 +167,7 @@ case "${1:-} ${2:-}" in
             *" --outcome withdrawn "*) printf '{"v":1,"id":"w1","session":"%s","status":"in-effect"}\n' "$3" ;;
             *)
                 : > "$D/answered"
-                cat "$D/answer.json" 2>/dev/null || printf '{"v":1,"id":"000000000009","session":"%s","status":"in-effect"}\n' "$5"
+                cat "$D/answer.json" 2>/dev/null || printf '{"v":1,"id":"000000000009","session":"%s","status":"in-effect"}\n' "$6"
                 ;;
         esac
         ;;

@@ -14,6 +14,9 @@
 //!   4  koto refused; its code, field and check are passed through
 //!   5  a question that cannot be presented, or an answer that does not read
 //!      as verified
+//!   6  a koto call ran past its time bound and was stopped
+//!   7  koto recorded the owner's answer, but reading it back failed
+//!   8  `render` was given a question that is no longer open
 
 pub mod answer;
 pub mod content;
@@ -36,6 +39,9 @@ pub const EXIT_USAGE: u8 = 2;
 pub const EXIT_KOTO_MISSING: u8 = 3;
 pub const EXIT_KOTO_REFUSED: u8 = 4;
 pub const EXIT_UNPRESENTABLE: u8 = 5;
+pub const EXIT_KOTO_TIMEOUT: u8 = 6;
+pub const EXIT_UNCONFIRMED: u8 = 7;
+pub const EXIT_CLOSED: u8 = 8;
 
 /// The one person handle these commands take.
 pub const OWNER: &str = "owner";
@@ -177,6 +183,9 @@ impl Failure {
         Failure::new(EXIT_KOTO_MISSING, "koto_minimum", message)
     }
     pub fn koto(r: &Refused) -> Self {
+        if r.timed_out() {
+            return Failure::new(EXIT_KOTO_TIMEOUT, &r.code, r.error.clone());
+        }
         let mut f = Failure::new(
             EXIT_KOTO_REFUSED,
             &r.code,
@@ -252,12 +261,36 @@ pub fn run(args: QuestionArgs) -> ExitCode {
 // ---------------------------------------------------------------------------
 // Names and recipients
 
+/// koto's own session-name shape, `^[a-zA-Z0-9][a-zA-Z0-9._-]*$`, within
+/// 128 bytes. A name that passes can never read as an option to koto.
 fn name_ok(s: &str) -> bool {
     let mut chars = s.chars();
     matches!(chars.next(), Some(c) if c.is_ascii_alphanumeric())
         && s.len() <= 128
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// Refuse a caller's session or anchor name that is not koto's name shape,
+/// before it reaches any koto call.
+fn check_name(field: &str, flag: &str, s: &str) -> Result<(), Failure> {
+    if name_ok(s) {
+        return Ok(());
+    }
+    Err(Failure::refused(
+        field,
+        format!("{flag} {s:?} is not a koto session name: it must start with a letter or digit and hold only letters, digits, `.`, `_` and `-`"),
+    ))
+}
+
+/// Refuse a caller's question identity that is not `<session id>/<decision id>`.
+fn check_identity(s: &str) -> Result<(), Failure> {
+    if content::is_identity(s) {
+        return Ok(());
+    }
+    Err(Failure::usage(format!(
+        "{s:?} is not a question identity, <raiser session id>/<decision id>"
+    )))
 }
 
 /// The recipients `raise` takes: `session:<name>`, `anchor:<name>` and
@@ -297,7 +330,7 @@ fn state_ok(s: &str) -> bool {
 /// The default recipient: the session's dispatcher, or person:owner when
 /// nothing dispatched it. `true` when the origin reads unrecorded.
 fn default_recipient(session: &str) -> Result<(String, bool), Failure> {
-    let o = koto::run(&["session", "origin", session])?;
+    let o = koto::run(&["session", "origin", "--", session])?;
     let origin = o.get("origin").cloned().unwrap_or(Value::Null);
     let state = origin.get("state").and_then(Value::as_str).unwrap_or("");
     match state {
@@ -327,7 +360,12 @@ fn origin_unrecorded(session: &str, cache: &mut BTreeMap<String, bool>) -> bool 
     if let Some(v) = cache.get(session) {
         return *v;
     }
-    let v = match koto::run(&["session", "origin", session]) {
+    // A session koto names in its own listing; one not in koto's name shape
+    // is never passed back to it.
+    if !name_ok(session) {
+        return false;
+    }
+    let v = match koto::run(&["session", "origin", "--", session]) {
         Ok(o) => !matches!(
             o.pointer("/origin/state").and_then(Value::as_str),
             Some("dispatched") | Some("none")
@@ -375,7 +413,17 @@ fn check_attempt(session: &str, attempt: Option<&str>) -> Result<String, Failure
         Some((s, i)) => (Some(s), i),
         None => (None, given),
     };
-    let listed = koto::run(&["decisions", "attempts", "--in", session])?;
+    if want_id.is_empty()
+        || !want_id.bytes().all(|b| b.is_ascii_digit())
+        || want_session.is_some_and(|s| !name_ok(s))
+    {
+        return Err(Failure::refused(
+            "attempt",
+            format!("--attempt {given:?} is not <decision id> or <session>:<decision id>"),
+        ));
+    }
+    let in_arg = format!("--in={session}");
+    let listed = koto::run(&["decisions", "attempts", &in_arg])?;
     let attempts = listed
         .get("attempts")
         .and_then(Value::as_array)
@@ -419,7 +467,7 @@ fn read_stored(identity: &str, packet_want: Option<&str>) -> Stored {
     let Some(want) = packet_want else {
         return Stored::NoPacket;
     };
-    match koto::run_raw(&["decisions", "content", "read", identity]) {
+    match koto::run_raw(&["decisions", "content", "read", "--", identity]) {
         Ok(bytes) => {
             if packet(&bytes) != want {
                 return Stored::Mismatch;
@@ -493,24 +541,24 @@ impl Drop for TempFile {
 }
 
 fn withdraw(session: &str, id: &str, reason: &str) -> bool {
+    let in_arg = format!("--in={session}");
+    let reason_arg = format!("--reason={reason}");
     koto::run(&[
         "decisions",
         "answer",
+        &in_arg,
+        "--outcome=withdrawn",
+        &reason_arg,
+        "--by=session",
+        "--",
         session,
         id,
-        "--in",
-        session,
-        "--outcome",
-        "withdrawn",
-        "--reason",
-        reason,
-        "--by",
-        "session",
     ])
     .is_ok()
 }
 
 fn raise(a: &RaiseArgs) -> Result<Value, Failure> {
+    check_name("in", "--in", &a.in_)?;
     koto::check_version()?;
     let bytes = read_content(&a.content)?;
     let content = content::parse_input(&bytes)?;
@@ -555,37 +603,29 @@ fn raise(a: &RaiseArgs) -> Result<Value, Failure> {
 
     let stored = content.stored();
     let hash = packet(&stored);
+    // Every caller-derived value goes in `--option=value` form, so none can
+    // read as an option of its own, and the session follows `--`.
     let mut args: Vec<String> = vec![
         "decisions".into(),
         "record".into(),
-        a.in_.clone(),
-        "--kind".into(),
-        "escalate".into(),
-        "--outcome".into(),
-        "escalated".into(),
-        "--subject".into(),
-        "question=q".into(),
-        "--subject".into(),
-        format!("text={}", content.ask),
-        "--subject".into(),
-        format!("recipient={recipient}"),
-        "--subject".into(),
-        format!("label={}", content.label),
-        "--subject".into(),
-        format!("need={}", content.need()),
-        "--subject".into(),
-        format!("packet={hash}"),
+        "--kind=escalate".into(),
+        "--outcome=escalated".into(),
+        "--subject=question=q".into(),
+        format!("--subject=text={}", content.ask),
+        format!("--subject=recipient={recipient}"),
+        format!("--subject=label={}", content.label),
+        format!("--subject=need={}", content.need()),
+        format!("--subject=packet={hash}"),
     ];
     if let Some(s) = &a.state {
-        args.push("--subject".into());
-        args.push(format!("state={s}"));
+        args.push(format!("--subject=state={s}"));
     }
     if let Some(b) = &basis {
-        args.push("--basis".into());
-        args.push(b.clone());
+        args.push(format!("--basis={b}"));
     }
-    args.push("--by".into());
-    args.push("session".into());
+    args.push("--by=session".into());
+    args.push("--".into());
+    args.push(a.in_.clone());
     let argv: Vec<&str> = args.iter().map(String::as_str).collect();
     let rec = koto::run(&argv)?;
     let id = rec
@@ -614,14 +654,15 @@ fn raise(a: &RaiseArgs) -> Result<Value, Failure> {
         .with("withdrawn", json!(withdrawn))
     })?;
     let path = file.0.to_string_lossy().to_string();
+    let file_arg = format!("--file={path}");
     let written = koto::run(&[
         "decisions",
         "content",
         "write",
+        &file_arg,
+        "--",
         &a.in_,
         &id,
-        "--file",
-        &path,
     ]);
     drop(file);
     let written = match written {
@@ -655,7 +696,32 @@ fn raise(a: &RaiseArgs) -> Result<Value, Failure> {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let back = koto::run_raw(&["decisions", "content", "read", &identity]);
+    let back = koto::run_raw(&["decisions", "content", "read", "--", &identity]);
+    if let Err(r) = &back {
+        if r.timed_out() {
+            // A timeout after the escalate was recorded takes the cleanup path
+            // a failed content write takes: withdraw it, so no listing shows a
+            // question whose content was never confirmed.
+            let withdrawn = withdraw(
+                &a.in_,
+                &id,
+                "reading the stored content back timed out, so the question was withdrawn",
+            );
+            let mut f = Failure::koto(r)
+                .with("withdrawn", json!(withdrawn))
+                .with("id", json!(id));
+            f.message = format!(
+                "{}; the escalate {id} was {}",
+                f.message,
+                if withdrawn {
+                    "withdrawn"
+                } else {
+                    "left in place and could not be withdrawn"
+                }
+            );
+            return Err(f);
+        }
+    }
     if back.as_deref().ok() != Some(stored.as_slice()) {
         let withdrawn = withdraw(
             &a.in_,
@@ -772,7 +838,7 @@ struct Pending {
 fn gather(person: bool, at: Option<&str>) -> Result<Pending, Failure> {
     let mut merged: BTreeMap<String, (Value, bool, Option<String>)> = BTreeMap::new();
     if person {
-        let o = koto::run(&["decisions", "open", "--person", OWNER])?;
+        let o = koto::run(&["decisions", "open", "--person=owner"])?;
         for q in o
             .get("questions")
             .and_then(Value::as_array)
@@ -785,7 +851,8 @@ fn gather(person: bool, at: Option<&str>) -> Result<Pending, Failure> {
         }
     }
     if let Some(at) = at {
-        let o = koto::run(&["decisions", "open", "--at", at])?;
+        let at_arg = format!("--at={at}");
+        let o = koto::run(&["decisions", "open", &at_arg])?;
         for q in o
             .get("questions")
             .and_then(Value::as_array)
@@ -920,7 +987,6 @@ fn gather(person: bool, at: Option<&str>) -> Result<Pending, Failure> {
             .cmp(&b.held)
             .then(b.waiting.cmp(&a.waiting))
             .then(epoch_order(&a.time).cmp(&epoch_order(&b.time)))
-            .then(a.time.cmp(&b.time))
             .then(a.identity.as_bytes().cmp(b.identity.as_bytes()))
     });
     Ok(Pending {
@@ -929,8 +995,32 @@ fn gather(person: bool, at: Option<&str>) -> Result<Pending, Failure> {
     })
 }
 
-fn epoch_order(t: &str) -> i64 {
-    epoch_seconds(t).unwrap_or(i64::MAX)
+/// A koto time as nanoseconds since the epoch, its fraction included, so
+/// times written at different precisions order by the instant they name. A
+/// time that does not parse sorts last.
+fn epoch_order(t: &str) -> i128 {
+    epoch_nanos(t).unwrap_or(i128::MAX)
+}
+
+fn epoch_nanos(t: &str) -> Option<i128> {
+    let secs = epoch_seconds(t)? as i128;
+    let frac = match t.as_bytes()[19] {
+        b'Z' if t.len() == 20 => "",
+        b'.' => &t[20..t.len() - 1],
+        _ => return None,
+    };
+    if frac.len() > 9 || (t.as_bytes()[19] == b'.' && frac.is_empty()) {
+        return None;
+    }
+    if !frac.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let mut nanos: i128 = 0;
+    for i in 0..9 {
+        let d = frac.as_bytes().get(i).map_or(0, |b| (b - b'0') as i128);
+        nanos = nanos * 10 + d;
+    }
+    Some(secs * 1_000_000_000 + nanos)
 }
 
 /// The answers that have arrived for `session` and that no decision in its
@@ -941,11 +1031,10 @@ fn answered(session: &str) -> Result<Vec<Value>, Failure> {
     let listed = koto::run(&[
         "decisions",
         "list",
+        "--format=v1",
+        "--kind=escalate",
+        "--",
         session,
-        "--format",
-        "v1",
-        "--kind",
-        "escalate",
     ])?;
     for d in listed
         .get("decisions")
@@ -981,14 +1070,8 @@ fn answered(session: &str) -> Result<Vec<Value>, Failure> {
             json!({"identity": identity, "answer": ans}),
         );
     }
-    let prec = koto::run(&[
-        "decisions",
-        "precedent",
-        "--person",
-        OWNER,
-        "--chain",
-        session,
-    ])?;
+    let chain_arg = format!("--chain={session}");
+    let prec = koto::run(&["decisions", "precedent", "--person=owner", &chain_arg])?;
     for a in prec
         .get("answers")
         .and_then(Value::as_array)
@@ -1021,6 +1104,10 @@ fn owner_only(person: Option<&str>) -> Result<bool, Failure> {
 }
 
 fn pending_cmd(a: &PendingArgs) -> Result<Value, Failure> {
+    check_name("in", "--in", &a.in_)?;
+    if let Some(at) = &a.at {
+        check_name("at", "--at", at)?;
+    }
     koto::check_version()?;
     let person = owner_only(a.person.as_deref())?;
     let (person, at) = match (person, a.at.as_deref()) {
@@ -1044,12 +1131,23 @@ fn pending_cmd(a: &PendingArgs) -> Result<Value, Failure> {
 // render
 
 fn render_item(identity: &str) -> Result<render::Item, Failure> {
-    if !content::is_identity(identity) {
-        return Err(Failure::usage(format!(
-            "{identity:?} is not a question identity, <raiser session id>/<decision id>"
-        )));
-    }
     let h = History::read(identity)?;
+    if !h.open() {
+        // Presenting a closed question would ask the owner again.
+        let state = h
+            .answer()
+            .and_then(|a| a.get("outcome"))
+            .and_then(Value::as_str)
+            .unwrap_or("closed")
+            .to_string();
+        return Err(Failure::new(
+            EXIT_CLOSED,
+            "question_closed",
+            format!("{identity} is no longer open (it reads as {state}); a closed question is not presented"),
+        )
+        .with("identity", json!(identity))
+        .with("state", json!(state)));
+    }
     match read_stored(identity, h.packet().as_deref()) {
         Stored::Good(c) => {
             let header = koto::prompt_header(&h.raiser(), &h.id())?;
@@ -1083,18 +1181,31 @@ fn render_item(identity: &str) -> Result<render::Item, Failure> {
 }
 
 fn render_cmd(a: &RenderArgs) -> Result<Value, Failure> {
-    let _ = &a.in_;
+    if let Some(s) = &a.in_ {
+        check_name("in", "--in", s)?;
+    }
+    for identity in &a.identities {
+        check_identity(identity)?;
+    }
     koto::check_version()?;
     if owner_only(a.person.as_deref())? {
         let p = gather(true, None)?;
         let mut items = Vec::new();
         let mut held = Vec::new();
+        // The open questions that cannot be presented, listed as `pending`
+        // lists them rather than dropped without a word.
+        let mut incomplete = p.incomplete;
         for mut q in p.questions {
             if q.held {
                 held.push(q.identity);
                 continue;
             }
             let Some(content) = q.content.take() else {
+                incomplete.push(json!({
+                    "identity": q.identity,
+                    "session": q.element.get("session").cloned().unwrap_or(Value::Null),
+                    "reason": "it was raised with no stored content",
+                }));
                 continue;
             };
             let raiser = q
@@ -1119,7 +1230,9 @@ fn render_cmd(a: &RenderArgs) -> Result<Value, Failure> {
                 content,
             });
         }
-        return Ok(render::render(&items, &held));
+        let mut out = render::render(&items, &held);
+        out["incomplete"] = Value::Array(incomplete);
+        return Ok(out);
     }
     let mut items = Vec::new();
     for identity in &a.identities {
@@ -1169,6 +1282,11 @@ fn reading_of(shown: &Value) -> Value {
 }
 
 fn answer_cmd(a: &AnswerArgs) -> Result<Value, Failure> {
+    // The koto minimum comes first, so a koto too old to verify a prompt
+    // exits 3 whatever else is wrong; `koto version` takes no caller value.
+    koto::check_version()?;
+    check_name("in", "--in", &a.in_)?;
+    check_identity(&a.identity)?;
     if stdin_has_data() {
         return Err(Failure::usage(
             "answer takes no answer text, on standard input or otherwise: the answer is what the person chose in the prompt",
@@ -1185,13 +1303,6 @@ fn answer_cmd(a: &AnswerArgs) -> Result<Value, Failure> {
             "this session runs unattended, so no person answered a prompt in it; nothing was recorded",
         ));
     }
-    if !content::is_identity(&a.identity) {
-        return Err(Failure::usage(format!(
-            "{:?} is not a question identity, <raiser session id>/<decision id>",
-            a.identity
-        )));
-    }
-    koto::check_version()?;
     let h = History::read(&a.identity)?;
     let (raiser, id) = (h.raiser(), h.id());
     let header = koto::prompt_header(&raiser, &id)?;
@@ -1236,18 +1347,18 @@ fn answer_cmd(a: &AnswerArgs) -> Result<Value, Failure> {
         }
     };
     let pointer = format!("{sid}/{call}/{position}");
-    let by = format!("person:{OWNER}");
+    let in_arg = format!("--in={}", a.in_);
+    let by_arg = format!("--by=person:{OWNER}");
+    let prompt_arg = format!("--prompt={pointer}");
     let rec = koto::run(&[
         "decisions",
         "answer",
+        &in_arg,
+        &by_arg,
+        &prompt_arg,
+        "--",
         &raiser,
         &id,
-        "--in",
-        &a.in_,
-        "--by",
-        &by,
-        "--prompt",
-        &pointer,
     ]);
     let rec = match rec {
         Ok(r) => r,
@@ -1269,12 +1380,32 @@ fn answer_cmd(a: &AnswerArgs) -> Result<Value, Failure> {
         .and_then(Value::as_str)
         .unwrap_or(&a.in_)
         .to_string();
-    let shown = koto::run(&["decisions", "show", &session, &entry])?;
+    // From here koto holds the answer. A failed read-back is not a refusal:
+    // it exits 7 with the entry, so the caller does not answer again and run
+    // into koto's call-position-reused check.
+    let shown = match koto::run(&["decisions", "show", "--", &session, &entry]) {
+        Ok(s) => s,
+        Err(r) => {
+            return Err(Failure::new(
+                EXIT_UNCONFIRMED,
+                "answer_unconfirmed",
+                format!("koto recorded the owner's answer as entry {session}:{entry}, but reading it back failed ({}: {}); do not answer again: read it with `koto decisions show {session} {entry}`", r.code, r.error),
+            )
+            .with("identity", json!(a.identity))
+            .with("entry", json!(format!("{session}:{entry}")))
+            .with("prompt", json!(pointer)));
+        }
+    };
     let reading = reading_of(&shown);
     if reading.as_str() != Some("verified") {
+        let reads_as = match &reading {
+            Value::String(s) => s.clone(),
+            Value::Null => "no reading at all".to_string(),
+            other => other.to_string(),
+        };
         return Err(Failure::unpresentable(
             "not_verified",
-            format!("koto recorded the entry {session}:{entry}, but it does not read as verified here: it reads as a remote session's answer and carries no authority of the owner in this session"),
+            format!("koto recorded the entry {session}:{entry}, but it does not read as verified here: koto reads it as {reads_as}, so it carries no authority of the owner in this session"),
         )
         .with("reading", reading)
         .with("entry", json!(format!("{session}:{entry}"))));
@@ -1298,6 +1429,40 @@ mod tests {
     fn epoch_of_a_koto_time() {
         assert_eq!(epoch_seconds("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(epoch_seconds("2026-11-27T09:33:58.639Z"), Some(1795772038));
+    }
+
+    #[test]
+    fn mixed_precision_times_order_by_instant() {
+        // As strings, ".5Z" sorts after ".123456Z" and "Z" after both; as
+        // instants the whole second comes first and .123456 before .5.
+        let whole = epoch_order("2026-11-27T09:00:00Z");
+        let micro = epoch_order("2026-11-27T09:00:00.123456Z");
+        let tenth = epoch_order("2026-11-27T09:00:00.5Z");
+        let milli = epoch_order("2026-11-27T09:00:00.500Z");
+        assert!(whole < micro && micro < tenth);
+        assert_eq!(tenth, milli);
+        assert!(epoch_order("2026-11-27T08:59:59.999999999Z") < whole);
+        for bad in [
+            "2026-11-27T09:00:00.Z",
+            "2026-11-27T09:00:00.1234567890Z",
+            "x",
+        ] {
+            assert_eq!(epoch_order(bad), i128::MAX, "{bad}");
+        }
+    }
+
+    #[test]
+    fn session_names_are_koto_shaped() {
+        for ok in ["manager", "a1", "task_x-1.2", "A"] {
+            assert!(check_name("in", "--in", ok).is_ok(), "{ok}");
+        }
+        for bad in ["--help", "-x", "", "a b", "a/b", ".a", "_a", "a\n"] {
+            assert_eq!(
+                check_name("in", "--in", bad).unwrap_err().exit,
+                EXIT_REFUSED,
+                "{bad:?}"
+            );
+        }
     }
 
     #[test]

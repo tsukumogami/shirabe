@@ -178,7 +178,7 @@ fn answer_help_holds_no_option_for_text() {
 }
 
 #[test]
-fn answer_in_an_unattended_session_records_nothing_and_calls_no_koto() {
+fn answer_in_an_unattended_session_records_nothing_and_calls_only_koto_version() {
     for (var, val) in [
         ("KOTO_RUN_MODE", "unattended"),
         ("CLAUDE_CODE_SESSION_ATTENDED", "0"),
@@ -188,7 +188,7 @@ fn answer_in_an_unattended_session_records_nothing_and_calls_no_koto() {
             .env(var, val)
             .assert()
             .code(1);
-        assert!(s.log().is_empty(), "{var}");
+        assert_eq!(s.log(), vec!["version".to_string()], "{var}");
     }
     // A run mode koto reads as unknown goes on to koto's checks.
     let s = Standin::new();
@@ -350,5 +350,200 @@ fn answer_to_an_identity_koto_does_not_hold_passes_decision_not_found() {
     assert_eq!(
         json(&out.stdout)["error"]["code"],
         json!("decision_not_found")
+    );
+}
+
+fn answer_cmd(s: &Standin) -> assert_cmd::Command {
+    let mut c = s.cmd(&[
+        "answer",
+        "sid-solo/000000000001",
+        "--in",
+        "manager",
+        "--call",
+        "toolu_1",
+        "--position",
+        "1",
+    ]);
+    c.env("CLAUDE_CODE_SESSION_ID", "harness-1");
+    c
+}
+
+#[test]
+fn answer_checks_the_koto_minimum_before_the_run_mode() {
+    for v in ["0.41.9", "0.42.0-rc1"] {
+        let s = Standin::new();
+        s.write("version", v);
+        s.cmd(&["answer", "sid-solo/000000000001", "--in", "solo"])
+            .env("KOTO_RUN_MODE", "unattended")
+            .assert()
+            .code(3);
+        assert!(s.writes().is_empty(), "{v}");
+    }
+    // A pre-release past the minimum meets it, and the run mode then refuses.
+    let s = Standin::new();
+    s.write("version", "0.42.1-rc1");
+    s.cmd(&["answer", "sid-solo/000000000001", "--in", "solo"])
+        .env("KOTO_RUN_MODE", "unattended")
+        .assert()
+        .code(1);
+}
+
+#[test]
+fn an_answer_koto_recorded_but_that_does_not_read_back_exits_7_with_the_entry() {
+    let s = Standin::new();
+    s.serve("solo", "000000000001", &stored_of(&good()), "");
+    s.write(
+        "answer.json",
+        r#"{"v":1,"id":"000000000009","session":"manager","status":"in-effect"}"#,
+    );
+    s.write(
+        "fail",
+        "decisions show manager 000000000009|store_busy|the store is busy\n",
+    );
+    let out = answer_cmd(&s).assert().code(7).get_output().clone();
+    let j = json(&out.stdout);
+    assert_eq!(j["error"]["code"], json!("answer_unconfirmed"));
+    assert_eq!(j["error"]["entry"], json!("manager:000000000009"));
+    let msg = j["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("do not answer again"), "{msg}");
+    assert!(msg.contains("store_busy"), "{msg}");
+    assert_eq!(
+        s.writes()
+            .iter()
+            .filter(|l| l.starts_with("decisions answer"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn answer_not_verified_names_the_reading_koto_gives() {
+    let s = Standin::new();
+    s.serve("solo", "000000000001", &stored_of(&good()), "");
+    s.write("show-answer.json", r#"{"v":1,"id":"000000000009","session":"manager","reading":"unverified-local","decision":{"text":"Postgres"}}"#);
+    let out = answer_cmd(&s).assert().code(5).get_output().clone();
+    let msg = json(&out.stdout)["error"]["message"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(msg.contains("koto reads it as unverified-local"), "{msg}");
+    assert!(!msg.contains("remote session"), "{msg}");
+}
+
+#[test]
+fn a_value_beginning_with_a_dash_never_reaches_koto() {
+    let s = Standin::new();
+    for args in [
+        vec!["raise", "--in=--help", "--content", "-"],
+        vec!["pending", "--in=--help"],
+        vec!["pending", "--in", "x", "--at=-x"],
+        vec!["render", "--in=--help", "sid-solo/000000000001"],
+        vec!["render", "--", "-sid/000000000001"],
+        vec!["answer", "sid-solo/000000000001", "--in=--help"],
+        vec!["answer", "--in", "x", "--", "-sid/000000000001"],
+    ] {
+        let code = s
+            .cmd(&args)
+            .write_stdin("{}")
+            .output()
+            .unwrap()
+            .status
+            .code();
+        assert!(matches!(code, Some(1) | Some(2)), "{args:?}: {code:?}");
+    }
+    let calls: Vec<String> = s.log().into_iter().filter(|l| l != "version").collect();
+    assert!(calls.is_empty(), "koto was called with: {calls:?}");
+}
+
+#[test]
+fn raise_passes_every_positional_after_a_double_dash() {
+    let s = Standin::new();
+    undecided_attempt(&s, "solo");
+    let file = s.file("c.json", good().to_string());
+    s.cmd(&[
+        "raise",
+        "--in",
+        "solo",
+        "--content",
+        &file,
+        "--attempt",
+        "000000000001",
+    ])
+    .assert()
+    .success();
+    let raw = s.rawlog();
+    for prefix in [
+        "session origin --",
+        "decisions record --",
+        "decisions content write --",
+        "decisions content read --",
+    ] {
+        let line = raw
+            .iter()
+            .find(|l| l.starts_with(prefix))
+            .unwrap_or_else(|| panic!("no `{prefix}` call: {raw:?}"));
+        let (opts, _) = line.split_once(" -- ").expect("a -- separator");
+        assert!(
+            !opts.contains(" solo") && !opts.contains(" sid-solo"),
+            "a positional before --: {line}"
+        );
+    }
+    let a = raw
+        .iter()
+        .find(|l| l.starts_with("decisions attempts"))
+        .unwrap();
+    assert_eq!(a, "decisions attempts --in=solo");
+}
+
+#[test]
+fn a_koto_call_that_hangs_is_stopped_and_exits_6() {
+    let s = Standin::new();
+    s.write("sleep", "decisions open\n");
+    let t = std::time::Instant::now();
+    let out = s
+        .cmd(&["pending", "--in", "manager"])
+        .assert()
+        .code(6)
+        .get_output()
+        .clone();
+    assert!(t.elapsed() < std::time::Duration::from_secs(30));
+    let j = json(&out.stdout);
+    assert_eq!(j["error"]["code"], json!("koto_timeout"));
+    let msg = j["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("koto decisions open"), "{msg}");
+    assert!(s.writes().is_empty());
+}
+
+#[test]
+fn a_content_write_that_hangs_withdraws_the_escalate() {
+    let s = Standin::new();
+    undecided_attempt(&s, "solo");
+    s.write("sleep", "decisions content write\n");
+    let file = s.file("c.json", good().to_string());
+    let out = s
+        .cmd(&[
+            "raise",
+            "--in",
+            "solo",
+            "--content",
+            &file,
+            "--attempt",
+            "000000000001",
+        ])
+        .assert()
+        .code(6)
+        .get_output()
+        .clone();
+    let j = json(&out.stdout);
+    assert_eq!(j["error"]["code"], json!("koto_timeout"));
+    assert_eq!(j["error"]["withdrawn"], json!(true));
+    let msg = j["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("koto decisions content write"), "{msg}");
+    let writes = s.writes();
+    assert!(
+        writes
+            .iter()
+            .any(|l| l.starts_with("decisions answer") && l.contains("--outcome withdrawn")),
+        "{writes:?}"
     );
 }

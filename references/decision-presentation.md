@@ -87,8 +87,10 @@ prompt unchanged, so `render` never alters a field koto compares:
   render with a fixed ` [shortened]` marker, except on a question or option
   carrying the standing mark, which `raise` refuses instead.
 
-These are shirabe's bounds, not limits the question tool publishes. When the
-tool's own limits are measured lower, the bounds here move with them.
+These are shirabe's bounds, not limits the question tool publishes. The
+8,192-byte question text is an estimate: the length the tool accepts hasn't
+been measured yet. When the tool's own limits are measured lower, the bounds
+here move with them.
 
 What a session does with a question it cannot settle, from deciding first to
 recording the owner's answer, is in `references/question-procedure.md`.
