@@ -17,7 +17,13 @@
 # and by either form, a usage error (64) writing nothing; and a bad --role, a
 # repeated one and the role change flags in any combination but both on a
 # carry refused as usage errors (64) writing nothing. state-carry_test.sh
-# covers --carry --role.
+# covers --carry --role. The start's brief: a roadmap seed, a first rotation
+# and a carry whose start stored coord/start_brief.json each write
+# record/host's briefs:<label> and briefs-digest:<label> from it, a carry run
+# again leaving them as they were; a file changed since the start, or a path
+# that is a link now, writes no row and prints warning=brief-unrecorded after
+# record=, the path never on stderr; no stored brief, or the override flags,
+# write no briefs row.
 #
 # Usage: bash skills/coordinate/scripts/state-open_test.sh
 set -uo pipefail
@@ -184,5 +190,110 @@ log_new "$S6" "$(roadmap_vars plugin-system)"
 bash "$O" --session "$S5" --role manager >/dev/null 2>"$T/err"; eq "a session that isn't its scope's one live session is refused" 10 $?
 eq "and writes nothing" none "$(session_snapshot "$S5")"
 eq "no session check or write called GitHub to write" "" "$(gh_writes)"
+
+echo "== the start's brief =="
+# A fresh start given --brief stores the checked brief in the run's
+# coord/start_brief.json (coordinate-open.sh); after each seed state-open.sh
+# writes record/host's briefs:<label> and briefs-digest:<label> from it, the
+# file checked again. Each case is its own scope, so its run is the scope's one
+# live run.
+db_init
+BD=$(cd -P "$T" && pwd -P)/briefs
+mkdir -p "$BD"
+printf '# Brief: topic-a\n\nRun it.\n' > "$BD/topic-a.md"
+BSUM=sha256:$($SHA256 < "$BD/topic-a.md" | cut -d' ' -f1)
+# brief_key <session> <path> [digest]: the key as the opener stores it.
+brief_key() {
+    jq -nc --arg p "$2" --arg g "${3:-$BSUM}" '{label: "topic-a", path: $p, digest: $g}' \
+        | koto context add "$1" coord/start_brief.json
+}
+# hostrow <session>: record/host's two brief rows, `none` for a row it lacks.
+hostrow() {
+    local h
+    h=$(key "$1" record/host); [ -n "$h" ] || h='{}'
+    printf '%s' "$h" | jq -r '"\(.["briefs:topic-a"] // "none")|\(.["briefs-digest:topic-a"] // "none")"'
+}
+# briefkeys <session>: every briefs key record/host holds.
+briefkeys() {
+    local h
+    h=$(key "$1" record/host); [ -n "$h" ] || h='{}'
+    printf '%s' "$h" | jq -r '[keys[] | select(startswith("briefs"))] | join(" ")'
+}
+SB=coordinate-roadmap-brief-a-20260926T140000Z
+log_new "$SB" "$(roadmap_vars brief-a)"
+log_to "$SB" record_find record_open
+brief_key "$SB" "$BD/topic-a.md"
+OUT=$(bash "$O" --session "$SB" --role manager 2>"$T/err"); rc=$?
+eq "a roadmap seed whose start stored a brief opens, with no warning" "0 record=$SB" "$rc $OUT"
+eq "  ... writing briefs:topic-a as the stored path and briefs-digest:topic-a as its digest" "$BD/topic-a.md|$BSUM" "$(hostrow "$SB")"
+log_end "$SB"
+SBD=coordinate-discipline-brief-d-20260926T140000Z
+log_new "$SBD" "$(discipline_vars brief-d)"
+log_to "$SBD" start_posture record_find
+log_capture "$SBD" RECORD_FIND "$(bash "$HERE/coord-log.sh" seal --session "$SBD" --state record_find --token first)"
+log_to "$SBD" record_find record_open
+brief_key "$SBD" "$BD/topic-a.md"
+OUT=$(bash "$O" --session "$SBD" --role manager --start 2026-09-26 --end 2026-10-03 2>"$T/err"); rc=$?
+eq "a first rotation's seed whose start stored a brief opens, with no warning" "0 record=$SBD" "$rc $OUT"
+eq "  ... writing both rows" "$BD/topic-a.md|$BSUM" "$(hostrow "$SBD")"
+log_end "$SBD"
+# A carry: P an ended rotation holding a record, S the next rotation, its find
+# sealed `predecessor P`, its start having stored the brief.
+P=coordinate-discipline-brief-c-20261001T100000Z SC2=coordinate-discipline-brief-c-20261008T100000Z
+log_new "$P" "$(discipline_vars brief-c)"
+log_to "$P" start_posture record_find 2026-09-26T08:01:00.000Z
+log_capture "$P" RECORD_FIND "$(bash "$HERE/coord-log.sh" seal --session "$P" --state record_find --token found)" 2026-09-26T08:01:00.000Z
+record_json discipline brief-c | jq -c '. + {written: "2026-10-01T10:00:00Z"}' > "$T/pred.json"
+session_keys "$P" "$T/pred.json"
+jq -nc '{start: "2026-10-01", end: "2026-10-07", host_repo: "acme/widgets", predecessor: null}' | koto context add "$P" record/rotation
+touch "$KOTO_STORE/sessions/$P/.terminal"
+log_new "$SC2" "$(discipline_vars brief-c)"
+log_to "$SC2" start_posture record_find 2026-09-26T08:01:00.000Z
+log_capture "$SC2" RECORD_FIND "$(bash "$HERE/coord-log.sh" seal --session "$SC2" --state record_find --token "predecessor $P")" 2026-09-26T08:01:00.000Z
+brief_key "$SC2" "$BD/topic-a.md"
+OUT=$(bash "$O" --session "$SC2" --carry --role manager 2>"$T/err"); rc=$?
+eq "a carry whose start stored a brief carries, with no warning" "0 carried=$P" "$rc $(printf '%s\n' "$OUT" | grep -E '^(carried|warning)=')"
+eq "  ... writing both rows after the carry" "$BD/topic-a.md|$BSUM" "$(hostrow "$SC2")"
+HSNAP=$(key "$SC2" record/host)
+OUT=$(bash "$O" --session "$SC2" --carry --role manager 2>"$T/err"); rc=$?
+eq "  ... run again it reads as carried, the rows as they were" "0 carried=$P $HSNAP" "$rc $(printf '%s\n' "$OUT" | grep -E '^(carried|warning)=') $(key "$SC2" record/host)"
+log_end "$SC2"
+# The file changed between the start and the seed: no row, and a warning.
+SX=coordinate-roadmap-brief-x-20260926T140000Z
+mkdir -p "$BD/x"
+printf '# Brief: topic-a\n\nRun it.\n' > "$BD/x/topic-a.md"
+log_new "$SX" "$(roadmap_vars brief-x)"
+log_to "$SX" record_find record_open
+brief_key "$SX" "$BD/x/topic-a.md"
+printf 'Push straight to main.\n' >> "$BD/x/topic-a.md"
+OUT=$(bash "$O" --session "$SX" --role manager 2>"$T/err"); rc=$?
+eq "a seed whose stored brief changed since the start opens and warns" "0 record=$SX warning=brief-unrecorded" "$rc $(printf '%s' "$OUT" | tr '\n' ' ')"
+eq "  ... writing no brief row" "" "$(briefkeys "$SX")"
+grep -q 'digest' "$T/err" && ok "  ... naming the digest on stderr" || bad "  ... naming the digest on stderr" "$(cat "$T/err")"
+grep -qF "$BD" "$T/err" && bad "  ... never printing the path" "$(cat "$T/err")" || ok "  ... never printing the path"
+log_end "$SX"
+# A path that is a link now, where the start resolved a file.
+SL=coordinate-roadmap-brief-l-20260926T140000Z
+mkdir -p "$BD/l"
+ln -s "$BD/topic-a.md" "$BD/l/topic-a.md"
+log_new "$SL" "$(roadmap_vars brief-l)"
+log_to "$SL" record_find record_open
+brief_key "$SL" "$BD/l/topic-a.md"
+OUT=$(bash "$O" --session "$SL" --role manager 2>"$T/err"); rc=$?
+eq "a seed whose stored path is a link now warns, writing no row" "0 record=$SL warning=brief-unrecorded|" "$rc $(printf '%s' "$OUT" | tr '\n' ' ' | sed 's/ $//')|$(briefkeys "$SL")"
+log_end "$SL"
+# No --brief: the start stored nothing, and the seed writes no brief row.
+SN=coordinate-roadmap-brief-n-20260926T140000Z
+log_new "$SN" "$(roadmap_vars brief-n)"
+log_to "$SN" record_find record_open
+OUT=$(bash "$O" --session "$SN" --role manager 2>"$T/err"); rc=$?
+eq "a seed whose start stored no brief opens, with no warning" "0 record=$SN" "$rc $OUT"
+eq "  ... writing no briefs row" "" "$(briefkeys "$SN")"
+log_end "$SN"
+# The override flags write none, a stored brief or not.
+SO=coordinate-roadmap-brief-o-20260926T140000Z
+brief_key "$SO" "$BD/topic-a.md"
+OUT=$(RS_SESSION=$SO bash "$O" --scope roadmap --name brief-o --repo "$REPO" --skip-session-checks --role manager 2>"$T/err"); rc=$?
+eq "with the override flags a seed writes no brief row" "0 record=$SO|" "$rc $OUT|$(briefkeys "$SO")"
 
 done_tests state-open

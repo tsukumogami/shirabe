@@ -88,6 +88,7 @@ yourself with `koto context get <session> <key>`; never write one by hand.
 | `record/entries/<n>`, `record/posted/<n>` | the account, one entry each, and the URL of an outward entry's comment | `state-entry.sh` |
 | `record/archive/<n>` | `{n}`, the marker beside a `decisions` entry, so the archived rows are read without listing every entry | `state-entry.sh`; the legacy importer |
 | `legs/<request>/<leg>` | a worker leg (see Where State Lives) | `dispatch-worker.sh`, `wait-target.sh`, `reconcile-legs.sh` |
+| `coord/start_brief.json` | `{label, path, digest}`: the brief a fresh start was given with `--brief`, as the opener checked it, kept for the seed because a fresh run holds no record yet; not a record key, so a carry doesn't copy it | `coordinate-open.sh`, on a fresh start; read by `state-open.sh` after each seed it makes, which checks the file's digest again and writes `record/host`'s `briefs:<label>` and `briefs-digest:<label>` through `state-stored-set.sh --host` |
 
 Any section key may also be written by the core's carry: `state-open.sh`
 seeding a new run or carrying a predecessor's state, `coordinate-open.sh`
@@ -562,8 +563,12 @@ prints only those rows (one the record lacks is refused, 65). `--rules
 each Run `rules` row, so `grep '^inferred '` gives the unsourced rules the
 record holds. Neither mode writes.
 
-The brief intake brings a brief's rules in once. You record the brief's path
-with `--host briefs:<label> <path>`; `--intake <label> --by <who>` reads that
+The brief intake brings a brief's rules in once. The brief a start's opener
+line passes as `--brief` is recorded for you, as `briefs:<label>` with its
+digest: by the opener
+on a start that finds a record, and by `state-open.sh` after the seed on a
+fresh one. Any other brief you record with `--host briefs:<label> <path>`;
+`--intake <label> --by <who>` reads that
 file once, never edits it and never prints its path. When a Run `briefs` row
 already reads `<label> sha256:<its digest>` it writes nothing and exits 0.
 Otherwise its candidates are the brief's sentences, less heading lines and

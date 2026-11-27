@@ -129,8 +129,9 @@ it passes that role at its start and infers none. `held_rerender`,
 dropped.
 
 A successor's brief is also the one its intake reads rules from. Written by
-hand, it carries a `## Standing rules` heading and files its rules as
-SKILL.md's brief-intake paragraph says. Rendered through `render-brief.sh`, it
+hand, it carries a `## Standing rules` heading and files its rules as the
+hand-written successor brief paragraph in `state-keys.md` (The stored set:
+Run, Standing and Work) says. Rendered through `render-brief.sh`, it
 never gets that heading, so its fields decide what the intake takes: put the
 holdings and
 where the work stands in `goal`, under `###` subsections and with no `#` or

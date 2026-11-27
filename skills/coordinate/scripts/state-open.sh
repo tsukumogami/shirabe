@@ -82,6 +82,22 @@
 # stderr, and the next start writes them. With the test override flags it
 # writes none.
 #
+# After each seed it makes it also records the run's brief, when the start
+# stored one: a fresh start given --brief leaves the run holding no record,
+# so coordinate-open.sh puts the checked brief, {label, path, digest}, in the
+# run's coord/start_brief.json. This script reads that key, checks the file at
+# its path again as the opener did (an absolute path that is still no link and
+# resolves to itself, a regular file named <label>.md or <label>, read once
+# from one handle, at most 262144 bytes, its sha256 the stored digest), and
+# writes record/host's briefs:<label> and briefs-digest:<label> through
+# state-stored-set.sh --host, the write the opener makes on a start that finds
+# a record. With no key it writes nothing. A changed or unreadable file, a key
+# that doesn't read, or a write that fails writes no row and never fails the
+# seed: it prints `warning=brief-unrecorded` after record= (or carried=, and
+# after any rules warning), the reason on stderr, never the path; the
+# reconcile reports brief-unrecorded while no brief is recorded. Written
+# again, the rows read the same. With the test override flags it writes none.
+#
 # Usage:
 #   state-open.sh --session S --role manager|director [--start YYYY-MM-DD --end YYYY-MM-DD]
 #   state-open.sh --session S --carry [--role manager|director
@@ -177,6 +193,70 @@ rules_record() {
         echo "$PROG: $SESSION's rules digests weren't written: $(tr -s '\t\n' '  ' < "$d/err" | head -c 400); the next start writes them" >&2
     fi
     rm -rf "$d"
+}
+
+# brief_record: the brief a fresh start stored in coord/start_brief.json,
+# written into the run's record/host once a seed has given it a record. The
+# key is checked field by field and the file at its path again, as
+# coordinate-open.sh's brief_check does; the path goes only to
+# state-stored-set.sh, as an argument, and is never printed. No key writes
+# nothing. A failure prints warning=brief-unrecorded, the reason on stderr,
+# and returns 0.
+BRIEF_CAP=262144
+brief_record() {
+    local d why= label= path digest dir sum size rc
+    [ "$OVERRIDE" = 1 ] && return 0
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-open-brief.XXXXXX") || {
+        echo "warning=brief-unrecorded"; echo "$PROG: $SESSION's brief wasn't recorded: no scratch directory" >&2
+        return 0
+    }
+    rs_key "$SESSION" coord/start_brief.json "$d/key"
+    case $? in
+        0) ;;
+        1) rm -rf "$d"; return 0 ;;
+        *) why="coord/start_brief.json couldn't be read" ;;
+    esac
+    if [ -z "$why" ] && ! jq -e 'type == "object"
+            and (.label | type == "string" and test("^[a-z0-9][a-z0-9-]{0,63}$"))
+            and (.path | type == "string" and startswith("/") and length <= 4096 and (explode | all(. >= 32 and . != 127)))
+            and (.digest | type == "string" and test("^sha256:[0-9a-f]{64}$"))' "$d/key" > /dev/null 2>&1; then
+        why="coord/start_brief.json isn't a brief the opener stored"
+    fi
+    if [ -z "$why" ]; then
+        label=$(jq -r .label "$d/key") && path=$(jq -r .path "$d/key") && digest=$(jq -r .digest "$d/key") \
+            || why="coord/start_brief.json couldn't be read"
+    fi
+    if [ -z "$why" ]; then
+        dir=$(CDPATH='' cd -P -- "$(dirname -- "$path")" 2> /dev/null && pwd -P) || dir=
+        case "$(basename -- "$path")" in "$label.md"|"$label") ;; *) why="its file isn't named for its label" ;; esac
+        [ -n "$why" ] || [ ! -L "$path" ] || why="its path is a link now"
+        [ -n "$why" ] || [ "$dir/$(basename -- "$path")" = "$path" ] || why="its path no longer resolves to itself"
+        [ -n "$why" ] || { [ -f "$path" ] && [ -r "$path" ]; } || why="its file is no longer a regular, readable file"
+    fi
+    if [ -z "$why" ]; then
+        # One open handle: checked as a regular file through it, and read from it.
+        { [ -f /dev/fd/8 ] && head -c "$((BRIEF_CAP + 1))" <&8 > "$d/copy"; } 8< "$path" 2> /dev/null \
+            || why="its file couldn't be read as a regular file"
+    fi
+    if [ -z "$why" ]; then
+        size=$(wc -c < "$d/copy" | tr -d ' ')
+        if [ "$size" -gt 0 ] && [ "$size" -le "$BRIEF_CAP" ]; then
+            if command -v sha256sum > /dev/null 2>&1; then sum=$(sha256sum < "$d/copy"); else sum=$(shasum -a 256 < "$d/copy"); fi
+            [ "sha256:${sum%% *}" = "$digest" ] || why="its file changed after the start checked it (its digest isn't the stored one)"
+        else
+            why="its file changed after the start checked it (it is empty or larger than $BRIEF_CAP bytes)"
+        fi
+    fi
+    if [ -z "$why" ]; then
+        bash "$HERE/state-stored-set.sh" --session "$SESSION" --host "briefs:$label" "$path" \
+            --host "briefs-digest:$label" "$digest" < /dev/null > /dev/null 2> /dev/null
+        rc=$?
+        [ "$rc" -eq 0 ] || why="state-stored-set.sh --host exited $rc"
+    fi
+    rm -rf "$d"
+    [ -n "$why" ] || return 0
+    echo "warning=brief-unrecorded"
+    echo "$PROG: $SESSION's brief${label:+ $label} wasn't recorded: $why; the reconcile reports brief-unrecorded until it is" >&2
 }
 
 # carry_role <state-file>: the carried state given the Run `role` row when the
@@ -282,7 +362,7 @@ if [ "$CARRY" = 1 ]; then
         cat "$T/report.json"
         if [ "$1" = carried ]; then
             echo "carried=$PRED"
-            [ "${SEEDED:-0}" = 0 ] || rules_record
+            [ "${SEEDED:-0}" = 0 ] || { rules_record; brief_record; }
             exit 0
         fi
         echo "refused"
@@ -409,4 +489,5 @@ if [ "$SCOPE" = discipline ]; then
 fi
 echo "record=$OPEN_S"
 rules_record
+brief_record
 exit 0

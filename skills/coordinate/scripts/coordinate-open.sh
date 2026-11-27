@@ -289,9 +289,11 @@
 # and recorded in record/host as briefs:<label> and briefs-digest:<label>
 # once the run holds a record: on a resume, a takeover, a carry, an import
 # and a fresh start the legacy importer filled. A fresh start leaves the run
-# holding no record, so its guidance says how to record the brief once the
-# run's find has seeded it. A write that fails prints
-# warning=brief-unrecorded after session=, and the start goes on.
+# holding no record, so it stores the checked brief (its resolved path, label
+# and digest) in the run's coord/start_brief.json, and state-open.sh writes
+# the two rows from it after record_open's seed, the digest checked again. A
+# write or store that fails prints warning=brief-unrecorded after session=,
+# and the start goes on.
 #
 # Guidance. stdout is only the key=value lines. A takeover, an import, a
 # carry, a directory handover, a refusal or an ask also prints, on stderr,
@@ -316,9 +318,8 @@
 #   dispatched-self      the --dispatched-by usage on a resume or carry
 #   store-unsupported, rules-unrecorded
 #                        refused=store-unsupported, warning=rules-unrecorded
-#   brief, brief-pending, brief-unrecorded
-#                        refused=brief, a fresh start given --brief,
-#                        warning=brief-unrecorded
+#   brief, brief-unrecorded
+#                        refused=brief, warning=brief-unrecorded
 #   compat               session= of a resume whose compiled template isn't
 #                        the shipped one and whose fingerprint is one the
 #                        table's pre-change.fingerprint rows freeze
@@ -501,7 +502,8 @@ guide() {
 # is the digest recorded, so the intake (state-stored-set.sh --intake) refuses
 # a file swapped after the check. Its contents are never printed, no command
 # is built from the path, and the path itself is never printed: the recorded
-# one goes only to state-stored-set.sh, as an argument.
+# one goes only to state-stored-set.sh, as an argument, or, on a fresh start,
+# into coord/start_brief.json through a file jq writes.
 BRIEF_CAP=262144
 BRIEF_LABEL= BRIEF_REAL= BRIEF_DIGEST=
 brief_refuse() {
@@ -562,11 +564,28 @@ brief_record() {
     guide brief-unrecorded "$1" "$BRIEF_LABEL"
     echo "coordinate-open: $1's brief wasn't recorded (state-stored-set.sh --host exited $rc); the start goes on" >&2
 }
-# brief_pending <run>: a start that leaves the run holding no record yet (a
-# fresh run, whose find seeds it) can't write the row; its block says how.
-brief_pending() {
+# brief_store <run>: a start that leaves the run holding no record yet (a
+# fresh run, whose record_open seeds it) can't write the row, so the checked
+# brief, {label, path, digest}, goes into the run's own session as
+# coord/start_brief.json, written from a file, and state-open.sh writes the
+# host row from it after the seed, checking the digest again. A store that
+# fails prints warning=brief-unrecorded, and the start goes on.
+brief_store() {
+    local d rc=0
     [ "$HAVE_BRIEF" -eq 1 ] || return 0
-    guide brief-pending "$1" "$BRIEF_LABEL"
+    if d=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-open-brief.XXXXXX"); then
+        jq -nc --arg l "$BRIEF_LABEL" --arg p "$BRIEF_REAL" --arg g "$BRIEF_DIGEST" \
+            '{label: $l, path: $p, digest: $g}' > "$d/brief.json" \
+            && "$KOTO" context add "$1" coord/start_brief.json --from-file "$d/brief.json" < /dev/null > /dev/null 2> /dev/null \
+            || rc=1
+        rm -rf "$d"
+    else
+        rc=1
+    fi
+    [ "$rc" -eq 0 ] && return 0
+    echo "warning=brief-unrecorded"
+    guide brief-unrecorded "$1" "$BRIEF_LABEL"
+    echo "coordinate-open: $1's brief wasn't stored for record_open to record; the start goes on" >&2
 }
 # The run's role (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1;
 # PRD R5): --role, and a change from above, --role-change-by and
@@ -2057,7 +2076,8 @@ fi
 printf 'session=%s\n' "$SESSION"
 link_dispatcher "$SESSION"
 # A run that holds a record takes its brief's row now; a fresh one's record
-# is seeded by its find, after this start, so its block says how to write it.
-if [ "$HELD" = 0 ]; then brief_pending "$SESSION"; else brief_record "$SESSION"; fi
+# is seeded at record_open, after this start, so the brief is stored for
+# state-open.sh to record then.
+if [ "$HELD" = 0 ]; then brief_store "$SESSION"; else brief_record "$SESSION"; fi
 [ "$HELD" = 0 ] || rules_record "$SESSION"
 exit 0
