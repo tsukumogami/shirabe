@@ -261,7 +261,7 @@ F=$T/caponly; fixture "$F" "$TEXT" "$EXACT"
 echo 'CAP=300' > "$F/cap.sh"; commit "$F" cap; git -C "$F" update-ref refs/remotes/origin/main HEAD
 write_md "$F" "$TEXT And one more rule."; echo 'CAP=400' > "$F/cap.sh"; commit "$F" raise
 OUT=$(judgedc "$F"); st=$?
-[ "$st" = 1 ] && printf '%s' "$OUT" | grep -q "Put new text where it fires" && pass "raising CAP alone gives no room, and the failure says where text goes" || fail "raising CAP alone gives no room, and the failure says where text goes" "exit $st: $OUT"
+[ "$st" = 1 ] && grep -q "Put new text where it fires" <<<"$OUT" && pass "raising CAP alone gives no room, and the failure says where text goes" || fail "raising CAP alone gives no room, and the failure says where text goes" "exit $st: $OUT"
 
 F=$T/caprow; fixture "$F" "$TEXT" "$EXACT"
 echo 'CAP=300' > "$F/cap.sh"; commit "$F" cap; git -C "$F" update-ref refs/remotes/origin/main HEAD
@@ -270,8 +270,8 @@ OUT=$(judgedc "$F"); [ $? = 1 ] && pass "raising the row with CAP unchanged fail
 
 F=$T/outside; mkdir -p "$T/elsewhere"; printf 'more text\n' > "$T/elsewhere/x.md"; fixture "$F" "$TEXT See @$T/elsewhere/x.md here." 400
 OUT=$(judged "$F"); st=$?
-[ "$st" = 1 ] && printf '%s' "$OUT" | grep -q "outside the skill tree" && pass "an include outside the skill's tree is refused" || fail "an include outside the skill's tree is refused" "exit $st: $OUT"
-printf '%s' "$OUT" | grep -q "Put new text where it fires" && fail "  ... and a refusal prints no placement advice" "$OUT" || pass "  ... and a refusal prints no placement advice"
+[ "$st" = 1 ] && grep -q "outside the skill tree" <<<"$OUT" && pass "an include outside the skill's tree is refused" || fail "an include outside the skill's tree is refused" "exit $st: $OUT"
+grep -q "Put new text where it fires" <<<"$OUT" && fail "  ... and a refusal prints no placement advice" "$OUT" || pass "  ... and a refusal prints no placement advice"
 
 F=$T/lower; fixture "$F" "$TEXT And one more rule." 300
 write_md "$F" "$TEXT"; write_row "$F" 100; commit "$F" lower
@@ -280,12 +280,12 @@ OUT=$(judged "$F"); [ $? = 0 ] && pass "a lowered row and a shrunk entry pass" |
 F=$T/cap; fixture "$F" "$TEXT" none
 write_row "$F" 9000; commit "$F" cap
 OUT=$(judged "$F"); st=$?
-[ "$st" = 1 ] && printf '%s' "$OUT" | grep -q "over the cap" && pass "a row over the cap fails" || fail "a row over the cap fails" "exit $st: $OUT"
+[ "$st" = 1 ] && grep -q "over the cap" <<<"$OUT" && pass "a row over the cap fails" || fail "a row over the cap fails" "exit $st: $OUT"
 
 F=$T/new; fixture "$F" "$TEXT" none
 write_row "$F" 200; commit "$F" new
 OUT=$(judged "$F"); st=$?
-[ "$st" = 0 ] && printf '%s' "$OUT" | grep -q "merge base has no" && pass "a base with no ceiling file falls back to the tree's row, and says so" || fail "a base with no ceiling file falls back to the tree's row, and says so" "exit $st: $OUT"
+[ "$st" = 0 ] && grep -q "merge base has no" <<<"$OUT" && pass "a base with no ceiling file falls back to the tree's row, and says so" || fail "a base with no ceiling file falls back to the tree's row, and says so" "exit $st: $OUT"
 
 F=$T/no-base; mkdir -p "$F" && git -C "$F" init -q -b main; write_md "$F" "$TEXT"; write_row "$F" 200; commit "$F" only
 OUT=$( (GITHUB_BASE_REF=main; cd "$F" && judge "$F" s/SKILL.md ceil.tsv) ); st=$?

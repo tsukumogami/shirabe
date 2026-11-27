@@ -590,14 +590,14 @@ brief_record() {
 brief_store() {
     local d rc=0
     [ "$HAVE_BRIEF" -eq 1 ] || return 0
-    if d=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-open-brief.XXXXXX"); then
+    d=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-open-brief.XXXXXX") || rc=1
+    [ -n "$d" ] || rc=1
+    if [ "$rc" -eq 0 ]; then
         jq -nc --arg l "$BRIEF_LABEL" --arg p "$BRIEF_REAL" --arg g "$BRIEF_DIGEST" \
             '{label: $l, path: $p, digest: $g}' > "$d/brief.json" \
             && "$KOTO" context add "$1" coord/start_brief.json --from-file "$d/brief.json" < /dev/null > /dev/null 2> /dev/null \
             || rc=1
         rm -rf "$d"
-    else
-        rc=1
     fi
     [ "$rc" -eq 0 ] && return 0
     echo "warning=brief-unrecorded"
