@@ -13,9 +13,15 @@
 # It asserts:
 #
 #   skills/execute/SKILL.md and the `## spawn_and_await` section of
-#     koto-templates/execute.md each name the step agent, one at a time,
-#     koto status, that the owning session never runs `koto next` on a child,
-#     and when it details the next step;
+#     koto-templates/execute.md each name the step agent, the step limit and
+#     its flag, step-group.sh, koto status, that the owning session never runs
+#     `koto next` on a child, and when it details the next step;
+#   the spawn_and_await section says how a group is asked for, cut, landed and
+#     checked, each landing outcome, what a conflict and a fix round do, and
+#     the steps_landed gate; SKILL.md's "The lead shape" documents
+#     --max-concurrent-steps, the per-step worktrees, landing by rebase in PLAN
+#     order and the re-checks; the hand-off names the group's worktree, the
+#     step branch and the landing branch;
 #   the spawn_and_await section carries the step_refine/ key and how its
 #     <step> part is derived, the skip_dependents sentence, the report and
 #     retry rules, the branch-character check, the outline case, the data
@@ -138,10 +144,11 @@ fi
 
 cat > "$WORK/both.txt" <<'EOF'
 step agent
-one at a time
+--max-concurrent-steps
+step-group.sh
 koto status
 never runs `koto next` on a child
-after the previous step's child reaches its terminal and before the next step's agent starts
+after the steps it waits on have landed and before its agent starts or its worktree is cut
 EOF
 check "skills/execute/SKILL.md" "$WORK/skill.flat" "$WORK/both.txt"
 check "the spawn_and_await section" "$WORK/spawn.flat" "$WORK/both.txt"
@@ -182,6 +189,28 @@ The next-steps list is the one value read from the PLAN
 whose `waits_on` names only this step
 step-draft.sh" id <step>` refuses this step's id or any id in the next-steps list
 before any key, worktree or branch is written for it
+step-group.sh" next {{SESSION_NAME}}
+step-group.sh" limit "{{MAX_CONCURRENT_STEPS}}"
+1 to 6; empty is the default, 2
+whose `waits_on` have all landed, in the PLAN's order, up to the limit
+`--max-concurrent-steps=1` is the run as it was before groups
+step-group.sh" cut {{SESSION_NAME}} <step> {{SETTLED_BRANCH}}
+binds the step's child to that worktree (`koto session rebind`)
+Start the group's step agents together, in one message
+No two steps share a tree or a koto session
+It has not landed.
+step-group.sh" land {{SESSION_NAME}} <step> {{SETTLED_BRANCH}}
+one step at a time in the group's order
+the step's level check and its verification are re-running at the rebased head
+That step is held, and the steps after it go on
+step-group.sh" check {{SESSION_NAME}} {{SETTLED_BRANCH}}
+runs the level check once over the group's combined diff
+Nothing of a group is on the shared branch before `check` answers `landed`
+holds on its `steps_landed` gate while a step that was cut has not landed
+a step that waits on it does not start
+the resolution is reviewed as its own change before it reaches the shared branch
+fix-round.sh" start --from <child> --fresh
+Its implementation is `git merge --ff-only <step branch>`
 EOF
 check "the spawn_and_await section" "$WORK/spawn.flat" "$WORK/spawn.txt"
 
@@ -195,6 +224,17 @@ on each child
 under `/deliver`, on `deliver-<topic>`
 a non-terminal child goes to a new step agent
 An outline child at `validation_exit` is detailed, rewound with `koto rewind <child>`, and handed off
+`--max-concurrent-steps=<N>` (1 to 6, default 2; single-pr only)
+`--max-concurrent-steps=1` makes every group one step, in PLAN order
+**Per-step worktrees.** In a group of two or more, each step works in its own worktree on its own step branch.
+<top-level>-step-worktrees/<session>.<step>
+`<shared branch>--<step>`
+**Landing by rebase, in PLAN order.**
+The rebase is aborted and that step is held.
+the resolution is reviewed as its own change
+run again at the rebased head
+`check` runs the level check once over everything the group lands together
+`steps_landed` gate
 EOF
 check "skills/execute/SKILL.md" "$WORK/skill.flat" "$WORK/skill.txt"
 
@@ -223,6 +263,11 @@ cat > "$WORK/handoff.txt" <<'EOF'
 {{CHECKOUT}}
 {{SHARED_BRANCH}}
 {{PLUGIN_ROOT}}
+{{LAND_BRANCH}}
+the `worktree=` path `step-group.sh cut` printed for that step
+Start all of a group's agents in one message
+Work on the branch named above, even where the child's own text names another shared branch.
+run `git merge --ff-only {{LAND_BRANCH}}` before anything else
 --no-cleanup
 may spawn its step's review seats
 spawn nothing

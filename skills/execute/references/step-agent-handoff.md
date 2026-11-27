@@ -4,7 +4,7 @@ The text `/execute`'s owning session gives each step agent under the lead
 shape (`spawn_and_await` in `koto-templates/execute.md`, the `dispatch:<node>`
 action in `koto-templates/execute-coordinated.md`, and "The lead shape" in
 `SKILL.md`). It is the whole of what a step agent is told: the owning session
-fills the template's substitutions (four on the single-pr path, ten on the
+fills the template's substitutions (seven on the single-pr path, ten on the
 coordinated one) and composes nothing else per run.
 
 What the template holds a step agent to: it drives one child, with
@@ -19,15 +19,17 @@ commands, tool calls, files to read or scope.
 | Name | Filled with |
 |------|-------------|
 | `{{CHILD}}` | the child's session name, exactly as `koto workflows --children execute-<topic>` prints it |
-| `{{CHECKOUT}}` | the absolute path of the owning session's own checkout |
-| `{{SHARED_BRANCH}}` | the settled branch the run's children commit to |
+| `{{CHECKOUT}}` | the absolute path of the owning session's own checkout; for a step of a group in worktrees, the `worktree=` path `step-group.sh cut` printed for that step |
+| `{{SHARED_BRANCH}}` | the settled branch the run's children commit to; for a step of a group in worktrees, the `branch=` name `step-group.sh cut` printed, `<settled branch>--<step>` |
 | `{{PLUGIN_ROOT}}` | the resolved plugin root, `${CLAUDE_PLUGIN_ROOT}` |
 | `{{OWNER_SESSION}}` | the owning session, `execute-<plan-slug>`, as the owning session itself is named (single-pr template) |
+| `{{LAND_BRANCH}}` | empty, except for the fix round that lands a step (`step-group.sh land` or `check` answered `round`): then that step's branch, as `step-group.sh cut` printed it (single-pr template) |
 | `{{NEXT_STEPS}}` | the step ids of the PLAN's outlined steps whose only `waits_on` is this step, space-separated, each matching `^[a-z0-9][a-z0-9-]{0,62}$`; empty when there are none or when the run's `STEP_DRAFTS` is `off` (single-pr template) |
 
 The owning session fills each one from a value it computed itself (koto's child
 name, its own checkout, the settled branch, the resolved plugin path, its own
-session name), never from PLAN or issue text. The one exception is
+session name, and the worktree and branch `step-group.sh cut` printed),
+never from PLAN or issue text. The one exception is
 `{{NEXT_STEPS}}`, read from the PLAN's `waits_on` structure: each id goes in only
 after `step-draft.sh id <step>` accepts it, and none of the PLAN's prose does. It
 starts no step agent when the settled branch has a character outside letters,
@@ -40,6 +42,15 @@ dispatch variables are added; "The coordinated template" below lists them.
 
 Start the agent in the foreground, in the owning session's checkout, with no
 worktree isolation: the child commits to the shared branch that checkout is on.
+
+A step of a group in worktrees (two or more ready steps started together, see
+`spawn_and_await`) starts in its own step's worktree instead, the one
+`step-group.sh cut` made and bound the child to. The child commits to the step
+branch that worktree is on, and the owning session lands it on the shared
+branch afterwards. Start all of a group's agents in one message, so they run at
+the same time, still with no harness isolation: the worktree is already the
+step's own. The fix round that lands a step runs in the owning session's
+checkout, on the shared branch, with `{{LAND_BRANCH}}` filled.
 
 ```text
 You are the step agent for one step of an /execute run. Drive one koto child
@@ -57,6 +68,15 @@ How to drive it:
   `koto status {{CHILD}}` first and go on from the state it reports.
 - Every `koto next` carries `--no-cleanup`, on every tick. At pr_creation submit
   `pr_status: shared`; the session that started you owns the pull request.
+- Work on the branch named above, even where the child's own text names
+  another shared branch. When the two differ you are one step of a group: the
+  branch is this step's own, and the session that started you lands it on the
+  shared branch after you finish. Make no merge, rebase or push of your own.
+- Landing branch: {{LAND_BRANCH}} (none when empty). When one is named, your
+  child is a fix round that lands that branch: on reaching the child's
+  implementation state run `git merge --ff-only {{LAND_BRANCH}}` before
+  anything else, commit nothing of your own before it, and afterwards fix only
+  what the child's checks call for. This is the one merge you make.
 - You may spawn your step's review seats: the panels your review level calls
   for. The seats spawn nothing themselves. If you cannot spawn seats at all,
   stop and report `seats=unavailable`.

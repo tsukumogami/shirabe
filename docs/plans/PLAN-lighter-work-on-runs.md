@@ -509,7 +509,9 @@ to a limit (R21).
       of 2, two start.
 - [ ] In `single-pr` mode each concurrent step works in its own worktree on
       a step branch and lands on the shared branch by rebase in PLAN order;
-      a conflict stops that step at `validation_exit` and others go on.
+      a conflict stops that step, held unlanded in the owning session's
+      record, and others go on. (A built child can't reach
+      `validation_exit`, which work-on reaches only from `plan_validation`.)
 - [ ] A step whose rebase changed its files re-runs verification and the
       level check at the rebased head; an owner's conflict resolution is
       reviewed as its own change; the combined diff of a concurrent group
