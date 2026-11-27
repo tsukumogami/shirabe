@@ -74,11 +74,18 @@ kt() {
     local pid w rc
     "$@" &
     pid=$!
-    ( sleep "$DEADLINE"; kill -TERM "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+    # The watcher ends its own sleep when it is stopped, so stopping it
+    # leaves no process behind.
+    (
+        sleep "$DEADLINE" &
+        s=$!
+        trap 'kill "$s"; exit 0' TERM
+        wait "$s"
+        kill -TERM "$pid"
+    ) >/dev/null 2>&1 &
     w=$!
     wait "$pid"
     rc=$?
-    pkill -P "$w" 2>/dev/null
     kill "$w" 2>/dev/null
     wait "$w" 2>/dev/null
     return "$rc"
