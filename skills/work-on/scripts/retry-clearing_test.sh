@@ -44,6 +44,10 @@
 
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
+# verification's launcher is a koto background action: one tick starts it and
+# a later one reads it. The cases here ask where a tick leads, so koto next
+# settles a running action before it answers (the guard's header).
+ktg_settle_background
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SKILL_DIR=$(cd "$SCRIPT_DIR/.." && pwd)

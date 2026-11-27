@@ -54,20 +54,27 @@
 # must not call exit, and under `set -e` one that fails ends the trap there
 # as it would have ended the suite's own; either way the directory stays.
 #
-# One more thing the guard gives a suite: `koto next` settles a background
-# action. From koto 0.40.0 a default_action with `background: true` (work-on's
-# verification launcher is one) is started by one tick and read by a later
-# one: the tick that starts it answers an `__action__` condition with status
-# `running` and stops before the state's gates. A suite asks where a
-# submission leads, not how many ticks koto takes to say so, so the `koto`
-# function below ticks the same session again, with no evidence, until the
-# answer is no longer that condition, and prints the last answer with its
-# exit status. It gives up after KTG_SETTLE_TRIES re-ticks (300, about 30
-# seconds) and prints the running answer as it is. Every other koto command,
-# and a koto older than background actions, passes through untouched. A case
-# that has to see the tick that starts the run calls `command koto next`.
-# The function reaches the suite's own shell and its subshells, not a script
-# the suite runs, which calls the koto on PATH as it always did.
+# A suite can also ask that `koto next` settle a background action, by calling
+# ktg_settle_background once, after sourcing this file. From koto 0.40.0 a
+# default_action with `background: true` (work-on's verification launcher is
+# one) is started by one tick and read by a later one: the tick that starts it
+# answers an `__action__` condition with status `running` and stops before the
+# state's gates. A suite that asks where a submission leads, not how many
+# ticks koto takes to say so, calls ktg_settle_background, which defines a
+# `koto` function in the suite's shell: for `koto next` it ticks the same
+# session again, with no evidence, until the answer is no longer that
+# condition, and prints the last answer with its exit status. It gives up
+# after KTG_SETTLE_TRIES re-ticks (300, about 30 seconds) and prints the
+# running answer as it is. Every other koto command, and a koto older than
+# background actions, passes through untouched. A case that has to see the
+# tick that starts the run calls `command koto next`. The function reaches
+# the suite's own shell and its subshells, not a script the suite runs, which
+# calls the koto on PATH as it always did.
+#
+# It is opt-in because a function named koto changes what `command -v koto`
+# prints, from the binary's path to the word koto, and many suites read the
+# path that way. A suite that does must not call it. With no koto on PATH the
+# call defines nothing, so `command -v koto` still says there is none.
 #
 # scripts/check-koto-test-guard.sh fails when a suite that names koto doesn't
 # source this file before it does, and when a suite that sources it sets its
@@ -95,9 +102,9 @@ ktg_on_exit() {
 _ktg_cleanup" EXIT
 }
 
-# Defined only where a koto is on PATH, so a suite's `command -v koto` still
-# says whether there is one.
-if type -P koto >/dev/null; then
+# ktg_settle_background: see the header.
+ktg_settle_background() {
+type -P koto >/dev/null || return 0
 koto() {
     if [ "${1:-}" != next ]; then
         command koto "$@"
@@ -124,7 +131,7 @@ koto() {
     [ -z "$_ktg_o" ] || printf '%s\n' "$_ktg_o"
     return "$_ktg_rc"
 }
-fi
+}
 
 for _ktg_v in KOTO_SESSIONS_BASE KOTO_TICK_SESSION KOTO_HOME KOTO_WORKFLOWS_DIR \
     KOTO_WORKFLOWS_HOST_SESSION KOTO_ANCHOR KOTO_DISPATCHER_ANCHOR CLAUDE_CODE_SESSION_ID \
