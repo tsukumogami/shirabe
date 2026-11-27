@@ -2,8 +2,8 @@
 //!
 //! The log is read through koto's own read-only session reader
 //! (`koto-session-reader`), from the sessions directory koto's rule names:
-//! `$KOTO_HOME/sessions`, or `~/.koto/sessions` when `KOTO_HOME` is unset,
-//! which holds the directory `koto session dir <name>` prints. The reader
+//! `$KOTO_SESSIONS_BASE` when it is set, else `$KOTO_HOME/sessions`, or
+//! `~/.koto/sessions` when `KOTO_HOME` is unset, which holds the directory `koto session dir <name>` prints. The reader
 //! opens a log without following a link and without waiting on a FIFO,
 //! refuses anything that isn't a regular file, and refuses a store whose
 //! layout marker names a layout it doesn't read. Nothing here writes to the

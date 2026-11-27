@@ -63,9 +63,10 @@
 //! (`context_added` by writer `sync`) don't count: none of them is work. The
 //! log is read whole through koto's own session reader (`koto-session-reader`,
 //! in `koto_store`), from the sessions directory koto's rule names
-//! (`$KOTO_HOME`, else `~/.koto`, then `sessions/`), which holds the directory
-//! `koto session dir` prints; no koto call names it. The reader refuses a
-//! link, a non-regular file and a FIFO without waiting on it. A log over
+//! (`$KOTO_SESSIONS_BASE`, else `$KOTO_HOME` or `~/.koto` then `sessions/`),
+//! which holds the directory `koto session dir` prints; no koto call names
+//! it. The reader refuses a link, a non-regular file and a FIFO without
+//! waiting on it. A log over
 //! `koto_store`'s size cap, one the reader refuses, or a read that outlasts
 //! the hook's time budget leaves the freshness unknown. The branch's
 //! tip commit time comes from `git log -1 --format=%ct refs/heads/<branch>`,
