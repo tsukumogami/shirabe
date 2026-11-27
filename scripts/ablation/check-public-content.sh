@@ -155,6 +155,17 @@ report() {
     found=1
 }
 
+# The secret shapes are one list shared with `shirabe question raise`:
+# scripts/lib/secret-shapes.ere, one ERE per line, joined here into one class.
+SECRET_SHAPES="$CHECKOUT/scripts/lib/secret-shapes.ere"
+[ -f "$SECRET_SHAPES" ] || die "secret shape list not found: $SECRET_SHAPES"
+secret_re=""
+while IFS= read -r shape || [ -n "$shape" ]; do
+    case "$shape" in ''|'#'*) continue ;; esac
+    secret_re="${secret_re:+$secret_re|}$shape"
+done < "$SECRET_SHAPES"
+[ -n "$secret_re" ] || die "secret shape list is empty: $SECRET_SHAPES"
+
 # Pattern classes: a stable id, the printed class, then the ERE, matched
 # against the text column only. The id is what an allow record names; only
 # the ids in ALLOWLISTABLE may appear there.
@@ -164,7 +175,7 @@ patterns=(
     'uuid|uuid-shaped identifier|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
     'instance-name|instance or job name|\+[a-z0-9_]+-[0-9a-f]{8}([^0-9a-f]|$)|(^|[^A-Za-z0-9_])[a-z0-9]+_[a-z0-9_]+-[0-9a-f]{8}([^0-9a-f]|$)|(^|/)jobs/[0-9a-f]{8}([^0-9a-f]|$)|(^|[^A-Za-z0-9])session_[0-9A-Z][A-Za-z0-9]{15,}'
     'hosted-url|hosted-session url|claude\.ai/code/session_'
-    'secret|secret shape|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-ant-[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+    "secret|secret shape|$secret_re"
 )
 ALLOWLISTABLE="wip-path"
 

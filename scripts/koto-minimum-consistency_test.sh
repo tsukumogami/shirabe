@@ -264,6 +264,28 @@ if [ -r "$LIB" ]; then
     fi
 fi
 
+# The binary's own copy: `shirabe question` refuses a koto below KOTO_MINIMUM
+# in crates/shirabe/src/question/koto.rs, a compiled constant no script can
+# read at run time, so it is held to --print-floor here.
+binary_minimum() {
+    sed -n 's/^pub const KOTO_MINIMUM: &str = "\([^"]*\)";$/\1/p' "$1"
+}
+BIN_SRC="$REPO/crates/shirabe/src/question/koto.rs"
+BIN_MINIMUM=$(binary_minimum "$BIN_SRC")
+if [ "$BIN_MINIMUM" = "$MINIMUM" ]; then
+    pass "the binary's copy of the minimum (KOTO_MINIMUM) agrees with --print-floor ($MINIMUM)"
+else
+    fail "crates/shirabe/src/question/koto.rs holds KOTO_MINIMUM [$BIN_MINIMUM], --print-floor prints [$MINIMUM]"
+fi
+# Control: a planted disagreement in a copy of that file is caught.
+sed 's/^pub const KOTO_MINIMUM: &str = "[^"]*";$/pub const KOTO_MINIMUM: \&str = "0.1.0";/' "$BIN_SRC" > "$T/koto.rs"
+PLANTED=$(binary_minimum "$T/koto.rs")
+if [ "$PLANTED" = "0.1.0" ] && [ "$PLANTED" != "$MINIMUM" ]; then
+    pass "a planted disagreement in the binary's copy reads as a disagreement"
+else
+    fail "the binary's copy reader did not see the planted value: [$PLANTED]"
+fi
+
 echo
 echo "koto-minimum-consistency_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"
 [ "$FAIL_COUNT" -eq 0 ]

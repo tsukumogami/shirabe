@@ -31,6 +31,7 @@ mod plan_outlines;
 mod populate;
 mod pr_body_hook;
 mod pre_action;
+mod question;
 mod question_guard;
 mod work_summary;
 
@@ -126,6 +127,11 @@ enum Commands {
     PreActionHook(PreActionHookArgs),
     /// The plugin's hooks other than the Bash pre-action hook.
     Hook(HookArgs),
+    /// Raise, list, render and answer a question a session cannot settle,
+    /// recorded in koto. Exits 0 done, 1 refused before any koto write,
+    /// 2 usage, 3 koto missing or below the minimum, 4 koto refused,
+    /// 5 cannot be presented or the answer does not read as verified.
+    Question(question::QuestionArgs),
 }
 
 #[derive(clap::Args)]
@@ -477,6 +483,9 @@ fn exit_for_parse_error(err: clap::Error) -> ExitCode {
             ExitCode::SUCCESS
         }
         clap::error::ErrorKind::DisplayHelp => ExitCode::SUCCESS,
+        // `shirabe question` keeps the usage exit of its own contract, 2,
+        // distinct from its refusal of the input (1).
+        _ if question::invoked() => ExitCode::from(question::EXIT_USAGE),
         _ => ExitCode::from(ValidateOutcome::ToolError.exit_code()),
     }
 }
@@ -508,6 +517,7 @@ fn main() -> ExitCode {
         Some(Commands::Hook(args)) => match args.command {
             HookCommands::QuestionGuard => question_guard::run(),
         },
+        Some(Commands::Question(args)) => question::run(args),
         // Bare invocation: print the long help to stdout and exit 0,
         // matching cobra's behavior for a command with no `Run`. clap would
         // otherwise leave `command` as `None` and exit 0 silently.

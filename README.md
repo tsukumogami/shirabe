@@ -244,9 +244,12 @@ either, and where such a change is announced.
   and the plugin's pre-action hook runs it on every guarded command, so
   install it before you use them (see [Local install](#local-install))
 - [koto](https://github.com/tsukumogami/koto): `/scope`, `/execute`,
-  `/deliver`, `/work-on`, and `/coordinate` require koto 0.33.0 or later.
+  `/deliver`, `/work-on`, and `/coordinate` require koto 0.42.0 or later.
   `.tsuku.toml` tracks the newest koto 0.x rather than pinning a release, so
-  `tsuku install` never downgrades a newer koto you already have. 0.33.0
+  `tsuku install` never downgrades a newer koto you already have. 0.42.0
+  records a question with a typed recipient, stores its content and verifies a
+  person's answer against the prompt that asked it, which `shirabe question`
+  calls. 0.33.0
   records a pull request review panel in the run journal (`koto review record
   code-round`), which `review-round.sh` writes. 0.31.0
   records which rule a directive carries (`directive_rules`) and lets a
@@ -481,6 +484,19 @@ single-PR plan's issue outlines out as JSON so the task extractor and the
 validator share one parse of them, `slug-prefix-detect` checks a candidate slug
 against your workspace's naming convention, and `install-hooks` wires up a
 local pre-commit validation hook.
+
+`shirabe question` handles a question a session can't settle, on top of koto's
+decision record. `question raise` validates the question's content, records it
+in koto and stores the content once; `question pending` lists what's open for
+the owner and at and below a session, plus answers nobody has cited yet;
+`question render` turns stored questions into question-prompt input that comes
+out byte-identical in any session, after a restart or a compaction; and
+`question answer` records the owner's answer by handing koto the pointer to
+the prompt the owner answered. It never takes the answer as text. The
+arguments, output fields, exit codes and stored format are in
+[docs/guides/question-commands.md](docs/guides/question-commands.md), and
+what a session does with a question is in
+[references/question-procedure.md](references/question-procedure.md).
 
 ### Reusable workflow
 
