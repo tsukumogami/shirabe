@@ -19,6 +19,7 @@
 //!   8  `render` was given a question that is no longer open
 
 pub mod answer;
+pub mod attempt;
 pub mod content;
 pub mod koto;
 pub mod render;
@@ -75,6 +76,10 @@ enum QuestionCommands {
     /// question-tool call that asked it. Takes no answer text: the answer is
     /// what the person chose in that call.
     Answer(AnswerArgs),
+    /// Record what came of an attempt to decide: decided, undecided or, in an
+    /// unattended run, provisional. Prints the attempt's id, session, result
+    /// and state as one JSON object.
+    Attempt(AttemptArgs),
 }
 
 #[derive(Args)]
@@ -147,6 +152,84 @@ struct AnswerArgs {
     /// The question's position in that call, from 1.
     #[arg(long, value_name = "N", requires = "call", value_parser = clap::value_parser!(u32).range(1..))]
     position: Option<u32>,
+}
+
+#[derive(Args)]
+struct AttemptArgs {
+    /// The koto session the attempt is recorded in: the session that will
+    /// raise the question if the attempt ends undecided.
+    #[arg(long = "in", value_name = "SESSION")]
+    in_: String,
+    /// What was being decided, in a few words.
+    #[arg(long, value_name = "TEXT")]
+    what: String,
+    /// decided, undecided or provisional.
+    #[arg(long, value_name = "RESULT")]
+    result: String,
+    /// The workflow state and visit the attempt was made in, <state>:<visit>.
+    /// Left out for a session with no workflow state.
+    #[arg(long, value_name = "STATE:VISIT")]
+    state: Option<String>,
+    /// The option chosen. Required for decided and provisional; refused for
+    /// undecided.
+    #[arg(long, value_name = "TEXT")]
+    chosen: Option<String>,
+    /// The cheap-or-costly judgment: cheap when undoing the choice changes
+    /// only the session's own unpublished work, costly otherwise.
+    #[arg(long, value_name = "cheap|costly")]
+    undo: Option<String>,
+    /// What undoing the choice would take. Required with --undo.
+    #[arg(long = "undo-reason", value_name = "TEXT")]
+    undo_reason: Option<String>,
+    /// Why the session may not settle the question: contradicts-answer,
+    /// changes-scope, outward-facing or reserved-step. Only with undecided.
+    #[arg(long, value_name = "GROUND")]
+    ground: Option<String>,
+    /// An earlier decision the attempt rests on, <session>:<decision id>.
+    /// Repeatable.
+    #[arg(long, value_name = "SESSION:ID")]
+    basis: Vec<String>,
+}
+
+/// The run mode a session reads as, from the environment the harness and
+/// koto's hook set: unattended when `KOTO_RUN_MODE` is `unattended` or
+/// `CLAUDE_CODE_SESSION_ATTENDED` is `0`, attended when either says
+/// attended (`attended`, `1`) and neither says unattended, unknown
+/// otherwise. koto 0.42.0 keeps no run mode per session: it reads the mode
+/// for each call from the same variable, so this is the reading koto
+/// records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunMode {
+    Attended,
+    Unattended,
+    Unknown,
+}
+
+impl RunMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RunMode::Attended => "attended",
+            RunMode::Unattended => "unattended",
+            RunMode::Unknown => "unknown",
+        }
+    }
+    /// The value handed to koto's `--run-mode`, or `None` for unknown,
+    /// which koto records by itself.
+    pub fn as_koto(self) -> Option<&'static str> {
+        (self != RunMode::Unknown).then(|| self.as_str())
+    }
+}
+
+pub fn run_mode() -> RunMode {
+    let koto = std::env::var("KOTO_RUN_MODE").ok();
+    let attended = std::env::var("CLAUDE_CODE_SESSION_ATTENDED").ok();
+    if koto.as_deref() == Some("unattended") || attended.as_deref() == Some("0") {
+        RunMode::Unattended
+    } else if koto.as_deref() == Some("attended") || attended.as_deref() == Some("1") {
+        RunMode::Attended
+    } else {
+        RunMode::Unknown
+    }
 }
 
 /// A command's failure: its exit code and what it prints.
@@ -231,6 +314,7 @@ pub fn run(args: QuestionArgs) -> ExitCode {
         QuestionCommands::Pending(a) => ("pending", pending_cmd(&a)),
         QuestionCommands::Render(a) => ("render", render_cmd(&a)),
         QuestionCommands::Answer(a) => ("answer", answer_cmd(&a)),
+        QuestionCommands::Attempt(a) => ("attempt", attempt_cmd(&a)),
     };
     match result {
         Ok(v) => {
@@ -410,7 +494,7 @@ fn check_attempt(session: &str, attempt: Option<&str>) -> Result<String, Failure
     let Some(given) = attempt else {
         return Err(Failure::refused(
             "attempt",
-            "a decision question needs the undecided attempt behind it: record the attempt (koto decisions record --kind judgment ... --subject result=undecided) and give its id with --attempt",
+            "a decision question needs the undecided attempt behind it: record the attempt (shirabe question attempt --result undecided) and give its id with --attempt",
         ));
     };
     let (want_session, want_id) = match given.split_once(':') {
@@ -1303,6 +1387,20 @@ fn reading_of(shown: &Value) -> Value {
         .unwrap_or(Value::Null)
 }
 
+fn attempt_cmd(a: &AttemptArgs) -> Result<Value, Failure> {
+    attempt::run(&attempt::Input {
+        session: &a.in_,
+        what: &a.what,
+        result: &a.result,
+        state: a.state.as_deref(),
+        chosen: a.chosen.as_deref(),
+        undo: a.undo.as_deref(),
+        undo_reason: a.undo_reason.as_deref(),
+        ground: a.ground.as_deref(),
+        basis: &a.basis,
+    })
+}
+
 fn answer_cmd(a: &AnswerArgs) -> Result<Value, Failure> {
     // The koto minimum comes first, so a koto too old to verify a prompt
     // exits 3 whatever else is wrong; `koto version` takes no caller value.
@@ -1314,12 +1412,7 @@ fn answer_cmd(a: &AnswerArgs) -> Result<Value, Failure> {
             "answer takes no answer text, on standard input or otherwise: the answer is what the person chose in the prompt",
         ));
     }
-    if std::env::var("KOTO_RUN_MODE").ok().as_deref() == Some("unattended")
-        || std::env::var("CLAUDE_CODE_SESSION_ATTENDED")
-            .ok()
-            .as_deref()
-            == Some("0")
-    {
+    if run_mode() == RunMode::Unattended {
         return Err(Failure::refused(
             "run_mode",
             "this session runs unattended, so no person answered a prompt in it; nothing was recorded",

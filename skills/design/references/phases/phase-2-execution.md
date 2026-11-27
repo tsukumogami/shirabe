@@ -8,7 +8,10 @@ decisions run in parallel via Task agents.
 
 If the coordination manifest shows all decisions `complete`, skip to Phase 3.
 If some are `complete` and others `pending`, run only the pending ones,
-each by the route 2.2a gives it.
+each by the route 2.2a gives it. A decision marked `undecided` is not
+pending: it waits on its question (2.6). When that question has been answered
+since, write the answer as 2.6 says; otherwise leave it and stop before
+Phase 3.
 
 ## Steps
 
@@ -37,7 +40,12 @@ recorded in the manifest, per
   to the report key 2.3 names for that question
   (`work/decision_<N>_report.md`), so Phase 3 reads it like any other,
   then update the manifest as 2.4 does for a finished agent (status
-  `complete`, report key recorded).
+  `complete`, report key recorded). When your own weighing does not
+  settle it, end it the way a decider would (`/decision`'s Phase 6,
+  6.2a): a provisional decision in an unattended session for a cheap
+  choice, otherwise an undecided report and `work/decision-<N>/question.json`,
+  with the attempt recorded in `design-<topic>`. An undecided result is
+  handled as 2.6 says, whichever route produced it.
 - **critical** (`/decision`'s Tier 4): spawn a decider in 2.3, under a
   parent as in a direct run.
 
@@ -75,7 +83,12 @@ Agent tool:
     not open, adopt or close any session.
 
     Return a structured YAML result with: status, chosen, confidence,
-    rationale, assumptions, rejected, report_key.
+    rationale, assumptions, rejected, report_key. If the evidence does
+    not settle the question and nobody can be asked, follow the decision
+    skill's Phase 6 (6.2a): record the attempt in session design-<topic>,
+    and return status UNDECIDED with question, recommendation,
+    alternatives, missing, attempt, question_key and report_key. Raise
+    nothing yourself.
 ```
 
 Launch ALL independent agents in a single message.
@@ -85,6 +98,9 @@ Launch ALL independent agents in a single message.
 As each agent completes, update the coordination manifest:
 - Set the decision's status to `complete`
 - Record the report key (`work/decision_<N>_report.md`)
+
+An agent that returns `status: "UNDECIDED"` has completed too, without
+choosing: handle it as 2.6 says instead of the two lines above.
 
 Emit progress lines per completion:
 ```
@@ -98,13 +114,56 @@ If an agent fails or times out:
 - Second failure: mark as `failed` in manifest, continue with remaining
   decisions, and report the failure
 
+An `UNDECIDED` result is not a failure and is never retried: re-running the
+decider on the same evidence ends the same way.
+
+### 2.6 An Undecided Result
+
+A decider, or your own inline resolution, can end with no option chosen
+(`status: "UNDECIDED"`). For that decision:
+
+1. Check what came back:
+   `"${CLAUDE_PLUGIN_ROOT}/skills/decision/scripts/check-undecided.sh" design-<topic> work/decision_<N>_report.md`.
+   Exit 0 goes on. Exit 1 names a missing part: re-run the decider once with
+   that named; a second exit 1 marks the decision `failed` as 2.5 does.
+2. Raise the question from `design-<topic>`, the session the attempt is in:
+
+   ```bash
+   koto context get design-<topic> <question_key>      | shirabe question raise --in design-<topic> --content - --attempt <attempt id>
+   ```
+
+   The content is the decider's question as written. Only `ground` and
+   `waiting` may be replaced with what this run knows (the decisions and
+   documents waiting on it); nothing else is rewritten.
+3. Record the decision in the manifest as `undecided`, with the question's
+   identity (`"question": "<identity>"`) and the report key.
+4. Run the remaining decisions. Those that do not depend on the answer go on
+   as before; one coupled to it waits too.
+5. Write no Considered Options entry with a chosen option for it, and no
+   assumption standing in for an answer.
+
+Then, in a turn a person started in an attended session, present the
+question with `shirabe question render <identity>` and record the reply with
+`shirabe question answer <identity> --in design-<topic>`
+(`references/question-procedure.md`, steps 5 and 6). Otherwise the question
+waits, and the run stops before Phase 3, reporting the open question.
+
+When the answer is recorded (`koto decisions history <identity>` shows it),
+write it as the choice: record `shirabe question attempt --in design-<topic>
+--what "<question>" --result decided --chosen "<option>" --basis
+<answer session>:<answer id>`, rewrite the report as a settled report with
+status `confirmed` whose Rationale cites the answer, set the decision to
+`complete`, and go on to Phase 3.
+
 ## Quality Checklist
 
 - [ ] Under a parent skill, each decision routed by tier (2.2a) and its provenance recorded
 - [ ] All decisions routed to `/decision` spawned (parallel for independent, sequential for coupled)
 - [ ] Coordination manifest updated with results
+- [ ] Each undecided result checked, its question raised from `design-<topic>`, and the decision marked `undecided`
 - [ ] Progress lines emitted per completion
 
 ## Next Phase
 
-Proceed to Phase 3: Cross-Validation (`phase-3-cross-validation.md`)
+Proceed to Phase 3: Cross-Validation (`phase-3-cross-validation.md`) once
+no decision is `undecided`. While one is, stop here with its question open.

@@ -20,3 +20,11 @@ koto	context get	-	always
 koto	context exists	-	always
 koto	context remove	-	always
 koto	context list	--prefix	always
+#
+# Phase 5 raises the question a decision hands back UNDECIDED from
+# explore-<topic> with `shirabe question raise --attempt`, and in an attended
+# turn presents it with `shirabe question render` and records the reply with
+# `shirabe question answer --in`.
+shirabe	question raise	--in,--content,--attempt	always
+shirabe	question render	-	always
+shirabe	question answer	--in	always

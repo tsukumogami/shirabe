@@ -150,6 +150,33 @@ decision_result:
   report_key: "work/decision_1_report.md"
 ```
 
+When the evidence does not settle the question and nobody can be asked, the
+decider applies the cheap-or-costly test in `references/question-procedure.md`
+and either settles it provisionally (`status: "COMPLETE"` with
+`provisional: true` and `attempt`) or ends undecided:
+
+```yaml
+decision_result:
+  status: "UNDECIDED"
+  question: "Which licence should the package be published under?"
+  recommendation: {name: "MIT", reason: "..."}
+  alternatives:
+    - {name: "MIT", reason: "..."}
+    - {name: "Apache-2.0", reason: "..."}
+  missing: "Whether the owner wants a patent grant"
+  attempt: "design-foo:000000000007"
+  question_key: "work/decision-1/question.json"
+  report_key: "work/decision_1_report.md"
+```
+
+`UNDECIDED` is not a failure and is not retried. The attempt is recorded in
+`decision_context.session`, the session the caller raises the question from;
+the decider raises nothing under a parent. A caller runs
+`skills/decision/scripts/check-undecided.sh <session> <report_key>` on the
+result, raises `question_key` with `shirabe question raise --content -
+--attempt <id>`, writes no chosen option and no assumption for it, and stops
+before the phase that needs the answer.
+
 See `references/decision-report-format.md` for the canonical output format
 with consumer rendering sections.
 
@@ -160,7 +187,10 @@ From `$ARGUMENTS`:
 2. **Decision question** -- use as the topic, proceed to Phase 0
 
 Check for `--auto` flag. In --auto mode, the skill never blocks on user input.
-Follow `references/decision-protocol.md` for assumption handling.
+Follow `references/decision-protocol.md` for assumption handling. `--auto`
+says not to prompt; whether the run is attended is read from the session
+(`references/question-procedure.md`), and decides whether a contested choice
+may be settled provisionally or ends `UNDECIDED`.
 
 ## Workflow Phases
 
@@ -185,6 +215,8 @@ goes from alternatives presentation directly to synthesis.
 ## Resume Logic
 
 ```
+if key <report_key> exists, block undecided  -> Question handed back, waiting on its answer:
+                                                 no phase runs; once answered, Phase 6 step 6.7
 if key <report_key> exists                    -> Decision complete
 if key <key_dir>/examination.md exists        -> Resume at Phase 6
 if keys <key_dir>/bakeoff_* exist             -> Resume at Phase 4
@@ -225,6 +257,13 @@ start fresh:
 
 Only `<report_key>` persists. Nothing is deleted from the staging folder:
 `/decision` writes nothing there.
+
+A decision that ends `UNDECIDED` removes no key: `<key_dir>/context.md`,
+`research.md`, `alternatives.md` and any bakeoff and examination keys stay,
+with `<report_key>` and `<key_dir>/question.json`, so the research is readable
+for whoever answers and for the run that writes the answer. A direct run's
+close keeps them too: `skill-session.sh close` ticks with `--no-cleanup`. The
+keys are removed as above once the answer is written as a settled report.
 
 ## Validator Agent Contract
 

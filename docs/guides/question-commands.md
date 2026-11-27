@@ -1,7 +1,8 @@
 # The question commands
 
 `shirabe question` raises, lists, renders and answers a question a session
-can't settle on its own evidence. koto keeps the record: each question is an
+can't settle on its own evidence, and records the attempt to decide that comes
+before it. koto keeps the record: each question is an
 `escalate` decision with a typed recipient, and its content is stored once
 beside it. shirabe checks what a question contains and how it's shown. The
 procedure a session follows around these commands is in
@@ -210,6 +211,78 @@ what catches a pointer into another session's record.
 The 8,192-byte bound on a question's text is an estimate. The length the
 question tool accepts hasn't been measured yet (see
 `references/decision-presentation.md`).
+
+## `shirabe question attempt`
+
+```text
+shirabe question attempt --in <session> --what <text> --result <decided|undecided|provisional> [--state <state>:<visit>] [--chosen <text>] [--undo <cheap|costly> --undo-reason <text>] [--ground <ground>] [--basis <session>:<id>]...
+```
+
+It records what came of an attempt to decide, as one koto `judgment` by the
+session: `koto decisions record --kind judgment --outcome settled` with the
+subject `what`, `result` and, when given, `state`. An undecided attempt is
+what `raise --attempt` rests a question on; `raise` refuses a decided or a
+provisional one.
+
+- `--in`: the session the attempt is recorded in, the one that will raise the
+  question if there is one.
+- `--what`: what was being decided.
+- `--result`: `decided`, `undecided` or `provisional`. Missing, it's a usage
+  error (exit 2).
+- `--state`: the workflow state and its visit, such as `implement:1`. A
+  session with no workflow state leaves it out, and the attempt reads back
+  with a null `state`.
+- `--chosen`: the option chosen. Required with `decided` and `provisional`,
+  refused with `undecided`.
+- `--undo` and `--undo-reason`: the cheap-or-costly test
+  (`references/question-procedure.md`) and what undoing the choice would take.
+  Each needs the other.
+- `--ground`: why the session may not settle a question it could undo
+  cheaply. One of `contradicts-answer`, `changes-scope`, `outward-facing` or
+  `reserved-step`, and only with `undecided`.
+- `--basis`: an earlier decision this one rests on, such as the answer it
+  follows. Repeatable.
+
+The chosen option, the undo judgment with its reason, and the ground go into
+the entry's reason, in that order: `chosen: <text>; undo: <cheap|costly>:
+<reason>; ground: <ground>`. koto's judgment subject has no field for them, so
+`koto decisions show` prints them in `reason`, not in `subject`.
+
+The run mode decides what's taken. It's read from the environment, as `answer`
+reads it: `KOTO_RUN_MODE=unattended` or `CLAUDE_CODE_SESSION_ATTENDED=0` reads
+as unattended, `KOTO_RUN_MODE=attended` or `CLAUDE_CODE_SESSION_ATTENDED=1` as
+attended, and anything else as unknown. koto 0.42.0 records a run mode per
+entry but keeps none per session for a command to read, and a skill started
+with `--auto` sets neither variable, so this check can't see that flag.
+
+- `provisional` is taken only in a session that reads as unattended, with
+  `--undo cheap`, an `--undo-reason` and `--chosen`. `--undo costly` is refused
+  (a costly choice is raised, not decided), as is an attended or unknown run
+  mode (an attended run asks the person).
+- `undecided` in a session that reads as unattended needs `--undo`. With
+  `--undo cheap` it also needs a `--ground`; without one it's refused, since a
+  cheap choice is decided provisionally. In an attended session `--undo` is
+  optional.
+- A definite run mode is passed to koto with `--run-mode`, so the entry
+  carries it.
+
+Output: `v`, `id`, `session`, `attempt` (`<session>:<id>`, the form
+`raise --attempt` and `--basis` take), `what`, `result`, `state`, `run_mode`
+(`attended`, `unattended` or `unknown`), `chosen`, `undo`, `undo_reason`,
+`ground`, `basis` and `reason`, each null or empty when not given.
+
+Refusals:
+
+- exit 3 when koto is missing or below the minimum;
+- exit 1, naming the field, before any koto call: an empty or multi-line
+  `--what`, `--chosen` or `--undo-reason`; a `--result`, `--state`, `--undo`,
+  `--ground` or `--basis` outside its form; and each rule above, with `field`
+  `chosen`, `undo`, `undo_reason`, `ground` or `run_mode`;
+- exit 4 when koto refuses the record, with its `code` passed through.
+
+A provisional attempt is listed for review and isn't a question:
+`koto decisions attempts --in <session> --result provisional --awaiting-review`
+reads it with review `awaiting`, and `koto decisions open` doesn't list it.
 
 ## The stored content
 

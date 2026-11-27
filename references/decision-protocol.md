@@ -39,15 +39,26 @@ decision skill rather than completing the micro-protocol.
 
 ### Step 3: Decide and record
 
-Pick the best option. Write a decision block (see `decision-block-format.md`)
-in the current artifact.
+Pick the best option when the evidence settles it. The step ends in one of
+three ways:
 
-**Interactive mode:** present the recommendation via AskUserQuestion with the
-evidence from Step 2. The user confirms or overrides. Record the user's choice.
+1. **Ask the person**, in a turn the person started in an attended session:
+   present the recommendation via AskUserQuestion with the evidence from Step
+   2. The user confirms or overrides. Record the user's choice.
+2. **Decide and record** when the evidence is clear (or the person is not
+   there to ask and the evidence still favours one option): write a decision
+   block (see `decision-block-format.md`) in the current artifact with
+   `status="confirmed"`.
+3. **When the evidence does not settle it and nobody can be asked**, apply the
+   cheap-or-costly test in `references/question-procedure.md` and either
+   record a provisional decision (cheap: an `assumed` block, and the attempt
+   recorded `provisional`) or raise the question (costly: the attempt recorded
+   `undecided`, no block with a choice, and work that does not depend on the
+   answer goes on). The test and its rules live in that reference only.
 
-**Non-interactive mode (--auto):** follow the recommendation. Write a decision
-block with `status="assumed"` if the evidence was ambiguous, `status="confirmed"`
-if clear. Continue without waiting.
+Each attempt is recorded with `shirabe question attempt`. A koto-driven skill
+records the attempt in its own session; a skill without one records it in the
+session its decisions are kept in.
 
 ## Tier classification
 
@@ -97,6 +108,10 @@ After writing a decision block, append an entry to the consolidated key:
 | <id> | <artifact-path> | <tier> | <status> | <question-abbreviated> |
 ```
 
+`<status>` is the block's status: `confirmed`, `assumed`, `escalated` or
+`undecided`. An `undecided` row stays in the index until the answer arrives;
+the block that records the answer then gets its own row.
+
 The consolidated key is the source of truth for review. Inline blocks are
 write-time snapshots.
 
@@ -110,6 +125,10 @@ block and index row; the session's decision log is its source of truth.
 |--------|------------|--------------------------|
 | Step 1 (frame) | Same | Same |
 | Step 2 (gather) | Same | Same |
-| Step 3 (decide) | Present via AskUserQuestion | Follow recommendation, document |
-| Status | `confirmed` after user confirms | `confirmed` or `assumed` per threshold |
+| Step 3 (decide) | Present via AskUserQuestion | Decide when the evidence is clear; otherwise the cheap-or-costly test in `references/question-procedure.md` |
+| Status | `confirmed` after user confirms | `confirmed` when clear; `assumed` for a provisional decision; `undecided` (no block with a choice, question raised) for a costly one |
 | Escalation | Same | Same (spawn agent if Tier 3+) |
+
+Whether a run is attended is read from the session (see
+`references/question-procedure.md`), not from the `--auto` flag: `--auto`
+says not to prompt, not that nobody is there.

@@ -20,6 +20,13 @@ rationale: |
 Accepted on 2026-09-28. The policy owner answered this item of the
 contradiction-settlement inventory (coordination PR shirabe#507).
 
+The clause that an unattended run with no coordinator stops at its first
+escalation is superseded by
+`DECISION-unattended-run-raises-and-continues-2026-11-27.md` (Accepted
+2026-11-27): such a run raises the question to the owner on the record,
+decides a cheap matter provisionally, and continues with the work that does
+not depend on the answer. Everything else here stands.
+
 ## Context
 
 This is the `worktree-intent-change-owner` item: who judges an

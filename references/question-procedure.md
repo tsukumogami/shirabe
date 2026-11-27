@@ -31,19 +31,54 @@ refuses one that would need it.
 ### 1. Decide first and record the attempt
 
 Try to settle the question on the evidence the session has. Record what came
-of it as a `judgment` before anything else, with the result `decided` or
-`undecided`:
+of it with `shirabe question attempt` before anything else, with the result
+`decided`, `undecided` or, in an unattended run, `provisional`:
 
 ```bash
-koto decisions record <session> --kind judgment --outcome settled \
-  --subject what="<the question>" --subject state=<state>:<visit> \
-  --subject result=undecided --by session
+shirabe question attempt --in <session> --what "<the question>" \
+  --result undecided [--state <state>:<visit>] \
+  [--undo cheap|costly --undo-reason "<what undoing would take>"] [--ground <ground>]
 ```
 
-Note the decision id it prints. A decided result ends the procedure: carry on
-with the choice. In an unattended run with no clear answer, a choice that is
-cheap to undo (only the session's own unpublished work changes) is decided
-and recorded as provisional; a costly one goes on to the next step.
+It records a koto `judgment` by the session and prints the attempt's id; note
+it. Leave `--state` out in a session with no workflow state. A decided result
+(`--result decided --chosen "<option>"`) ends the procedure: carry on with the
+choice. When the evidence leaves no clear answer, an attended run goes on to
+the next step; an unattended run applies the test below first.
+
+#### Cheap or costly
+
+This test is stated here once; the decision protocol, `/decision` and the
+skills that call it point here.
+
+A choice is **cheap to undo** when undoing it needs only changes inside the
+deciding session's own unpublished work: a name, a file or a structure no
+other session, person or published artifact has seen. Every other choice is
+**costly**.
+
+- **Cheap**, in an unattended run: decide it, record it as provisional and
+  continue. `shirabe question attempt --result provisional --undo cheap
+  --undo-reason "<what undoing would take>" --chosen "<option>"`. A
+  provisional decision is no question: nobody is asked, and it is listed for
+  review (`koto decisions attempts --in <session> --result provisional
+  --awaiting-review`). A document records it as an `assumed` block.
+- **Costly**, in an unattended run: record the attempt `undecided` with
+  `--undo costly` and the reason, raise the question (step 4) and continue with
+  work that does not depend on the answer.
+- A cheap choice that one of the grounds in step 3 still keeps from the
+  session (it would contradict an answer, change the scope, be outward-facing
+  or cannot be undone, or take a reserved step) is raised as a costly one is,
+  with `--undo cheap --ground <ground>` on the attempt.
+- **An attended run decides nothing provisionally.** It asks the person, in a
+  turn the person typed (step 5), or leaves the question waiting.
+
+`shirabe question attempt` holds these rules: it refuses `provisional` in a
+session that does not read as unattended or with `--undo costly`, and in an
+unattended session it refuses an `undecided` attempt that leaves the test out,
+or that calls a choice cheap with no ground. It reads attended or unattended
+from the same two environment variables `answer` reads (step 6), never from a
+skill's own non-interactive flag, and the judgment of what undoing would take
+is the session's own.
 
 ### 2. Read the owner's earlier answers for the subject
 

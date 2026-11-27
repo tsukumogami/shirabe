@@ -207,8 +207,8 @@ stopped run leaves the work tree as it found it.
 | `work/decisions.md` | Context Resolution, under `--auto` | the autonomous-decision ledger |
 | `work/summary.md` | Phase 0, updated through Phase 5 | the design summary and current phase |
 | `work/coordination.json` | Phase 1, updated in Phase 2 | the decision coordination manifest |
-| `work/decision_<N>_report.md` | Phase 2 | each decision's report, from `/decision` or resolved inline |
-| `work/decision-<N>/<file>` | Phase 2, by `/decision` | a decider's intermediates (`context.md`, `research.md`, `alternatives.md`, `bakeoff_<k>.md`, `examination.md`) |
+| `work/decision_<N>_report.md` | Phase 2 | each decision's report, from `/decision` or resolved inline: settled (`COMPLETE`) or undecided (`UNDECIDED`, block status `undecided`) |
+| `work/decision-<N>/<file>` | Phase 2, by `/decision` | a decider's intermediates (`context.md`, `research.md`, `alternatives.md`, `bakeoff_<k>.md`, `examination.md`), and for an undecided decision `question.json`, the question raised from `design-<topic>`; an undecided decision's intermediates are all kept |
 | `research/phase5_security.md` | Phase 5 | the security researcher's report, ingested |
 | `research/phase6_<role>-review.md` | Phase 6 | the final-review jury's reports, ingested |
 
@@ -259,6 +259,8 @@ Design doc status "Draft"                                 → Go on down the row
 key research/phase5_security.md in design-<topic>         → Resume at Phase 6
 Design doc has Solution Architecture (not stub-only)      → Resume at Phase 5
 Design doc has Considered Options (not stub-only)         → Resume at Phase 4
+key work/coordination.json (one undecided, answered)      → Resume at Phase 2 (2.6, write the answer)
+key work/coordination.json (one undecided, unanswered)    → Stop: the question waits (Phase 2, 2.6)
 key work/coordination.json (all complete)                 → Resume at Phase 3
 key work/coordination.json (some pending)                 → Resume at Phase 2
 key work/summary.md exists, no work/coordination.json     → Resume at Phase 1

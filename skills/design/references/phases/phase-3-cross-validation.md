@@ -8,11 +8,16 @@ This phase always runs after Phase 2, even with one decision; it is never skippe
 If coordination manifest has `cross_validation: "passed"`, skip to Phase 4.
 If `cross_validation: "in_progress"`, resume where left off.
 
+If any decision in the manifest is `undecided`, stop: this phase reads only
+decided reports, and an undecided one has no choice to check against. Phase 2
+(2.6) writes the answer first.
+
 ## Steps
 
 ### 3.1 Read All Decision Reports
 
-For each completed decision in the coordination manifest, read the report
+For each completed decision in the coordination manifest (status `complete`,
+never `undecided`), read the report
 at the stored key (`koto context get design-<topic> work/decision_<N>_report.md`). Extract the `assumptions` list from each.
 
 ### 3.2 Check for Conflicts

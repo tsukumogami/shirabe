@@ -35,7 +35,7 @@ adds 8ms latency. Consistency requirements are eventual (30s acceptable).
 | Attribute | Required | Values | Purpose |
 |-----------|----------|--------|---------|
 | `id` | Yes | kebab-case, unique within artifact | Cross-referencing, invalidation targeting |
-| `status` | Yes | `confirmed`, `assumed`, `escalated` | Review triage |
+| `status` | Yes | `confirmed`, `assumed`, `escalated`, `undecided` | Review triage |
 
 ## Required Fields
 
@@ -92,6 +92,21 @@ Lightweight decision upgraded to heavyweight. The agent started the 3-step
 micro-protocol but determined during gather (Step 2) that the decision needs
 deeper evaluation. The partial block's Question and Evidence carry forward
 as seed context for the decision skill.
+
+### undecided
+
+No option was chosen. The evidence did not settle the question (no clear
+winner, or a fact the choice rests on could not be found), and nobody could be
+asked in the turn. The block holds the Question, a Recommendation with its
+reason, the Alternatives with a reason each and What Would Settle It, and no
+Choice; the question is raised on the record and the caller waits on its
+answer. An undecided block is the one block with no Choice field. When the
+answer arrives, the caller writes a new block with the answer as its Choice
+and `confirmed` status, citing the answer.
+
+A provisional decision (an unattended run's cheap-to-undo choice, see
+`references/question-procedure.md`) is written as `assumed`, as a best guess
+is.
 
 ## Review Priority
 

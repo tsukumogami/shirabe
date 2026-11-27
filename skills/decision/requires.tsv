@@ -13,3 +13,14 @@ koto	context get	-	always
 koto	context exists	-	always
 koto	context remove	-	always
 koto	context list	--prefix	always
+#
+# A decision the evidence does not settle ends undecided or, unattended and
+# cheap to undo, provisional (references/question-procedure.md). Phase 6
+# records the attempt with `shirabe question attempt`, a direct run nobody
+# called raises its own question with `shirabe question raise --attempt`, and
+# reads the answer back with `shirabe question pending --in` and
+# `koto decisions history`.
+shirabe	question attempt	--in,--what,--result	always
+shirabe	question raise	--in,--content,--attempt	always
+shirabe	question pending	--in	always
+koto	decisions history	-	always

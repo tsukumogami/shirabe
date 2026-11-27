@@ -40,7 +40,14 @@ Each with a brief description and evidence for/against from research.>
 ## Complexity Signal
 <Simple (2 clear options, evidence strongly favors one) or
 Complex (3+ options, trade-offs genuinely contested, stakeholders disagree)>
+
+## Attempt Session
+explore-<topic>
 ```
+
+The Attempt Session section names `explore-<topic>` as the session the
+decision records its attempt in, so a question it hands back is raised from
+this session (`/decision`'s Phase 6, 6.2a).
 
 ## Handoff
 
@@ -55,16 +62,51 @@ After putting the brief:
    - constraints: from Constraints
    - background: from Context
    - complexity: from Complexity Signal ("simple" → standard, "complex" → critical)
+   - attempt session: `explore-<topic>`, from Attempt Session
 3. The decision skill runs its phases and writes its report as key
    `work/report.md` in `decision-<topic>` (`koto context get decision-<topic>
    work/report.md` reads it)
-4. The report serves as the Decision Record (ADR)
-5. When the decision skill returns, close the session. It reads the research
+4. A settled report (`status: "COMPLETE"`) serves as the Decision Record (ADR)
+5. An `UNDECIDED` result is not a failure and is not retried; see "An
+   Undecided Result" below. It produces no Decision Record.
+6. When the decision skill returns, close the session. It reads the research
    keys while it runs, so the close comes only after it returns:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close explore-<topic> done
 ```
+
+## An Undecided Result
+
+When the decision skill returns `status: "UNDECIDED"`, it chose nothing and
+recorded its undecided attempt in `explore-<topic>`. Its report and question
+are keys in `decision-<topic>`.
+
+1. Check them:
+   `"${CLAUDE_PLUGIN_ROOT}/skills/decision/scripts/check-undecided.sh" decision-<topic> work/report.md`.
+   Exit 0 goes on; exit 1 names the missing part, which goes into the
+   summary below as a failed hand-back.
+2. Raise the question from `explore-<topic>`:
+
+   ```bash
+   koto context get decision-<topic> work/question.json \
+     | shirabe question raise --in explore-<topic> --content - --attempt <attempt id>
+   ```
+
+   The question is raised as the decision wrote it; only `ground` and
+   `waiting` may be replaced.
+3. Write no Decision Record, no chosen option and no assumption for it.
+4. In a turn a person started in an attended session, present the question
+   with `shirabe question render <identity>` and record the reply with
+   `shirabe question answer <identity> --in explore-<topic>`
+   (`references/question-procedure.md`, steps 5 and 6). Otherwise it waits.
+5. Close `explore-<topic>` as above. The close ticks with `--no-cleanup`, so
+   the question stays open and the research keys (`research/...` here,
+   `work/...` in `decision-<topic>`) stay readable for whoever answers it.
+
+Tell the user the exploration ended with an open question, its identity and
+who it is addressed to. Once it is answered, re-running `/decision` on the
+topic with the answer writes the Decision Record.
 
 ## Escalation from Lightweight
 
@@ -77,5 +119,7 @@ Question and Context sections. No information is lost.
 After this step:
 - Key `work/decision-brief.md` in `explore-<topic>` (new)
 - The decision skill's report at `work/report.md` in `decision-<topic>`
+  (settled, or undecided with `work/question.json` beside it and its question
+  open, raised from `explore-<topic>`)
 - Session `explore-<topic>` closed after the decision skill returned; its keys
   stay readable
