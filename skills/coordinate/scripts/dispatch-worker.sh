@@ -140,8 +140,9 @@
 #      coordinator's dispatch as its parent. niwa refuses a grant wider than
 #      its dispatcher's; that refusal is the one this script reports as such
 #      (exit 11), and nothing retries it with another grant. The input's
-#      `launch` field (render-brief.sh holds each value to a fixed set) adds
-#      `--model <model>`, `--permission-mode <mode>` and
+#      `launch` field (render-brief.sh holds each value to a fixed set, and a
+#      profile to niwa's profile-name grammar) adds `--model <model>`,
+#      `--permission-mode <mode>` and
 #      `--accept-session-messages` (or `--accept-session-messages=false`), each
 #      only when the help lists that flag; one it doesn't is left off with a
 #      stderr line naming it. With no `launch` the launch is as it was.
@@ -157,7 +158,8 @@
 #      niwa refuses the defaulted `coordinator` as a profile the workspace
 #      doesn't declare, or one its agent can't take (it refuses before
 #      provisioning anything), the launch runs once more without it; a
-#      profile the input named is never dropped that way.
+#      profile the input named is never dropped that way: niwa refusing it,
+#      as one the workspace doesn't define, is a failed launch here (exit 4).
 #   7. Confirm: on success, rewrite the row `dispatched` and print the session
 #      name niwa reported, which the coordinator uses to message the worker
 #      and never records. A rework Work row on the unit (a milestone a
@@ -707,7 +709,7 @@ launch_flag() {
 # launch field, which render-brief.sh has already held to its fixed sets:
 # `--model <model>`, `--permission-mode <mode>`, and
 # `--accept-session-messages` for true or `--accept-session-messages=false`
-# for false, each only when the help lists it.
+# for false, each only when the help lists it. The profile is launch_profile's.
 LAUNCH_ARGS=()
 launch_flags() {
     local a d v
