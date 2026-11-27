@@ -114,6 +114,7 @@ case "$1 ${2:-}" in
         if [ -f "$FIX/refuse" ]; then echo "$(cat "$FIX/refuse")" >&2; exit 1; fi
         if [ -f "$FIX/checks.err" ]; then cat "$FIX/checks.err" >&2; exit "$(cat "$FIX/checks.rc" 2>/dev/null || echo 1)"; fi
         out < "$FIX/checks.json"
+        if [ -f "$FIX/checks.rc" ]; then exit "$(cat "$FIX/checks.rc")"; fi
         ;;
     "pr view") out < "$FIX/view.json" ;;
     "pr list")
@@ -651,6 +652,135 @@ expect_exit "refused: an enterprise pull request reads" 0
 if grep 'api --method' "$FIX/gh.log" | grep -qv -- '--hostname ghe.example.com'; then
     fail "refused: a read went to another host: $(cat "$FIX/gh.log")"
 else pass "refused: every read goes to the pull request's host"; fi
+
+# ---------------------------------------------------------------------------
+# The relevant filter: --relevant and --outside
+# ---------------------------------------------------------------------------
+
+REL="$T/relevant.txt"
+printf '%s\t%s\t%s\n' \
+    .github/workflows/check-skill-gate.yml "skill-gate (ubuntu-latest)" "Check skill gate" \
+    .github/workflows/check-public-content.yml shipped-paths "Check public content" > "$REL"
+# Every shape the filter must tell apart: the twin, the slice the twin
+# needs, the always-required check, a same-named job in another workflow, and
+# a check of a workflow nothing selected.
+rel_checks() {
+    jq -n '[{name: "skill-gate (ubuntu-latest)", workflow: "Check skill gate", bucket: "pass", link: "https://x/1"},
+            {name: "skill-gate-suites (ubuntu-latest, 2)", workflow: "Check skill gate", bucket: "fail", link: "https://x/2"},
+            {name: "shipped-paths", workflow: "Check public content", bucket: "pass", link: "https://x/3"},
+            {name: "shipped-paths", workflow: "Another workflow", bucket: "fail", link: "https://x/4"},
+            {name: "test-coordinate-scripts", workflow: "Check coordinate scripts", bucket: "pending", link: "https://x/5"}]' \
+        > "$FIX/checks.json"
+}
+
+fixture; rel_checks
+pc 7 --relevant "$REL" --json name,workflow,bucket
+expect_exit "relevant: the filtered list is printed" 0
+expect_list "relevant: only the twin and the always-required check are kept, by workflow and job" \
+    '(map([.workflow, .name]) | sort) == [["Check public content", "shipped-paths"], ["Check skill gate", "skill-gate (ubuntu-latest)"]]'
+expect_list "relevant: a same-named job in another workflow is dropped" \
+    'all(.[]; .workflow != "Another workflow")'
+expect_list "relevant: a slice the twin needs is not the twin" \
+    'all(.[]; .name != "skill-gate-suites (ubuntu-latest, 2)")'
+if [ "$(head -n 1 "$FIX/gh.log")" = "pr checks 7 --json bucket,name,workflow" ]; then pass "relevant: gh reads the full list, name and workflow added, no --jq"
+else fail "relevant: gh pr checks was called as [$(head -n 1 "$FIX/gh.log")]"; fi
+if grep -q -- '--relevant\|--outside' "$FIX/gh.log"; then fail "relevant: the flag reached gh: $(cat "$FIX/gh.log")"
+else pass "relevant: the flag never reaches gh"; fi
+
+fixture; rel_checks
+pc 7 --outside "$REL" --json name,workflow,bucket
+expect_exit "outside: the rest of the list is printed" 0
+expect_list "outside: exactly the three checks the file doesn't name" \
+    '(map(.name) | sort) == ["shipped-paths", "skill-gate-suites (ubuntu-latest, 2)", "test-coordinate-scripts"]
+     and any(.[]; .name == "shipped-paths" and .workflow == "Another workflow")'
+
+fixture; rel_checks
+pc 7 --relevant "$REL" --json name --jq '.[] | .name'
+expect_exit "relevant: --jq runs after the filter" 0
+expect_out "relevant: --jq sees only the fields asked for, filtered" "$(printf 'skill-gate (ubuntu-latest)\nshipped-paths')"
+
+fixture; rel_checks
+pc 7 --relevant "$REL"
+expect_exit "relevant: without --json the list is printed as lines" 0
+expect_out "relevant: one tab-separated line per check" \
+    "$(printf 'skill-gate (ubuntu-latest)\tpass\tCheck skill gate\thttps://x/1\nshipped-paths\tpass\tCheck public content\thttps://x/3')"
+if [ "$(head -n 1 "$FIX/gh.log")" = "pr checks 7 --json name,bucket,workflow,link" ]; then pass "relevant: without --json gh is asked for the line's fields"
+else fail "relevant: gh pr checks was called as [$(head -n 1 "$FIX/gh.log")]"; fi
+
+# A relevant check not reported at all is pending, never absent.
+fixture
+jq -n '[{name: "skill-gate (ubuntu-latest)", workflow: "Check skill gate", bucket: "pass"}]' > "$FIX/checks.json"
+pc 7 --relevant "$REL" --json name,workflow,bucket,state
+expect_exit "relevant: a check not reported yet" 0
+expect_list "relevant: a check not reported yet is listed pending (EXPECTED)" \
+    'length == 2 and any(.[]; .name == "shipped-paths" and .workflow == "Check public content" and .bucket == "pending" and .state == "EXPECTED")'
+
+# A workflow renamed between the commits read has a line per display name:
+# the check reported under either answers the line, once.
+fixture
+jq -n '[{name: "skill-gate (ubuntu-latest)", workflow: "Skill gate (new name)", bucket: "pass"},
+        {name: "shipped-paths", workflow: "Check public content", bucket: "pass"}]' > "$FIX/checks.json"
+{ cat "$REL"; printf '%s\t%s\t%s\n' .github/workflows/check-skill-gate.yml "skill-gate (ubuntu-latest)" "Skill gate (new name)"; } > "$T/rel-renamed.txt"
+pc 7 --relevant "$T/rel-renamed.txt" --json name,workflow,bucket
+expect_list "relevant: a check reported under another of its display names answers its line" \
+    'length == 2 and all(.[]; .bucket == "pass")'
+
+fixture; rel_checks
+: > "$T/rel-empty.txt"
+pc 7 --relevant "$T/rel-empty.txt" --json bucket
+expect_exit "relevant: an empty file" 0
+expect_out "relevant: an empty file keeps nothing" "[]"
+
+# gh's pending exit with a JSON list on stdout is a list like any other.
+fixture; rel_checks
+echo 8 > "$FIX/checks.rc"
+pc 7 --relevant "$REL" --json bucket
+expect_exit "relevant: gh's pending exit 8 with a list" 0
+expect_list "relevant: the list behind exit 8 is read and filtered" 'length == 2'
+
+fixture
+echo "no checks reported on the '$BRANCH' branch" > "$FIX/checks.err"
+pc 7 --relevant "$REL" --json bucket
+expect_exit "relevant: gh's no-checks failure passes through" 1
+expect_stderr "relevant: with gh's own message" "no checks reported"
+
+fixture; rel_checks
+printf 'only-two\tfields\n' > "$T/rel-bad.txt"
+pc 7 --relevant "$T/rel-bad.txt" --json bucket
+expect_exit "relevant: a line without three fields is a usage error" 2
+pc 7 --relevant "$REL" --outside "$REL" --json bucket
+expect_exit "relevant: --relevant with --outside is a usage error" 2
+fixture; rel_checks
+pc 7 --relevant "$REL" --required --json bucket
+expect_exit "relevant: a flag the fallback can't serve is a usage error" 2
+if [ -s "$FIX/gh.log" ]; then fail "relevant: a usage error still called gh: $(cat "$FIX/gh.log")"
+else pass "relevant: a usage error calls nothing"; fi
+pc 7 --relevant "$T/no-such-file" --json bucket
+expect_exit "relevant: a file that isn't there is a usage error" 2
+
+# The fallback, filtered the same way: the run's display name is the
+# workflow, and each job is a check.
+rel_refused() {
+    fixture; refuse
+    run_ 100 "Check skill gate" completed failure
+    job_ 100 1001 "skill-gate (ubuntu-latest)" completed success
+    job_ 100 1002 "skill-gate-suites (ubuntu-latest, 2)" completed failure
+    run_ 200 "Check coordinate scripts" in_progress null
+    job_ 200 2001 test-coordinate-scripts in_progress null
+}
+rel_refused
+pc 7 --relevant "$REL" --json name,workflow,bucket
+expect_exit "relevant, refused: the fallback's list is filtered" 0
+expect_list "relevant, refused: the twin passes, the always-required check not reported is pending" \
+    'length == 2 and any(.[]; .name == "skill-gate (ubuntu-latest)" and .bucket == "pass")
+     and any(.[]; .name == "shipped-paths" and .bucket == "pending")'
+expect_stderr "relevant, refused: the fallback is named" "reading the Actions runs"
+rel_refused
+pc 7 --outside "$REL" --json name,workflow,bucket
+expect_list "outside, refused: the failed slice, both runs and the running job are outside" \
+    '(map(.name) | sort) == ["Check coordinate scripts", "Check skill gate", "skill-gate-suites (ubuntu-latest, 2)", "test-coordinate-scripts"]'
+if grep -q -- '--relevant\|--outside' "$FIX/gh.log"; then fail "relevant, refused: the flag reached gh: $(cat "$FIX/gh.log")"
+else pass "relevant, refused: the flag never reaches gh"; fi
 
 # ---------------------------------------------------------------------------
 # Wiring: the gates as the templates ship them, under a refused check read

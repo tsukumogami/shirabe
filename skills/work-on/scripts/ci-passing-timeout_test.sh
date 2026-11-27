@@ -191,6 +191,9 @@ variables:
   PLUGIN_ROOT:
     description: Plugin root ci_passing reaches pr-checks.sh through
     required: false
+  CI_WAIT:
+    description: ci_passing passes it to ci-relevant.sh; empty here, and the repository has no map, so the gate reads every check
+    required: false
 states:
   start:
     transitions:

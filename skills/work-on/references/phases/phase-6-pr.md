@@ -334,6 +334,14 @@ the gate passes it, and `ci_cancelled_after_merge.txt` in context names the
 cancelled checks for the final report. A failed or pending check, and a cancel
 on an open pull request, still fail it.
 
+When the merge-base's verification map carries `always_required`, "every check"
+is the relevant set: the selected commands' hosted twins and that list, from the
+merge-base's map and the current default branch's (`relevant_checks.txt` in
+context). Each must pass; a skipped twin isn't passed. A failing check outside the
+set doesn't hold the run: the gate comments on it once per head and lists it in
+`ci_outside_failures.txt`, which the final report names. Don't fix or wait for it
+in this run. `CI_WAIT=all` waits on every check.
+
 A pull request with no checks at all fails it too. Just after a push, before
 GitHub creates the check suites, `gh pr checks` answers `no checks reported`:
 tick again, as for a running check. If no check has appeared 10 minutes after

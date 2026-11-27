@@ -12,5 +12,10 @@
   "entries": [
     {"paths": ["skills/**"], "commands": ["check-skill"]}
   ],
-  "default": ["cargo-test", "plan-to-tasks", "run-cascade"]
+  "default": ["cargo-test", "plan-to-tasks", "run-cascade"],
+  "always_required": [
+    {"workflow": ".github/workflows/check-public-content.yml", "job": "shipped-paths"},
+    {"workflow": ".github/workflows/check-status-words.yml", "job": "check-status-words"},
+    {"workflow": ".github/workflows/check-rustfmt.yml", "job": "check-rustfmt"}
+  ]
 }
