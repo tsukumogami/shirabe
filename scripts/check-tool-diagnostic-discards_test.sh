@@ -611,6 +611,35 @@ case "$out" in
 esac
 if [ -z "$(ls -A "$WORK/mkt-cwd")" ]; then pass "  ... and writes nothing where it ran"; else fail "  ... and writes nothing where it ran: $(ls -A "$WORK/mkt-cwd")"; fi
 
+# A work directory that disappears mid-run (shirabe#2222). Unchecked, every
+# write into it and every read back failed with "No such file or directory",
+# the join came back empty, the error count stayed 0, and the check printed
+# OK with empty counts and exited 0. The seam is the PATH stub above: a mktemp
+# that hands out a known directory, and a find that removes that directory
+# before running the real find. The check calls find only after it has set up
+# its work files, so the directory is gone while the run is under way. The
+# fixture holds an unenumerated site, so a run that finished would exit 1.
+REAL_FIND=$(command -v find)
+VANISH="$WORK/vanish-scratch"
+mkdir -p "$WORK/vanish-bin"
+printf '#!/bin/sh\nmkdir -p "%s" || exit 1\necho "%s"\n' "$VANISH" "$VANISH" > "$WORK/vanish-bin/mktemp"
+printf '#!/bin/sh\nrm -rf "%s"\nexec "%s" "$@"\n' "$VANISH" "$REAL_FIND" > "$WORK/vanish-bin/find"
+chmod +x "$WORK/vanish-bin/mktemp" "$WORK/vanish-bin/find"
+new_fixture vanished-scratch
+add_requires koto
+add_file 'run.sh' 'koto status 2>/dev/null || true'
+enum_open; enum_close
+out=$(PATH="$WORK/vanish-bin:$PATH" bash "$CHECK" --enumeration "$ENUM" "$FIXTURE" 2>&1); rc=$?
+if [ "$rc" -eq 2 ]; then pass "a work directory lost mid-run is an environment error (2)"; else fail "a work directory lost mid-run exited $rc, expected 2: $out"; fi
+case "$out" in
+  *"temporary directory $VANISH is gone or unreadable"*) pass "  ... that names the cause" ;;
+  *) fail "  ... that names the cause: $out" ;;
+esac
+case "$out" in
+  *"check-tool-diagnostic-discards: OK"*) fail "  ... and never prints OK: $out" ;;
+  *) pass "  ... and never prints OK" ;;
+esac
+
 echo
 echo "check-tool-diagnostic-discards_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"
 [ "$FAIL_COUNT" -eq 0 ]
