@@ -503,10 +503,16 @@ configuration, and it's the same for either role. Your record holds your role,
   keeps the pending successor on your Run `successor` row until the
   successor's opener takes your run over and clears it. One successor is
   pending at a time: while the row reads `dispatching` or `dispatched`, a
-  dispatch under another topic is refused (exit 12, naming the row's status
-  and topic). Running the dispatch again with the row's own topic confirms
+  dispatch under another topic is refused (exit 12, saying what the row
+  means: its session listed, its launch unconfirmed, or the listing
+  unreadable). Running the dispatch again with the row's own topic confirms
   it, or launches it again when its launch never showed up, under the same
-  row. A `dispatch-failed` or `stranded` row takes a new topic.
+  row. A `dispatch-failed` or `stranded` row takes a new topic. Reconcile
+  brings a pending row up to date too, by the same rule, so a restart sees
+  it confirmed or stranded before it acts, and while the row still reads
+  `dispatching` or `dispatched` the report's `Successor pending:` line,
+  after the Scope line, says the same thing exit 12 does, naming the
+  command to run again when the launch is unconfirmed.
 
 **Manager**
 

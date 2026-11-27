@@ -23,7 +23,12 @@
 #    decisions: [{decision, question, recommendation, reason, target}] (the
 #    escalated entries), unparseable: [{raw, reason}] (only a written time
 #    that isn't YYYY-MM-DDTHH:MM:SSZ: the record is JSON, read whole or not
-#    at all), reasoning: null | "present" | "not_recorded" | "absent"}
+#    at all), reasoning: null | "present" | "not_recorded" | "absent",
+#    successor: null | "<status> <topic> <date>"}
+# successor is the value of the Run section's `successor` row (the run's
+# pending or settled successor dispatch, which dispatch-worker.sh
+# --successor writes), or null when the record holds none. The Run section
+# is read with the other four, in the same read.
 # Rows keep the record's own keys, each with source "record". At discipline
 # scope the predecessor's reasoning is read from the predecessor's session
 # (this rotation's record/rotation names it): its record/reasoning, written
@@ -125,9 +130,10 @@ rd_valid_repo "$REPO" || refuse 5 failed "the run's host is unreadable"
 # The record through the seam (state-read.sh), under this reader's own
 # deadline: rs_record, so a pass that began the step's one read
 # (rs_once_begin) shares it with the settle and the legs classification. Only
-# the four sections the view is built from are read (shirabe#1315);
-# reconcile-pass.sh names the same four for the pass's one read.
-RD_FIELDS="holdings deferrals side_effects decisions"
+# the sections the view is built from are read (shirabe#1315): the four the
+# rows come from and the Run section, for its `successor` row;
+# reconcile-pass.sh names the same five for the pass's one read.
+RD_FIELDS="holdings deferrals side_effects decisions run"
 session_view() {
     RS_SESSION=$RS rs_record "$T/rec" "$RD_FIELDS" || return $?
     cat "$T/rec"
@@ -212,5 +218,6 @@ jq -c --arg repo "$REPO" --argjson reasoning "$REASONING" --argjson import "$IMP
                    | unique_by(.decision) | map(select(.state == "escalated")
                    | {decision, question, recommendation: (.recommendation // ""), reason: (.reason // ""), target: (.target // "")})),
        unparseable: .unparseable,
-       reasoning: $reasoning}' "$T/record.json" \
+       reasoning: $reasoning,
+       successor: ([(.run // [])[] | select(.key == "successor") | .value | strings][0] // null)}' "$T/record.json" \
     || refuse 5 failed "the record could not be assembled"
