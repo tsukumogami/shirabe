@@ -333,6 +333,17 @@ if [ "\$1" = --read ] && [ "\$rc" = 3 ]; then
 fi
 exit "\$rc"
 EOF
+# review-level.sh answers like the others, except that with no answer set its
+# `level` exits 11 and its `audit` 1: a light run's ledger level and a session
+# that isn't audited, so light_review's passed routes are the ones under test.
+cat > "$FAKE_ROOT/skills/work-on/scripts/review-level.sh" <<EOF
+#!/usr/bin/env bash
+f="$RC_DIR/review-level.sh\$1"
+case "\$1" in level) rc=11 ;; audit) rc=1 ;; *) rc=0 ;; esac
+[ -f "\$f" ] && rc=\$(cat "\$f")
+[ "\$rc" = sleep ] && { sleep 5; exit 0; }
+exit "\$rc"
+EOF
 cat > "$FAKE_ROOT/skills/work-on/scripts/session-role.sh" <<EOF
 #!/usr/bin/env bash
 if [ -f "$RC_DIR/role" ]; then cat "$RC_DIR/role"; else echo root; fi
