@@ -31,7 +31,7 @@ the preflight reads and compares the minimum.
 When a person decides that a `/work-on` panel verdict gate (`scrutiny_verdict`,
 `review_verdict`, `qa_verdict` or `light_verdict`) should be passed, the
 override used to be written by the person into the run's session from their
-own shell, and koto recorded no decider. `docs/designs/DESIGN-acceptance-write-drift.md`
+own shell, and koto recorded no decider. `docs/designs/current/DESIGN-acceptance-write-drift.md`
 (Decision 4) has the run record the override itself, naming the person and the
 surface they used, and has an unattended run record none and escalate. That
 needs `koto overrides record --by`, which koto 0.37.0 introduced. Older
@@ -58,4 +58,4 @@ on the agent's report of what the person said, and the rationale quotes it.
 ## References
 
 - `docs/decisions/DECISION-preflight-koto-minimum-2026-09-27.md`
-- `docs/designs/DESIGN-acceptance-write-drift.md`
+- `docs/designs/current/DESIGN-acceptance-write-drift.md`

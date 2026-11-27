@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   A /work-on run's koto session is meant to be the run's own ledger, but
   test-change acceptance has a minted seat, a person at a terminal or a
@@ -22,7 +22,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-acceptance-write-drift](docs/briefs/BRIEF-acceptance-write-drift.md); carried in Absorbed Brief.
 

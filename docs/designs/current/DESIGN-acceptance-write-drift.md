@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   /work-on's three counting gates read test-change.sh status, which counts an
   edited test or observation only once a seat, a person or a coordinator has
@@ -31,7 +31,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
