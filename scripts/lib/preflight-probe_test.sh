@@ -830,8 +830,10 @@ koto_stub() {
         printf '  "next --help") printf "Options:\\n      --with-data <DATA>  Evidence\\n      --no-cleanup  Keep\\n  -h, --help  Print help\\n" ;;\n'
         printf '  "status --help") printf "Options:\\n  -h, --help  Print help\\n" ;;\n'
         printf '  "workflows --help") printf "Options:\\n      --roots  Roots\\n      --children <NAME>  Children\\n  -h, --help  Print help\\n" ;;\n'
-        printf '  "session --help") printf "Commands:\\n  cleanup  Cleanup\\n  dir  Dir\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
+        printf '  "session --help") printf "Commands:\\n  cleanup  Cleanup\\n  dir  Dir\\n  rebind  Rebind\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
         printf '  "session cleanup --help") printf "Options:\\n  -h, --help  Print help\\n" ;;\n'
+        # /execute's step groups bind a child to its step's worktree.
+        printf '  "session rebind --help") printf "Options:\\n      --to <TO>  Directory\\n  -h, --help  Print help\\n" ;;\n'
         printf '  "context --help") printf "Commands:\\n  add  Store\\n  get  Get\\n  exists  Exists\\n  remove  Remove\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
         printf '  "context add --help") printf "Options:\\n      --from-file <FROM_FILE>  File\\n  -h, --help  Print help\\n" ;;\n'
         printf '  "context get --help") printf "Options:\\n  -h, --help  Print help\\n" ;;\n'

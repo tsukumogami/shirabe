@@ -140,8 +140,9 @@
 #      coordinator's dispatch as its parent. niwa refuses a grant wider than
 #      its dispatcher's; that refusal is the one this script reports as such
 #      (exit 11), and nothing retries it with another grant. The input's
-#      `launch` field (render-brief.sh holds each value to a fixed set) adds
-#      `--model <model>`, `--permission-mode <mode>` and
+#      `launch` field (render-brief.sh holds each value to a fixed set, and a
+#      profile to niwa's profile-name grammar) adds `--model <model>`,
+#      `--permission-mode <mode>` and
 #      `--accept-session-messages` (or `--accept-session-messages=false`), each
 #      only when the help lists that flag; one it doesn't is left off with a
 #      stderr line naming it. With no `launch` the launch is as it was.
@@ -157,7 +158,8 @@
 #      niwa refuses the defaulted `coordinator` as a profile the workspace
 #      doesn't declare, or one its agent can't take (it refuses before
 #      provisioning anything), the launch runs once more without it; a
-#      profile the input named is never dropped that way.
+#      profile the input named is never dropped that way: niwa refusing it,
+#      as one the workspace doesn't define, is a failed launch here (exit 4).
 #   7. Confirm: on success, rewrite the row `dispatched` and print the session
 #      name niwa reported, which the coordinator uses to message the worker
 #      and never records. A rework Work row on the unit (a milestone a
@@ -292,24 +294,44 @@
 #      (resolved as above), `unit` naming the scope, `phase: executing`, an
 #      empty run mode, `reports_to` and `dispatcher_session`, over anything
 #      it gave.
-#   2. Under the run's lock ($BRIEFS/.successor.<run>.lock), read the Run
-#      `successor` row: a `dispatch-failed` or `stranded` row of this topic
-#      exits 3 (a new attempt takes a new topic). A live session using the
+#   2. Under the run's lock ($BRIEFS/.successor.<run>.lock), settle the Run
+#      `successor` row (dc_successor_settle): a `dispatching` row whose
+#      session niwa lists is written `dispatched`, and a `dispatched` row
+#      whose session a listing that was read doesn't show is written
+#      `stranded`, each with its entry. An unlisted `dispatching` row, and
+#      any row when the listing can't be read, stays as it is. A settle
+#      write the record refuses exits 8 (no open record, or a directed
+#      transition) or 2.
+#   3. Then the row as settled decides. A `dispatching` or `dispatched` row
+#      under another topic is a successor still pending: exit 12, naming its
+#      status and topic (for `dispatching`, run the dispatch again with that
+#      topic to finish it), nothing written. A re-run with the row's own
+#      topic resumes that dispatch: a listing that can't be read exits 6 with
+#      the row unchanged; a `dispatched` row (confirmed before, or settled
+#      just now) prints `session=<name>` and exits 0 with no write or launch;
+#      an unlisted `dispatching` row is launched again under the same row,
+#      with no second `dispatching` write. A `dispatch-failed` or `stranded`
+#      row of this topic exits 3 (a new attempt takes a new topic), and one
+#      of another topic lets a new topic through. A live session using the
 #      topic exits 5. The brief input is checked (render-brief.sh --stdout,
 #      no --units): a refusal exits 1 with nothing written.
-#   3. Write ahead: the Run `successor` row reads `dispatching <topic>
+#   4. Write ahead: the Run `successor` row reads `dispatching <topic>
 #      <date>`, set by this run (state-stored-set.sh --successor), whose entry
 #      names the topic, the brief's path and the role. A refusal of the write
 #      exits 8 (no open record, or a directed transition) or 2 (the row as it
 #      stands doesn't allow it, named on stderr).
-#   4. Render the brief and launch `niwa dispatch` as a worker's step 6 does,
+#   5. Render the brief and launch `niwa dispatch` as a worker's step 6 does,
 #      with `--skill shirabe:coordinate` and a coordinator's profile and
 #      prompt: the invocation on its own line, then `<authority> Work in
 #      <owner/repo>. Stop at: <last checkpoint> Read <brief> for your
 #      complete task brief, then do it.`
-#   5. Confirm as a worker's step 7 does, rewriting the row `dispatched` or
+#   6. Confirm as a worker's step 7 does, rewriting the row `dispatched` or
 #      `dispatch-failed` (exit 4, or 11 for niwa's never-wider refusal); a
-#      listing that can't be read leaves it `dispatching` (exit 6).
+#      listing that can't be read leaves it `dispatching` (exit 6). A
+#      `dispatched` write the record refuses (10) because a successor took
+#      the run over (coord-log.sh fence names it) is a success: the mode
+#      prints `session=<name>` and `taken_over=<successor run>` and exits 0.
+#      Refused with no fence, it exits 8.
 #
 # No Holdings row, leg or leg key is written for a successor, and no
 # dispatched event is sent.
@@ -320,7 +342,8 @@
 #   dispatch-worker.sh --session <koto-session> --successor
 #
 # Output: `already-dispatched`, or `session=<name>` for a launched worker or
-# successor, or
+# successor (and `taken_over=<successor run>` after it when the successor's
+# confirm met a takeover's fence), or
 # `brief=<path>` for --rebrief, or `brief=<path>` and `leg=<request>:<leg>`
 # (and `session=<name>` when the listing finds it) for --releg and a sent
 # execution, or `leg=<request>:<leg>` and `child=<session>` for
@@ -339,7 +362,9 @@
 #   3  the topic already failed or is stranded; dispatch under a new topic
 #   4  the launch failed; the row says dispatch-failed
 #   5  a live session already uses the topic
-#   6  the launch outcome is unknown; the row stays dispatching
+#   6  the launch outcome is unknown; the row stays dispatching (for a
+#      --successor re-run of the row's own topic, niwa list can't be read
+#      to settle it, and the row stays as it was)
 #   7  another run holds this topic's lock
 #   8  the record refused the write (no open record, or a directed transition
 #      in the run log): the run must restart before it writes again
@@ -362,6 +387,9 @@
 #      dispatcher's grant:`, which is printed); the row says
 #      dispatch-failed and the request is abandoned. Report the refusal:
 #      don't dispatch the unit again asking for more
+#   12 a successor is pending (names its status and topic): the Run
+#      successor row reads dispatching or dispatched under another topic;
+#      nothing written
 #
 # Environment: KOTO, NIWA (the binaries), DC_RECORD_HOLDING (the record's
 # script), DISPATCH_DEADLINE_SECS. bash 3.2; needs jq.
@@ -681,7 +709,7 @@ launch_flag() {
 # launch field, which render-brief.sh has already held to its fixed sets:
 # `--model <model>`, `--permission-mode <mode>`, and
 # `--accept-session-messages` for true or `--accept-session-messages=false`
-# for false, each only when the help lists it.
+# for false, each only when the help lists it. The profile is launch_profile's.
 LAUNCH_ARGS=()
 launch_flags() {
     local a d v
@@ -891,7 +919,8 @@ successor_write() {
     bash "$DC_RECORD_STATE" --session "$SESSION" --successor "$1" "$TOPIC" --by "$SESSION" >/dev/null 2>"$WORK/succ.err"
     case "$?" in
         0) return 0 ;;
-        10) die 8 "the record refused the successor row for $TOPIC (no open record, or a directed transition in the run log)" ;;
+        10) [ "$1" != dispatched ] || successor_fenced
+            die 8 "the record refused the successor row for $TOPIC (no open record, or a directed transition in the run log)" ;;
         # The row landed and only its entry didn't: the dispatch goes on, since
         # the row is what a restart reads, and the warning says what's missing.
         14) printf '%s: the successor row reads %s %s, but its entry wasn'"'"'t posted: %s\n' "$PROG" "$1" "$TOPIC" "$(head -1 "$WORK/succ.err")" >&2 ;;
@@ -900,24 +929,73 @@ successor_write() {
     esac
 }
 
+# successor_fenced: the `dispatched` confirm write was refused (10). When
+# the run is fenced, a successor took it over (koto init --supersede), so the
+# launch did what it was for: print the session and the run that took over,
+# and exit 0. Otherwise return, and the refusal stands.
+successor_fenced() {
+    local fence by
+    fence=$(bash "$DC_COORD_LOG" fence --session "$SESSION" 2>/dev/null) || return 0
+    by=$(jq -r '.by // "" | strings' <<<"$fence" 2>/dev/null) || return 0
+    [[ $by =~ $DC_RE_SESSION ]] || return 0
+    printf 'session=%s\ntaken_over=%s\n' "$CONFIRM_NAME" "$by"
+    exit 0
+}
+
 # successor_confirm <name>: the launch confirmed.
+CONFIRM_NAME=""
 successor_confirm() {
+    CONFIRM_NAME=$1
     successor_write dispatched
     printf 'session=%s\n' "$1"
     exit 0
 }
 
 if [ "$SUCCESSOR" = 1 ]; then
-    # The row as it stands, read again under the lock.
-    bash "$DC_RECORD_STATE" --list --session "$SESSION" >"$WORK/state.json" 2>"$WORK/state.err" ||
-        die 2 "cannot read the record's Run section: $(head -1 "$WORK/state.err")"
-    SROW=$(jq -r '[(.run // [])[] | select(.key == "successor") | .value][0] // "" | strings' "$WORK/state.json") ||
-        die 2 "the record's Run section is not state-stored-set.sh's JSON"
+    # The row as it stands, read again under the lock and settled against
+    # niwa's listing first (dc_successor_settle): a listed `dispatching` row
+    # becomes `dispatched`, an unlisted `dispatched` one `stranded`.
+    SETTLED=$(dc_successor_settle "$SESSION" "$ROOT" 2>"$WORK/settle.err")
+    SRC=$?
+    [ ! -s "$WORK/settle.err" ] || sed "s/^/$PROG: settling the successor row: /" "$WORK/settle.err" >&2
+    SROW=${SETTLED%%	*}
+    SLISTED=${SETTLED#*	}
+    [ "$SLISTED" != "$SETTLED" ] || SLISTED=""
+    SSTATUS=${SROW%% *}
     STOPIC=${SROW#* }
     STOPIC=${STOPIC%% *}
-    case "${SROW%% *}" in
+    case "$SRC" in
+        0 | 3) ;;
+        10)
+            # The settle's write was this topic's confirm: treated as one.
+            if [ "$SSTATUS:$STOPIC" = "dispatching:$TOPIC" ] && [ -n "$SLISTED" ]; then
+                CONFIRM_NAME=$SLISTED
+                successor_fenced
+            fi
+            die 8 "the record refused settling the successor row $SROW (no open record, or a directed transition in the run log)" ;;
+        2) die 2 "cannot read the record's Run section to settle the successor row" ;;
+        *) die 2 "the record refused settling the successor row $SROW (exit $SRC)" ;;
+    esac
+    RELAUNCH=0
+    case "$SSTATUS" in
+        dispatching | dispatched)
+            if [ "$STOPIC" != "$TOPIC" ]; then
+                if [ "$SSTATUS" = dispatching ]; then
+                    die 12 "a successor is pending: the Run successor row reads $SROW, its launch unconfirmed; run the dispatch again with $STOPIC to finish it"
+                fi
+                die 12 "a successor is pending: the Run successor row reads $SROW; another is dispatched only once it is dispatch-failed or stranded"
+            fi
+            [ "$SRC" = 0 ] || die 6 "niwa list can't be read to settle the successor $TOPIC; the row stays $SSTATUS"
+            if [ "$SSTATUS" = dispatched ]; then
+                # Confirmed already, or settled just now: nothing to write.
+                printf 'session=%s\n' "$SLISTED"
+                exit 0
+            fi
+            # An unlisted dispatching row of this topic: launch it again under
+            # the same row, with no second dispatching write.
+            RELAUNCH=1 ;;
         dispatch-failed | stranded)
-            [ "$STOPIC" != "$TOPIC" ] || die 3 "the successor $TOPIC is ${SROW%% *}; dispatch the successor under a new topic" ;;
+            [ "$STOPIC" != "$TOPIC" ] || die 3 "the successor $TOPIC is $SSTATUS; dispatch the successor under a new topic" ;;
     esac
     NAME=$(find_session)
     case "$?" in
@@ -931,7 +1009,7 @@ if [ "$SUCCESSOR" = 1 ]; then
         1) exit 1 ;;
         *) die 2 "rendering the brief failed" ;;
     esac
-    successor_write dispatching
+    [ "$RELAUNCH" = 1 ] || successor_write dispatching
     BRIEF=$(bash "$HERE/render-brief.sh" --input "$INPUT" --workspace-root "$ROOT" --return-path message --targets-checked)
     if [ "$?" != 0 ]; then
         successor_write dispatch-failed

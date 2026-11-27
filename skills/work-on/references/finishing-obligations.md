@@ -24,6 +24,7 @@ this table exists.
 | A timed-out check settled on its hosted jobs has a valid record | `verification_hosted` | `hosted_record_valid` | `verification-route.sh --check-record` finds the `hosted_of_record` key wrong for HEAD: an empty reason, another head, a check missing from or added to the result's timed-out set, jobs other than the merge-base map's declaration, or a `taken_at` in the future or before the result finished (1, back to `verification`); or can't read it (2, holds). |
 | A pull request opened on the hosted-of-record route is a draft carrying its record | `pr_creation` | `hosted_record_line` | With the `hosted_of_record` key present, `check-pr-output.sh --hosted-record` finds the pull request not a draft, or a recorded check without its one `Hosted of record:` line naming the check id, the record's head and the declared jobs (1), or can't decide (2). A run with no key passes without the script. |
 | The hosted-of-record record is settled before the run goes on | `ci_monitor` | `hosted_settled` | With the key present, `verification-route.sh --settled` finds a run id unfilled, or a filled run that isn't the declared workflow's pull_request run at the record's head for this pull request, at the recorded attempt, with the declared job concluded success: green CI then goes to `hosted_record`. 2 (the key or the pull request can't be read) holds. A run with no key passes without the script. |
+| A run that resolved to hosted CI still has its hosted twins | `ci_monitor` | `hosted_twins` | Only for `VERIFICATION=auto` with a `verification_plan` that resolved to hosted CI: `run-verification.sh --twins` fetches the default branch and finds a started command none of whose recorded twins (the same workflow, job and runs on its row, with the workflow file present) is in the current map (1): green CI then goes back to `verification`, writing `verification_twin_gone`, so the run verifies locally. 2 (koto, the fetch or git can't answer) holds. Any other run passes without the script. |
 | Each hosted job's latest attempt at the head passed, and the pull request was marked ready after it | `hosted_record` | `hosted_read` (`poll:`), `hosted_ready` | `--read` finds a job concluded anything but success, an unreadable response, zero or two jobs of the declared name, or a pull request head other than the record's (1, back to `verification`); a job still pending 120 minutes after `taken_at` (3, `done_blocked`); a pending job waits (75). `--ready` holds the state until the pull request is no longer a draft and every body line carries its run links. |
 | Changed documents respect the repository's visibility | `pr_precheck` | `branch_docs_visibility` | `check-branch-output.sh --docs-visibility` finds a changed `docs/` document failing `shirabe validate`'s visibility rules (R7, R8, R9), or can't decide. Passes on a shared branch. |
 | The pull request title and body conform | `pr_creation` | `pr_body_conformant` | `check-pr-output.sh --pr-body` runs `shirabe validate --pr-body` on the title and body GitHub has, and it reports a PB1 to PB4 violation, or the check can't decide. |
@@ -35,9 +36,10 @@ this table exists.
 
 ### Routing gates
 
-`is_root`, `staleness_fresh` and `verification_route` decide a route rather
-than judge output, so their non-zero exits are answers, and none prints a
-`::koto-finding::` line.
+`is_root`, `staleness_fresh`, `verification_route` and
+`verification_route_plan` (`verification_plan`: `run-verification.sh --plan`, 0
+hosted CI, 1 local) decide a route rather than judge output, so their non-zero
+exits are answers, and none prints a `::koto-finding::` line.
 The evidence values that used to restate them (`staleness_signal: fresh`,
 `stale_requires_introspection` and `unavailable`, and the root-or-child field
 `ci_monitor` asked for) are gone: koto routes on the exit status, so there is

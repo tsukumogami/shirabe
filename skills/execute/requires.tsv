@@ -147,6 +147,12 @@ koto	session cleanup	-	always
 # under the records above. The `-n` the scan finds there is tail's, in the
 # messages that quote koto's stderr.
 #not-a-call-site	skills/execute/scripts/ci-fix-tests.sh	koto	-n	The -n is tail's, in error messages quoting koto's stderr; koto itself is called without it.
+# The lead shape's groups (scripts/step-group.sh): `cut` binds a step's child
+# to the step's own worktree with `koto session rebind --to`, and a landed or
+# stopped step's child is bound back to the checkout the same way. Its other
+# koto calls (status, workflows --children, context exists/get/add) fall under
+# the records above.
+koto	session rebind	--to	always
 shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--pr-body,--pr-title,--writing-style,--visibility	always
 shirabe	finalize-chain	-	always
 shirabe	transition	-	always

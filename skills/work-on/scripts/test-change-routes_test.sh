@@ -170,7 +170,7 @@ esac
 # A run with no hosted-of-record record has hosted_settled at 0 (the gate
 # short-circuits), so that is the green edge this case reads; the edge for a
 # record that isn't settled yet goes to hosted_record first.
-[ "$(q '[.states.ci_monitor.transitions[] | select(.when["gates.ci_passing.exit_code"] == 0 and .when["gates.merge_state_clean.exit_code"] == 0 and .when["gates.hosted_settled.exit_code"] == 0) | .target] | join(",")')" = ci_pass_counting ] \
+[ "$(q '[.states.ci_monitor.transitions[] | select(.when["gates.ci_passing.exit_code"] == 0 and .when["gates.merge_state_clean.exit_code"] == 0 and .when["gates.hosted_settled.exit_code"] == 0 and .when["gates.hosted_twins.exit_code"] == 0) | .target] | join(",")')" = ci_pass_counting ] \
     && pass "green CI on a clean pull request goes to ci_pass_counting" || fail "ci_monitor's green edges are [$(q '.states.ci_monitor.transitions')]"
 [ "$(q '.states.ci_pass_counting.gates.tests_counted.command')" = "$(q '.states.pass_counting.gates.tests_counted.command')" ] \
     && [ "$(q '.states.ci_pass_counting.gates.fix_green.command')" = "$(q '.states.pass_counting.gates.fix_green.command')" ] \
@@ -576,6 +576,8 @@ fixture() {
             'variables:' \
             '  PLUGIN_ROOT:' '    description: plugin root' '    required: false' \
             '  SHARED_BRANCH:' '    description: shared branch' '    required: false' \
+            '  VERIFICATION:' '    description: verification' '    required: false' \
+            '    default: auto' '    values: [auto, local, hosted-ci]' \
             'states:' '  start:' '    transitions:' "      - target: $first"
         printf '%s\n' "$blocks"
         printf '%s\n' '  cascade_entry:' '    transitions:' '      - target: done'
@@ -590,7 +592,7 @@ fixture() {
 # fixture_session <session> <template>: a session on the current branch with
 # impl_base, the rules copy and a change determination, and the ledger's header.
 fixture_session() {
-    koto init "$1" --template "$2" --var PLUGIN_ROOT="$PLUGIN_ROOT" >"$WORKDIR/init.err" 2>&1 \
+    koto init "$1" --template "$2" --var PLUGIN_ROOT="$PLUGIN_ROOT" --var VERIFICATION=local >"$WORKDIR/init.err" 2>&1 \
         || { fail "$1: koto init failed: $(cat "$WORKDIR/init.err")"; return 1; }
     git rev-parse HEAD | koto context add "$1" impl_base >/dev/null 2>&1
     koto context add "$1" review_level_rules.tsv < "$PLUGIN_ROOT/skills/work-on/references/review-level-rules.tsv" >/dev/null 2>&1
@@ -783,7 +785,7 @@ echo "--- ci_pass_counting: a test edited while fixing CI is held after CI passe
 
 CI_BLOCKS="$(stub_block "$(extract_state ci_monitor)" ci_passing=0 merge_state_clean=0)
 $(extract_state ci_pass_counting)"
-fixture "$WORKDIR/ci.md" ci_monitor "$CI_BLOCKS" hosted_record implementation
+fixture "$WORKDIR/ci.md" ci_monitor "$CI_BLOCKS" hosted_record implementation verification
 git checkout -q main
 git checkout -q -b case-ci
 S=tc_ci
@@ -824,7 +826,7 @@ GAP_BLOCKS="$(stub_block "$(extract_state ci_monitor)" ci_passing=0 merge_state_
 $(extract_state ci_pass_counting)
 $(extract_state scrutiny)
 $GAP_STUBS"
-fixture "$WORKDIR/ci-gap.md" ci_monitor "$GAP_BLOCKS" hosted_record
+fixture "$WORKDIR/ci-gap.md" ci_monitor "$GAP_BLOCKS" hosted_record verification
 FULL_SCRUTINY="[{\"seat\":\"completeness\",\"findings\":[],$JUDGED},{\"seat\":\"justification\",\"findings\":[],$JUDGED},{\"seat\":\"intent\",\"findings\":[],$JUDGED}]"
 
 # ci_gap_hold <session>: a panel round judges the edited test, a CI fix edits it

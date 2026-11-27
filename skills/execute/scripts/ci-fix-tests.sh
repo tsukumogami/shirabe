@@ -17,7 +17,10 @@
 # It lists the session's children (`koto workflows --children`), which
 # includes every fix round, since a round is started under the run's parent.
 # For each child with a `counted_head` context key (test-change.sh status
-# writes it when a counting gate passes) it reads the commit. The newest is
+# writes it when a counting gate passes) it reads the commit; for a step that
+# ran in its own worktree and was rebased when it landed, the head its
+# step_group.jsonl `landed` record names stands in for it, and a step recorded
+# as stopped is skipped (see step-group.sh). The newest is
 # the one with the fewest commits between it and HEAD, not the latest
 # recorded: every head must be an ancestor of HEAD (else exit 2), and on the
 # shared branch's linear history the closest one is the last counted. It then
@@ -45,6 +48,7 @@ PLUGIN_ROOT_SELF=$(cd "$HERE/../../.." && pwd)
 RULES_SHIPPED="$PLUGIN_ROOT_SELF/skills/work-on/references/review-level-rules.tsv"
 COUNTED_KEY=counted_head
 RULES_KEY=review_level_rules.tsv
+GROUP_KEY=step_group.jsonl
 
 usage() { echo "usage: ci-fix-tests.sh <execute session>" >&2; exit 64; }
 undecided() { echo "ci-fix-tests: $*" >&2; exit 2; }
@@ -72,6 +76,31 @@ jq -e 'type == "array" and all(.[]; (.name | type) == "string")' "$WORK/children
     || undecided "koto workflows --children $SESSION did not answer a list of sessions"
 jq -r '.[].name' "$WORK/children.json" > "$WORK/children.txt"
 
+# /execute's concurrent steps (scripts/step-group.sh): a step cut into its own
+# worktree counts on its step branch, and `land` then rebases that branch onto
+# the shared one, so the counted_head its child recorded is not on the shared
+# branch. The step's `landed` record in the run's step_group.jsonl names the
+# head the same commits reached the shared branch at, and that head stands in
+# for it. A step recorded as stopped landed nothing, so its child is skipped.
+koto context exists "$SESSION" "$GROUP_KEY" >/dev/null 2>"$WORK/koto.err" < /dev/null
+rc=$?
+case "$rc" in
+    0) koto context get "$SESSION" "$GROUP_KEY" > "$WORK/group.jsonl" 2>"$WORK/koto.err" < /dev/null \
+           || undecided "koto context get $SESSION $GROUP_KEY failed: $(tail -n 1 "$WORK/koto.err")" ;;
+    1) : > "$WORK/group.jsonl" ;;
+    *) undecided "koto context exists $SESSION $GROUP_KEY failed (exit $rc): $(tail -n 1 "$WORK/koto.err")" ;;
+esac
+jq -es 'all(type == "object")' "$WORK/group.jsonl" > "$WORK/group.ok" 2>&1 \
+    || undecided "$GROUP_KEY in $SESSION is not JSON lines"
+
+# hex40 <child> <sha>: exits 2 unless <sha> is 40 lowercase hex.
+hex40() {
+    case "$2" in
+        *[!0-9a-f]*|'') undecided "$1 recorded a $COUNTED_KEY that isn't 40 hex" ;;
+    esac
+    [ "${#2}" -eq 40 ] || undecided "$1 recorded a $COUNTED_KEY that isn't 40 hex"
+}
+
 NEWEST="" NEWEST_CHILD="" NEWEST_DIST=""
 while IFS= read -r child; do
     [ -n "$child" ] || continue
@@ -85,10 +114,17 @@ while IFS= read -r child; do
     sha=$(koto context get "$child" "$COUNTED_KEY" 2>"$WORK/koto.err" < /dev/null) \
         || undecided "koto context get $child $COUNTED_KEY failed: $(tail -n 1 "$WORK/koto.err")"
     sha=$(printf '%s' "$sha" | tr -d '[:space:]')
-    case "$sha" in
-        *[!0-9a-f]*|'') undecided "$child recorded a $COUNTED_KEY that isn't 40 hex" ;;
-    esac
-    [ "${#sha}" -eq 40 ] || undecided "$child recorded a $COUNTED_KEY that isn't 40 hex"
+    hex40 "$child" "$sha"
+    step=${child#"$SESSION".}
+    if [ "$step" != "$child" ] && [ -s "$WORK/group.jsonl" ]; then
+        last=$(jq -rs --arg s "$step" '[.[] | select(.step == $s and (.event == "landed" or .event == "stopped"))]
+            | (.[-1] // {}) | "\(.event // "")=\(.head // "")"' "$WORK/group.jsonl") \
+            || undecided "could not read step $step's record in $GROUP_KEY"
+        case "$last" in
+            stopped=*) continue ;;
+            landed=*) sha=${last#landed=}; hex40 "$child (landed)" "$sha" ;;
+        esac
+    fi
     git cat-file -e "$sha^{commit}" 2>/dev/null || undecided "$child's $COUNTED_KEY $sha names no commit here"
     git merge-base --is-ancestor "$sha" "$HEAD" 2>/dev/null \
         || undecided "$child's $COUNTED_KEY $sha is not an ancestor of HEAD"

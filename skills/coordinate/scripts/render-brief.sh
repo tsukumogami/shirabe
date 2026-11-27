@@ -155,12 +155,14 @@
 #                                 capability categories) or fable, opus,
 #                                 sonnet or haiku; permission_mode, one of
 #                                 default, acceptEdits, plan, auto, dontAsk
-#                                 or bypassPermissions; and
+#                                 or bypassPermissions;
 #                                 accept_session_messages, true or false;
 #                                 and profile, a [session.dispatch_profiles]
 #                                 name in niwa's grammar (lowercase letters,
 #                                 digits and hyphens, starting with a letter
-#                                 or digit, with no length cap).
+#                                 or digit, with no length cap). Whether the
+#                                 workspace defines that name is niwa's to
+#                                 check at the launch.
 #                                 Any other key or value is refused, so
 #                                 nothing but these reaches the launch.
 #                                 dispatch-worker.sh turns each into its

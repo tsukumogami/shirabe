@@ -501,7 +501,12 @@ configuration, and it's the same for either role. Your record holds your role,
   for a discipline, with `<role>` read from your
   record's Run `role` row (none exits 1, naming the command that sets it), and
   keeps the pending successor on your Run `successor` row until the
-  successor's opener takes your run over and clears it.
+  successor's opener takes your run over and clears it. One successor is
+  pending at a time: while the row reads `dispatching` or `dispatched`, a
+  dispatch under another topic is refused (exit 12, naming the row's status
+  and topic). Running the dispatch again with the row's own topic confirms
+  it, or launches it again when its launch never showed up, under the same
+  row. A `dispatch-failed` or `stranded` row takes a new topic.
 
 **Manager**
 

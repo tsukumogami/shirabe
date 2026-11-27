@@ -259,6 +259,18 @@ pairs_of '["docs/plans/PLAN-t.md","--step-drafts=off"]'
 pairs_eq "--step-drafts=off: one STEP_DRAFTS pair" \
     '[["STEP_DRAFTS","off"]]' 'map(select(.[0] == "STEP_DRAFTS"))'
 
+# --max-concurrent-steps=N is the limit on steps started together; with no
+# flag there is no pair (the no-flag case above pins the list), and the
+# template reads empty as 2. koto's pattern judges the value, so a value
+# outside 1 to 6 and a bare flag are passed as given.
+pairs_of '["docs/plans/PLAN-t.md","--max-concurrent-steps=1"]'
+pairs_eq "--max-concurrent-steps=1: one MAX_CONCURRENT_STEPS pair" \
+    '[["MAX_CONCURRENT_STEPS","1"]]' 'map(select(.[0] == "MAX_CONCURRENT_STEPS"))'
+pairs_of '["docs/plans/PLAN-t.md","--max-concurrent-steps=9","--max-concurrent-steps"]'
+pairs_eq "--max-concurrent-steps: a value out of range and a bare flag are left to koto" \
+    '[["MAX_CONCURRENT_STEPS","9"],["MAX_CONCURRENT_STEPS","--max-concurrent-steps"]]' \
+    'map(select(.[0] == "MAX_CONCURRENT_STEPS"))'
+
 # The verification deferral (#1017): one pair per flag given, none without
 # them (the no-flag case above already pins the list), and /work-on's own two
 # refusals before any koto call.
@@ -318,6 +330,10 @@ pairs_of '["docs/plans/PLAN-cpairs.md","--store","session","--coordination-pr=ht
 pairs_eq "a coordinated PLAN with every flag, in both spellings: each value once, --follow-up's first = a space" \
     '[["STORE","session"],["COORDINATION_PR","https://github.com/o/r/pull/10"],["FOLLOW_UP","pr-a https://github.com/o/r/pull/11"],["FOLLOW_UP_REMOVE","true"],["ADOPT_RUN","0123456789abcdef0123456789abcdef"]]' \
     "$coord_pairs"
+pairs_of '["docs/plans/PLAN-cpairs.md","--max-concurrent-steps=3","--step-drafts=off"]'
+pairs_eq "a coordinated PLAN takes no MAX_CONCURRENT_STEPS or STEP_DRAFTS pair" \
+    '[]' 'map(select(.[0] == "MAX_CONCURRENT_STEPS" or .[0] == "STEP_DRAFTS"))'
+pairs_of '["docs/plans/PLAN-cpairs.md","--store","session","--coordination-pr=https://github.com/o/r/pull/10","--follow-up","pr-a=https://github.com/o/r/pull/11","--remove","--adopt-run","0123456789abcdef0123456789abcdef"]'
 pairs_eq "a flag's separate value is never read as the PLAN" '"docs/plans/PLAN-cpairs.md"' 'map(select(.[0] == "PLAN_DOC"))[0][1]'
 pairs_of '["docs/plans/PLAN-cpairs.md","--store","github","--store=session"]'
 pairs_eq "a repeated --store is two pairs, left to koto's duplicate_var" '[["STORE","github"],["STORE","session"]]' \
@@ -1128,6 +1144,24 @@ else
 fi
 refusal "--review-floor=medium" '["docs/plans/PLAN-medium.md","--review-floor=medium"]' invalid_var execute-medium
 refusal "a repeated --review-ceiling" '["docs/plans/PLAN-twice.md","--review-ceiling=light","--review-ceiling=full"]' duplicate_var execute-twice
+
+# The step limit: set on the session when given, rebound to empty (the
+# default, 2) by a resume without it, and refused by koto outside 1 to 6.
+run_open '["docs/plans/PLAN-limited.md","--max-concurrent-steps=1"]'
+if [ "$RC" -eq 0 ] && [ "$(session_var execute-limited MAX_CONCURRENT_STEPS)" = 1 ]; then
+    pass "--max-concurrent-steps=1: set on the session"
+else
+    fail "limited: exit $RC, MAX_CONCURRENT_STEPS [$(session_var execute-limited MAX_CONCURRENT_STEPS)]; $ERR"
+fi
+run_open '["docs/plans/PLAN-limited.md"]'
+if [ "$RC" -eq 0 ] && line 'opened=attached' && [ "$(session_var execute-limited MAX_CONCURRENT_STEPS)" = "" ]; then
+    pass "resumed without --max-concurrent-steps: rebound to empty, the default"
+else
+    fail "limited resume: out [$OUT], MAX_CONCURRENT_STEPS [$(session_var execute-limited MAX_CONCURRENT_STEPS)]"
+fi
+refusal "--max-concurrent-steps=7" '["docs/plans/PLAN-seven.md","--max-concurrent-steps=7"]' invalid_var execute-seven
+refusal "--max-concurrent-steps=0" '["docs/plans/PLAN-zero.md","--max-concurrent-steps=0"]' invalid_var execute-zero
+refusal "a bare --max-concurrent-steps" '["docs/plans/PLAN-bare.md","--max-concurrent-steps"]' invalid_var execute-bare
 
 # A live session from another template: refused at attach, untouched.
 cat > "$WORK/other.md" <<'OTHER'

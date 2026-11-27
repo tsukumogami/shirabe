@@ -11,6 +11,9 @@
 #   2  no child, no child with a counted head, a head that isn't 40 hex, one
 #      that names no commit, one that isn't an ancestor of HEAD, a failed
 #      children listing
+#   concurrent steps: a landed step's rebased head stands in for its counted
+#      head, a stopped step's child is skipped, a staged one is not mapped,
+#      an unreadable step_group.jsonl exits 2
 #   it writes nothing: the stand-in logs every koto write and the log stays
 #   empty; the work tree and refs are unchanged
 #
@@ -173,6 +176,35 @@ child p10 p10.step-2 "$SIDE"
 run p10
 eq "a head that isn't an ancestor of HEAD: exit 2" 2 "$RC"
 has "says it isn't an ancestor" "not an ancestor of HEAD" "$ERR"
+echo "--- concurrent steps: a step rebased when it landed"
+# step-2 counted on its step branch (SIDE, off the shared branch); its
+# landed record names the head the rebase put on the shared branch.
+child p12 p12.step-1 "$C1"
+child p12 p12.step-2 "$SIDE"
+mkdir -p "$STORE/children/p12"
+printf '%s\n' '{"event":"cut","step":"step-2","branch":"main--step-2"}' \
+    "{\"event\":\"landed\",\"step\":\"step-2\",\"head\":\"$C3\"}" > "$STORE/children/p12/step_group.jsonl"
+run p12
+eq "a landed step's rebased head stands in for its counted head: exit 0" 0 "$RC"
+has "the landed head is the one compared" "$C3, the counted head p12.step-2" "$OUT"
+child p13 p13.step-1 "$C2"
+child p13 p13.step-2 "$SIDE"
+mkdir -p "$STORE/children/p13"
+printf '%s\n' '{"event":"stopped","step":"step-2","child_state":"done_blocked"}' > "$STORE/children/p13/step_group.jsonl"
+run p13
+eq "a stopped step's child is skipped: the other head decides, exit 1" 1 "$RC"
+has "the test added after the other head is named" "untested: tests/new_test.sh" "$OUT"
+child p14 p14.step-1 "$C3"
+child p14 p14.step-2 "$SIDE"
+mkdir -p "$STORE/children/p14"
+printf '%s\n' '{"event":"staged","step":"step-2","head":"'"$C3"'"}' > "$STORE/children/p14/step_group.jsonl"
+run p14
+eq "a step not yet landed keeps its off-branch head: exit 2" 2 "$RC"
+mkdir -p "$STORE/children/p15"
+child p15 p15.step-1 "$C3"
+printf 'not json\n' > "$STORE/children/p15/step_group.jsonl"
+run p15
+eq "an unreadable step_group.jsonl: exit 2" 2 "$RC"
 child p11 p11.step-1 "$C3"
 : > "$STORE/p11.fail"
 run p11
