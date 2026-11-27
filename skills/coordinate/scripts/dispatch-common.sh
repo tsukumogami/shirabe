@@ -92,6 +92,28 @@
 #       the worker's niwa dispatch id), from the same read; a row that can't
 #       be written leaves no file and changes nothing else.
 #
+#   dc_successor_settle <session> <workspace-root>
+#       Settles the run's Run `successor` row against niwa's listing, before
+#       dispatch-worker.sh --successor decides anything from it. A
+#       `dispatching` row whose session the listing shows is written
+#       `dispatched` (the launch ran and its confirm never did), and a
+#       `dispatched` row whose session a listing that was read doesn't show
+#       is written `stranded`. Every other row is left as it stands: no row,
+#       `dispatch-failed`, `stranded`, a `dispatching` row nothing lists
+#       (its launch may never have run) and a listed `dispatched` row. The
+#       listing is read only for a `dispatching` or `dispatched` row, through
+#       dc_find_session, and a listing that can't be read writes nothing:
+#       `stranded` is never written from a failed read. Each write is
+#       state-stored-set.sh --successor (DC_RECORD_STATE), set by
+#       <session>. Prints one line, tab-separated: the row's value as it
+#       stands afterwards (as read when nothing was written, empty for no
+#       row), then the listed session's name (empty when none is listed or
+#       the listing wasn't read). Returns 0 settled or nothing to settle,
+#       the writer's 14 (the row written, its entry not posted) counted as
+#       settled with its line on stderr; 3 the listing can't be read,
+#       nothing written; 2 the row can't be read, printing nothing; and the
+#       writer's own code when it refuses a write, the row printed as read.
+#
 #   dc_scope_slug <session>
 #       Prints the scope slug a coordinator run's session name carries
 #       (`coordinate-<scope slug>-<UTC stamp>`), or nothing, returning 1,
@@ -524,6 +546,43 @@ dc_find_session() {
 $(printf '%s' "$list" | jq -r '.[] | select((.session_name | type) == "string") | [.session_name, (.path // "")] | @tsv')
 EOF
     return 1
+}
+
+dc_successor_settle() {
+    local state row status topic found name="" to="" rc err
+    state=$(bash "$DC_RECORD_STATE" --list --session "$1" 2>/dev/null) || return 2
+    row=$(printf '%s' "$state" | jq -r '[(.run // [])[] | select(.key == "successor") | .value][0] // "" | strings') || return 2
+    status=${row%% *}
+    topic=${row#* }
+    topic=${topic%% *}
+    case "$status" in
+        dispatching | dispatched) ;;
+        *) printf '%s\t\n' "$row"; return 0 ;;
+    esac
+    found=$(dc_find_session "$2" "$topic")
+    case "$?" in
+        0) name=${found%%	*} ;;
+        1) ;;
+        *) printf '%s\t\n' "$row"; return 3 ;;
+    esac
+    case "$status:${name:+listed}" in
+        dispatching:listed) to=dispatched ;;
+        dispatched:) to=stranded ;;
+    esac
+    if [ -n "$to" ]; then
+        err=$(bash "$DC_RECORD_STATE" --session "$1" --successor "$to" "$topic" --by "$1" 2>&1 >/dev/null)
+        rc=$?
+        [ "$rc" = 0 ] || [ -z "$err" ] || printf '%s\n' "${err%%$'\n'*}" >&2
+        case "$rc" in
+            0 | 14) ;;
+            *) printf '%s\t%s\n' "$row" "$name"; return "$rc" ;;
+        esac
+        # The row as written, its day the writer's.
+        state=$(bash "$DC_RECORD_STATE" --list --session "$1" 2>/dev/null) &&
+            state=$(printf '%s' "$state" | jq -r '[(.run // [])[] | select(.key == "successor") | .value][0] // "" | strings') &&
+            [ -n "$state" ] && row=$state || row="$to $topic $(date -u +%Y-%m-%d)"
+    fi
+    printf '%s\t%s\n' "$row" "$name"
 }
 
 dc_scope_slug() {

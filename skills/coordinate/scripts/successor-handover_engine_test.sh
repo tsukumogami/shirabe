@@ -108,13 +108,16 @@ TODAY=$(date -u +%Y-%m-%d)
 # `list --json` prints the sessions launched so far; a launch logs its
 # arguments to calls.log, keeps its prompt, and keeps the Run section the
 # predecessor's record holds at that moment (NS_RUN names the run), then
-# prints the `session name:` line niwa prints and lists the session.
+# prints the `session name:` line niwa prints and lists the session. A case
+# fails the next launch with NS/fail-next, and with NS/blind-next beside it
+# the listing fails from that launch on, while NS/list-fail exists.
 NS="$T/niwa-succ"
 mkdir -p "$NS"
 cat > "$NS/niwa" <<'EOF'
 #!/usr/bin/env bash
 case "${1-}" in
-    list) cat "$NS/sessions.json" 2>/dev/null || echo '[]' ;;
+    list) [ ! -f "$NS/list-fail" ] || exit 1
+          cat "$NS/sessions.json" 2>/dev/null || echo '[]' ;;
     dispatch)
         if [ "${2-}" = --help ]; then
             printf 'Flags:\n      --brief string\n      --detach\n      --grant strings\n      --name string\n      --parent-from string\n      --skill string\n'
@@ -126,7 +129,13 @@ case "${1-}" in
         echo >> "$NS/calls.log"
         printf '%s\n' "$1" > "$NS/prompt"
         # One failed launch, when the case leaves NS/fail-next: nothing listed.
-        if [ -f "$NS/fail-next" ]; then rm -f "$NS/fail-next"; echo "niwa: launch failed" >&2; exit 1; fi
+        # With NS/blind-next beside it, the listing fails from then on too,
+        # until the case removes NS/list-fail.
+        if [ -f "$NS/fail-next" ]; then
+            rm -f "$NS/fail-next"
+            [ ! -f "$NS/blind-next" ] || mv "$NS/blind-next" "$NS/list-fail"
+            echo "niwa: launch failed" >&2; exit 1
+        fi
         bash "$PS/state-read.sh" --session "$NS_RUN" --run > "$NS/run-at-call.json" 2> "$NS/run-at-call.err"
         name=""
         while [ $# -gt 0 ]; do [ "$1" = --name ] && name=$2; shift; done
@@ -139,7 +148,7 @@ esac
 EOF
 chmod +x "$NS/niwa"
 export NS PS
-ns_reset() { echo '[]' > "$NS/sessions.json"; : > "$NS/calls.log"; rm -f "$NS/prompt" "$NS/run-at-call.json" "$NS/fail-next"; }
+ns_reset() { echo '[]' > "$NS/sessions.json"; : > "$NS/calls.log"; rm -f "$NS/prompt" "$NS/run-at-call.json" "$NS/fail-next" "$NS/blind-next" "$NS/list-fail"; }
 
 # milestone_roadmap <name> <status>: a milestone roadmap with one milestone,
 # MV1, at <status>, on main and in work/.
@@ -746,5 +755,48 @@ for c in ci-after-clear:clear ci-after-hand:hand ci-after-other:other; do
         *) bad "13 $kind: the next rotation's first Record: line names it and ends Role: director." "$REC" ;;
     esac
 done
+
+# ---- 14. one pending successor at a time, and a same-topic re-run ------------------------
+# A manager run dispatches its first successor; a second topic is refused
+# with exit 12 and changes nothing; the first topic again confirms with no
+# second launch. With the session gone from the listing, a second topic
+# settles the row stranded first and then dispatches. A second run whose
+# first launch fails with the listing unreadable exits 6 with the row
+# dispatching, and its re-run launches once.
+entries_with() { (cd "$WD" && bash "$PS/state-entry.sh" --session "$S" --list 2>/dev/null) | jq --arg t "$1" '[.[] | select(.text | contains($t))] | length'; }
+ns_reset
+if mrun pending owed; then
+    successor pending-successor-1
+    eq "14: the first successor is dispatched" "0 dispatched pending-successor-1 $TODAY" "$SRC $(succ_value)"
+    ROW1=$(succ_row); LOG1=$(cat "$NS/calls.log"); BRIEFS1=$(ls "$BRIEFS" | sort)
+    successor pending-successor-2
+    eq "14: a second topic while one is pending exits 12" 12 "$SRC"
+    case "$SE" in *"dispatched pending-successor-1"*) ok "14: ... naming the row's status and topic" ;; *) bad "14: ... naming the row's status and topic" "$SE" ;; esac
+    eq "14: ... the row unchanged" "$ROW1" "$(succ_row)"
+    eq "14: ... no launch" "$LOG1" "$(cat "$NS/calls.log")"
+    eq "14: ... no brief" "$BRIEFS1" "$(ls "$BRIEFS" | sort)"
+    successor pending-successor-1
+    eq "14: the first topic again is confirmed" "0 session=pending_successor_1-""1a2b3c4d" "$SRC $SO"
+    eq "14: ... with no second launch" "$LOG1" "$(cat "$NS/calls.log")"
+    eq "14: ... the row unchanged" "$ROW1" "$(succ_row)"
+    echo '[]' > "$NS/sessions.json"
+    successor pending-successor-2
+    eq "14: with the first session gone, a second topic is dispatched" "0 dispatched pending-successor-2 $TODAY" "$SRC $(succ_value)"
+    eq "14: ... the first row settled stranded, told as an entry" 1 "$(entries_with "Run successor stranded pending-successor-1")"
+    eq "14: ... and the new one told too" 1 "$(entries_with "Run successor dispatched pending-successor-2")"
+fi
+ns_reset
+if mrun relaunch owed; then
+    : > "$NS/fail-next"; : > "$NS/blind-next"
+    successor relaunch-successor-1
+    eq "14 relaunch: a failed launch with the listing unreadable exits 6" 6 "$SRC"
+    eq "14 relaunch: ... the row dispatching" "dispatching relaunch-successor-1 $TODAY" "$(succ_value)"
+    rm -f "$NS/list-fail"
+    successor relaunch-successor-1
+    eq "14 relaunch: the re-run with the same topic exits 0" "0 session=relaunch_successor_1-""1a2b3c4d" "$SRC $SO"
+    eq "14 relaunch: ... launching once more" 2 "$(grep -c '^niwa dispatch' "$NS/calls.log")"
+    eq "14 relaunch: ... the row dispatched" "dispatched relaunch-successor-1 $TODAY" "$(succ_value)"
+    eq "14 relaunch: ... one dispatching entry for the topic across both runs" 1 "$(entries_with "Run successor dispatching relaunch-successor-1")"
+fi
 
 echo; echo "successor-handover engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]
