@@ -89,7 +89,9 @@
 # run reaches the full panels as a standard run, not as an audit), or one
 # with no light round in its ledger. Prints `miss <category> <decision id>`,
 # `no-miss <decision id>`, `pending: ...` (no miss yet and no QA round to
-# close it) or `none: ...`. Exit 0, or 2 when a koto read, the decision or
+# close it), `none: ...`, or `unsupported: ...` with one notice on stderr
+# when this koto's `decisions record` has no --kind (koto 0.33.0, the entry
+# floor), in which case nothing is recorded. Exit 0, or 2 when a koto read, the decision or
 # the key's write fails, or the review level can't be read; 64 usage.
 set -uo pipefail
 
@@ -171,6 +173,15 @@ audit() {
         echo "pending: no miss yet, and no QA round at a head the light seat passed"
         return 0
     fi
+    # A koto older than the decision kinds (0.33.0, the entry floor, has no
+    # --kind on `decisions record`) can't record a verdict decision. The audit
+    # is best effort: it says so once and records nothing, so a later koto
+    # records the run's outcome the next time a full-panel round lands.
+    if ! koto_records_verdicts; then
+        echo "$PROG: this koto's \`decisions record\` has no --kind, so the light audit's $what is not recorded" >&2
+        echo "unsupported: koto can't record a verdict decision"
+        return 0
+    fi
     out=$("$KOTO" decisions record "$session" --kind verdict --outcome "$outcome" \
             --subject "what=$what" --by check:light-audit \
             --evidence context:verdict_ledger.json --reason "$reason") \
@@ -186,6 +197,18 @@ audit() {
     fi
     "$KOTO" context add "$session" light_audit.json < "$t/done.next" >/dev/null \
         || { echo "$PROG: decision $id recorded, but light_audit.json couldn't be written in $session" >&2; return 2; }
+    return 0
+}
+
+# koto_records_verdicts: 0 when `koto decisions record` takes the --kind,
+# --subject and --evidence a verdict decision needs, read from its --help.
+# koto's own error, if the help can't be printed, reaches stderr.
+koto_records_verdicts() {
+    local help
+    help=$("$KOTO" decisions record --help) || return 1
+    case "$help" in *--kind*) ;; *) return 1 ;; esac
+    case "$help" in *--subject*) ;; *) return 1 ;; esac
+    case "$help" in *--evidence*) ;; *) return 1 ;; esac
     return 0
 }
 

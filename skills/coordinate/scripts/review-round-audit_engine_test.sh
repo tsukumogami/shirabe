@@ -17,7 +17,11 @@
 #        was blocking there) is not a miss;
 #   a session that isn't audited, one whose level is no longer light, and
 #        one with no light round record nothing;
-#   a bad session name or panel is a usage error.
+#   a bad session name or panel is a usage error;
+#   on a koto whose `decisions record` has no --kind (0.33.0, the entry
+#        floor), a miss records nothing: exit 0, an `unsupported:` line and
+#        one notice on stderr. The decision cases above are skipped there,
+#        with a `note:` line, and the cases that record nothing still run.
 #
 # Every koto call runs on a store under this suite's scratch directory (the
 # guard in scripts/lib/koto-test-guard.sh). Needs koto and jq; SKIPs (exit 0)
@@ -91,6 +95,20 @@ decisions() {
         | jq -c '[.decisions[]?.decision | select(.kind == "verdict") | {outcome, what: .subject.what, by: (.decider.name.value // .decider.kind)}]'
 }
 
+# The decision cases need a koto whose `decisions record` takes --kind;
+# koto 0.33.0, the entry floor, has none, and review-round.sh records nothing
+# there (the last case below).
+CAN_RECORD=0
+case "$(koto decisions record --help)" in *--kind*) CAN_RECORD=1 ;; esac
+# The notice doesn't start with SKIP: run-tests.sh --engine, which the koto
+# entry floor job runs, fails a suite that prints one, as a suite that ran
+# nothing. This one still runs every case that records nothing, and the case
+# that pins what review-round.sh does on such a koto.
+if [ "$CAN_RECORD" = 0 ]; then
+    echo "note: this koto has no \`koto decisions record --kind\` -- the decision cases were skipped; the cases that record nothing still run"
+fi
+
+if [ "$CAN_RECORD" = 1 ]; then
 # --- a miss -------------------------------------------------------------------
 S=$(audited_name rr-miss 0) || { echo "FAIL: no audited name found"; exit 1; }
 if open "$S" light; then
@@ -130,7 +148,7 @@ if open "$S" light; then
                  findings: {$(finding dddd000000000001 scrutiny advisory '$h' other)}}"
     OUT=$(audit --session "$S" --panel scrutiny)
     case "$OUT" in pending:*) ok "no blocking finding at scrutiny: pending" ;; *) bad "at scrutiny" "got [$OUT]" ;; esac
-    eq "  ... and nothing recorded" '[]' "$(decisions "$S")"
+    [ "$CAN_RECORD" = 0 ] || eq "  ... and nothing recorded" '[]' "$(decisions "$S")"
     ledger "$S" "{history: [{panel: \"light\", head: \$h}, {panel: \"scrutiny\", head: \$h}, {panel: \"review\", head: \$h}, {panel: \"qa\", head: \$h}],
                  findings: {$(finding dddd000000000001 scrutiny advisory '$h' other)}}"
     OUT=$(audit --session "$S" --panel qa)
@@ -151,6 +169,8 @@ if open "$S" light; then
     case "$OUT" in "no-miss "*) ok "a blocking finding at a head the light seat did not pass is no miss" ;; *) bad "not passed" "got [$OUT]" ;; esac
 fi
 
+fi
+
 # --- nothing to record --------------------------------------------------------
 S=$(audited_name rr-plain 1) || exit 1
 if open "$S" light; then
@@ -158,20 +178,40 @@ if open "$S" light; then
     OUT=$(audit --session "$S" --panel scrutiny); RC=$?
     eq "a session that isn't audited: exit 0" 0 "$RC"
     case "$OUT" in none:*"not audited"*) ok "  ... none, not audited" ;; *) bad "  ... none" "got [$OUT]" ;; esac
-    eq "  ... and nothing recorded" '[]' "$(decisions "$S")"
+    [ "$CAN_RECORD" = 0 ] || eq "  ... and nothing recorded" '[]' "$(decisions "$S")"
 fi
 S=$(audited_name rr-std 0) || exit 1
 if open "$S" standard; then
     ledger "$S" "{history: [{panel: \"light\", head: \$h}], findings: {$(finding ffff000000000002 scrutiny blocking '$h' '')}}"
     OUT=$(audit --session "$S" --panel scrutiny)
     case "$OUT" in none:*"standard, not light"*) ok "an escalated run, now standard: none" ;; *) bad "standard" "got [$OUT]" ;; esac
-    eq "  ... and nothing recorded" '[]' "$(decisions "$S")"
+    [ "$CAN_RECORD" = 0 ] || eq "  ... and nothing recorded" '[]' "$(decisions "$S")"
 fi
 S=$(audited_name rr-nolight 0) || exit 1
 if open "$S" light; then
     ledger "$S" "{history: [{panel: \"scrutiny\", head: \$h}], findings: {$(finding ffff000000000003 scrutiny blocking '$h' '')}}"
     OUT=$(audit --session "$S" --panel scrutiny)
     case "$OUT" in none:*"no light round"*) ok "a ledger with no light round: none" ;; *) bad "no light" "got [$OUT]" ;; esac
+fi
+
+# --- a koto that can't record a verdict decision ------------------------------
+# A koto stand-in in front of the real one whose `decisions record --help`
+# has no --kind, as 0.33.0's hasn't; every other call goes to the real koto.
+# On a koto that already lacks it, the real one serves.
+S=$(audited_name rr-old 0) || exit 1
+if open "$S" light; then
+    ledger "$S" "{history: [{panel: \"light\", head: \$h}], findings: {$(finding 9999000000000001 scrutiny blocking '$h' security)}}"
+    mkdir -p "$T/oldkoto"
+    REAL=$(command -v koto)
+    printf '#!/usr/bin/env bash\nif [ "$1 $2 $3" = "decisions record --help" ]; then echo "Usage: koto decisions record [OPTIONS] <NAME>"; echo "      --with-data <WITH_DATA>"; exit 0; fi\nexec "%s" "$@"\n' "$REAL" > "$T/oldkoto/koto"
+    chmod +x "$T/oldkoto/koto"
+    OUT=$(cd "$T" && PATH="$T/oldkoto:$PATH" bash "$RR" audit --session "$S" --panel scrutiny 2> "$T/err"); RC=$?
+    eq "a koto without --kind: a miss exits 0" 0 "$RC"
+    case "$OUT" in unsupported:*) ok "  ... and says the decision is unsupported" ;; *) bad "  ... unsupported" "got [$OUT]" ;; esac
+    eq "  ... with one notice on stderr" "1 review-round:" "$(wc -l < "$T/err" | tr -d ' ') $(cut -d' ' -f1 "$T/err")"
+    [ "$CAN_RECORD" = 0 ] || eq "  ... and records nothing" '[]' "$(decisions "$S")"
+    (cd "$T" && koto context exists "$S" light_audit.json >/dev/null) \
+        && bad "  ... and writes no light_audit.json" "the key exists" || ok "  ... and writes no light_audit.json"
 fi
 
 (cd "$T" && bash "$RR" audit --session 'bad name' >/dev/null 2>&1); eq "a bad session name: exit 64" 64 $?
