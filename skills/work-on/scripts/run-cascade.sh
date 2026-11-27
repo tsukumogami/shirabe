@@ -231,7 +231,9 @@ check_issue_closed() {
         CLOSED) return 0 ;;
         OPEN) return 1 ;;
     esac
-    CHECK_ISSUE_ERROR="gh issue view returned an unexpected state: '$(printf '%s' "$state" | head -1 | cut -c1-40)'"
+    local first_line
+    first_line=$(head -n 1 <<<"$state")
+    CHECK_ISSUE_ERROR="gh issue view returned an unexpected state: '${first_line:0:40}'"
     log_warn "check_issue_closed: $CHECK_ISSUE_ERROR for $owner/$repo#$number"
     return 2
 }
@@ -921,29 +923,49 @@ handle_roadmap_deletion() {
     # detail asks for a re-run: this same run goes on to remove the PLAN, and
     # run-cascade.sh refuses to start without it. The remedy each one names is
     # the manual delete, which works from the state the run leaves behind.
+    #
+    # The scan reads every issue rather than stopping at the first one it
+    # can't confirm closed. An unreadable issue ahead of an open one would
+    # otherwise become the whole record, and its remedy ("if it is closed,
+    # delete by hand") would delete a ROADMAP whose later issue is still open.
+    # So an open issue, when there is one, is the issue the record names, and
+    # every unreadable issue is named beside it.
     local issue_rc=0
-    local open_issue_url=""
+    local blocking_issue_url=""
+    local unreadable_urls=""
+    local first_unreadable_url=""
+    local first_unreadable_error=""
     local issue_urls
     issue_urls=$(grep -oE \
         'https://github\.com/[^/]+/[^/]+/issues/[0-9]+' "$path" || true)
     while IFS= read -r issue_url; do
         [[ -z "$issue_url" ]] && continue
         check_issue_closed "$issue_url" && issue_rc=0 || issue_rc=$?
-        if [[ "$issue_rc" -ne 0 ]]; then
-            open_issue_url="$issue_url"
-            break
+        if [[ "$issue_rc" -eq 1 ]]; then
+            [[ -n "$blocking_issue_url" ]] || blocking_issue_url="$issue_url"
+        elif [[ "$issue_rc" -ne 0 ]]; then
+            if [[ -z "$first_unreadable_url" ]]; then
+                first_unreadable_url="$issue_url"
+                first_unreadable_error="$CHECK_ISSUE_ERROR"
+            fi
+            unreadable_urls+="${unreadable_urls:+, }$issue_url"
         fi
     done <<< "$issue_urls"
 
     local no_rerun="Re-running the cascade is not the recovery: this run goes on to delete the PLAN, and a second run stops at 'PLAN doc not found'."
-    if [[ "$issue_rc" -eq 1 ]]; then
+    local manual_delete="delete the ROADMAP by hand: git rm $path, commit, and push if the run pushed."
+    if [[ -n "$blocking_issue_url" ]]; then
+        local also_unreadable=""
+        [[ -z "$unreadable_urls" ]] || also_unreadable=" The state of $unreadable_urls could not be read ($first_unreadable_error); check those too before deleting."
         add_step "delete_roadmap" "$path" "$found_in" "skipped" \
-            "$path references issue $open_issue_url which is still open, so $path is not deleted. $no_rerun Once the issue closes, delete the ROADMAP by hand: git rm $path, then commit."
+            "$path references issue $blocking_issue_url which is still open, so $path is not deleted.$also_unreadable $no_rerun Once the issue closes, $manual_delete"
         return 0
     fi
-    if [[ "$issue_rc" -ne 0 ]]; then
+    if [[ -n "$first_unreadable_url" ]]; then
+        local others=""
+        [[ "$unreadable_urls" == "$first_unreadable_url" ]] || others=" (every unreadable issue: $unreadable_urls)"
         add_step "delete_roadmap" "$path" "$found_in" "skipped" \
-            "could not read the state of issue $open_issue_url ($CHECK_ISSUE_ERROR), so $path is not deleted; this is not a finding that the issue is open. $no_rerun Check the issue; if it is closed, delete the ROADMAP by hand: git rm $path, then commit."
+            "could not read the state of issue $first_unreadable_url ($first_unreadable_error)$others, so $path is not deleted; this is not a finding that the issue is open. $no_rerun Check the issue; if it is closed, $manual_delete"
         return 0
     fi
 
