@@ -39,7 +39,11 @@ impl Standin {
     /// run-mode and harness variables cleared.
     pub fn cmd(&self, args: &[&str]) -> Command {
         let mut c = Command::cargo_bin("shirabe").expect("binary `shirabe` builds");
-        let path = format!("{}:{}", self.bin.display(), std::env::var("PATH").unwrap_or_default());
+        let path = format!(
+            "{}:{}",
+            self.bin.display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
         c.env("PATH", path)
             .env("KOTO_STANDIN", &self.data)
             .env_remove("KOTO_RUN_MODE")
@@ -133,9 +137,8 @@ pub fn header(identity: &str) -> String {
 }
 
 pub fn json(out: &[u8]) -> Value {
-    serde_json::from_slice(out).unwrap_or_else(|e| {
-        panic!("not JSON ({e}): {}", String::from_utf8_lossy(out))
-    })
+    serde_json::from_slice(out)
+        .unwrap_or_else(|e| panic!("not JSON ({e}): {}", String::from_utf8_lossy(out)))
 }
 
 /// An undecided attempt `000000000001` in `session`, as `koto decisions
@@ -161,7 +164,10 @@ pub fn stored_of(v: &Value) -> Vec<u8> {
         args.extend(["--attempt", "000000000001"]);
     }
     let out = s.cmd(&args).assert().success().get_output().clone();
-    let key = json(&out.stdout)["identity"].as_str().unwrap().replace('/', "_");
+    let key = json(&out.stdout)["identity"]
+        .as_str()
+        .unwrap()
+        .replace('/', "_");
     std::fs::read(s.data.join("content").join(key)).unwrap()
 }
 

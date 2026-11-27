@@ -33,8 +33,18 @@ fn header_question_and_labels_equal_the_stored_bytes() {
     let stored_v: Value = serde_json::from_slice(&stored).unwrap();
     assert_eq!(q["header"], json!(header(&identity)));
     assert_eq!(q["question"], stored_v["question"]);
-    let labels: Vec<_> = q["options"].as_array().unwrap().iter().map(|o| o["label"].clone()).collect();
-    let want: Vec<_> = stored_v["options"].as_array().unwrap().iter().map(|o| o["label"].clone()).collect();
+    let labels: Vec<_> = q["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["label"].clone())
+        .collect();
+    let want: Vec<_> = stored_v["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["label"].clone())
+        .collect();
     assert_eq!(labels, want);
     assert_eq!(q["multiSelect"], json!(false));
 }
@@ -60,10 +70,16 @@ fn descriptions_carry_the_reasons_with_the_recommendation_first() {
     let v = good();
     let identity = s.serve("solo", "000000000003", &stored_of(&v), "");
     let r = render(&s, &[&identity]);
-    let opts = r["prompts"][0]["questions"][0]["options"].as_array().unwrap().clone();
+    let opts = r["prompts"][0]["questions"][0]["options"]
+        .as_array()
+        .unwrap()
+        .clone();
     assert_eq!(
         opts[0]["description"],
-        json!(format!("Recommended. {}", v["options"][0]["reason"].as_str().unwrap()))
+        json!(format!(
+            "Recommended. {}",
+            v["options"][0]["reason"].as_str().unwrap()
+        ))
     );
     assert_eq!(opts[1]["description"], v["options"][1]["reason"]);
     let text = r["prompts"][0]["text"].as_str().unwrap();
@@ -82,7 +98,10 @@ fn a_long_reason_is_shortened_with_a_fixed_marker_and_control_characters_removed
     v["options"][1]["reason"] = json!(format!("line one\nline\ttwo {}", "r".repeat(1100)));
     let identity = s.serve("solo", "000000000003", &stored_of(&v), "");
     let r = render(&s, &[&identity]);
-    let d = r["prompts"][0]["questions"][0]["options"][1]["description"].as_str().unwrap().to_string();
+    let d = r["prompts"][0]["questions"][0]["options"][1]["description"]
+        .as_str()
+        .unwrap()
+        .to_string();
     assert_eq!(d.len(), 1024);
     assert!(d.ends_with(" [shortened]"));
     assert!(d.starts_with("line onelinetwo "));
@@ -92,8 +111,20 @@ fn a_long_reason_is_shortened_with_a_fixed_marker_and_control_characters_removed
 fn two_renders_and_one_with_another_in_print_the_same_bytes() {
     let s = Standin::new();
     let identity = s.serve("solo", "000000000003", &stored_of(&tricky()), "");
-    let a = s.cmd(&["render", &identity]).assert().success().get_output().stdout.clone();
-    let b = s.cmd(&["render", &identity]).assert().success().get_output().stdout.clone();
+    let a = s
+        .cmd(&["render", &identity])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let b = s
+        .cmd(&["render", &identity])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
     let c = s
         .cmd(&["render", &identity, "--in", "manager"])
         .current_dir(&s.root)
@@ -105,7 +136,9 @@ fn two_renders_and_one_with_another_in_print_the_same_bytes() {
     assert_eq!(a, b);
     assert_eq!(a, c);
     let text = String::from_utf8(a).unwrap();
-    assert!(!text.contains("solo") && !text.contains(s.root.to_str().unwrap()));
+    // The identity names the raiser; nothing names the session asking or
+    // the directory it asked from.
+    assert!(!text.contains("manager") && !text.contains(s.root.to_str().unwrap()));
 }
 
 #[test]
@@ -113,13 +146,25 @@ fn golden_render_is_byte_identical() {
     let s = Standin::new();
     let stored = std::fs::read(fixture("golden-stored.json")).unwrap();
     let identity = s.serve("solo", "000000000003", &stored, "");
-    let out = s.cmd(&["render", &identity]).assert().success().get_output().stdout.clone();
+    let out = s
+        .cmd(&["render", &identity])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
     assert_eq!(out, std::fs::read(fixture("golden-render.json")).unwrap());
 }
 
 /// Serve an open question for the owner with `waiting` work items raised at
 /// `time`, in session `session`.
-fn open_for_owner(s: &Standin, session: &str, waiting: usize, time: &str, depends: Option<&str>) -> (String, Value) {
+fn open_for_owner(
+    s: &Standin,
+    session: &str,
+    waiting: usize,
+    time: &str,
+    depends: Option<&str>,
+) -> (String, Value) {
     let mut v = good();
     v["label"] = json!(format!("q-{session}"));
     v["waiting"] = json!((0..waiting).map(|i| format!("w{i}")).collect::<Vec<_>>());
@@ -162,7 +207,10 @@ fn render_person_owner_batches_four_then_two_in_pending_order_with_the_held_one_
     elements.pop();
     let (held_id, held) = open_for_owner(&s, "h", 9, "2026-11-27T08:00:00Z", Some(&ids["a"]));
     elements.push(held);
-    s.write("open-person.json", json!({"v": 1, "person": "owner", "questions": elements}).to_string());
+    s.write(
+        "open-person.json",
+        json!({"v": 1, "person": "owner", "questions": elements}).to_string(),
+    );
 
     let r = render(&s, &["--person", "owner"]);
     let prompts = r["prompts"].as_array().unwrap();
@@ -172,7 +220,10 @@ fn render_person_owner_batches_four_then_two_in_pending_order_with_the_held_one_
         .flat_map(|p| p["identities"].as_array().unwrap().clone())
         .map(|v| v.as_str().unwrap().to_string())
         .collect();
-    let want: Vec<String> = ["a", "c2", "b", "d", "e", "f"].iter().map(|n| ids[n].clone()).collect();
+    let want: Vec<String> = ["a", "c2", "b", "d", "e", "f"]
+        .iter()
+        .map(|n| ids[n].clone())
+        .collect();
     assert_eq!(order, want);
     assert_eq!(prompts[0]["questions"].as_array().unwrap().len(), 4);
     assert_eq!(prompts[1]["questions"].as_array().unwrap().len(), 2);
@@ -181,8 +232,13 @@ fn render_person_owner_batches_four_then_two_in_pending_order_with_the_held_one_
     // Once `a` is answered, the held one is presented.
     let key = ids["a"].replace('/', "_");
     let h = std::fs::read_to_string(s.data.join("history").join(&key)).unwrap();
-    s.write(&format!("history/{key}"), h.replace("\"open\":true", "\"open\":false"));
-    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(s.data.join("open-person.json")).unwrap()).unwrap();
+    s.write(
+        &format!("history/{key}"),
+        h.replace("\"open\":true", "\"open\":false"),
+    );
+    let mut v: Value =
+        serde_json::from_str(&std::fs::read_to_string(s.data.join("open-person.json")).unwrap())
+            .unwrap();
     v["questions"].as_array_mut().unwrap().remove(2);
     s.write("open-person.json", v.to_string());
     let r = render(&s, &["--person", "owner"]);
@@ -195,7 +251,10 @@ fn identities_with_the_same_time_order_by_identity_bytes() {
     let s = Standin::new();
     let (b, eb) = open_for_owner(&s, "zz", 1, "2026-11-27T09:00:00.500Z", None);
     let (a, ea) = open_for_owner(&s, "aa", 1, "2026-11-27T09:00:00.500Z", None);
-    s.write("open-person.json", json!({"v": 1, "questions": [eb, ea]}).to_string());
+    s.write(
+        "open-person.json",
+        json!({"v": 1, "questions": [eb, ea]}).to_string(),
+    );
     let r = render(&s, &["--person", "owner"]);
     assert_eq!(r["prompts"][0]["identities"], json!([a, b]));
 }
@@ -207,17 +266,35 @@ fn a_standing_mark_opens_the_description_and_text_with_the_fixed_phrase() {
     v["options"][2]["standing"] = json!(true);
     let id1 = s.serve("solo", "000000000003", &stored_of(&v), "");
     let r = render(&s, &[&id1]);
-    let o = r["prompts"][0]["questions"][0]["options"].as_array().unwrap().clone();
-    assert!(o[2]["description"].as_str().unwrap().starts_with("This answer sets a standing rule. "));
-    assert!(!o[1]["description"].as_str().unwrap().starts_with("This answer"));
-    assert!(r["prompts"][0]["text"].as_str().unwrap().contains("This answer sets a standing rule. Alternative: Redis"));
+    let o = r["prompts"][0]["questions"][0]["options"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert!(o[2]["description"]
+        .as_str()
+        .unwrap()
+        .starts_with("This answer sets a standing rule. "));
+    assert!(!o[1]["description"]
+        .as_str()
+        .unwrap()
+        .starts_with("This answer"));
+    assert!(r["prompts"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("This answer sets a standing rule. Alternative: Redis"));
 
     let mut q = good();
     q["standing"] = json!(true);
     let id2 = s.serve("other", "000000000003", &stored_of(&q), "");
     let r = render(&s, &[&id2]);
-    for o in r["prompts"][0]["questions"][0]["options"].as_array().unwrap() {
-        assert!(o["description"].as_str().unwrap().starts_with("This answer sets a standing rule. "));
+    for o in r["prompts"][0]["questions"][0]["options"]
+        .as_array()
+        .unwrap()
+    {
+        assert!(o["description"]
+            .as_str()
+            .unwrap()
+            .starts_with("This answer sets a standing rule. "));
     }
 }
 
@@ -230,13 +307,28 @@ fn a_need_renders_as_a_request_with_no_options() {
     o.insert("need".into(), json!("reserved-step"));
     o.insert("needed".into(), json!("Run the production migration."));
     let identity = s.serve("solo", "000000000003", &stored_of(&v), "");
-    let a = s.cmd(&["render", &identity]).assert().success().get_output().stdout.clone();
-    let b = s.cmd(&["render", &identity, "--in", "x"]).assert().success().get_output().stdout.clone();
+    let a = s
+        .cmd(&["render", &identity])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let b = s
+        .cmd(&["render", &identity, "--in", "x"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
     assert_eq!(a, b);
     let r = json(&a);
     assert_eq!(r["prompts"], json!([]));
     assert_eq!(r["requests"][0]["need"], json!("reserved-step"));
-    assert!(r["requests"][0]["text"].as_str().unwrap().contains("Run the production migration."));
+    assert!(r["requests"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("Run the production migration."));
 }
 
 #[test]
@@ -249,8 +341,17 @@ fn content_that_does_not_hash_to_its_packet_is_not_presented() {
     let at = changed.windows(6).position(|w| w == b"SQLite").unwrap();
     changed.splice(at..at + 6, marker.iter().copied());
     s.write(&format!("content/{}", identity.replace('/', "_")), &changed);
-    let out = s.cmd(&["render", &identity]).assert().code(5).get_output().clone();
-    let all = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let out = s
+        .cmd(&["render", &identity])
+        .assert()
+        .code(5)
+        .get_output()
+        .clone();
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert!(all.contains("content mismatch") && all.contains(&identity));
     assert!(!all.contains("MARKER") && !all.contains("build cache"));
 
@@ -259,7 +360,12 @@ fn content_that_does_not_hash_to_its_packet_is_not_presented() {
         "open-person.json",
         json!({"v": 1, "questions": [{"identity": identity, "session": "solo", "id": "000000000003", "need": "decision", "time": "2026-11-27T09:00:00Z", "recipient": {"kind": "person", "handle": "owner"}, "addressee": {"kind": "person", "handle": "owner"}}]}).to_string(),
     );
-    let out = s.cmd(&["pending", "--in", "solo", "--person", "owner"]).assert().success().get_output().clone();
+    let out = s
+        .cmd(&["pending", "--in", "solo", "--person", "owner"])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
     let p = json(&out.stdout);
     assert_eq!(p["questions"], json!([]));
     assert_eq!(p["incomplete"][0]["identity"], json!(identity));
@@ -270,13 +376,23 @@ fn a_raised_question_with_no_content_renders_nothing_and_pending_names_the_withd
     let s = Standin::new();
     let identity = s.serve("solo", "000000000003", &stored_of(&good()), "");
     std::fs::remove_file(s.data.join("content").join(identity.replace('/', "_"))).unwrap();
-    let out = s.cmd(&["render", &identity]).assert().code(5).get_output().clone();
+    let out = s
+        .cmd(&["render", &identity])
+        .assert()
+        .code(5)
+        .get_output()
+        .clone();
     assert!(json(&out.stdout)["prompts"].is_null());
     s.write(
         "open-person.json",
         json!({"v": 1, "questions": [{"identity": identity, "session": "solo", "id": "000000000003", "need": "decision", "time": "2026-11-27T09:00:00Z", "recipient": {"kind": "person", "handle": "owner"}, "addressee": {"kind": "person", "handle": "owner"}}]}).to_string(),
     );
-    let out = s.cmd(&["pending", "--in", "solo", "--person", "owner"]).assert().success().get_output().clone();
+    let out = s
+        .cmd(&["pending", "--in", "solo", "--person", "owner"])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
     let p = json(&out.stdout);
     assert_eq!(p["questions"], json!([]));
     assert_eq!(

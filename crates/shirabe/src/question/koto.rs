@@ -146,7 +146,8 @@ pub fn run_raw(args: &[&str]) -> Result<Vec<u8>, Refused> {
             .and_then(Value::as_str)
             .map(str::to_string)
     };
-    let error = get("error").unwrap_or_else(|| String::from_utf8_lossy(&out.stderr).trim().to_string());
+    let error =
+        get("error").unwrap_or_else(|| String::from_utf8_lossy(&out.stderr).trim().to_string());
     Err(Refused {
         code: get("code").unwrap_or_else(|| "koto_failed".into()),
         field: get("field"),
@@ -175,13 +176,19 @@ impl History {
             .to_string()
     }
     pub fn id(&self) -> String {
-        self.q("id").and_then(Value::as_str).unwrap_or("").to_string()
+        self.q("id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
     }
     pub fn packet(&self) -> Option<String> {
         self.q("packet").and_then(Value::as_str).map(str::to_string)
     }
     pub fn open(&self) -> bool {
-        self.raw.get("open").and_then(Value::as_bool).unwrap_or(false)
+        self.raw
+            .get("open")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
     }
     pub fn answer(&self) -> Option<&Value> {
         self.raw.get("answer").filter(|a| !a.is_null())
@@ -206,6 +213,8 @@ pub fn prompt_header(raiser: &str, id: &str) -> Result<String, Refused> {
             code: "no_packet".into(),
             field: None,
             check: None,
-            error: format!("koto shows no prompt_header for {raiser}:{id}: the question carries no packet"),
+            error: format!(
+                "koto shows no prompt_header for {raiser}:{id}: the question carries no packet"
+            ),
         })
 }

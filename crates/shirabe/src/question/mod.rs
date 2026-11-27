@@ -111,7 +111,11 @@ struct PendingArgs {
 struct RenderArgs {
     /// Question identities, <raiser session id>/<decision id>, rendered in
     /// the order given.
-    #[arg(value_name = "IDENTITY", required_unless_present = "person", conflicts_with = "person")]
+    #[arg(
+        value_name = "IDENTITY",
+        required_unless_present = "person",
+        conflicts_with = "person"
+    )]
     identities: Vec<String>,
     /// Render every question open for this person (only `owner`), in
     /// pending order.
@@ -173,7 +177,11 @@ impl Failure {
         Failure::new(EXIT_KOTO_MISSING, "koto_minimum", message)
     }
     pub fn koto(r: &Refused) -> Self {
-        let mut f = Failure::new(EXIT_KOTO_REFUSED, &r.code, format!("koto refused: {}", r.error));
+        let mut f = Failure::new(
+            EXIT_KOTO_REFUSED,
+            &r.code,
+            format!("koto refused: {}", r.error),
+        );
         f.field = r.field.clone();
         f.check = r.check.clone();
         f
@@ -201,7 +209,11 @@ impl From<Refused> for Failure {
 
 fn emit(v: &Value) {
     let mut out = std::io::stdout().lock();
-    let _ = writeln!(out, "{}", serde_json::to_string(v).expect("JSON serializes"));
+    let _ = writeln!(
+        out,
+        "{}",
+        serde_json::to_string(v).expect("JSON serializes")
+    );
 }
 
 pub fn run(args: QuestionArgs) -> ExitCode {
@@ -244,8 +256,7 @@ fn name_ok(s: &str) -> bool {
     let mut chars = s.chars();
     matches!(chars.next(), Some(c) if c.is_ascii_alphanumeric())
         && s.len() <= 128
-        && s
-            .chars()
+        && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
@@ -255,7 +266,9 @@ fn parse_recipient(to: &str) -> Result<String, Failure> {
     let refuse = |why: &str| {
         Failure::refused(
             "to",
-            format!("the recipient {to:?} {why}; give session:<name>, anchor:<name> or person:{OWNER}"),
+            format!(
+                "the recipient {to:?} {why}; give session:<name>, anchor:<name> or person:{OWNER}"
+            ),
         )
     };
     match to.split_once(':') {
@@ -289,7 +302,10 @@ fn default_recipient(session: &str) -> Result<(String, bool), Failure> {
     let state = origin.get("state").and_then(Value::as_str).unwrap_or("");
     match state {
         "dispatched" => {
-            let d = origin.get("dispatcher").and_then(Value::as_str).unwrap_or("");
+            let d = origin
+                .get("dispatcher")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             let kind = match origin.get("dispatcher_kind").and_then(Value::as_str) {
                 Some("anchor") => "anchor",
                 _ => "session",
@@ -329,7 +345,10 @@ fn read_content(path: &str) -> Result<Vec<u8>, Failure> {
     let limit = (content::MAX_STORED as u64) * 4;
     let mut buf = Vec::new();
     let res = if path == "-" {
-        std::io::stdin().lock().take(limit + 1).read_to_end(&mut buf)
+        std::io::stdin()
+            .lock()
+            .take(limit + 1)
+            .read_to_end(&mut buf)
     } else {
         std::fs::File::open(path).and_then(|f| f.take(limit + 1).read_to_end(&mut buf))
     };
@@ -475,8 +494,18 @@ impl Drop for TempFile {
 
 fn withdraw(session: &str, id: &str, reason: &str) -> bool {
     koto::run(&[
-        "decisions", "answer", session, id, "--in", session, "--outcome", "withdrawn",
-        "--reason", reason, "--by", "session",
+        "decisions",
+        "answer",
+        session,
+        id,
+        "--in",
+        session,
+        "--outcome",
+        "withdrawn",
+        "--reason",
+        reason,
+        "--by",
+        "session",
     ])
     .is_ok()
 }
@@ -562,16 +591,38 @@ fn raise(a: &RaiseArgs) -> Result<Value, Failure> {
     let id = rec
         .get("id")
         .and_then(Value::as_str)
-        .ok_or_else(|| Failure::new(EXIT_KOTO_REFUSED, "koto_output", "koto recorded the question but printed no id"))?
+        .ok_or_else(|| {
+            Failure::new(
+                EXIT_KOTO_REFUSED,
+                "koto_output",
+                "koto recorded the question but printed no id",
+            )
+        })?
         .to_string();
 
     let file = TempFile::create(&stored).map_err(|e| {
-        let withdrawn = withdraw(&a.in_, &id, "shirabe question raise could not stage the content for koto");
-        Failure::new(EXIT_KOTO_REFUSED, "content_write", format!("the content could not be staged for koto ({e}); the question was withdrawn"))
-            .with("withdrawn", json!(withdrawn))
+        let withdrawn = withdraw(
+            &a.in_,
+            &id,
+            "shirabe question raise could not stage the content for koto",
+        );
+        Failure::new(
+            EXIT_KOTO_REFUSED,
+            "content_write",
+            format!("the content could not be staged for koto ({e}); the question was withdrawn"),
+        )
+        .with("withdrawn", json!(withdrawn))
     })?;
     let path = file.0.to_string_lossy().to_string();
-    let written = koto::run(&["decisions", "content", "write", &a.in_, &id, "--file", &path]);
+    let written = koto::run(&[
+        "decisions",
+        "content",
+        "write",
+        &a.in_,
+        &id,
+        "--file",
+        &path,
+    ]);
     drop(file);
     let written = match written {
         Ok(w) => w,
@@ -579,13 +630,22 @@ fn raise(a: &RaiseArgs) -> Result<Value, Failure> {
             let withdrawn = withdraw(
                 &a.in_,
                 &id,
-                &format!("the content write failed ({}), so the question was withdrawn", r.code),
+                &format!(
+                    "the content write failed ({}), so the question was withdrawn",
+                    r.code
+                ),
             );
-            let mut f = Failure::koto(&r).with("withdrawn", json!(withdrawn)).with("id", json!(id));
+            let mut f = Failure::koto(&r)
+                .with("withdrawn", json!(withdrawn))
+                .with("id", json!(id));
             f.message = format!(
                 "{}; the escalate {id} was {}",
                 f.message,
-                if withdrawn { "withdrawn" } else { "left in place and could not be withdrawn" }
+                if withdrawn {
+                    "withdrawn"
+                } else {
+                    "left in place and could not be withdrawn"
+                }
             );
             return Err(f);
         }
@@ -597,7 +657,11 @@ fn raise(a: &RaiseArgs) -> Result<Value, Failure> {
         .to_string();
     let back = koto::run_raw(&["decisions", "content", "read", &identity]);
     if back.as_deref().ok() != Some(stored.as_slice()) {
-        let withdrawn = withdraw(&a.in_, &id, "the stored content did not read back as written");
+        let withdrawn = withdraw(
+            &a.in_,
+            &id,
+            "the stored content did not read back as written",
+        );
         return Err(Failure::unpresentable(
             "content_mismatch",
             format!("the content koto stored for {identity} does not read back as written; the question was {}", if withdrawn { "withdrawn" } else { "left in place" }),
@@ -615,7 +679,10 @@ fn raise(a: &RaiseArgs) -> Result<Value, Failure> {
     out.insert("label".into(), json!(content.label));
     out.insert("packet".into(), json!(hash));
     out.insert("bytes".into(), json!(stored.len()));
-    out.insert("prompt_header".into(), written.get("prompt_header").cloned().unwrap_or(Value::Null));
+    out.insert(
+        "prompt_header".into(),
+        written.get("prompt_header").cloned().unwrap_or(Value::Null),
+    );
     if let Some(s) = &a.state {
         out.insert("state".into(), json!(s));
     }
@@ -634,7 +701,14 @@ fn raise(a: &RaiseArgs) -> Result<Value, Failure> {
 /// Seconds since the epoch of a koto time, `YYYY-MM-DDTHH:MM:SS[.fff]Z`.
 fn epoch_seconds(t: &str) -> Option<i64> {
     let b = t.as_bytes();
-    if b.len() < 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[13] != b':' || b[16] != b':' || !t.ends_with('Z') {
+    if b.len() < 20
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || b[10] != b'T'
+        || b[13] != b':'
+        || b[16] != b':'
+        || !t.ends_with('Z')
+    {
         return None;
     }
     let n = |r: std::ops::Range<usize>| t.get(r)?.parse::<i64>().ok();
@@ -699,7 +773,12 @@ fn gather(person: bool, at: Option<&str>) -> Result<Pending, Failure> {
     let mut merged: BTreeMap<String, (Value, bool, Option<String>)> = BTreeMap::new();
     if person {
         let o = koto::run(&["decisions", "open", "--person", OWNER])?;
-        for q in o.get("questions").and_then(Value::as_array).cloned().unwrap_or_default() {
+        for q in o
+            .get("questions")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+        {
             if let Some(id) = q.get("identity").and_then(Value::as_str) {
                 merged.insert(id.to_string(), (q.clone(), true, None));
             }
@@ -707,9 +786,19 @@ fn gather(person: bool, at: Option<&str>) -> Result<Pending, Failure> {
     }
     if let Some(at) = at {
         let o = koto::run(&["decisions", "open", "--at", at])?;
-        for q in o.get("questions").and_then(Value::as_array).cloned().unwrap_or_default() {
-            let Some(id) = q.get("identity").and_then(Value::as_str) else { continue };
-            let relation = q.get("relation").and_then(Value::as_str).map(str::to_string);
+        for q in o
+            .get("questions")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+        {
+            let Some(id) = q.get("identity").and_then(Value::as_str) else {
+                continue;
+            };
+            let relation = q
+                .get("relation")
+                .and_then(Value::as_str)
+                .map(str::to_string);
             merged
                 .entry(id.to_string())
                 .and_modify(|e| e.2 = relation.clone())
@@ -773,10 +862,12 @@ fn gather(person: bool, at: Option<&str>) -> Result<Pending, Failure> {
         );
         e.insert(
             "label".into(),
-            content
-                .as_ref()
-                .map(|c| json!(c.label))
-                .unwrap_or_else(|| h.raw.pointer("/question/label").cloned().unwrap_or(Value::Null)),
+            content.as_ref().map(|c| json!(c.label)).unwrap_or_else(|| {
+                h.raw
+                    .pointer("/question/label")
+                    .cloned()
+                    .unwrap_or(Value::Null)
+            }),
         );
         e.insert("need".into(), q.get("need").cloned().unwrap_or(Value::Null));
         e.insert("waiting".into(), json!(waiting));
@@ -785,14 +876,29 @@ fn gather(person: bool, at: Option<&str>) -> Result<Pending, Failure> {
             "age_seconds".into(),
             epoch_seconds(&time).map_or(Value::Null, |t| json!((now - t).max(0))),
         );
-        e.insert("recipient".into(), recipient_string(q.get("recipient").unwrap_or(&Value::Null)));
+        e.insert(
+            "recipient".into(),
+            recipient_string(q.get("recipient").unwrap_or(&Value::Null)),
+        );
         e.insert("addressee".into(), addressee_s.clone());
         e.insert("relation".into(), relation.map_or(Value::Null, Value::from));
-        e.insert("for_owner".into(), json!(for_owner || addressee_s == json!(format!("person:{OWNER}"))));
+        e.insert(
+            "for_owner".into(),
+            json!(for_owner || addressee_s == json!(format!("person:{OWNER}"))),
+        );
         e.insert("other_person".into(), json!(other_person));
-        e.insert("standing".into(), json!(content.as_ref().is_some_and(Content::any_standing)));
-        e.insert("unlinked".into(), json!(origin_unrecorded(&raiser, &mut origins)));
-        e.insert("depends_on".into(), depends_on.map_or(Value::Null, Value::from));
+        e.insert(
+            "standing".into(),
+            json!(content.as_ref().is_some_and(Content::any_standing)),
+        );
+        e.insert(
+            "unlinked".into(),
+            json!(origin_unrecorded(&raiser, &mut origins)),
+        );
+        e.insert(
+            "depends_on".into(),
+            depends_on.map_or(Value::Null, Value::from),
+        );
         e.insert("held".into(), json!(held));
         e.insert("stored".into(), json!(content.is_some()));
         if let Some(s) = q.get("state") {
@@ -817,7 +923,10 @@ fn gather(person: bool, at: Option<&str>) -> Result<Pending, Failure> {
             .then(a.time.cmp(&b.time))
             .then(a.identity.as_bytes().cmp(b.identity.as_bytes()))
     });
-    Ok(Pending { questions, incomplete })
+    Ok(Pending {
+        questions,
+        incomplete,
+    })
 }
 
 fn epoch_order(t: &str) -> i64 {
@@ -829,12 +938,31 @@ fn epoch_order(t: &str) -> i64 {
 /// it.
 fn answered(session: &str) -> Result<Vec<Value>, Failure> {
     let mut out: BTreeMap<String, Value> = BTreeMap::new();
-    let listed = koto::run(&["decisions", "list", session, "--format", "v1", "--kind", "escalate"])?;
-    for d in listed.get("decisions").and_then(Value::as_array).cloned().unwrap_or_default() {
-        let Some(sid) = d.pointer("/decision/session/id").and_then(Value::as_str) else { continue };
-        let Some(id) = d.get("id").and_then(Value::as_str) else { continue };
+    let listed = koto::run(&[
+        "decisions",
+        "list",
+        session,
+        "--format",
+        "v1",
+        "--kind",
+        "escalate",
+    ])?;
+    for d in listed
+        .get("decisions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        let Some(sid) = d.pointer("/decision/session/id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(id) = d.get("id").and_then(Value::as_str) else {
+            continue;
+        };
         let identity = format!("{sid}/{id}");
-        let Ok(h) = History::read(&identity) else { continue };
+        let Ok(h) = History::read(&identity) else {
+            continue;
+        };
         let Some(ans) = h.answer() else { continue };
         if ans.get("outcome").and_then(Value::as_str) != Some("answered") {
             continue;
@@ -848,16 +976,33 @@ fn answered(session: &str) -> Result<Vec<Value>, Failure> {
         if cited || ans_id.is_none() || ans_session.is_none() {
             continue;
         }
-        out.insert(identity.clone(), json!({"identity": identity, "answer": ans}));
+        out.insert(
+            identity.clone(),
+            json!({"identity": identity, "answer": ans}),
+        );
     }
-    let prec = koto::run(&["decisions", "precedent", "--person", OWNER, "--chain", session])?;
-    for a in prec.get("answers").and_then(Value::as_array).cloned().unwrap_or_default() {
+    let prec = koto::run(&[
+        "decisions",
+        "precedent",
+        "--person",
+        OWNER,
+        "--chain",
+        session,
+    ])?;
+    for a in prec
+        .get("answers")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
         let below = a.get("below").and_then(Value::as_bool) == Some(true);
         let here = a.get("session").and_then(Value::as_str) == Some(session);
         if a.get("cited").and_then(Value::as_bool) != Some(false) || !(below || here) {
             continue;
         }
-        let Some(identity) = a.get("identity").and_then(Value::as_str) else { continue };
+        let Some(identity) = a.get("identity").and_then(Value::as_str) else {
+            continue;
+        };
         out.entry(identity.to_string())
             .or_insert_with(|| json!({"identity": identity, "answer": a}));
     }
@@ -949,9 +1094,21 @@ fn render_cmd(a: &RenderArgs) -> Result<Value, Failure> {
                 held.push(q.identity);
                 continue;
             }
-            let Some(content) = q.content.take() else { continue };
-            let raiser = q.element.get("session").and_then(Value::as_str).unwrap_or("").to_string();
-            let id = q.element.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+            let Some(content) = q.content.take() else {
+                continue;
+            };
+            let raiser = q
+                .element
+                .get("session")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let id = q
+                .element
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             let header = match q.header.take() {
                 Some(h) => h,
                 None => koto::prompt_header(&raiser, &id)?,
@@ -1018,7 +1175,10 @@ fn answer_cmd(a: &AnswerArgs) -> Result<Value, Failure> {
         ));
     }
     if std::env::var("KOTO_RUN_MODE").ok().as_deref() == Some("unattended")
-        || std::env::var("CLAUDE_CODE_SESSION_ATTENDED").ok().as_deref() == Some("0")
+        || std::env::var("CLAUDE_CODE_SESSION_ATTENDED")
+            .ok()
+            .as_deref()
+            == Some("0")
     {
         return Err(Failure::refused(
             "run_mode",
@@ -1056,7 +1216,10 @@ fn answer_cmd(a: &AnswerArgs) -> Result<Value, Failure> {
                 ));
             }
             if sid.is_empty() {
-                return Err(unverifiable("call", "No harness session id (CLAUDE_CODE_SESSION_ID) names a record to look in."));
+                return Err(unverifiable(
+                    "call",
+                    "No harness session id (CLAUDE_CODE_SESSION_ID) names a record to look in.",
+                ));
             }
             let found = answer::account_home()
                 .and_then(|home| answer::record_path(&home, &sid))
@@ -1074,7 +1237,18 @@ fn answer_cmd(a: &AnswerArgs) -> Result<Value, Failure> {
     };
     let pointer = format!("{sid}/{call}/{position}");
     let by = format!("person:{OWNER}");
-    let rec = koto::run(&["decisions", "answer", &raiser, &id, "--in", &a.in_, "--by", &by, "--prompt", &pointer]);
+    let rec = koto::run(&[
+        "decisions",
+        "answer",
+        &raiser,
+        &id,
+        "--in",
+        &a.in_,
+        "--by",
+        &by,
+        "--prompt",
+        &pointer,
+    ]);
     let rec = match rec {
         Ok(r) => r,
         Err(r) => {
@@ -1085,8 +1259,16 @@ fn answer_cmd(a: &AnswerArgs) -> Result<Value, Failure> {
             return Err(f);
         }
     };
-    let entry = rec.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-    let session = rec.get("session").and_then(Value::as_str).unwrap_or(&a.in_).to_string();
+    let entry = rec
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let session = rec
+        .get("session")
+        .and_then(Value::as_str)
+        .unwrap_or(&a.in_)
+        .to_string();
     let shown = koto::run(&["decisions", "show", &session, &entry])?;
     let reading = reading_of(&shown);
     if reading.as_str() != Some("verified") {
@@ -1123,8 +1305,18 @@ mod tests {
         assert!(parse_recipient("session:manager").is_ok());
         assert!(parse_recipient("anchor:a1").is_ok());
         assert!(parse_recipient("person:owner").is_ok());
-        for bad in ["coord", "session:", "session:-x", "robot:x", "person:someone-else"] {
-            assert_eq!(parse_recipient(bad).unwrap_err().field.as_deref(), Some("to"), "{bad}");
+        for bad in [
+            "coord",
+            "session:",
+            "session:-x",
+            "robot:x",
+            "person:someone-else",
+        ] {
+            assert_eq!(
+                parse_recipient(bad).unwrap_err().field.as_deref(),
+                Some("to"),
+                "{bad}"
+            );
         }
     }
 

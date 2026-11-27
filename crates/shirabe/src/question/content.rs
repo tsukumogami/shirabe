@@ -231,7 +231,12 @@ pub fn parse_input(bytes: &[u8]) -> Result<Content, Refusal> {
             }
             out
         }
-        Some(_) => return Err(refuse("waiting", "`waiting` must be a list of work item identifiers")),
+        Some(_) => {
+            return Err(refuse(
+                "waiting",
+                "`waiting` must be a list of work item identifiers",
+            ))
+        }
     };
 
     let depends_on = match obj.get("depends_on") {
@@ -471,8 +476,7 @@ impl Content {
 
     /// Whether anything in the question carries the standing mark.
     pub fn any_standing(&self) -> bool {
-        self.standing
-            || matches!(&self.body, Body::Options(o) if o.iter().any(|o| o.standing))
+        self.standing || matches!(&self.body, Body::Options(o) if o.iter().any(|o| o.standing))
     }
 
     /// The stored bytes: keys in the fixed order, compact JSON.
@@ -542,7 +546,12 @@ impl Content {
             .ok_or_else(|| refuse("content", "the stored content is not an object"))?;
         let composed = match obj.remove("question") {
             Some(Value::String(q)) => q,
-            _ => return Err(refuse("question", "the stored content has no question text")),
+            _ => {
+                return Err(refuse(
+                    "question",
+                    "the stored content has no question text",
+                ))
+            }
         };
         let ask = obj.remove("ask");
         if let Some(a) = ask {
