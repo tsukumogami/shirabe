@@ -270,6 +270,16 @@ elif [ -f "$RC_DIR/$s" ]; then rc=\$(cat "$RC_DIR/$s"); fi
 exit "\$rc"
 EOF
 done
+# panel-scope.sh's --escalated defaults to 1 when no answer is set: the light
+# seat didn't escalate.
+cat > "$FAKE_ROOT/skills/work-on/scripts/panel-scope.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "panel-scope.sh \$*" >> "$LOG"
+case "\${1-}" in --escalated) rc=1 ;; *) rc=0 ;; esac
+if [ -f "$RC_DIR/panel-scope.sh\${1-}" ]; then rc=\$(cat "$RC_DIR/panel-scope.sh\${1-}")
+elif [ -f "$RC_DIR/panel-scope.sh" ]; then rc=\$(cat "$RC_DIR/panel-scope.sh"); fi
+exit "\$rc"
+EOF
 # review-level.sh's `level` defaults to 11 and its `audit` to 1 when no answer
 # is set: a light run that isn't audited, so light_review's passed routes are
 # the ones these cases take.

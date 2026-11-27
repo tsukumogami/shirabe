@@ -1914,7 +1914,10 @@ states:
     # panel-scope.sh --plan keeps no seat while there are no commits, so the
     # scope is never carried without them.
     #
-    # Two more gates split the passed routes. light_level (review-level.sh
+    # Three more gates split the passed routes. light_escalate
+    # (panel-scope.sh --escalated light) holds them while the seat's latest
+    # verdict returned escalate, so an escalate the agent ignores holds the
+    # run here instead of passing it at light. light_level (review-level.sh
     # level --exit: 11 light, 12 standard, 13 full) holds them unless the
     # ledger's level is still light, and is what the escalate route reads:
     # the seat's `escalate` is taken only once `review-level.sh raise ...
@@ -1974,6 +1977,18 @@ states:
         override_default:
           exit_code: 11
           error: ""
+      # 0 while the light seat's latest verdict returned escalate (its
+      # round's `"escalate": true`, which panel-scope.sh --record keeps), 1
+      # otherwise, 2 when the ledger can't be read. Every passed route needs
+      # 1, so a seat's escalate can't be ignored: the run holds here until
+      # review-level.sh raise lifts light_level and escalate is submitted.
+      # An override reads it as no escalate.
+      light_escalate:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --escalated light "{{SESSION_NAME}}"'
+        override_default:
+          exit_code: 1
+          error: ""
       # 0 for an audited session, 1 otherwise; the same answer on every tick.
       # An override takes the audited route, the more thorough one.
       audited:
@@ -2002,6 +2017,7 @@ states:
           gates.light_carried.exit_code: 0
           gates.level_unchanged.exit_code: 0
           gates.light_level.exit_code: 11
+          gates.light_escalate.exit_code: 1
           gates.audited.exit_code: 1
           vars.VERIFICATION: local
       - target: verification_deferred
@@ -2009,6 +2025,7 @@ states:
           gates.light_carried.exit_code: 0
           gates.level_unchanged.exit_code: 0
           gates.light_level.exit_code: 11
+          gates.light_escalate.exit_code: 1
           gates.audited.exit_code: 1
           vars.VERIFICATION: hosted-ci
       # The round is recorded and the seat is not blocking: koto advances.
@@ -2020,6 +2037,7 @@ states:
           gates.has_commits.exit_code: 0
           gates.level_unchanged.exit_code: 0
           gates.light_level.exit_code: 11
+          gates.light_escalate.exit_code: 1
           gates.audited.exit_code: 1
           vars.VERIFICATION: local
       - target: verification_deferred
@@ -2030,6 +2048,7 @@ states:
           gates.has_commits.exit_code: 0
           gates.level_unchanged.exit_code: 0
           gates.light_level.exit_code: 11
+          gates.light_escalate.exit_code: 1
           gates.audited.exit_code: 1
           vars.VERIFICATION: hosted-ci
       # An audited run: the same two passes, on to the full panels.
@@ -2038,6 +2057,7 @@ states:
           gates.light_carried.exit_code: 0
           gates.level_unchanged.exit_code: 0
           gates.light_level.exit_code: 11
+          gates.light_escalate.exit_code: 1
           gates.audited.exit_code: 0
       - target: scrutiny
         when:
@@ -2047,6 +2067,7 @@ states:
           gates.has_commits.exit_code: 0
           gates.level_unchanged.exit_code: 0
           gates.light_level.exit_code: 11
+          gates.light_escalate.exit_code: 1
           gates.audited.exit_code: 0
       # The seat escalated and the raise is in the ledger: back to the level
       # check, which keeps the raise and sends the run to scrutiny.
@@ -4498,7 +4519,7 @@ When the seat returns `escalate` (it judged the change riskier than its level), 
 "{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" raise "{{SESSION_NAME}}" standard --reason escalate
 ```
 
-and submit `light_outcome: escalate`. The `light_level` gate holds that route until the ledger is at `standard` or above, so a submission before the raise waits here. The run goes back to `review_level_check`, which keeps the raise, and on to `scrutiny`: the next panel is `standard`'s. Raise before you record the seat's round or tick with nothing submitted: a recorded, passing round with the ledger still at `light` takes the passed route. Once the raise is in, the passed routes, which need `light_level` at 11, are closed, so record the round with `panel-scope.sh --record light` as usual; its findings stay in the ledger. A run whose level was raised while it sat here leaves only by `escalate` or a blocking outcome.
+and submit `light_outcome: escalate`. Record the seat's round with `panel-scope.sh --record light` as usual, with the seat's `"escalate": true` on its entry: `--record` keeps it, and the `light_escalate` gate (`panel-scope.sh --escalated light`) then closes every passed route, so the run holds here rather than passing at `light`, whatever order you take. The `light_level` gate holds the escalate route until the ledger is at `standard` or above, so a submission before the raise waits here too. Once the raise is in, the run goes back to `review_level_check`, which keeps the raise, and on to `scrutiny`: the next panel is `standard`'s. A run whose level was raised while it sat here leaves only by `escalate` or a blocking outcome.
 
 While `light_verdict` exits 1, submit `light_outcome: blocking_retry` when the findings are correctable (it routes to `implementation`, and the run comes back through the review-level check, which may raise the level), or `blocking_escalate` when the work cannot proceed without escalation; `blocking_escalate` is also taken while the gate exits 2. Include `failure_reason` for `blocking_escalate`. Neither value is accepted while the gate exits 0.
 

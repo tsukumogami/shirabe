@@ -1126,6 +1126,36 @@ record scrutiny '[{"seat":"intent","findings":[{"severity":"blocking","summary":
 GOT=$(jq -r '[.findings[] | select(.summary == "categorized") | .category] | join(",")' "$SHIM_STORE/$SESSION/verdict_ledger.json")
 [ "$GOT" = security ] && pass "--record keeps a finding's category" || fail "the categorized finding's category is [$GOT]"
 
+# The light seat's escalate: kept on its entry and the round, read by
+# --escalated (light_review's light_escalate gate).
+fixture escalate
+run --escalated light "$SESSION"
+expect_rc "--escalated with no ledger" 1
+run --plan light "$SESSION"
+printf '%s\n' '[{"seat":"reviewer","findings":[],"escalate":"yes"}]' > "$WORKDIR/round.json"
+run --record light "$SESSION" "$WORKDIR/round.json"
+expect_rc "--record with an escalate that isn't a boolean" 65
+record light '[{"seat":"reviewer","findings":[]}]'
+run --escalated light "$SESSION"
+expect_rc "--escalated after a round with no escalate" 1
+fixture escalate-yes
+run --plan light "$SESSION"
+record light '[{"seat":"reviewer","findings":[],"escalate":true}]'
+run --escalated light "$SESSION"
+expect_rc "--escalated after the seat returned escalate" 0
+GOT=$(jq -c '[.seats["light/reviewer"].escalate, ([.history[] | select(.panel == "light")] | last | .escalate)]' "$SHIM_STORE/$SESSION/verdict_ledger.json")
+[ "$GOT" = '[true,true]' ] && pass "--record keeps escalate on the seat's entry and its round" || fail "seat and round escalate are $GOT"
+run --escalated scrutiny "$SESSION"
+expect_rc "--escalated on a panel other than light" 2
+fixture escalate-other
+run --plan scrutiny "$SESSION"
+printf '%s\n' '[{"seat":"intent","findings":[],"escalate":true}]' > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+expect_rc "--record with escalate from a seat other than the light reviewer" 65
+printf 'not json' > "$SHIM_STORE/$SESSION/verdict_ledger.json"
+run --escalated light "$SESSION"
+expect_rc "--escalated with an unreadable ledger" 2
+
 echo "--- script: --verdict, the panel's pass"
 
 # verdict_findings: the finding lines of the last --verdict run.

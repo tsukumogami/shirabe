@@ -91,12 +91,12 @@ stateDiagram-v2
     issue_type_routing --> verification_deferred : gates.code_route.exit_code: 1, gates.has_commits.exit_code: 0, issue_type: docs, vars.VERIFICATION: hosted-ci
     issue_type_routing --> verification : gates.code_route.exit_code: 1, issue_type: task, vars.VERIFICATION: local
     issue_type_routing --> verification_deferred : gates.code_route.exit_code: 1, issue_type: task, vars.VERIFICATION: hosted-ci
-    light_review --> verification : gates.audited.exit_code: 1, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, gates.light_level.exit_code: 11, vars.VERIFICATION: local
-    light_review --> verification_deferred : gates.audited.exit_code: 1, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, gates.light_level.exit_code: 11, vars.VERIFICATION: hosted-ci
-    light_review --> verification : gates.audited.exit_code: 1, gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_level.exit_code: 11, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0, vars.VERIFICATION: local
-    light_review --> verification_deferred : gates.audited.exit_code: 1, gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_level.exit_code: 11, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0, vars.VERIFICATION: hosted-ci
-    light_review --> scrutiny : gates.audited.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, gates.light_level.exit_code: 11
-    light_review --> scrutiny : gates.audited.exit_code: 0, gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_level.exit_code: 11, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0
+    light_review --> verification : gates.audited.exit_code: 1, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, gates.light_escalate.exit_code: 1, gates.light_level.exit_code: 11, vars.VERIFICATION: local
+    light_review --> verification_deferred : gates.audited.exit_code: 1, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, gates.light_escalate.exit_code: 1, gates.light_level.exit_code: 11, vars.VERIFICATION: hosted-ci
+    light_review --> verification : gates.audited.exit_code: 1, gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_escalate.exit_code: 1, gates.light_level.exit_code: 11, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0, vars.VERIFICATION: local
+    light_review --> verification_deferred : gates.audited.exit_code: 1, gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_escalate.exit_code: 1, gates.light_level.exit_code: 11, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0, vars.VERIFICATION: hosted-ci
+    light_review --> scrutiny : gates.audited.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, gates.light_escalate.exit_code: 1, gates.light_level.exit_code: 11
+    light_review --> scrutiny : gates.audited.exit_code: 0, gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_escalate.exit_code: 1, gates.light_level.exit_code: 11, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0
     light_review --> review_level_check : gates.light_level.exit_code: 12, light_outcome: escalate
     light_review --> review_level_check : gates.light_level.exit_code: 13, light_outcome: escalate
     light_review --> implementation : gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 1, light_outcome: blocking_retry
@@ -328,6 +328,9 @@ stateDiagram-v2
     end note
     note left of light_review
         gate: light_carried
+    end note
+    note left of light_review
+        gate: light_escalate
     end note
     note left of light_review
         gate: light_level

@@ -50,7 +50,8 @@
 #                       results removes light_results.json too, and none
 #                       names review_level.jsonl
 #   escalate            the light seat's escalate, submitted before the raise,
-#                       holds light_review; after `review-level.sh raise ...
+#                       holds light_review, and so does a passing round whose
+#                       seat escalated, ticked with nothing submitted; after `review-level.sh raise ...
 #                       --reason escalate` it returns to review_level_check,
 #                       which keeps the raise, and the next panel is
 #                       scrutiny: the run is standard and skips QA
@@ -243,6 +244,12 @@ GOT=$(jq -r '[.states.light_review.transitions[] | select(.when.light_outcome ==
               | "\(.target):\(.when["gates.audited.exit_code"]):\(.when["gates.light_level.exit_code"])"] | unique | join(",")' "$COMPILED" 2>/dev/null)
 [ "$GOT" = "scrutiny:0:11,verification:1:11,verification_deferred:1:11" ] \
     && pass "a passed light panel goes to verification, or to scrutiny when audited, only at light" || fail "light_review's passed routes are [$GOT]"
+GOT=$(jq -r '[.states.light_review.transitions[] | select(.when.light_outcome == null) | .when["gates.light_escalate.exit_code"]] | unique | map(tostring) | join(",")' "$COMPILED" 2>/dev/null)
+[ "$GOT" = 1 ] && pass "every passed light route needs light_escalate at 1 (the seat didn't escalate)" \
+    || fail "light_review's passed routes read light_escalate as [$GOT]"
+GOT=$(jq -r '.states.light_review.gates.light_escalate | "\(.type)|\(.command)"' "$COMPILED" 2>/dev/null)
+case "$GOT" in 'command|'*'panel-scope.sh" --escalated light '*) pass "light_escalate runs panel-scope.sh --escalated light" ;;
+    *) fail "light_escalate is [$GOT]" ;; esac
 GOT=$(jq -r '[.states.review.transitions[] | select(.when["vars.REVIEW_LEVEL"] == "light") | .target] | unique | join(",")' "$COMPILED" 2>/dev/null)
 [ "$GOT" = qa_validation ] && pass "review sends a light run (an audited one) to qa_validation" || fail "review's light routes go to [$GOT]"
 GOT=$(jq -r '.states.review_level_check.default_action.command // ""' "$COMPILED" 2>/dev/null)
@@ -792,7 +799,7 @@ if new_case "$S" "$SMALL" && choose_and_implement "$S" - code; then
         || fail "$S: review-level.sh raise failed: $(cat "$WORKDIR/raise.out")"
     [ "$(ledger "$S" | jq -c 'select(.event == "raise") | {to, reason, source}')" = '{"to":"standard","reason":"escalate","source":"raise"}' ] \
         && pass "the raise is in the ledger with reason escalate" || fail "ledger is [$(ledger "$S")]"
-    record_round "$S" light '[{"seat":"reviewer","findings":[]}]'
+    record_round "$S" light '[{"seat":"reviewer","findings":[],"escalate":true}]'
     tick "$S"
     expect_state "escalate once the raise is recorded, in one tick" scrutiny
     expect_visits "$S" review_level_check 2
@@ -802,6 +809,31 @@ if new_case "$S" "$SMALL" && choose_and_implement "$S" - code; then
     pass_review "$S"
     expect_state "the escalated run's passed review, at standard" verification
     expect_visits "$S" qa_validation 0
+fi
+
+# The seat escalated in a passing round, and nobody raised: the recorded flag
+# closes the passed routes, so the run holds at light_review instead of
+# reaching verification. The raise then lets escalate take it back.
+S=escalate-2
+bash "$RL" audit "$S" && fail "$S is an audited name; pick another"
+if new_case "$S" "$SMALL" && choose_and_implement "$S" - code; then
+    expect_state "a light code run" light_review
+    record_round "$S" light '[{"seat":"reviewer","findings":[],"escalate":true}]'
+    [ "$(koto context get "$S" verdict_ledger.json 2>/dev/null | jq -r '.seats["light/reviewer"].escalate')" = true ] \
+        && pass "--record kept the seat's escalate" || fail "the light seat's entry: $(koto context get "$S" verdict_ledger.json 2>/dev/null | jq -c '.seats["light/reviewer"]')"
+    tick "$S"
+    expect_state "a passing round that escalated, with no raise, ticked with nothing submitted" light_review
+    tick "$S"
+    expect_state "  ... and again" light_review
+    expect_visits "$S" verification 0
+    tick "$S" '{"light_outcome":"escalate"}'
+    expect_state "escalate submitted before the raise" light_review
+    "$RL" raise "$S" standard --reason escalate >"$WORKDIR/raise.out" 2>&1 \
+        || fail "$S: review-level.sh raise failed: $(cat "$WORKDIR/raise.out")"
+    tick "$S" '{"light_outcome":"escalate"}'
+    expect_state "escalate after the raise" scrutiny
+    expect_visits "$S" review_level_check 2
+    expect_visits "$S" verification 0
 fi
 
 # ==============================================================================

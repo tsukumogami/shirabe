@@ -333,6 +333,16 @@ if [ "\$1" = --read ] && [ "\$rc" = 3 ]; then
 fi
 exit "\$rc"
 EOF
+# panel-scope.sh answers like the others, except that with no answer set its
+# --escalated exits 1: the light seat didn't escalate.
+cat > "$FAKE_ROOT/skills/work-on/scripts/panel-scope.sh" <<EOF
+#!/usr/bin/env bash
+f="$RC_DIR/panel-scope.sh\$1"
+case "\$1" in --escalated) rc=1 ;; *) rc=0 ;; esac
+[ -f "\$f" ] && rc=\$(cat "\$f")
+[ "\$rc" = sleep ] && { sleep 5; exit 0; }
+exit "\$rc"
+EOF
 # review-level.sh answers like the others, except that with no answer set its
 # `level` exits 11 and its `audit` 1: a light run's ledger level and a session
 # that isn't audited, so light_review's passed routes are the ones under test.

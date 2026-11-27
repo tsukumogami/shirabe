@@ -64,7 +64,7 @@ The seat writes full findings to a `mktemp`-produced file outside the repository
 }
 ```
 
-`cited` and `findings` mean what they mean in `phase-4a-scrutiny.md`, and every finding carries a `severity` of `blocking` or `advisory`: the seat is blocking exactly when one finding is `blocking`, and a finding without a severity makes `--record` refuse the round. `escalate` and `escalate_reason` are not part of the round file `--record` reads: they tell you which route to take (see Escalate below). Delete the detail file once the round is aggregated; anything worth keeping goes into `light_results.json`.
+`cited` and `findings` mean what they mean in `phase-4a-scrutiny.md`, and every finding carries a `severity` of `blocking` or `advisory`: the seat is blocking exactly when one finding is `blocking`, and a finding without a severity makes `--record` refuse the round. Carry `escalate` into the seat's round-file entry as the seat returned it (`"escalate": true`, or false or absent): `--record` keeps it on the seat's ledger entry and the round, and while the seat's latest verdict says escalate the `light_escalate` gate closes every passed route (see Escalate below). `escalate_reason` stays in your summary; `--record` doesn't read it. Only the light reviewer may carry `"escalate": true`, and a value that isn't a boolean makes `--record` refuse the round. Delete the detail file once the round is aggregated; anything worth keeping goes into `light_results.json`.
 
 ## Aggregation
 
@@ -125,7 +125,7 @@ Every panel's key goes, not only this one's: if the level is raised on the way b
 
 ## Escalate
 
-When the seat returns `"escalate": true`, raise the level before you record the round or tick, then submit the escalate outcome:
+When the seat returns `"escalate": true`, record its round with `"escalate": true` on the reviewer's entry, raise the level, then submit the escalate outcome:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/review-level.sh" raise <WF> standard --reason escalate
@@ -137,7 +137,7 @@ rm -rf "$EV"
 exit "$NEXT_STATUS"
 ```
 
-The raise comes first because a recorded, passing round with the level still at `light` takes the passed route on the next tick. The `light_level` gate holds the escalate route until the raise is in the ledger, so an escalate submitted early waits here. Once raised, record the seat's round with `--record light` as above, so its findings stay in the ledger (a blocking one still has to close). The run goes back to the review-level check, which keeps the raise (`review-level.sh raise` is never lowered for the rest of the run), and on to scrutiny: the next panel is `standard`'s, and the light seat's escalate is not counted as an audit.
+Koto enforces the order. Once the round is recorded with the flag, the `light_escalate` gate (`panel-scope.sh --escalated light`) closes every passed route, so the run can't pass at `light` on a seat that escalated: it holds here until the raise. The `light_level` gate holds the escalate route until the raise is in the ledger, so an escalate submitted early waits here too. The round's findings stay in the ledger (a blocking one still has to close). The run goes back to the review-level check, which keeps the raise (`review-level.sh raise` is never lowered for the rest of the run), and on to scrutiny: the next panel is `standard`'s, and the light seat's escalate is not counted as an audit.
 
 ## Escalation
 
