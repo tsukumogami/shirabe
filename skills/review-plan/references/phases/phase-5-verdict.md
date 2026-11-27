@@ -180,8 +180,10 @@ now, whatever the verdict, since this run opened it:
 
 The verdict key stays readable after the close. With no plan keys there is
 nothing to loop back to, so Phase 6 does not run; the loop-back verdict is the
-report. When `/plan` runs this skill, or a plan was in flight, or `adopt`
-matched a parent, close nothing: the session is `/plan`'s, or the parent's.
+report. When `/plan` runs this skill, or `adopt` matched a parent, close
+nothing: the session is `/plan`'s, or the parent's. A direct run on a plan in
+flight never gets here with a write to make: Phase 0 stopped it, and its
+read-only review prints the verdict instead (phase 0, Read-only Review).
 
 Separately, whenever Phase 0 opened `review-plan-<topic>` for the document
 check (0.4a, the no-plan-session case), close it now, whatever the verdict and

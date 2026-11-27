@@ -44,6 +44,9 @@ skills/execute/scripts/execute-output-gates-routing_test.sh
 # The deferral record gate: its stub cases need only jq, so they run
 # on 3.2; its engine cases skip without koto.
 skills/execute/scripts/shared-deferral-record_test.sh
+# ci_monitor's ci_fix_tests_judged script, over a koto stand-in and
+# real git: every case runs on 3.2.
+skills/execute/scripts/ci-fix-tests_test.sh
 # The re-run record gate: the same split, its stub cases on 3.2 and
 # its engine cases skipped without koto.
 skills/execute/scripts/shared-rerun-record_test.sh

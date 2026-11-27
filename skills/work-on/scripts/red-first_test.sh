@@ -28,10 +28,10 @@
 #              0 for a red and for a change
 #   check-green  passes for a non-fix and for a green at HEAD; holds with no
 #              green, a failed green, and a green at an older head; holds an
-#              observation pair with a `refused:` line saying observations
-#              wait for acceptance, and passes it once a minted seat's
-#              acceptance covers both digests; every hold prints
-#              red-first/no-green
+#              observation pair with a `refused:` line saying the pair is
+#              not counted; a legacy seat's acceptance of both digests
+#              leaves it held, and a panel's `shown` judgment of the pair at
+#              its digests now passes it; every hold prints red-first/no-green
 #   refused    a context read koto refuses leaves check-red and check-green
 #              undecided and fails observe and green with 66, the record
 #              untouched, never reading as an absent key
@@ -392,17 +392,30 @@ run observe o1 --phase after --file "$W/obs-after.md"
 eq "an after-observation: exit 0" 0 "$RC"
 run check-green o1
 eq "an observation pair: check-green exit 1" 1 "$RC"
-has "an observation pair: a refused line saying observations wait for acceptance" "refused: observations wait for acceptance" "$OUT"
+has "an observation pair: a refused line saying the pair is not counted" "refused: the observation pair is not counted at its current digests" "$OUT"
 has "an observation pair: finding red-first/no-green" '"rule_id":"red-first/no-green"' "$OUT"
-# A minted seat's acceptance of both digests, as test-change.sh writes it.
+# A seat's acceptance of both digests, as an older test-change.sh wrote it:
+# nothing counts it now.
 jq -nc --arg wt "$R" --arg base "$BASE" '{event: "header", author: "agent:o1", impl_base: $base, worktree: $wt, person_required: false}' > "$STORE/o1/test_change_ledger.jsonl"
 jq -nc '{event: "seat", identity: "agent:o1/accept-1"}' >> "$STORE/o1/test_change_ledger.jsonl"
 jq -c '{event: "accept", identity: "agent:o1/accept-1", kind: "agent", authority: "reviewer",
         files: [{path: "observation:before", digest: .observations.before.digest},
                 {path: "observation:after", digest: .observations.after.digest}]}' "$STORE/o1/red_first.json" >> "$STORE/o1/test_change_ledger.jsonl"
 run check-green o1
-eq "an accepted observation pair: check-green exit 0" 0 "$RC"
-has "an accepted observation pair: passes" "pass: the observation pair has a live acceptance" "$OUT"
+eq "a legacy acceptance of the pair: check-green still exit 1" 1 "$RC"
+has "a legacy acceptance of the pair: the pair is due" "observation due: no panel has judged it" "$OUT"
+# A scrutiny round whose seat judged the pair shown, as panel-scope.sh --record
+# leaves it.
+jq -n --arg c "$(jq -r '"\(.observations.before.digest)/\(.observations.after.digest)"' "$STORE/o1/red_first.json")" \
+    --arg h "$(cd "$R" && git rev-parse HEAD)" '
+    {seats: {"scrutiny/seat": {verdict: "pass", run: "run-0-scrutiny"}},
+     history: [{panel: "scrutiny", decisions: [{seat: "seat", run: "run-0-scrutiny", decision: "full"}]}],
+     runs: {"run-0-scrutiny": {recorded: true, panel: "scrutiny"}},
+     judgments: {scrutiny: [{item: "observation", content: $c, judgment: "shown", by: "seat", run: "run-0-scrutiny", judged_at: $h}]}}' \
+    > "$STORE/o1/verdict_ledger.json"
+run check-green o1
+eq "a pair the panels judged shown: check-green exit 0" 0 "$RC"
+has "a pair the panels judged shown: passes" "pass: the observation pair is counted at its current digests" "$OUT"
 
 # --- a refused read ----------------------------------------------------------------
 # koto refuses a read of a session bound to another workspace, printing the
