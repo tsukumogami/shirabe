@@ -15,10 +15,11 @@
 # grammar), and $HOME and $HOME/.claude each hold a CLAUDE.md of their own.
 # Prints one line per criterion:
 #   1. a fresh roadmap start (the opener, then state-open.sh as the find runs
-#      it) leaves exactly eleven `rules` rows, the eight skill- labels and the
-#      three workspace ones, each digest its file's sha256, none for either
-#      home-directory file;
-#   2. record/host holds rules:<label> for each of the eleven, its file's
+#      it) leaves exactly one `rules` row per file it loads, the skill-
+#      labels (SKILL.md, then each row of references/reference-files.tsv)
+#      and the three workspace ones, each digest its file's sha256, none for
+#      either home-directory file;
+#   2. record/host holds rules:<label> for each of those labels, its file's
 #      absolute path, and no other rules: key;
 #   3. `two words.md` and a rules file whose label would pass 64 bytes get no
 #      row and no rules: key, are named on the opener's stderr, and the start
@@ -28,7 +29,7 @@
 #      prints no warning= line;
 #   5. after SKILL.md in the plugin copy and the working directory's CLAUDE.md
 #      are edited and the copy's manifest version raised, the next start
-#      replaces exactly those two rows, leaves the other nine byte-identical
+#      replaces exactly those two rows, leaves the others byte-identical
 #      (Set included), and appends one run entry naming both labels with
 #      their old and new digests;
 #   6. after .claude/rules/imports.md is deleted, the next start removes its
@@ -47,11 +48,11 @@
 #   9. with the plugin copy's SKILL.md unreadable the opener prints session=,
 #      exits 0 and then warning=rules-unrecorded, the reason on stderr, and no
 #      skill- row is written; the next start, the file readable again, writes
-#      all eight;
+#      every skill- row;
 #  11. scripts/check-template-compat.sh passes against the base branch's
 #      coordinate.compat.json, compat the base's over the base's own structure.
-# Criterion 10, the skill list read from SKILL.md's Reference Files table, is
-# rule-files_test.sh's, offline.
+# Criterion 10, the skill list read from the sidecar
+# references/reference-files.tsv, is rule-files_test.sh's, offline.
 #
 # Every koto call runs on a store under this suite's scratch directory: the
 # guard (scripts/lib/koto-test-guard.sh) unsets every KOTO_SESSION_* variable
@@ -156,14 +157,20 @@ entries() { agent "$1" state-entry.sh --list 2>/dev/null; }
 rules_values() { ctx "$1" record/run | jq -r 'arrays | .[] | select(.key == "rules") | .value'; }
 # host_rules <session>: record/host's rules: keys, `<label> <path>` one per line, sorted.
 host_rules() { ctx "$1" record/host | jq -r 'to_entries[] | select(.key | startswith("rules:")) | "\(.key | ltrimstr("rules:")) \(.value)"' | LC_ALL=C sort; }
-# want_files: the eleven files run A loads, `<label> <path>` in rule-files.sh's order.
+# The skill's files are SKILL.md and every row of the copy's sidecar,
+# references/reference-files.tsv, read here on its own.
+SIDE_ROWS=$(grep -v '^#' "$SKA/references/reference-files.tsv" | grep . | cut -f1)
+NSKILL=$(( $(printf '%s\n' "$SIDE_ROWS" | grep -c .) + 1 ))
+[ "$NSKILL" -gt 2 ] || stop "the copy's sidecar names the template and the references" "$SIDE_ROWS"
+NALL=$((NSKILL + 3))
+# want_files: the files run A loads, the skill's then the three workspace
+# ones, `<label> <path>` in rule-files.sh's order.
 want_files() {
     local r
     printf 'skill-SKILL.md %s\n' "$SKA/SKILL.md"
-    printf 'skill-coordinate.md %s\n' "$SKA/koto-templates/coordinate.md"
-    for r in loop brief-template verification-checklist state-keys landing-milestone-roadmap landing-feature-roadmap; do
-        printf 'skill-%s.md %s\n' "$r" "$SKA/references/$r.md"
-    done
+    while IFS= read -r r; do
+        printf 'skill-%s %s\n' "${r##*/}" "$SKA/$r"
+    done <<< "$SIDE_ROWS"
     printf 'workspace-0-CLAUDE.md %s\n' "$WS/CLAUDE.md"
     printf 'workspace-1-CLAUDE.local.md %s\n' "$INST/CLAUDE.local.md"
     [ -f "$INST/.claude/rules/imports.md" ] && printf 'workspace-1-rules-imports.md %s\n' "$INST/.claude/rules/imports.md"
@@ -186,13 +193,13 @@ need "the fresh start, which holds no record yet, prints no warning" "" "$(line 
 (cd "$WS" && bash "$SKA/scripts/state-open.sh" --session "$A" --role manager) > "$T/so.out" 2> "$T/so.err"
 need "state-open.sh opens the record" "0 $A" "$? $(sed -n 's/^record=//p' "$T/so.out")"
 need "  ... with no warning" "" "$(sed -n 's/^warning=//p' "$T/so.out")"
-need "the Run section holds exactly the eleven rows, each digest its file's" "$(want_values)" "$(rules_values "$A")"
+need "the Run section holds exactly the $NALL rows, each digest its file's" "$(want_values)" "$(rules_values "$A")"
 grep -qF "$HOME/CLAUDE.md" <<< "$(ctx "$A" record/host)" && needf "the home directory's CLAUDE.md has a host key"
 grep -qF "$HOME/.claude/CLAUDE.md" <<< "$(ctx "$A" record/host)" && needf "\$HOME/.claude/CLAUDE.md has a host key"
 need "  ... set by the run's session name" "$A" "$(ctx "$A" record/run | jq -r '[.[] | select(.key == "rules") | .set_by] | unique | join(" ")')"
-crit "1. a fresh roadmap start leaves exactly the eleven rules rows (eight skill-, three workspace-), each its file's sha256, none for a home-directory file"
-need "record/host holds rules:<label> for each of the eleven, its file's path, and no other" "$(want_files | LC_ALL=C sort)" "$(host_rules "$A")"
-crit "2. record/host holds rules:<label> for each of the eleven labels, its file's absolute path, and no other rules: key"
+crit "1. a fresh roadmap start leaves exactly the $NALL rules rows ($NSKILL skill-, SKILL.md and the sidecar's, three workspace-), each its file's sha256, none for a home-directory file"
+need "record/host holds rules:<label> for each of the $NALL, its file's path, and no other" "$(want_files | LC_ALL=C sort)" "$(host_rules "$A")"
+crit "2. record/host holds rules:<label> for each of the $NALL labels, its file's absolute path, and no other rules: key"
 
 # The run's find reads the record; then a person's rules row, its host key, a
 # briefs row, the coordinator's address and one Standing row, through today's
@@ -244,9 +251,9 @@ need "the next start resumes A, with no warning" "0 resumed $A " "$ORC $(line ou
 NEW_SKILL=$(sha "$SKA/SKILL.md") NEW_WS=$(sha "$WS/CLAUDE.md")
 need "SKILL.md's row carries its new digest" "skill-SKILL.md sha256:$NEW_SKILL $A" "$(row_of "$A" skill-SKILL.md | jq -r '"\(.value) \(.set_by)"')"
 need "the working directory's CLAUDE.md row carries its new digest" "workspace-0-CLAUDE.md sha256:$NEW_WS" "$(row_of "$A" workspace-0-CLAUDE.md | jq -r .value)"
-need "the other nine rows are byte-identical, Set included" "$OTHERS" \
+need "the other $((NALL - 2)) rows are byte-identical, Set included" "$OTHERS" \
     "$(ctx "$A" record/run | jq -c '[.[] | select(.key == "rules" and (.value | test("^(skill-SKILL\\.md|workspace-0-CLAUDE\\.md|notes) ") | not))]')"
-need "  ... nine of them" 9 "$(printf '%s' "$OTHERS" | jq length)"
+need "  ... $((NALL - 2)) of them" "$((NALL - 2))" "$(printf '%s' "$OTHERS" | jq length)"
 NEW=$(entries "$A" | jq -c --argjson n "$N_BEFORE" '.[$n:]')
 need "one entry is appended, of kind run" "1 run" "$(printf '%s' "$NEW" | jq -r '"\(length) \(.[0].kind)"')"
 TXT=$(printf '%s' "$NEW" | jq -r '.[0].text')
@@ -254,7 +261,7 @@ for want in "skill-SKILL.md sha256:$OLD_SKILL to sha256:$NEW_SKILL" "workspace-0
     grep -qF "$want" <<< "$TXT" || needf "the entry doesn't name $want: $TXT"
 done
 need "  ... the notes and briefs rows kept" "$KEPT" "$(kept "$A")"
-crit "5. after SKILL.md and the working directory's CLAUDE.md are edited, the next start replaces exactly those two rows, keeps the other nine byte-identical, and appends one run entry naming both with old and new digests"
+crit "5. after SKILL.md and the working directory's CLAUDE.md are edited, the next start replaces exactly those two rows, keeps the other $((NALL - 2)) byte-identical, and appends one run entry naming both with old and new digests"
 
 # ---- 6: a file deleted ---------------------------------------------------------
 rm "$INST/.claude/rules/imports.md"
@@ -263,7 +270,7 @@ opener rulefiles "$WS" "$PA"
 need "the next start resumes A, with no warning" "0 resumed $A " "$ORC $(line outcome) $(line session) $(line warning)"
 need "imports.md's row is gone" "" "$(row_of "$A" workspace-1-rules-imports.md)"
 need "  ... and its rules: key" null "$(ctx "$A" record/host | jq -c '.["rules:workspace-1-rules-imports.md"]')"
-need "the Run section holds the ten files' rows" "$(want_values)" "$(rules_values "$A" | grep -v '^notes ')"
+need "the Run section holds the $((NALL - 1)) files' rows" "$(want_values)" "$(rules_values "$A" | grep -v '^notes ')"
 NEW=$(entries "$A" | jq -c --argjson n "$N_BEFORE" '.[$n:]')
 need "one run entry" "1 run" "$(printf '%s' "$NEW" | jq -r '"\(length) \(.[0].kind)"')"
 grep -qF "removed workspace-1-rules-imports.md" <<< "$(printf '%s' "$NEW" | jq -r '.[0].text')" \
@@ -313,7 +320,7 @@ if needs_takeover "7: a takeover writes the successor's own rows"; then
     (cd "$WS_B" && bash "$PB/skills/coordinate/scripts/rule-files.sh" --plugin-root "$PB") > "$T/b.files" 2> /dev/null
     need "the successor's rows name the files it loaded from its own plugin root and working directory" \
         "$(jq -r '"\(.label) sha256:\(.digest)"' "$T/b.files")" "$(rules_values "$B" | grep -v '^notes ')"
-    need "  ... nine of them" 9 "$(jq -s length "$T/b.files")"
+    need "  ... the skill's $NSKILL and the one CLAUDE.md" "$((NSKILL + 1))" "$(jq -s length "$T/b.files")"
     need "  ... its host keys their paths" "$( { jq -r '"\(.label) \(.path)"' "$T/b.files"; echo "notes $HOME/notes.md"; } | LC_ALL=C sort)" "$(host_rules "$B")"
     need "  ... the notes and briefs rows carried and kept" "$KEPT" "$(kept "$B")"
     need "the predecessor's record/run is byte-identical" "$PRED_RUN" "$(ctx "$A" record/run)"
@@ -345,8 +352,8 @@ else
     chmod 644 "$SKA/SKILL.md"
     opener rulefiles-unread "$WS" "$PA"
     need "the next start, SKILL.md readable, warns of nothing" "0 $F " "$ORC $(line session) $(line warning)"
-    need "  ... and writes all eight skill- rows" "$(want_values | grep '^skill-')" "$(rules_values "$F" | grep '^skill-')"
-    crit "9. with SKILL.md unreadable the opener prints session=, exits 0 and warning=rules-unrecorded with the reason on stderr, writing no skill- row; the next start writes all eight"
+    need "  ... and writes all $NSKILL skill- rows" "$(want_values | grep '^skill-')" "$(rules_values "$F" | grep '^skill-')"
+    crit "9. with SKILL.md unreadable the opener prints session=, exits 0 and warning=rules-unrecorded with the reason on stderr, writing no skill- row; the next start writes all $NSKILL"
 fi
 
 # ---- 11: the compat table --------------------------------------------------------

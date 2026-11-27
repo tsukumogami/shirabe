@@ -82,6 +82,25 @@
 # stderr, and the next start writes them. With the test override flags it
 # writes none.
 #
+# After each seed it makes it also records the run's brief, when the start
+# stored one: a fresh start given --brief leaves the run holding no record,
+# so coordinate-open.sh puts the checked brief, {label, path, digest}, in the
+# run's coord/start_brief.json. This script reads that key and passes its
+# label, path and digest straight to state-stored-set.sh --host as
+# record/host's briefs:<label> and briefs-digest:<label>, the write the opener
+# makes on a start that finds a record; it doesn't read the file again. The
+# --host write checks each value (a label in the grammar, an absolute path
+# with no control character, a sha256:<64 hex> digest), and the intake
+# (state-stored-set.sh --intake) refuses a file whose contents no longer match
+# the recorded digest, so a file changed between the start and the seed is
+# caught there. With no key it writes nothing. A key that doesn't read or a
+# write that fails (a value --host refuses included) writes no row and never
+# fails the seed: it prints `warning=brief-unrecorded` after record= (or
+# carried=, and after any rules warning), the reason on stderr, never the
+# path; the reconcile reports brief-unrecorded while no brief is recorded.
+# Written again, the rows read the same. With the test override flags it
+# writes none.
+#
 # Usage:
 #   state-open.sh --session S --role manager|director [--start YYYY-MM-DD --end YYYY-MM-DD]
 #   state-open.sh --session S --carry [--role manager|director
@@ -177,6 +196,46 @@ rules_record() {
         echo "$PROG: $SESSION's rules digests weren't written: $(tr -s '\t\n' '  ' < "$d/err" | head -c 400); the next start writes them" >&2
     fi
     rm -rf "$d"
+}
+
+# brief_record: the brief a fresh start stored in coord/start_brief.json,
+# written into the run's record/host once a seed has given it a record. Its
+# label, path and digest go straight to state-stored-set.sh --host, which
+# checks each; the file isn't read here, since the intake checks it against
+# the digest. The path goes only to state-stored-set.sh, as an argument, and
+# is never printed, so the writer's stderr is dropped. No key writes nothing.
+# A failure prints warning=brief-unrecorded, the reason on stderr, and
+# returns 0.
+brief_record() {
+    local d why= label= path= digest= rc
+    [ "$OVERRIDE" = 1 ] && return 0
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-open-brief.XXXXXX") || {
+        echo "warning=brief-unrecorded"; echo "$PROG: $SESSION's brief wasn't recorded: no scratch directory" >&2
+        return 0
+    }
+    rs_key "$SESSION" coord/start_brief.json "$d/key"
+    case $? in
+        0) ;;
+        1) rm -rf "$d"; return 0 ;;
+        *) why="coord/start_brief.json couldn't be read" ;;
+    esac
+    if [ -z "$why" ]; then
+        { label=$(jq -r '.label | strings' "$d/key") && path=$(jq -r '.path | strings' "$d/key") \
+            && digest=$(jq -r '.digest | strings' "$d/key"); } 2> /dev/null \
+            || why="coord/start_brief.json isn't a brief the opener stored"
+    fi
+    if [ -z "$why" ]; then
+        bash "$HERE/state-stored-set.sh" --session "$SESSION" --host "briefs:$label" "$path" \
+            --host "briefs-digest:$label" "$digest" < /dev/null > /dev/null 2> /dev/null
+        rc=$?
+        [ "$rc" -eq 0 ] || why="state-stored-set.sh --host exited $rc"
+    fi
+    rm -rf "$d"
+    [ -n "$why" ] || return 0
+    # The label is named only when it is one the opener could have stored.
+    [[ $label =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || label=
+    echo "warning=brief-unrecorded"
+    echo "$PROG: $SESSION's brief${label:+ $label} wasn't recorded: $why; the reconcile reports brief-unrecorded until it is" >&2
 }
 
 # carry_role <state-file>: the carried state given the Run `role` row when the
@@ -282,7 +341,7 @@ if [ "$CARRY" = 1 ]; then
         cat "$T/report.json"
         if [ "$1" = carried ]; then
             echo "carried=$PRED"
-            [ "${SEEDED:-0}" = 0 ] || rules_record
+            [ "${SEEDED:-0}" = 0 ] || { rules_record; brief_record; }
             exit 0
         fi
         echo "refused"
@@ -409,4 +468,5 @@ if [ "$SCOPE" = discipline ]; then
 fi
 echo "record=$OPEN_S"
 rules_record
+brief_record
 exit 0

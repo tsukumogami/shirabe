@@ -129,8 +129,9 @@ it passes that role at its start and infers none. `held_rerender`,
 dropped.
 
 A successor's brief is also the one its intake reads rules from. Written by
-hand, it carries a `## Standing rules` heading and files its rules as
-SKILL.md's brief-intake paragraph says. Rendered through `render-brief.sh`, it
+hand, it carries a `## Standing rules` heading and files its rules as the
+hand-written successor brief paragraph in `state-keys.md` (The stored set:
+Run, Standing and Work) says. Rendered through `render-brief.sh`, it
 never gets that heading, so its fields decide what the intake takes: put the
 holdings and
 where the work stands in `goal`, under `###` subsections and with no `#` or
@@ -213,8 +214,21 @@ its brief tells it how: the Goal names your run as
 
 | Entry point | The command |
 |-------------|-------------|
-| `/coordinate` | `coordinate-open.sh --plugin-root ... --dispatched-by <your run> "$ARGS_DIR/args.json"`, in place of the open its skill shows |
+| `/coordinate` | `coordinate-open.sh --plugin-root ... --dispatched-by <your run> --brief '<path>' "$ARGS_DIR/args.json"`, in place of the open its skill shows |
 | `/explore`, `/decision`, `/release` | `skill-session.sh open <skill> <topic> --dispatched-by <your run>`, in place of the open its skill shows |
+
+`--brief <path>` names the file the brief is written to,
+`<workspace root>/.niwa/dispatch-briefs/<topic>.md`, single-quoted.
+`coordinate-open.sh` checks it (an absolute path to a readable regular file
+of at most 256 KiB, a symlink resolved, its name `<topic>.md`) and records it
+in the worker run's record/host as `briefs:<topic>`, the resolved path, and
+`briefs-digest:<topic>`, `sha256:<hex>` of its contents, once the run holds
+a record. A brief printed with `--stdout` and no `--workspace-root` has no
+file, so its opener line carries no `--brief`; neither does one whose path
+holds a control character or a backtick. A run dispatched by a coordinator
+whose record/host names no brief gets a `brief-unrecorded` report line from
+`state-handover.sh --check`, which the reconcile runs, with the command that
+records it; the line holds nothing.
 
 Every other entry point (`/scope`, `/deliver`, `/execute`, `/work-on` and the
 planning skills) gets no such step: koto records the dispatcher when the

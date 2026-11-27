@@ -95,7 +95,12 @@ jobs:
       SUITE_SLICE: ${{ matrix.slice }}/4
       SUITE_SLICE_COSTS: skills/coordinate/check-skill.tsv
     steps:
+      # Full history: entry-ceiling_test.sh reads SKILL.md's ceiling and CAP
+      # at the merge base with the base branch, and fails a pull request run
+      # that can't.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install jq (Linux)
         if: runner.os == 'Linux'

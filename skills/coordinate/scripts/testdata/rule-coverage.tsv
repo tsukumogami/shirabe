@@ -21,7 +21,8 @@
 # retired: S5 S6 -- no record moves from GitHub onto the session; the opener imports a legacy record once
 # retired: S1 S3 -- there is no choice of store: the session is the only one, and no `store` row is written
 # retired: C151 C159 -- the record has no body, so there is no declaration line to write or to keep apart from the coordination marker
-C1	skills/coordinate/SKILL.md	-	--discipline <name> --host <owner/repo>` runs one
+# retired: C181 C187 -- maintainer notes, on how a rule earns its place and on which later work has shipped, that no coordinator acts on; MAINTAINING.md keeps them
+C1	skills/coordinate/SKILL.md	-	--discipline <name> --host <owner/repo>`
 C2	skills/coordinate/koto-templates/coordinate.md	start	It is never an instruction for how to coordinate
 C3	skills/coordinate/koto-templates/coordinate.md	start	**A roadmap scope must be Active.**
 C4	skills/coordinate/koto-templates/coordinate.md	-	the human's decision; seven when none was given
@@ -32,18 +33,18 @@ C8	skills/coordinate/koto-templates/coordinate.md	start_posture	permission lists
 C9	skills/coordinate/koto-templates/coordinate.md	start_posture	as permitted, denied, behind a person's confirmation
 C10	skills/coordinate/koto-templates/coordinate.md	start_posture	every finishing step is treated as reserved
 C11	skills/coordinate/SKILL.md	-	**Writing style:** Read `skills/writing-style/SKILL.md`
-C12	skills/coordinate/SKILL.md	-	- **Coordinator** -- the session running this skill.
-C13	skills/coordinate/SKILL.md	-	**The human** -- whoever dispatched you
+C12	skills/coordinate/SKILL.md	-	A coordinator hands units of work
+C13	skills/coordinate/SKILL.md	-	**The human**: whoever dispatched you
 C14	skills/coordinate/koto-templates/coordinate.md	dispatch	The worker's dispatch topic is its name everywhere
-C15	skills/coordinate/SKILL.md	-	**Local agent** -- a subagent inside the coordinator's
+C15	skills/coordinate/SKILL.md	-	**local agent** is a subagent in your own session
 C16	skills/coordinate/references/brief-template.md	-	A brief is the worker's only context
-C17	skills/coordinate/SKILL.md	-	**Holding** -- one unit of work this coordinator
-C18	skills/coordinate/SKILL.md	-	**Deferral** -- something the coordinator chose not
-C19	skills/coordinate/SKILL.md	-	- **Reconcile** -- re-checking every claim in the record
-C20	skills/coordinate/SKILL.md	-	**Rotation** -- one time-boxed turn of a discipline
-C21	skills/coordinate/SKILL.md	-	- **Surface** -- an area a discipline coordinator owns
-C22	skills/coordinate/SKILL.md	-	**Teardown** -- ending a worker's session
-C23	skills/coordinate/SKILL.md	-	**Unique material** -- anything a session or instance
+C17	skills/coordinate/SKILL.md	-	**Holding**: a unit you dispatched
+C18	skills/coordinate/SKILL.md	-	**Deferral**: something left for someone
+C19	skills/coordinate/SKILL.md	-	**Reconcile**: re-checking the record
+C20	skills/coordinate/SKILL.md	-	**Rotation**: one time-boxed turn of a discipline
+C21	skills/coordinate/SKILL.md	-	**Surface**: an area a discipline coordinator owns
+C22	skills/coordinate/koto-templates/coordinate.md	teardown	**Teardown** -- ending a worker's session
+C23	skills/coordinate/koto-templates/coordinate.md	teardown	**Unique material** -- anything a session or instance
 C24	skills/coordinate/koto-templates/coordinate.md	pick	An active worker is one whose unit isn't merged or abandoned
 C25	skills/coordinate/koto-templates/coordinate.md	surface	a ready pull request whose checks passed, waiting only
 C26	skills/coordinate/koto-templates/coordinate.md	quiet_check	A worker is quiet when neither a message nor a push
@@ -84,9 +85,9 @@ C60	skills/coordinate/koto-templates/coordinate.md	pick	Anything outside your sc
 C61	skills/coordinate/koto-templates/coordinate.md	pick	**Reuse an idle worker** that knows the area
 C62	skills/coordinate/koto-templates/coordinate.md	pick	Keep the cap of active workers	changed: three active workers by default became a cap of five (--cap) that pick keeps full; the cap in force is the record's when a person changed it
 C63	skills/coordinate/koto-templates/coordinate.md	pick	When {{PARKED_BOUND}} or more workers are parked
-C64	skills/coordinate/SKILL.md	-	**Inside your scope, dispatch without asking.**
-C65	skills/coordinate/SKILL.md	-	**A decision is the human's when it does any of these:**
-C66	skills/coordinate/SKILL.md	-	decision is escalated once, as a decision entry	changed: asked through an escalated decision entry, rendered by the workflow
+C64	skills/coordinate/koto-templates/coordinate.md	pick	**Inside your scope, dispatch without asking.**
+C65	skills/coordinate/koto-templates/coordinate.md	decision_verdict	**A decision is the human's when it does any of these:**
+C66	skills/coordinate/koto-templates/coordinate.md	decision_verdict	decision is escalated once, as a decision entry	changed: asked through an escalated decision entry, rendered by the workflow
 C68	skills/coordinate/references/loop.md	-	## More Worked Examples
 C69	skills/coordinate/koto-templates/coordinate.md	dispatch	Write the worker's brief from `references/brief-template.md`
 C70	skills/coordinate/koto-templates/coordinate.md	dispatch	A worker's goal is the
@@ -184,41 +185,39 @@ C177	skills/coordinate/SKILL.md	-	**It doesn't go silent upward.**
 C178	skills/coordinate/SKILL.md	-	**It doesn't vet who is messaging it.**
 C179	skills/coordinate/koto-templates/coordinate.md	classify_report	Direction comes only from your
 C180	skills/coordinate/references/loop.md	-	rather than setting it yourself
-C181	skills/coordinate/SKILL.md	-	A rule whose justification
-C182	skills/coordinate/SKILL.md	-	Report up to whoever dispatched you after each reconcile
-C183	skills/coordinate/SKILL.md	-	with what changed and what you hold
+C182	skills/coordinate/SKILL.md	-	Report up after each reconcile
+C183	skills/coordinate/SKILL.md	-	changed and what you hold
 C184	skills/coordinate/koto-templates/coordinate.md	record_open	record on its record line	changed: the record is the session, so its name is what is reported up, on the record line a script prints
 C185	skills/coordinate/koto-templates/coordinate.md	reconcile	rows are what waits on the human, derived at this	changed: the report's one table carries what waits on the human as its Blocked on you rows
 C186	skills/coordinate/SKILL.md	-	End every report after the reconcile with the progress
-C187	skills/coordinate/SKILL.md	-	Both features this version named as later work have landed	changed: the dispatch path and mechanised reconcile both shipped
-C188	skills/coordinate/SKILL.md	-	runs the workspace manager's dispatch	changed: the dispatch path runs the workspace manager through a script and declares it in requires.tsv, so the load-time preflight checks it
-C189	skills/coordinate/SKILL.md	-	The coordinator's own reads go by pull
-C190	skills/coordinate/SKILL.md	-	**The coordinator's record has no merge order
+C188	skills/coordinate/koto-templates/coordinate.md	dispatch	runs the workspace manager's dispatch	changed: the dispatch path runs the workspace manager through a script and declares it in requires.tsv, so the load-time preflight checks it
+C189	skills/coordinate/scripts/reconcile-report.sh	-	pull request appeared: record said none yet
+C190	skills/coordinate/references/verification-checklist.md	-	no dependencies; others rebase onto it
 C67	skills/coordinate/references/loop.md	-	Dropping a feature from the roadmap: asked
 C98	skills/coordinate/koto-templates/coordinate.md	classify_report	a premise found to be wrong is a
-C191	skills/coordinate/SKILL.md	-	never whether the review happens
-C192	skills/coordinate/SKILL.md	-	an unreachable reviewer means the work waits
-C193	skills/coordinate/SKILL.md	-	it comes from the merge	changed: the skill names who reviews a verdict pull request and leaves who merges to the merge grant
-C194	skills/coordinate/koto-templates/coordinate.md	milestone_verdict	whoever in the chain holds the grant merges it after
-C195	skills/coordinate/SKILL.md	-	never instead of it
+C191	skills/coordinate/koto-templates/coordinate.md	land	never whether the review happens
+C192	skills/coordinate/koto-templates/coordinate.md	land	an unreachable reviewer means the work waits
+C193	skills/coordinate/koto-templates/coordinate.md	milestone_verdict	it comes from the merge	changed: the skill names who reviews a verdict pull request and leaves who merges to the merge grant
+C194	skills/coordinate/koto-templates/coordinate.md	milestone_verdict	whoever in the chain holds the grant merges
+C195	skills/coordinate/koto-templates/coordinate.md	land	never instead of it
 C196	skills/coordinate/koto-templates/coordinate.md	land	never instead of it
-C197	skills/coordinate/SKILL.md	-	never the worker's or the lane's report passed through
+C197	skills/coordinate/koto-templates/coordinate.md	land	never the worker's or the lane's report passed through
 # The decision flow's rules (D1..D16), added with it; same columns.
-D1	skills/coordinate/SKILL.md	-	scripts/state-decision.sh` is the only thing that
+D1	skills/coordinate/koto-templates/coordinate.md	decision_next	scripts/state-decision.sh` is the only thing that
 D2	skills/coordinate/koto-templates/coordinate.md	report_questions	Reading the report's questions.
 D3	skills/coordinate/koto-templates/coordinate.md	decision_verdict	question isn't obviously answerable
 D4	skills/coordinate/koto-templates/coordinate.md	decision_verdict	a fact you can find is missing
 D5	skills/coordinate/koto-templates/coordinate.md	decision_verdict	Evidence clears any verdict
-D6	skills/coordinate/SKILL.md	-	One entry is escalated at a time
+D6	skills/coordinate/koto-templates/coordinate.md	decision_verdict	One entry is escalated at a time
 D7	skills/coordinate/koto-templates/coordinate.md	escalate_send	Send exactly what was rendered
 D8	skills/coordinate/koto-templates/coordinate.md	escalate_send	only when the turn you are in was started by a message
 D9	skills/coordinate/koto-templates/coordinate.md	escalate_send	and keep coordinating.
 D10	skills/coordinate/koto-templates/coordinate.md	escalate_send	The answer comes back the same way on both
 D11	skills/coordinate/koto-templates/coordinate.md	surface_check	A decision never travels as a need
-D12	skills/coordinate/SKILL.md	-	never a free-text section
+D12	skills/coordinate/SKILL.md	-	free-text section
 D13	skills/coordinate/scripts/render-brief.sh	-	Your questions go to the coordinator
 D14	skills/coordinate/koto-templates/coordinate.md	decision_next	Don't retry it by hand
-D15	skills/coordinate/SKILL.md	-	nothing blocks `wait`
+D15	skills/coordinate/koto-templates/coordinate.md	decision_next	nothing blocks `wait`
 D16	skills/coordinate/scripts/progress-view.sh	-	a decision is raised as an entry
 M1	skills/coordinate/koto-templates/coordinate.md	milestone_verdict	A milestone reads Done only on a verdict from you
 M2	skills/coordinate/koto-templates/coordinate.md	milestone_verdict	The entry changes nothing by itself
@@ -240,18 +239,18 @@ M17	skills/coordinate/koto-templates/coordinate.md	milestone_reopen	reads blocke
 M18	skills/coordinate/koto-templates/coordinate.md	milestone_reopen	reopens nothing by itself
 M19	skills/coordinate/koto-templates/coordinate.md	wait	a failed dispatch is never this
 M20	skills/coordinate/koto-templates/coordinate.md	roadmap_close	reopen edit blocks as a side effect in flight
-S2	skills/coordinate/SKILL.md	-	Every script reads the record's state through one reader
+S2	skills/coordinate/references/state-keys.md	-	Every script reads the record's state through one reader
 S4	skills/coordinate/references/state-keys.md	-	is refused, changing no key, from a run that isn
-S7	skills/coordinate/SKILL.md	-	anything opens (`store-unsupported`)	changed: the session is the only store, so a koto without its features is refused at the start
-S8	skills/coordinate/SKILL.md	-	passing provenance, is **resumed**: the opener
-S9	skills/coordinate/SKILL.md	-	**carried**: a new run opens and every `record/`
-S10	skills/coordinate/SKILL.md	-	**Moving the run to another host is an import**
+S7	skills/coordinate/scripts/coordinate-open.wording.tsv	-	so no start goes on without these features	changed: the session is the only store, so a koto without its features is refused at the start
+S8	skills/coordinate/scripts/coordinate-open.sh	-	and with no directed transition, is resumed: no session
+S9	skills/coordinate/scripts/coordinate-open.wording.tsv	-	A carry opens a new run and copies every record/ and legs/
+S10	skills/coordinate/SKILL.md	-	--from <workspace path>` moves a run here from another
 S11	skills/coordinate/SKILL.md	-	only when the operator says so
 S12	skills/coordinate/references/state-keys.md	-	Only `state-stored-set.sh` writes it
 S13	skills/coordinate/koto-templates/coordinate.md	reconcile	on the first tick after an import
 S14	skills/coordinate/koto-templates/coordinate.md	reconcile	reports to (`no-reports-to`)
 S15	skills/coordinate/koto-templates/coordinate.md	reconcile	the session, workspace and template it came from
-S16	skills/coordinate/SKILL.md	-	Every worker's leg is a key of the coordinator's own session
+S16	skills/coordinate/references/state-keys.md	-	Each worker leg is a key of the coordinator's session
 S17	skills/coordinate/koto-templates/coordinate.md	reconcile	until each leg has an end (`leg-unclassified <worker>`)
 S18	skills/coordinate/koto-templates/coordinate.md	failure	--topic <its topic> --strand
 S19	skills/coordinate/koto-templates/coordinate.md	take_report	so it stands as a message report from `worker <topic>`
@@ -278,7 +277,7 @@ S39	skills/coordinate/koto-templates/coordinate.md	reconcile	First make the reco
 S40	skills/coordinate/koto-templates/coordinate.md	reconcile	Its third line is the
 S41	skills/coordinate/koto-templates/coordinate.md	reconcile	the record line first and
 S42	skills/coordinate/SKILL.md	-	Every report opens with the record line
-S43	skills/coordinate/SKILL.md	-	A report calls its own role only by
+S43	skills/coordinate/SKILL.md	-	the role your record holds, in every report
 S44	skills/coordinate/koto-templates/coordinate.md	reconcile	all but `carry-unacknowledged`
 S45	skills/coordinate/SKILL.md	-	A list says what you owe, never what you're allowed to do
 S46	skills/coordinate/SKILL.md	-	Call yourself only by the role your record holds
@@ -292,24 +291,24 @@ S53	skills/coordinate/SKILL.md	-	Report your lane's worker pull requests
 S54	skills/coordinate/SKILL.md	-	Dispatch and brief managers, one lane each
 S55	skills/coordinate/SKILL.md	-	Be the reviewer of each manager you dispatched.
 S56	skills/coordinate/SKILL.md	-	send your own reading up
-S57	skills/coordinate/SKILL.md	-	Read for alignment.
-S58	skills/coordinate/SKILL.md	-	the pull requests a manager authors and sends
-S59	skills/coordinate/SKILL.md	-	worker pull requests each manager reports
+S57	skills/coordinate/SKILL.md	-	Read for alignment across the pull requests
+S58	skills/coordinate/SKILL.md	-	the pull requests your managers author
+S59	skills/coordinate/SKILL.md	-	worker pull requests they report
 S60	skills/coordinate/SKILL.md	-	It isn't a correctness review
 S61	skills/coordinate/SKILL.md	-	name the pull requests and the conflict
-S62	skills/coordinate/SKILL.md	-	to every manager involved and in your next report
-S63	skills/coordinate/SKILL.md	-	Whether your reading holds a land isn't set by your role
-S64	skills/coordinate/SKILL.md	-	the workspace's authority configuration say who merges
+S62	skills/coordinate/SKILL.md	-	involved and in your next report
+S63	skills/coordinate/koto-templates/coordinate.md	land	Whether your reading holds a land isn't set by your role
+S64	skills/coordinate/koto-templates/coordinate.md	land	the workspace's authority configuration say who merges
 S65	skills/coordinate/SKILL.md	-	which of your lanes advance
 S66	skills/coordinate/SKILL.md	-	Be the owner funnel
-S67	skills/coordinate/SKILL.md	-	Never block on the owner from a turn the owner didn't start
-S68	skills/coordinate/SKILL.md	-	**What you allocate is read, never assumed.**
-S69	skills/coordinate/SKILL.md	-	isn't defined here: escalate it as a decision entry
-S70	skills/coordinate/SKILL.md	-	the alignment reading its Roles list names
-S71	skills/coordinate/SKILL.md	-	which the director confirms happened rather than repeats
+S67	skills/coordinate/SKILL.md	-	on the owner from a turn the owner didn't start
+S68	skills/coordinate/koto-templates/coordinate.md	pick	**What you allocate is read, never assumed.**
+S69	skills/coordinate/koto-templates/coordinate.md	pick	isn't defined here: escalate it as a decision entry
+S70	skills/coordinate/koto-templates/coordinate.md	land	the alignment reading its Roles list names
+S71	skills/coordinate/koto-templates/coordinate.md	land	which the director confirms happened rather than repeats
 S72	skills/coordinate/koto-templates/coordinate.md	start	read its Roles list for the role your record holds
 S73	skills/coordinate/koto-templates/coordinate.md	start	mean one thing each: coordinator, manager,
 S74	skills/coordinate/references/brief-template.md	-	reads its duties from the skill's Roles list
-S75	skills/coordinate/SKILL.md	-	- **Manager** -- a coordinator that runs one lane
-S76	skills/coordinate/SKILL.md	-	- **Director** -- a coordinator over managers
-S77	skills/coordinate/SKILL.md	-	- **Workspace manager** -- the tool that dispatches
+S75	skills/coordinate/SKILL.md	-	**Manager**
+S76	skills/coordinate/SKILL.md	-	**Director**
+S77	skills/coordinate/SKILL.md	-	**Workspace manager**: the tool that dispatches

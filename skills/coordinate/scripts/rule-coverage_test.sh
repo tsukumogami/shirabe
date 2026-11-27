@@ -13,6 +13,8 @@
 # exactly once by a row or a `# retired:` line, that each of the four
 # reference files is named in at least one state section of coordinate.md, and
 # that SKILL.md's Roles lists hold three, five and six items and no allowance.
+# A carrier is a file a session loads or runs, so skills/coordinate/MAINTAINING.md,
+# which none loads, is refused as one.
 #
 # A retired rule is one whose behaviour was removed on purpose (the GitHub
 # coordinator record's, docs/designs/current/DESIGN-coordinator-record-teardown.md):
@@ -76,6 +78,9 @@ while IFS=$'\t' read -r id file state phrase note; do
     fi
     case "${note-}" in ''|'changed: '?*) ;; *) bad "$label" "fifth column must read 'changed: <why>'"; continue ;; esac
     if [ ! -f "$ROOT/$file" ]; then bad "$label" "no such file"; continue; fi
+    case "$file" in
+        */MAINTAINING.md) bad "$label" "MAINTAINING.md is loaded by no session, so it carries no rule; retire a maintainer-only one with a reason"; continue ;;
+    esac
     if [ "$state" = - ]; then
         cp "$ROOT/$file" "$T/hay"
     elif [ "$file" = "$TEMPLATE" ]; then

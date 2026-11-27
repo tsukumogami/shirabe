@@ -2,18 +2,25 @@
 # rule-files_test.sh -- rule-files.sh, the list of files a coordinator session
 # loads as rules, offline (no koto).
 #
-# Covers: the skill's list is SKILL.md, koto-templates/coordinate.md and every
-# other path SKILL.md's Reference Files table names, read here from the table
-# itself, so a reference added to the table without being digested fails this
-# suite; each skill file labelled skill-<file name> with its absolute path
-# and sha256; a row added to a copy's table is listed; the workspace's
+# Covers: the sidecar references/reference-files.tsv names the template, has
+# two set columns on every row, has a row for every file under references/
+# but itself, none for MAINTAINING.md, and keeps every file SKILL.md's old
+# Reference Files table named; the skill's list is SKILL.md, then every path
+# the sidecar names in row order, read here from the sidecar itself, so a
+# reference added to it without being digested fails this suite; each skill
+# file labelled skill-<file name> with its absolute path and sha256; a row
+# added to a copy's sidecar is listed, whatever the copy's SKILL.md says; the
+# workspace's
 # CLAUDE.md, CLAUDE.local.md and .claude/rules/*.md from the working
 # directory up, labelled by depth, stopping below the home directory, with
 # the home directory's own files left out; a working directory outside the
 # home directory walking past where the home directory would stop; a label
 # outside the Run label grammar (a space, over 64 bytes) left out and named on
-# stderr; an unreadable SKILL.md or a table path with a `..` segment failing
-# with nothing on stdout; and the usage errors.
+# stderr; an unreadable SKILL.md or reference, and a sidecar that is missing,
+# names no file, or has a row with a `..` segment, a file that doesn't exist
+# or a file named twice, each failing with nothing on stdout (the second
+# column is checked on this tree's sidecar only, since a start reads just the
+# first); the sidecar naming the opener's wording table; and the usage errors.
 #
 # Usage: bash skills/coordinate/scripts/rule-files_test.sh
 set -uo pipefail
@@ -37,18 +44,42 @@ export HOME="$T/home"
 mkdir -p "$HOME/empty"
 
 echo "== the skill's files =="
-# The table, read here on its own: every backticked path in the first column
-# of the rows under `## Reference Files`.
-TABLE=$(awk '/^## Reference Files/ { on = 1; next } /^## / { on = 0 } on' "$SKILL/SKILL.md" | grep '^|' | cut -d'|' -f2 | grep -oE '`[^`]+`' | tr -d '`')
-grep -qx 'koto-templates/coordinate.md' <<< "$TABLE" && ok "SKILL.md's Reference Files table names the template" \
-    || bad "SKILL.md's Reference Files table names the template" "$TABLE"
-WANT=$( { echo SKILL.md; echo koto-templates/coordinate.md; grep -vx 'koto-templates/coordinate.md' <<< "$TABLE"; } | LC_ALL=C sort)
+SIDECAR="$SKILL/references/reference-files.tsv"
+# The sidecar, read here on its own: the first column of every row that isn't
+# a comment or blank.
+TABLE=$(grep -v '^#' "$SIDECAR" | grep . | cut -f1)
+grep -qx 'koto-templates/coordinate.md' <<< "$TABLE" && ok "the sidecar names the template" \
+    || bad "the sidecar names the template" "$TABLE"
+grep -qx 'scripts/coordinate-open.wording.tsv' <<< "$TABLE" && ok "the sidecar names the opener's wording table" \
+    || bad "the sidecar names the opener's wording table" "$TABLE"
+BADROWS=$(grep -v '^#' "$SIDECAR" | grep . | awk -F'\t' 'NF != 2 || $1 == "" || $2 == ""')
+eq "  ... every row is <file>TAB<when to load it>, both columns set" "" "$BADROWS"
+# Every file under references/ but the sidecar itself has a row, so a
+# reference added without one fails here.
+UNLISTED=
+for f in "$SKILL"/references/*; do
+    [ -f "$f" ] || continue
+    r=references/${f##*/}
+    [ "$r" = references/reference-files.tsv ] && continue
+    grep -qxF "$r" <<< "$TABLE" || UNLISTED="$UNLISTED $r"
+done
+eq "  ... and every file under references/ but the sidecar has a row" "" "$UNLISTED"
+grep -qx 'MAINTAINING.md' <<< "$TABLE" && bad "  ... and MAINTAINING.md, which nothing loads, has none" "$TABLE" \
+    || ok "  ... and MAINTAINING.md, which nothing loads, has none"
+WANT=$( { echo SKILL.md; printf '%s\n' "$TABLE"; })
 (cd "$HOME/empty" && bash "$RF" --plugin-root "$ROOT") > "$T/out" 2> "$T/err"
 eq "rule-files.sh exits 0 in a working directory with no workspace file" "0" "$?"
-GOT=$(jq -r 'select(.label | startswith("skill-")) | .path' "$T/out" | sed "s|^$SKILL/||" | LC_ALL=C sort)
-eq "its skill list is SKILL.md, the template and every other path the Reference Files table names" "$WANT" "$GOT"
+GOT=$(jq -r 'select(.label | startswith("skill-")) | .path' "$T/out" | sed "s|^$SKILL/||")
+eq "its skill list is SKILL.md, then every path the sidecar names, in row order" "$WANT" "$GOT"
 eq "  ... and nothing else" "$(printf '%s\n' "$WANT" | grep -c .)" "$(jq -s 'length' "$T/out")"
 eq "  ... SKILL.md first" "skill-SKILL.md $SKILL/SKILL.md" "$(head -1 "$T/out" | jq -r '"\(.label) \(.path)"')"
+# The Reference Files table that SKILL.md once held named these; the sidecar
+# keeps every one, so no run loses a rules row it wrote before.
+for r in koto-templates/coordinate.md references/loop.md references/brief-template.md references/verification-checklist.md \
+    references/state-keys.md references/landing-milestone-roadmap.md references/landing-feature-roadmap.md; do
+    grep -qxF "$r" <<< "$GOT" || MISSING="${MISSING-} $r"
+done
+eq "  ... still listing every file SKILL.md's Reference Files table named" "" "${MISSING-}"
 BADROW=
 while IFS= read -r line; do
     l=$(printf '%s' "$line" | jq -r .label) p=$(printf '%s' "$line" | jq -r .path) d=$(printf '%s' "$line" | jq -r .digest)
@@ -56,14 +87,19 @@ while IFS= read -r line; do
 done < "$T/out"
 eq "  ... each labelled skill-<file name> with its file's sha256" "" "$BADROW"
 
-# A copy of the skill's files whose table gains a row lists the new file.
-mkdir -p "$T/copy/.claude-plugin" "$T/copy/skills/coordinate"
+# A copy of the skill's files whose sidecar gains a row lists the new file,
+# after the rows before it; SKILL.md's own text plays no part.
+mkdir -p "$T/copy/.claude-plugin" "$T/copy/skills/coordinate/scripts"
 cp "$ROOT/.claude-plugin/plugin.json" "$T/copy/.claude-plugin/"
 cp -R "$SKILL/SKILL.md" "$SKILL/koto-templates" "$SKILL/references" "$T/copy/skills/coordinate/"
+cp "$SKILL/scripts/coordinate-open.wording.tsv" "$T/copy/skills/coordinate/scripts/"
+CSIDE="$T/copy/skills/coordinate/references/reference-files.tsv"
 printf 'extra\n' > "$T/copy/skills/coordinate/references/extra-notes.md"
-awk '{ print } /^\| `references\/state-keys.md`/ { print "| `references/extra-notes.md` | never |" }' "$SKILL/SKILL.md" > "$T/copy/skills/coordinate/SKILL.md"
+printf 'references/extra-notes.md\tnever\n' >> "$CSIDE"
+printf '# A skill with no table.\n' > "$T/copy/skills/coordinate/SKILL.md"
 (cd "$HOME/empty" && bash "$RF" --plugin-root "$T/copy") > "$T/out" 2> "$T/err"
-eq "a row added to the table is listed" "0 1" "$? $(jq -s '[.[] | select(.label == "skill-extra-notes.md")] | length' "$T/out")"
+eq "a row added to the sidecar is listed, last" "0 skill-extra-notes.md" "$? $(jq -r 'select(.label | startswith("skill-")) | .label' "$T/out" | tail -1)"
+eq "  ... with SKILL.md still first, whatever SKILL.md says" "skill-SKILL.md" "$(head -1 "$T/out" | jq -r .label)"
 
 echo "== the workspace's files =="
 W="$HOME/ws/inst/repo"
@@ -109,9 +145,28 @@ if [ ! -r "$T/copy2/skills/coordinate/references/loop.md" ]; then
     eq "an unreadable reference fails, printing nothing" "1 0" "$? $(wc -c < "$T/out" | tr -d ' ')"
 fi
 chmod 644 "$T/copy2/skills/coordinate/references/loop.md"
-awk '{ print } /^\| `references\/state-keys.md`/ { print "| `../outside.md` | never |" }' "$SKILL/SKILL.md" > "$T/copy2/skills/coordinate/SKILL.md"
+C2SIDE="$T/copy2/skills/coordinate/references/reference-files.tsv"
+cp "$C2SIDE" "$T/sidecar.saved"
+# side_fails <what> <row>: the copy's sidecar with <row> appended fails,
+# printing nothing; the sidecar is put back after.
+side_fails() {
+    cp "$T/sidecar.saved" "$C2SIDE"
+    printf '%s\n' "$2" >> "$C2SIDE"
+    (cd "$HOME/empty" && bash "$RF" --plugin-root "$T/copy2") > "$T/out" 2> "$T/err"
+    eq "$1 fails, printing nothing" "1 0" "$? $(wc -c < "$T/out" | tr -d ' ')"
+    cp "$T/sidecar.saved" "$C2SIDE"
+}
+side_fails "a sidecar path with a .. segment" "$(printf '../outside.md\tnever')"
+side_fails "a sidecar row whose file doesn't exist" "$(printf 'references/missing.md\tnever')"
+side_fails "a sidecar row naming a file twice" "$(printf 'references/loop.md\tagain')"
+grep '^#' "$T/sidecar.saved" > "$C2SIDE"
 (cd "$HOME/empty" && bash "$RF" --plugin-root "$T/copy2") > "$T/out" 2> "$T/err"
-eq "a table path with a .. segment fails, printing nothing" "1 0" "$? $(wc -c < "$T/out" | tr -d ' ')"
+eq "a sidecar that names no file fails, printing nothing" "1 0" "$? $(wc -c < "$T/out" | tr -d ' ')"
+rm "$C2SIDE"
+(cd "$HOME/empty" && bash "$RF" --plugin-root "$T/copy2") > "$T/out" 2> "$T/err"
+eq "a missing sidecar fails, printing nothing" "1 0" "$? $(wc -c < "$T/out" | tr -d ' ')"
+grep -qF "reference-files.tsv" "$T/err" && ok "  ... naming the sidecar on stderr" || bad "  ... naming the sidecar on stderr" "$(cat "$T/err")"
+cp "$T/sidecar.saved" "$C2SIDE"
 bash "$RF" > /dev/null 2>&1; eq "no --plugin-root is a usage error" 64 $?
 bash "$RF" --plugin-root "$HOME" > /dev/null 2>&1; eq "a root with no .claude-plugin/plugin.json is a usage error" 64 $?
 

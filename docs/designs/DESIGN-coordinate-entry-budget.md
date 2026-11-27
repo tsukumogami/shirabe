@@ -548,11 +548,16 @@ reads instead, and it lists every reference this change adds, so the run's
   the existing output lines. No caller parses stderr except the tests. The
   entry's opener call keeps stderr: the entry ceiling test refuses a
   redirect of stderr on that line.
-- **Runs opened before the change.** The template change takes a new compat
-  row. A run recorded at an older compat continues under the template it was
-  compiled at, which still holds its old text but not the families moved into
-  states, so on continuing such a run the opener also prints those families'
-  blocks, keyed to the run's compat.
+- **Runs opened before the change.** A run opened before the change
+  continues under the template it was compiled at, which still holds its old
+  text but not the families moved into states, so on continuing such a run
+  the opener also prints those families' blocks. The change is text only, so
+  it can't take a new compat row: the compat fingerprint leaves out directive
+  text. The opener keys the blocks instead to the run's own compiled copy,
+  printing them when that copy's `pick` text holds none of the
+  `compat-guide.phrase` rows in the opener's wording table. Each row is a
+  wording of a sentence this change moved into `pick`. A later reword of that
+  sentence adds a row and keeps the old ones.
 - **Pointers into SKILL.md.** The template and references keep pointing at
   `SKILL.md, Roles` and `SKILL.md, Reporting`, which stay. The other
   pointers, about 11 of them in `record_open`, `goal_fit`, `wait`,
