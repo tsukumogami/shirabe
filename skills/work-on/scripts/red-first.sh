@@ -12,6 +12,7 @@
 #   red-first.sh observe <session> --phase before|after --file <observation.md>
 #   red-first.sh green <session> [--timeout <secs>]
 #   red-first.sh check-red <session>
+#   red-first.sh has-red <session>
 #   red-first.sh check-green <session>
 #
 #   red          runs <command> on the base code with the unit's tests applied
@@ -58,6 +59,14 @@
 #   check-red    reproduce's red_recorded gate. Passes for a unit that isn't a
 #                fix, and for a fix with a red or a before-observation.
 #                Otherwise holds with finding red-first/no-red.
+#   has-red      check-red's decision with nothing else: no finding, no
+#                delivery record, nothing on stdout. Exit 0 when check-red
+#                would pass (the unit isn't a fix, or a red or a
+#                before-observation is recorded), 1 when it would hold, 2 when
+#                it can't decide. reproduce's action runs it to deliver the
+#                rule-distance probe's far rule only when the state is going
+#                to stop, so a red recorded before reproduce leaves the rule
+#                for implementation.
 #   check-green  pass_counting's fix_green gate. Passes for a unit that isn't
 #                a fix, for a fix whose green ran the red's command at HEAD
 #                and exited 0, and for a fix recorded by an observation pair
@@ -86,9 +95,9 @@
 # GITHUB_TOKEN, GIT_*) out of it by accident, not by containment.
 #
 # Exit codes:
-#   0   recorded, or the gate passes
+#   0   recorded, or the gate passes (has-red: check-red would pass)
 #   1   refused (a `refused:` line names the condition), a failing green
-#       (`failed:`), or the gate holds (`hold:`, then a finding)
+#       (`failed:`), or the gate holds (`hold:`, then a finding; has-red: it would hold, nothing printed)
 #   2   could not decide: no impl_base, no rules copy, the worktree could not
 #       be built, the record doesn't parse, or the gate's rules don't resolve
 #   64  usage
@@ -132,6 +141,7 @@ usage: red-first.sh red <session> --marker <text> --passage-file <file> [--tests
        red-first.sh observe <session> --phase before|after --file <observation.md>
        red-first.sh green <session> [--timeout <secs>]
        red-first.sh check-red <session>
+       red-first.sh has-red <session>
        red-first.sh check-green <session>
 EOF
     exit 64
@@ -281,6 +291,21 @@ marker_context() {
         }' "$1" | head -c "$TAIL_BYTES"
 }
 
+# filter_warning <command> [<arg>...]: a warning line when the command pipes
+# into a line filter (grep, egrep, fgrep, rg), whose exit then decides the
+# command's: once the test passes the matched lines are gone, the filter exits
+# 1, and no green can ever exit 0 (#2017). The words are read joined, so a
+# pipe inside a `sh -c` script counts; `||` is not a pipe. A text heuristic,
+# so it warns and never refuses.
+filter_warning() {
+    local words re
+    words=" $* "
+    re='(^|[^|])[|]&?[[:space:]]*(egrep|fgrep|grep|rg)[[:space:]]'
+    [[ $words =~ $re ]] || return 0
+    printf 'warning: the command pipes its output through %s, so its exit comes from %s, not only from the test: once the test passes and the matched lines are gone, %s exits 1 and every green fails. A red'"'"'s command has to exit 0 once the test passes, since the green runs it unchanged. Run the test without the filter (its output is already checked for the marker) and record the red again.\n' \
+        "${BASH_REMATCH[2]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[2]}"
+}
+
 # make_worktree <commit>: a detached temporary worktree at <commit> in $WT.
 make_worktree() {
     WT="$TMP/wt"
@@ -373,7 +398,7 @@ cmd_red() {
     git cat-file -e "$base^{commit}" 2>>"$ERRLOG" || undecided "impl_base [$base] names no commit"
     head=$(git rev-parse -q --verify "HEAD^{commit}") || undecided "HEAD names no commit"
     ctx_get "$s" "$RULES_KEY" "$TMP/rules" || die66 "could not read $RULES_KEY"
-    [ -s "$TMP/rules" ] || undecided "no rules copy ($RULES_KEY) is stored; review_level_choice stores it"
+    [ -s "$TMP/rules" ] || undecided "no rules copy ($RULES_KEY) is stored; review-level.sh init stores it, in analysis's action"
 
     # shellcheck source=../../../scripts/lib/test-classify.sh
     . "$PLUGIN_ROOT_SELF/scripts/lib/test-classify.sh" || undecided "cannot load scripts/lib/test-classify.sh"
@@ -486,6 +511,7 @@ cmd_red() {
         | .green = null' "$TMP/record" > "$TMP/record.next" || undecided "could not build the record"
     save_record "$s"
     echo "recorded: red at base $base, exit $RUN_EXIT, marker found; reproducing tests: $(cut -f 1 "$TMP/tests.tsv" | paste -sd, -)"
+    filter_warning "$@"
     exit 0
 }
 
@@ -627,29 +653,46 @@ gate_hold() {
     exit 0
 }
 
-cmd_check_red() {
-    [ $# -eq 1 ] || usage "check-red takes <session>"
+# red_passes <session>: 0 with a `pass:` line when the red_recorded gate
+# passes (the unit isn't a fix, or it has a red or a before-observation), 1
+# when it holds; exits 2 (undecided) when it can't tell. check-red and has-red
+# share it, so the two never disagree.
+red_passes() {
     local s="$1" kind
-    valid_session "$s" || usage "bad session name [$s]"
-    gate_setup
-    rf_require red-first/no-red
     kind=$("$HERE/fix-kind.sh" kind "$s" 2>>"$ERRLOG") || undecided "could not read the unit's kind"
     if [ "$kind" != fix ]; then
         echo "pass: the unit is not a fix"
-        exit 0
+        return 0
     fi
     ctx_get "$s" "$KEY" "$TMP/record" || undecided "could not read $KEY"
     if [ -s "$TMP/record" ]; then
         jq -e --arg s "$SCHEMA" '.schema == $s' "$TMP/record" >/dev/null 2>>"$ERRLOG" || undecided "$KEY is not a $SCHEMA record"
         if jq -e '.red != null' "$TMP/record" >/dev/null; then
             echo "pass: a red is recorded at base $(jq -r .red.base "$TMP/record")"
-            exit 0
+            return 0
         fi
         if jq -e '.observations.before != null' "$TMP/record" >/dev/null; then
             echo "pass: a before-observation is recorded"
-            exit 0
+            return 0
         fi
     fi
+    return 1
+}
+
+cmd_has_red() {
+    [ $# -eq 1 ] || usage "has-red takes <session>"
+    valid_session "$1" || usage "bad session name [$1]"
+    red_passes "$1" >/dev/null && exit 0
+    exit 1
+}
+
+cmd_check_red() {
+    [ $# -eq 1 ] || usage "check-red takes <session>"
+    local s="$1"
+    valid_session "$s" || usage "bad session name [$s]"
+    gate_setup
+    rf_require red-first/no-red
+    red_passes "$s" && exit 0
     gate_hold red-first/no-red "the unit is a fix and has neither a red nor a before-observation; record a red with red-first.sh red $s --marker <text> --passage-file <file> -- <command>, or an observation with red-first.sh observe $s --phase before --file <observation.md>"
 }
 
@@ -719,6 +762,7 @@ case "$sub" in
     observe)     cmd_observe "$@" ;;
     green)       cmd_green "$@" ;;
     check-red)   cmd_check_red "$@" ;;
+    has-red)     cmd_has_red "$@" ;;
     check-green) cmd_check_green "$@" ;;
     *) usage "unknown subcommand [$sub]" ;;
 esac

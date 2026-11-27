@@ -84,6 +84,21 @@ coord_valid_branch() {
     return 0
 }
 
+# coord_plan_problem <path>: prints why a --plan path is refused and returns 1,
+# or prints nothing and returns 0. The character class keeps shell
+# metacharacters out of a value that later lands in a resume command; `+` is in
+# it because a niwa instance directory is named <workspace>+<instance>, so every
+# absolute PLAN path under one holds a `+`.
+coord_plan_problem() {
+    if [ -z "$1" ]; then
+        echo "is empty"
+        return 1
+    fi
+    case "/$1/" in */../*) echo "has a .. segment"; return 1 ;; esac
+    case "$1" in *[!A-Za-z0-9._/+-]*) echo "holds a character outside [A-Za-z0-9._/+-]"; return 1 ;; esac
+    return 0
+}
+
 coord_valid_repo_list() {
     local r rest
     [[ $1 =~ $RE_COORD_REPO_LIST ]] || return 1

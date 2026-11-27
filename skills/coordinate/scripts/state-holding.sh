@@ -59,8 +59,10 @@
 # Return path is `message` may be stranded; any other is refused (65), since a
 # leg-bound worker's end still arrives on its leg. dispatch-worker.sh treats a
 # stranded topic as it treats a failed one: the unit goes out again under a
-# new topic, whose brief names this row's branch and last pushed head, and
-# --retire removes the stranded row once the new worker is dispatched. A report
+# new topic whose brief input names this topic in `continues`; its brief names
+# this row's branch and last pushed head, and --retire removes this row once
+# the new worker is dispatched. A dispatch that doesn't name it in `continues`
+# leaves it, even on the same unit (shirabe#1588). A report
 # that later arrives from the retired topic matches no holding and is refused.
 #
 # --retire also removes a merged holding (lib_row_merged) at destroy, once

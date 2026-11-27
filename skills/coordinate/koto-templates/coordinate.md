@@ -4247,10 +4247,12 @@ that moved to message after an import and never answered) is stranded when
 you redispatch its unit: mark it with
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-holding.sh" --session {{SESSION_NAME}} --topic <its topic> --strand`
 before you submit `redispatch`, and dispatch the unit under a new topic. The
-script refuses a leg-bound worker, whose end still arrives on its leg. The
-new worker's brief names the stranded worker's branch and last pushed head,
-and the stranded row is retired once the new worker is dispatched; a report
-that later comes from the old topic matches no holding and is refused.
+script refuses a leg-bound worker, whose end still arrives on its leg. Name
+the stranded topic in the new brief input's `continues`: only that holding's
+branch and last pushed head go in the new worker's brief, and only its row
+is retired once the new worker is dispatched; a report that later comes from
+the old topic matches no holding and is refused. A dispatch without
+`continues` takes no stranded row, even one on the same unit.
 
 A unit sent here by a second silence whose worker turns out to be parked on a
 person's order (its last report says it parked, or the order stands in the
@@ -4320,7 +4322,7 @@ offered only as a verdict to give.
 
 On a feature roadmap the script opens a pull request on the roadmap's repository that sets the
 feature's Status to Done, writes the text on its `**Delivered:**` line and
-removes its Needs line, regenerates the generated sections, and changes
+removes its Needs line and its own Progress field, regenerates the generated sections, and changes
 nothing else (its `**Outcome:**` line is the promise and is never touched);
 then it writes
 a Side effects in flight row, Action `roadmap-status`, that the record step

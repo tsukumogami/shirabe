@@ -373,6 +373,101 @@ can wire into its own settings. When a host does wire it, the plugin's hook
 leaves the PR-body rules to that entry point, so each broken rule is reported
 once.
 
+## The question guard
+
+A second PreToolUse hook, `hooks/question-guard.sh`, covers the question tool
+(`AskUserQuestion`) and nothing else. A question prompt that opens in a turn
+no person typed waits for an answer nobody is there to give, so the guard
+denies it there. A prompt opened in a turn a person typed is left alone,
+including one a skill the person invoked opens later in that turn, after any
+number of tool calls: a skill's confirmation or approval prompt behaves as it
+always has. The exceptions are a background session's first turn, which the
+record can't tell from a dispatched brief, so a person who starts a
+background session with their own typed prompt is denied a prompt in that
+first turn (later turns are allowed), and a turn a Stop hook has continued;
+both are described below.
+
+The guard reads where the turn came from in the session record the harness
+names in the hook's input, and only from its structured fields, never from
+message text. It denies:
+
+- a turn started by a background task's completion notice, a scheduled
+  wake-up, a message from another session, or a notice the harness itself
+  sends;
+- a turn a Stop hook continued after the person's prompt;
+- a call made by a subagent.
+
+A turn a person typed after the session's first is allowed in any session,
+including a background or dispatched one a person has attached to. That
+matters because Claude Code reports a background session as unattended for
+its whole life, even while someone is typing into it. A session's first turn
+is different: a dispatched brief carries the same label as a prompt a person
+typed, and the record can't tell the two apart. That first turn, the prompt
+that opened a copy of another session, a print-mode (`-p`) turn, and any turn
+whose origin can't be read fall back to the session's run mode: denied when
+the session is unattended, allowed otherwise. A turn's origin can't be read
+when the record is missing, isn't a `.jsonl` file under the harness's session
+records once symbolic links are resolved (the guard never opens such a path),
+holds no entry for the turn, labels it in a way the guard doesn't know, or
+has a line naming the turn longer than 4 MiB when the turn's other entries
+haven't already shown it to be not typed, or typed and after the first
+turn. The run mode is
+`CLAUDE_CODE_SESSION_ATTENDED`, which Claude Code sets for every hook (`0`
+unattended, `1` attended); with any other value, or none, the session isn't
+known to be unattended.
+
+There are four cases the guard gets wrong on purpose, because the record
+can't tell them apart from the case next to them:
+
+- A dispatched brief in a session marked attended is allowed, as a person's
+  first prompt would be.
+- A person who starts a background session by hand with their own typed
+  prompt (`claude --bg "<prompt>"`) is denied a question prompt in that first
+  turn, as a dispatched brief would be. Every later turn they type into the
+  session is allowed.
+- A prompt given on the command line to an existing background session
+  (`claude --bg --resume <id> "<prompt>"`) carries the same fields as a turn
+  a person typed after attaching, so it is allowed, even though nobody may be
+  watching.
+- Once a Stop hook has blocked a stop and continued a person's turn, a prompt
+  later in that turn is denied, even though the person typed the turn: the
+  continuation shares the person's turn and is marked as hook text, and the
+  guard denies any turn holding one.
+
+`docs/spikes/SPIKE-question-guard-turn-origin.md` records what the harness
+reported for each start of a turn.
+
+The deciding is done by the `shirabe` binary (`shirabe hook question-guard`),
+found the way the pre-action hook finds it. Without the binary, or with one
+that fails, hangs past four seconds, or prints anything but a deny, the guard
+gives no decision and the prompt opens: without the binary it can read
+neither the turn's origin nor the run mode, and a prompt is refused only where
+the session is known to be unattended or the turn known not to be a person's.
+Unlike the pre-action hook, it has no fallback deny.
+
+The guard is on wherever the plugin is installed. `SHIRABE_PRE_ACTION_HOOK`
+set to exactly `off`, the same switch as above, turns it off along with the
+pre-action hook. The guard writes nothing and keeps no log: a denial shows in
+the session as the denied question call, with this reason, and searching a
+session's record for the reason's first sentence finds every denial. The
+reason, in full:
+
+> A question prompt was denied because no person typed the message that started this turn. Do not open a question prompt again in this turn. Hand the question to whoever dispatched this session, or record it by the means you already have, then continue with work that does not depend on the answer. The person running this host can turn this guard off by setting SHIRABE_PRE_ACTION_HOOK to off in the env block of their Claude Code settings.
+
+`hooks/question-guard_test.sh` runs the guard against fixtures copied from the
+harness's own hook inputs and session records. Each fixture's
+`transcript_path` is the marker `PATH-1`, which the suite points at the
+fixture's `.record.jsonl` placed under a scratch `$HOME/.claude`. To try one
+by hand, do the same:
+
+```sh
+d=$(mktemp -d) && mkdir -p "$d/.claude/projects/p" &&
+cp hooks/testdata/question-guard/background-notification.record.jsonl "$d/.claude/projects/p/r.jsonl" &&
+sed "s|PATH-1|$d/.claude/projects/p/r.jsonl|" hooks/testdata/question-guard/background-notification.json |
+  HOME="$d" CLAUDE_CODE_SESSION_ATTENDED=1 CLAUDE_PLUGIN_ROOT="$PWD" \
+  sh -c 'bash "${CLAUDE_PLUGIN_ROOT}/hooks/question-guard.sh"'
+```
+
 ## CLI and doc validation
 
 shirabe ships a `shirabe` binary and a reusable GitHub Actions workflow so

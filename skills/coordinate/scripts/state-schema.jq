@@ -272,7 +272,9 @@ def check_holds($h; $private):
 #            existed reads and is written back byte for byte
 #            (docs/designs/DESIGN-coordinator-standing-rule-provenance.md)
 # Work, a next step for each holding and a row for work no holding covers:
-#   Item     a holding's Unit, or what the work is; unique within its Kind
+#   Item     a holding's Unit, or what the work is; unique within its Kind,
+#            except that a holding row is unique by Item and Who, since a
+#            unit can hold two live topics at once (shirabe#1588)
 #   Kind     holding | local-agent | decision (a unit pick parked on a
 #            decision entry) | follow-up (a unit whose scoping landed, its
 #            execution not yet dispatched) | verdict-owed (a milestone whose
@@ -659,7 +661,8 @@ def check_state($sec; $rows; $private):
       elif $sec.key == "standing" then
         (if ($r | map(.standing) | unique | length) != ($r | length) then refuse("standing: an id is used twice") else $r end)
       else
-        (if ($r | map([.item, .kind]) | unique | length) != ($r | length) then refuse("work: an item is listed twice under one kind") else $r end)
+        (if ($r | map([.item, .kind, (if .kind == "holding" then .who else null end)]) | unique | length) != ($r | length)
+         then refuse("work: an item is listed twice under one kind (a holding row, twice for one worker)") else $r end)
       end
   end;
 

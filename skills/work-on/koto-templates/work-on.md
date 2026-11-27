@@ -132,22 +132,30 @@ variables:
   REVIEW_LEVEL:
     description: >-
       The run's review level: light, standard or full
-      (../references/review-levels.md). Chosen at review_level_choice and
-      routed on at review_level_check and at review's passed edges. Only
-      scripts/review-level.sh set changes it: it rebinds the variable through
-      `koto init --attach-live` and appends to the review_level.jsonl ledger in
-      the same call. Empty on a session from an earlier template, which takes
-      the full path. The pattern admits the empty value an unset optional
-      variable resolves to, and koto applies it at init and on every rebind,
-      so only the three names or nothing reach a gate command.
+      (../references/review-levels.md). Nobody chooses it up front:
+      review_level_check's action sets it from the facts of the change, within
+      the coordinator's bound, with review-level.sh set-from-facts, and the
+      agent can raise it with review-level.sh set from analysis on, once
+      analysis's action has recorded the bound. Those two are the only things
+      that change it: each
+      rebinds the variable through `koto init --attach-live` and appends to
+      the review_level.jsonl ledger in the same call. review_level_check
+      routes on the ledger's level (its level_route gate), since a rebind in
+      its own tick shows only from the next one; review's passed edges route
+      on the variable. Empty until the first level check, and on a session
+      from an earlier template, which takes the full path. The pattern admits
+      the empty value an unset optional variable resolves to, and koto
+      applies it at init and on every rebind, so only the three names or
+      nothing reach a gate command.
     required: false
     pattern: ^(light|standard|full)?$
     rebind: true
   REVIEW_FLOOR:
     description: >-
       The lowest review level a coordinator allows, from --review-floor.
-      review-level.sh init records it once, at review_level_choice. Not
-      rebindable: a bound doesn't move inside a run.
+      review-level.sh init records it once, in analysis's action (and
+      fix_determination's, a no-op safety net). Not rebindable: a bound
+      doesn't move inside a run.
     required: false
     pattern: ^(light|standard|full)?$
   REVIEW_CEILING:
@@ -764,19 +772,34 @@ states:
     # (it guards routes that must not be taken without commits), so the
     # fallback asks for the key before the analysis evidence.
     #
+    # The action then records the review-level bound (review-level.sh init):
+    # the coordinator's REVIEW_FLOOR and REVIEW_CEILING, the acceptance-
+    # criteria copy from context.md (which setup has written by now) and the
+    # rules copy. Recording it here is what lets the agent raise the level
+    # with review-level.sh set from analysis on, before anything is
+    # implemented; set is refused until the bound exists. Nobody chooses a
+    # level: review_level_check sets it from the facts within the bound and
+    # keeps a raise. init writes once, so a re-entry changes nothing.
+    #
     # {{SESSION_NAME}} rather than a name rebuilt from a variable: this template
     # is both initialized directly and materialized as a child, so no declared
     # variable carries the session's name. koto substitutes it inside a
     # default_action command.
     default_action:
-      command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/record-changed-paths.sh --base "{{SESSION_NAME}}" --shared-branch "{{SHARED_BRANCH}}"'
+      command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/record-changed-paths.sh --base "{{SESSION_NAME}}" --shared-branch "{{SHARED_BRANCH}}" && "{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" init "{{SESSION_NAME}}" "{{REVIEW_FLOOR}}" "{{REVIEW_CEILING}}"'
       fallback: >-
         koto could not record impl_base, the commit this issue's work starts
-        from. Read the command's own output above: the script exits 64 when
-        HEAD names no commit or this is not a git repository, 66 when writing
-        the context key failed, and 127 or 126 when PLUGIN_ROOT does not reach
-        the plugin. Fix the cause and tick again -- the action re-runs on entry
-        and never overwrites a base it already recorded. If it can't be fixed,
+        from, or the review-level bound. Read the command's own output above.
+        record-changed-paths.sh exits 64 when HEAD names no commit or this is
+        not a git repository and 66 when writing the context key failed;
+        review-level.sh init, which runs after it, exits 64 when the rules
+        file is malformed or a bound value is not a level name and 66 when a
+        koto context read or write failed. Either exits 127 or 126 when
+        PLUGIN_ROOT does not reach the plugin. Fix the cause and tick again --
+        the action re-runs on entry, never overwrites a base it already
+        recorded, and records the bound once. Until the bound is recorded
+        review-level.sh set refuses; fix_determination's action records it
+        if this one couldn't. If impl_base can't be fixed,
         record the base yourself before committing anything:
         `git merge-base HEAD origin/main | koto context add <session> impl_base`
         (origin's default branch in place of origin/main when it has another
@@ -799,7 +822,8 @@ states:
         description: Summary of the implementation approach
     transitions:
       # The live offload canary assigns the run's group next, then the
-      # review level is chosen, before anything is implemented.
+      # probe's arm, then fix_determination records the review-level bound
+      # and routes on the unit's kind, all in one tick.
       - target: offload_canary
         when:
           plan_outcome: plan_ready
@@ -863,18 +887,18 @@ states:
       - target: probe_draw
 
   # The rule-distance probe (docs/guides/probe.md). The draw records the run's
-  # arm and value in <session-dir>/probe/ and, for the far arms, prints the
-  # rule's full text once per session, captured as PROBE_FAR_RULE for the
-  # review_level_choice directive. Every other run captures the empty string,
-  # so its directive renders as it would without the probe. The command ends
-  # in `|| true` because a failing default action would hold the run here; the
-  # gate maps every exit but 0, 1 and 4 to 3 so a broken or missing script has
-  # an edge too. Both restate probe.sh's own contract (its header).
+  # arm and value in <session-dir>/probe/ and prints nothing. The far arms'
+  # rule is delivered later, by the first of reproduce and implementation the
+  # run enters: each runs probe.sh far-text, which prints the rule's full text
+  # once per session, so the directive of the first state the run stops in
+  # after fix_determination carries it and no later visit repeats it. The
+  # command ends in `|| true` because a failing default action would hold the
+  # run here; the gate maps every exit but 0, 1 and 4 to 3 so a broken or
+  # missing script has an edge too. Both restate probe.sh's own contract (its
+  # header).
   probe_draw:
     default_action:
       command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" && "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" draw "{{PROBE}}" "{{SHARED_BRANCH}}" "{{SESSION_DIR}}" "{{PLUGIN_ROOT}}" || true'
-      capture_stdout_as: PROBE_FAR_RULE
-      capture_allow_empty: true
     gates:
       probe_arm:
         type: command
@@ -889,7 +913,7 @@ states:
       - target: probe_arm_far_redeliver
         when:
           gates.probe_arm.exit_code: 4
-      - target: review_level_choice
+      - target: fix_determination
         when:
           gates.probe_arm.exit_code: 3
 
@@ -897,71 +921,15 @@ states:
   # canary's carry its group: as the state name of a state_entered record.
   probe_arm_near:
     transitions:
-      - target: review_level_choice
+      - target: fix_determination
 
   probe_arm_far:
     transitions:
-      - target: review_level_choice
+      - target: fix_determination
 
   probe_arm_far_redeliver:
     transitions:
-      - target: review_level_choice
-
-  review_level_choice:
-    # A far-arm run's probe rule ends this state's directive; koto records each
-    # print of it as a rule_delivered event (via directive) while
-    # PROBE_FAR_RULE is non-empty, and nothing for any other run.
-    directive_rules:
-      - rule_id: probe/ack-value
-        check: probe_ack
-        extent: full
-        when_set: PROBE_FAR_RULE
-    # The run commits to a review level here, after analysis has read the code
-    # and before anything is implemented (references/review-levels.md). The
-    # only way forward is REVIEW_LEVEL being set, and the only way it is set is
-    # review-level.sh set, which also writes the ledger. koto can't route on a
-    # context key, so the level lives in a rebindable variable.
-    #
-    # The action records the coordinator's bound, the acceptance-criteria copy
-    # the facts compare against, and the rules copy they classify with. It
-    # writes once: a re-entry (analysis re-runs on scope_expanded_retry) finds
-    # the bound line and changes nothing, and a level already set advances
-    # straight on. `set` before the bound is recorded is refused, so the
-    # choice can't skip the bound.
-    default_action:
-      command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh init "{{SESSION_NAME}}" "{{REVIEW_FLOOR}}" "{{REVIEW_CEILING}}"'
-      fallback: >-
-        koto could not record the review-level bound. Read the command's own
-        output above: review-level.sh exits 64 when the rules file is
-        malformed or a bound value is not a level name, 66 when a koto context
-        read or write failed, and 127 or 126 when PLUGIN_ROOT does not reach
-        the plugin. Fix the cause and tick again; the action re-runs on entry
-        and writes nothing once the bound is recorded. Until it is, `set`
-        refuses. If it can't be fixed, submit `level_status: blocked` with
-        `detail`.
-    accepts:
-      level_status:
-        type: enum
-        values: [blocked]
-        description: >-
-          Submitted only to stop the run when no level can be recorded. The
-          passing path submits nothing: once review-level.sh set has bound
-          REVIEW_LEVEL, the next tick advances.
-      detail:
-        type: string
-        description: Why no review level could be recorded.
-    transitions:
       - target: fix_determination
-        when:
-          vars.REVIEW_LEVEL:
-            is_set: true
-      - target: done_blocked
-        when:
-          vars.REVIEW_LEVEL:
-            is_set: false
-          level_status: blocked
-        context_assignments:
-          failure_reason: "review level not chosen: ${evidence.detail}"
 
   fix_determination:
     # Is the unit a fix (../references/red-first.md)? Decided here, before
@@ -990,17 +958,30 @@ states:
     # (fix-kind.sh agree), and holds the run here; no route leaves without
     # kind_route passing.
     #
-    # Before that, the action writes the test-change ledger's header
-    # (test-change.sh init --entry): the author, impl_base and the work tree
-    # the counting gates classify the unit's tests against. It runs here, after
-    # review_level_choice stored the rules copy the classifier reads, and
-    # writes once; a later entry finds the header and changes nothing.
+    # Before that, the action runs review-level.sh init, which analysis's
+    # action already ran: here it is a no-op safety net for a run whose
+    # analysis action failed and was recovered by hand (the agent recorded
+    # impl_base and submitted plan_outcome, which skips the action), so the
+    # bound, the acceptance-criteria copy and the rules copy the test-change
+    # header reads exist before anything is implemented. init writes once: it
+    # finds the bound line and changes nothing, except storing the criteria
+    # copy if analysis's run found no context.md.
+    #
+    # Then it writes the test-change ledger's header (test-change.sh init
+    # --entry): the author, impl_base and the work tree the counting gates
+    # classify the unit's tests against. It runs after review-level.sh init
+    # because it reads the rules copy init stores, and writes once; a later
+    # entry finds the header and changes nothing.
     default_action:
-      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" || exit 2; test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" init "{{SESSION_NAME}}" --entry --shared-branch "{{SHARED_BRANCH}}" && "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" resolve "{{SESSION_NAME}}" --current "{{UNIT_KIND}}" --issue "{{ISSUE_NUMBER}}" --issue-repo "{{ISSUE_REPO}}" --fix-report "{{FIX_REPORT}}" --task-log "{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl"'
+      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" || exit 2; test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" || exit 2; test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" init "{{SESSION_NAME}}" "{{REVIEW_FLOOR}}" "{{REVIEW_CEILING}}" && "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" init "{{SESSION_NAME}}" --entry --shared-branch "{{SHARED_BRANCH}}" && "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" resolve "{{SESSION_NAME}}" --current "{{UNIT_KIND}}" --issue "{{ISSUE_NUMBER}}" --issue-repo "{{ISSUE_REPO}}" --fix-report "{{FIX_REPORT}}" --task-log "{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl"'
       fallback: >-
-        koto could not record whether this unit is a fix, or could not write
-        the test-change ledger's header. Read the command's own output above.
-        test-change.sh exits 1 when impl_base is not where the unit started
+        koto could not record the review-level bound, could not write the
+        test-change ledger's header, or could not record whether this unit is
+        a fix. Read the command's own output above. review-level.sh exits 64
+        when the rules file is malformed or a bound value is not a level name,
+        and 66 when a koto context read or write failed; until the bound is
+        recorded, review-level.sh set refuses and the level check can't set
+        a level. test-change.sh exits 1 when impl_base is not where the unit started
         (or the ledger holds lines but no header), 2 when impl_base, the rules
         copy or the work tree can't be read or koto is below shirabe's minimum, 66
         when a koto context write failed, and 75 when another writer holds the
@@ -1008,8 +989,9 @@ states:
         be read with gh or a koto call failed, 64 when CLAUDE.md at the base
         declares `## Fix Labels:` more than once, and the test -x guards exit
         2 when PLUGIN_ROOT does not reach the plugin. Fix the cause and tick
-        again; the action re-runs on entry. If it can't be fixed, submit
-        `kind_status: blocked` with `detail`.
+        again; the action re-runs on entry, and each step writes once, so a
+        re-run changes nothing a step already recorded. If it can't be fixed,
+        submit `kind_status: blocked` with `detail`.
     gates:
       # 0 a change, 3 a fix, 4 no kind recorded, 1 UNIT_KIND disagrees with
       # the ledger, 2 PLUGIN_ROOT doesn't reach the plugin, 66 a koto read.
@@ -1070,6 +1052,33 @@ states:
           failure_reason: "fix determination blocked: ${evidence.detail}"
 
   reproduce:
+    # A far-arm probe run whose unit is a fix stops here first after
+    # fix_determination, so this state delivers the probe's rule
+    # (docs/guides/probe.md): the action prints its full text once per
+    # session (probe.sh far-text), captured as PROBE_FAR_RULE_FIX, which ends
+    # this state's directive. koto records the print as a rule_delivered event
+    # (via directive). Every later entry, and every run not on a far arm,
+    # captures the empty string and records nothing, so implementation's copy
+    # stays empty for a fix.
+    #
+    # The rule is taken here only when the state is going to stop. A red or a
+    # before-observation recorded before reproduce is first entered (during
+    # analysis) lets red_recorded pass on entry, and the run goes straight on
+    # to implementation without this directive being shown. So the action
+    # first asks red-first.sh has-red, the red_recorded gate's own decision
+    # (check-red's, with no finding or delivery record): when it says the gate
+    # passes, the action prints nothing and leaves the rule unspent, and
+    # implementation's far-text delivers it. The command always exits 0,
+    # because a failing default action would hold the run here.
+    directive_rules:
+      - rule_id: probe/ack-value
+        check: probe_ack
+        extent: full
+        when_set: PROBE_FAR_RULE_FIX
+    default_action:
+      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" || exit 0; test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/red-first.sh" && "{{PLUGIN_ROOT}}/skills/work-on/scripts/red-first.sh" has-red "{{SESSION_NAME}}" && exit 0; "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" far-text "{{SESSION_DIR}}" || true'
+      capture_stdout_as: PROBE_FAR_RULE_FIX
+      capture_allow_empty: true
     # A fix records its red here, before implementation: the check run on
     # the base code with the unit's committed tests applied, failing, with a
     # marker found in both the report and the output (red-first.sh red). A
@@ -1115,6 +1124,23 @@ states:
           failure_reason: "reproduce blocked: ${evidence.detail}"
 
   implementation:
+    # The far-arm probe's delivery for a change (see reproduce): a change
+    # stops here first after fix_determination, so the action's print of the
+    # rule's full text, captured as PROBE_FAR_RULE, ends this directive on the
+    # first entry. probe.sh far-text prints it once per session, so a retry,
+    # a panel's return or a fix's arrival from reproduce (which already
+    # delivered it) captures the empty string and records nothing. A fix that
+    # passed through reproduce with its red already recorded left the rule
+    # unspent, and gets it here.
+    directive_rules:
+      - rule_id: probe/ack-value
+        check: probe_ack
+        extent: full
+        when_set: PROBE_FAR_RULE
+    default_action:
+      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" && "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" far-text "{{SESSION_DIR}}" || true'
+      capture_stdout_as: PROBE_FAR_RULE
+      capture_allow_empty: true
     # Every return here means the code is about to change, so a verdict about
     # the code as it was is stale: the panels' results and the summary. The
     # panel retry blocks and finalization's issues_found block already clear
@@ -1357,25 +1383,38 @@ states:
 
   review_level_check:
     # Between the issue-type question and the first panel of a code change, on
-    # every lap. The action gathers the facts of the change (lines, files, path
-    # classes, whether tests or the acceptance criteria changed) into
-    # review_facts.json and derives a floor from the rules copy
-    # review_level_choice stored, so a diff that edits the rules can't lower
-    # its own floor. koto runs the action again on every tick that reaches the
-    # state without evidence, so after a hold and a raise the next tick writes
-    # the ledger's `check` line at the raised level.
+    # every lap, and where the run's review level is set. The action gathers
+    # the facts of the change (lines, files, path classes, whether tests or
+    # the acceptance criteria changed) into review_facts.json and derives a
+    # floor from the rules copy analysis's action stored, so a diff
+    # that edits the rules can't lower its own floor. Then set-from-facts sets
+    # the level: the highest of that floor, the ledger's level (which carries
+    # any raise the agent made with `set`) and the bound's floor, logging a
+    # breach when the facts floor is above the bound's ceiling. It writes the
+    # ledger's from_facts line when the level moves and the `check` line at
+    # the level it settles on, and rebinds REVIEW_LEVEL. koto runs the action
+    # again on every tick that reaches the state without evidence, so after a
+    # hold and a raise the next tick settles on the raised level.
+    #
+    # The rebound variable shows only from the next tick, so nothing here
+    # reads it. level_route (review-level.sh level --exit) reads the level
+    # the action just wrote to the ledger and answers in its exit status: 11
+    # light, 12 standard, 13 full, 4 none recorded, 66 a read that failed.
+    # The routes test it, so the tick that entered the state leaves it and a
+    # run doesn't stop here on the passing path. level_floor and the
+    # level_fits_facts slice judge the ledger's level too (--ledger).
     #
     # On a SHARED_BRANCH the action measures impl_base alone: the merge-base
     # diff there holds every earlier sibling's commits, so a late step would
     # floor on work that isn't its own. An unset SHARED_BRANCH arrives as ""
     # and keeps the larger-diff rule.
     #
-    # level_floor is the guarantee, for every user: exit 0 at or above the
-    # floor, inside the bound (or past the ceiling with a breach recorded),
-    # matching the ledger, with facts gathered at HEAD; exit 1 holds with a
-    # `hold:` line; exit 3 is an unset level, a session from an earlier
-    # template, which keeps the full path. koto's override record is the only
-    # way past a hold without a raise.
+    # level_floor is the guarantee, for every user: exit 0 when the ledger's
+    # level is at or above the facts floor, inside the bound (or past the
+    # ceiling with a breach recorded), with facts gathered at HEAD; exit 1
+    # holds with a `hold:` line, as it does when no level is recorded. Every
+    # route needs it, so set-from-facts can't route a run it got wrong. koto's
+    # override record is the only way past a hold without a raise.
     #
     # level_fits_facts is a veto-mode decider check, active only for a user
     # whose decider mode is auto; for anyone else koto treats it as not
@@ -1398,24 +1437,35 @@ states:
     # The blocked route carries the gate's exit 1: an evidence-only route
     # shares no field with the gate routes and fails koto's exclusivity check.
     default_action:
-      command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh facts "{{SESSION_NAME}}" "{{REVIEW_LEVEL}}" --shared-branch "{{SHARED_BRANCH}}"'
+      command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" facts "{{SESSION_NAME}}" --shared-branch "{{SHARED_BRANCH}}" --no-check-line && "{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set-from-facts "{{SESSION_NAME}}"'
       fallback: >-
-        koto could not gather the facts of this change. Read the command's own
-        output above: review-level.sh exits 64 when no base resolves or the
-        stored rules copy is malformed. No base resolves when impl_base is
-        unset and HEAD shares no history with the default branch or main, or
-        when impl_base is unset on a shared branch, where it is the only base.
-        It exits 66 when a koto context read or write failed, and 127 or 126
-        when PLUGIN_ROOT does not reach the plugin. Fix the cause and tick again; the action re-runs on entry.
-        The level_floor gate holds until the facts are recorded at HEAD. If
-        it can't be fixed, submit `level_status: blocked` with `detail`.
+        koto could not gather the facts of this change or set the review
+        level from them. Read the command's own output above. review-level.sh
+        facts exits 64 when no base resolves or the stored rules copy is
+        malformed. No base resolves when impl_base is unset and HEAD shares no
+        history with the default branch or main, or when impl_base is unset
+        on a shared branch, where it is the only base. set-from-facts exits 1
+        with a `refused:` line when no bound is recorded (fix_determination's
+        action records it) or the bound's floor is above its ceiling. Either
+        exits 66 when a koto context read or write or the rebind failed, and
+        127 or 126 when PLUGIN_ROOT does not reach the plugin. Fix the cause
+        and tick again; the action re-runs on entry. The level_floor gate
+        holds until a level is recorded over facts gathered at HEAD. If it
+        can't be fixed, submit `level_status: blocked` with `detail`.
     gates:
+      level_route:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" level "{{SESSION_NAME}}" --exit'
+        # An override takes the most thorough route, full's, to scrutiny.
+        override_default:
+          exit_code: 13
+          error: ""
       level_floor:
         type: command
-        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" check "{{SESSION_NAME}}" "{{REVIEW_LEVEL}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" check "{{SESSION_NAME}}" --ledger'
       level_fits_facts:
         type: decider-check
-        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" slice "{{SESSION_NAME}}" "{{REVIEW_LEVEL}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" slice "{{SESSION_NAME}}" --ledger'
         max_bytes: 2048
         label: review_facts
         criteria:
@@ -1440,22 +1490,15 @@ states:
       - target: light_review
         when:
           gates.level_floor.exit_code: 0
-          vars.REVIEW_LEVEL: light
+          gates.level_route.exit_code: 11
       - target: scrutiny
         when:
           gates.level_floor.exit_code: 0
-          vars.REVIEW_LEVEL: standard
+          gates.level_route.exit_code: 12
       - target: scrutiny
         when:
           gates.level_floor.exit_code: 0
-          vars.REVIEW_LEVEL: full
-      # No level: a session from an earlier template keeps today's full path,
-      # and the action has written an `unset` line.
-      - target: scrutiny
-        when:
-          gates.level_floor.exit_code: 3
-          vars.REVIEW_LEVEL:
-            is_set: false
+          gates.level_route.exit_code: 13
       - target: done_blocked
         when:
           gates.level_floor.exit_code: 1
@@ -2873,7 +2916,7 @@ states:
 
   pr_creation:
     # A near-arm run's probe rule ends this state's directive, recorded as
-    # review_level_choice's is for the far arms.
+    # reproduce's and implementation's are for the far arms.
     directive_rules:
       - rule_id: probe/ack-value
         check: probe_ack
@@ -4064,6 +4107,16 @@ those marks it, declare the fix now, before you submit `plan_outcome`:
 A fix can't be taken back: `fix-kind.sh` refuses to make one a change, and the run
 owes a red before implementation.
 
+**The review level is not chosen here.** After implementation, `review_level_check`
+sets it from the facts of the change within the coordinator's bound, which koto
+recorded as it entered this state (`references/review-levels.md`). When the plan
+shows the change is riskier than its paths will, raise it now, and the check keeps
+the raise:
+
+```bash
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" <standard|full> --reason "<why>"
+```
+
 Retry cap: self-loop with `scope_changed_retry` up to 3 times. After 3,
 use `scope_changed_escalate`. The cap lives here until koto enforces it from its
 attempt counts, with the same number. Submit `blocked_missing_context` if stuck.
@@ -4071,78 +4124,43 @@ Record non-obvious decisions with `koto decisions record {{SESSION_NAME}}`.
 
 ## offload_canary
 
-koto runs this state itself and moves on, through `probe_draw`, to
-`review_level_choice` without stopping. It assigns the run to the live offload canary's groups when the
+koto runs this state itself and moves on, through `probe_draw` and
+`fix_determination`, without stopping. It assigns the run to the live offload canary's groups when the
 canary applies; there is nothing to submit. If it ever holds here, tick again with
 `koto next {{SESSION_NAME}} --no-cleanup`.
 
 ## offload_arm_withheld
 
-koto passes through this state, and `probe_draw`, to `review_level_choice`
-without stopping.
+koto passes through this state, `probe_draw` and `fix_determination` without
+stopping.
 There is nothing to submit.
 
 ## offload_arm_preloaded
 
-koto passes through this state, and `probe_draw`, to `review_level_choice`
-without stopping.
+koto passes through this state, `probe_draw` and `fix_determination` without
+stopping.
 There is nothing to submit.
 
 ## probe_draw
 
-koto runs this state itself and moves on to `review_level_choice` without
+koto runs this state itself and moves on to `fix_determination` without
 stopping. There is nothing to submit. If it ever holds here, tick again with
 `koto next {{SESSION_NAME}} --no-cleanup`.
 
 ## probe_arm_near
 
-koto passes through this state to `review_level_choice` without stopping.
+koto passes through this state to `fix_determination` without stopping.
 There is nothing to submit.
 
 ## probe_arm_far
 
-koto passes through this state to `review_level_choice` without stopping.
+koto passes through this state to `fix_determination` without stopping.
 There is nothing to submit.
 
 ## probe_arm_far_redeliver
 
-koto passes through this state to `review_level_choice` without stopping.
+koto passes through this state to `fix_determination` without stopping.
 There is nothing to submit.
-
-## review_level_choice
-
-Choose this run's review level now, before implementing anything. The level
-decides which review panels a code change goes through
-(`references/review-levels.md` defines them):
-
-- `light` -- one panel of one reviewer seat. For a small, contained change
-  outside the risky path classes.
-- `standard` -- scrutiny (three seats), then review (three seats). No QA.
-- `full` -- scrutiny, review, then QA (seven seats).
-
-Choose from the issue and the analysis plan in `plan.md`: how much the change
-touches and how much could go wrong. After implementation the facts of the
-change set a floor the level can't sit below, so a level that turns out too
-light is raised then, never lowered. koto has already recorded the
-coordinator's bound, if any, as it entered this state; the choice must fall
-inside it.
-
-Record the choice:
-
-```bash
-"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" <level>
-```
-
-It rebinds `REVIEW_LEVEL` and writes the ledger together; then tick again with
-nothing submitted (`koto next {{SESSION_NAME}} --no-cleanup`) and the run goes on to
-fix_determination. A bound alone never picks the level, even one whose floor
-equals its ceiling: the choice is always a `set`. Exit 1 prints a `refused:` line naming the rule (outside the
-bound, or no bound recorded yet: tick again so the action records it). Exit 66
-means the rebind or a koto context read or write failed and nothing changed;
-read its message and run it again. If no level can be recorded, submit
-`level_status: blocked` with `detail`.
-
-{{PROBE_FAR_RULE}}
 
 ## fix_determination
 
@@ -4151,9 +4169,11 @@ koto decides here whether this unit is a fix, before anything is implemented
 a change goes to `implementation`, a fix to `reproduce`. On entry it ran
 `fix-kind.sh resolve`, which records a fix when the issue carries one of the
 repository's fix labels or the plan step has a `**Fixes**:` line, keeps a fix
-declared at `analysis`, and records a change otherwise. Before that it started the
-test-change ledger (`test-change.sh init`), which an edited test is judged against
-at `pass_counting`. You see this directive only when the run is held here.
+declared at `analysis`, and records a change otherwise. Before that it ran
+`review-level.sh init` again, which changes nothing once `analysis` recorded the
+review-level bound, and started the test-change ledger (`test-change.sh init`), which an
+edited test is judged against at `pass_counting`. You see this directive only
+when the run is held here.
 
 The `kind_route` gate holds when `UNIT_KIND` was rebound by hand away from the
 ledger, and `kind_unchanged`'s `hold:` line names both: `fix-kind.sh declare
@@ -4200,6 +4220,8 @@ Then tick with nothing submitted. The `red_recorded` gate passes once a red or a
 before-observation is recorded, and the run goes on to `implementation`. If neither
 can be recorded, submit `reproduce_status: blocked` with `detail`.
 
+{{PROBE_FAR_RULE_FIX}}
+
 ## implementation
 
 Read `references/phases/phase-4-implementation.md` for the implementation cycle,
@@ -4210,6 +4232,19 @@ as written here, empty or not.
 Submit `implementation_status: complete` when the work is committed. The issue's
 type is not part of this submission: koto records the changed paths next and then
 asks for the type once, at `issue_type_routing`.
+
+Nobody chooses a review level up front: after implementation, `review_level_check`
+sets it from the facts of the change, within the coordinator's bound
+(`references/review-levels.md`). When the change is riskier than its paths will
+show, raise the level, here or already at `analysis`, and the check keeps the
+raise:
+
+```bash
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" <standard|full> --reason "<why>"
+```
+
+A raise past the bound's ceiling needs the `--reason`; inside it the reason is
+optional but worth recording.
 
 When verification sent the run back because a command failed, read that
 command's log. A failed command beside a timed-out one comes back here too, and is
@@ -4233,6 +4268,8 @@ use `partial_tests_failing_escalate`. The cap lives here until koto enforces it
 from its attempt counts, with the same number. Submit `blocked` for external
 blockers.
 Record non-obvious judgment calls with `koto decisions record {{SESSION_NAME}}`.
+
+{{PROBE_FAR_RULE}}
 
 ## changed_paths_record
 
@@ -4293,22 +4330,26 @@ Evidence schema:
 ## review_level_check
 
 The review-level check stands between a code change and its first panel, on
-every lap. koto gathered the facts of the change as it entered this state
-(`review_facts.json`: changed lines and files, the path classes touched,
-whether tests or the acceptance criteria changed, and the floor those facts
-set) and checks the run's review level against them. When it
-passes, koto goes on by itself: `light` to the one-seat light panel,
+every lap, and it is where the run's review level is set. koto gathered the
+facts of the change as it entered this state (`review_facts.json`: changed
+lines and files, the path classes touched, whether tests or the acceptance
+criteria changed, and the floor those facts set) and set the level from them
+(`review-level.sh set-from-facts`): the facts floor, or higher when you raised
+the level earlier or the coordinator's bound has a higher floor. A facts floor
+above the bound's ceiling wins, and the ledger records the breach. Then koto
+goes on by itself in the same tick: `light` to the one-seat light panel,
 `standard` and `full` to scrutiny. You only see this state when it holds.
 
 Read the `hold:` line in the `level_floor` gate's output. It names why:
 
-- **below the facts floor** (it names the rule): raise the level to the floor,
-  `"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" <floor>`.
-  A raise to the floor needs no reason, even past a ceiling.
-- **REVIEW_LEVEL differs from the ledger** (both levels named): the variable
-  was changed by hand. Run `set` with the level the run should be at.
-- **below the bound's floor, or above its ceiling with no breach**: `set` a
-  level inside the bound, or past the ceiling with `--reason`.
+- **no level recorded yet**: the action couldn't set one; its fallback is
+  shown above. Fix the cause and tick again.
+- **below the facts floor** (it names the rule), **below the bound's floor, or
+  above its ceiling with no breach**: the ledger's level was changed after the
+  action set it. Tick again with nothing submitted and the action sets it
+  again, or `set` a level yourself:
+  `"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" <level>`
+  (past the ceiling with `--reason`).
 - **the facts were gathered at another commit**: commits landed while the
   state held. Tick again; the action re-gathers them.
 
@@ -4348,8 +4389,8 @@ back to you again if it still can't answer. Your answer is recorded as yours, ne
 decider's verdict. Don't record an override to get past a waiting check, and
 answer only a criterion the response lists under `awaiting`.
 
-After a raise, tick again with nothing submitted: the action records a `check`
-line at the new level and the gate passes. `koto overrides record` on
+After a raise, tick again with nothing submitted: the action keeps the raised
+level, records a `check` line at it, and the gate passes. `koto overrides record` on
 `level_floor` is the only way past a hold without a raise, and the ledger
 reader counts it. If the run can't go on, submit `level_status: blocked` with
 `detail`.

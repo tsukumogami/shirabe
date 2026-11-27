@@ -11,6 +11,12 @@
 //!   SessionStart hook JSON whose `additionalContext` tells the compacted
 //!   session to re-read each recorded `SKILL.md`, run `koto status` on its
 //!   koto session, and read its compaction note, before doing anything else.
+//!   It runs the same freshness read and opens with its verdict: the note is
+//!   fresh, stale, or its freshness couldn't be checked. A stale note gets a
+//!   step, right after reading it, to rewrite it before any other work; one
+//!   whose freshness is unknown gets a step to rewrite it first if koto shows
+//!   the run past it. The verdict reaches the session here even when the
+//!   summary doesn't carry pre-compact's line, or pre-compact never ran.
 //!
 //! Both read the hook JSON on stdin for `session_id` and look up the ledger
 //! entry `scripts/handoff-brief.sh note` wrote for that session:
@@ -34,19 +40,33 @@
 //! without following a link, every field passes its grammar, the skills of
 //! one plugin share one plugin root, and its koto session equals
 //! `KOTO_SESSION` where that is set. With no usable entry for a valid session
-//! id, `pre-compact` says no note is recorded and names the branch `git`
-//! reads in its working directory, and `re-anchor` prints a generic line.
+//! id, the hooks ask koto for the run the session's anchor holds (`koto
+//! session hierarchy anchor-<session id> --json`, a held-by link named by
+//! that anchor). Exactly one such run, still in a work tree, gives a pointer
+//! like an entry's: the koto session, the directory it runs in, the branch
+//! read live there, and the note only when koto lists it. Otherwise
+//! `pre-compact` says no note is recorded and names the branch `git` reads in
+//! its working directory, and `re-anchor` prints a generic line.
 //!
 //! The stale flag. The note is stale when the koto session moved on after
 //! the note's last write, or the branch has a commit newer than that write.
-//! koto prints no session-wide latest seq, so "moved on" is read through
-//! koto's own CLI, which logs no read for any of these: `koto context
-//! history` of the note gives its last write's seq, timestamp and state;
-//! `koto status` gives the current state (a transition after the note
-//! changes it); and `koto context list` plus `koto context history` of each
-//! other key gives the latest write seq of every key. The branch's tip
-//! commit time comes from `git log -1 --format=%ct refs/heads/<branch>`, run
-//! in the entry's repository when that is still a work tree, else in the
+//! koto's CLI prints no session-wide latest seq, so "moved on" is read
+//! through calls that log no read: `koto context history` of the note gives
+//! its last write's seq, timestamp and state; `koto status` gives the current
+//! state (a transition after the note changes it); the run's event log,
+//! `koto-<session>.state.jsonl` in the directory `koto session dir` prints,
+//! gives every event's seq and type, so any event after the note's write
+//! that moved the work on (evidence, a decision, an override, a transition
+//! back to the same state) is seen; and `koto context list` plus `koto
+//! context history` of each other key gives the latest write seq of every
+//! key. In the log, a read (`context_read`), an import (`session_imported`)
+//! and a key copied in by a cloud sync (`context_added` by writer `sync`)
+//! don't count: none of them is work. The log is opened without following a
+//! link and must be a regular file; only its last mebibyte is read, and a
+//! tail that holds nothing older than the event right after the note can't
+//! say what came between, so it leaves the freshness unknown. The branch's
+//! tip commit time comes from `git log -1 --format=%ct refs/heads/<branch>`,
+//! run in the entry's repository when that is still a work tree, else in the
 //! hook's working directory. Every call is bounded in time. A check that
 //! can't be read leaves the freshness unknown unless another check already
 //! found the note stale.
@@ -97,6 +117,17 @@ const MAX_KEYS_SCANNED: usize = 256;
 
 /// The most bytes read from one tool's stdout.
 const MAX_TOOL_OUTPUT: u64 = 4 * 1024 * 1024;
+
+/// The most bytes read from the end of the run's event log. An event line is
+/// a few hundred bytes, so this holds the last few thousand events.
+const LOG_TAIL_BYTES: u64 = 1024 * 1024;
+
+/// The longest session directory path the freshness read accepts.
+const MAX_SESSION_DIR: usize = 4096;
+
+/// The most bytes read from the start of a run's event log for its header
+/// line. A real header is under a kilobyte.
+const MAX_HEADER_BYTES: u64 = 64 * 1024;
 
 /// The flags every `git` call carries, so a repository's fsmonitor, hooks or
 /// signature program (`gpg.program`, run by `git log` when the repository
@@ -253,11 +284,15 @@ pub struct Skill {
     pub path: String,
 }
 
-/// A parsed, grammar-checked ledger entry.
+/// A parsed, grammar-checked ledger entry, or the pointer the hooks derive
+/// from koto when the session has none.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     pub koto_session: String,
-    pub note_key: String,
+    /// The note's key. A ledger entry always names one; a derived pointer
+    /// names it only when koto lists the key for the run, and `None` means
+    /// the run has no note to point at.
+    pub note_key: Option<String>,
     pub branch: String,
     /// The repository top-level `note` ran in, when its line passed its
     /// grammar. A line that fails it is dropped here, not the entry: the
@@ -383,7 +418,7 @@ pub fn parse_entry(text: &str) -> Option<Entry> {
     }
     Some(Entry {
         koto_session: koto_session?,
-        note_key: note_key?,
+        note_key: Some(note_key?),
         branch: branch?,
         repo,
         pr: pr?,
@@ -563,7 +598,17 @@ fn run_tool(prog: &str, args: &[&str], timeout: Duration) -> Option<String> {
 /// The current branch `git` reads in the working directory, when it passes
 /// the branch grammar.
 fn cwd_branch(budget: &Budget) -> Option<String> {
+    branch_in(None, budget)
+}
+
+/// The current branch `git` reads in `dir` (`git -C <dir>`), or in the
+/// working directory when `dir` is `None`, when it passes the branch
+/// grammar.
+fn branch_in(dir: Option<&str>, budget: &Budget) -> Option<String> {
     let mut args: Vec<&str> = GIT_SAFE.to_vec();
+    if let Some(d) = dir {
+        args.extend(["-C", d]);
+    }
     args.extend(["symbolic-ref", "--quiet", "--short", "HEAD"]);
     let out = budget.run("git", &args)?;
     let b = out.trim_end_matches('\n');
@@ -579,7 +624,12 @@ fn cwd_branch(budget: &Budget) -> Option<String> {
 /// records none or it fails a check; the branch is then read in the hook's
 /// working directory.
 fn entry_repo<'a>(e: &'a Entry, budget: &Budget) -> Option<&'a str> {
-    let repo = e.repo.as_deref()?;
+    work_tree(e.repo.as_deref()?, budget)
+}
+
+/// `repo`, when it is a directory that is not a link and is inside a git
+/// work tree by git's own answer.
+fn work_tree<'a>(repo: &'a str, budget: &Budget) -> Option<&'a str> {
     let meta = fs::symlink_metadata(repo).ok()?;
     if meta.file_type().is_symlink() || !meta.is_dir() {
         return None;
@@ -616,6 +666,139 @@ fn branch_commit_secs(branch: &str, repo: Option<&str>, budget: &Budget) -> Opti
     ]);
     let out = budget.run("git", &args)?;
     out.trim().parse::<i64>().ok()
+}
+
+// --- the run the session's anchor holds ---------------------------------------------
+
+/// The koto sessions a `koto session hierarchy <anchor> --json` answer shows
+/// alive and held by `anchor`, in the order it lists them: members of kind
+/// `koto_session`, with `alive` true and a `joined_by` element whose `via`
+/// is `held-by link`, whose `holder` is the member itself and whose `named`
+/// is the anchor. The hierarchy spans every session joined to the anchor
+/// by any route, so each condition matters: another anchor, a session held
+/// by another anchor, or a link this one didn't make is not this session's
+/// run. Each name must pass koto's session grammar. `None` when the answer
+/// isn't JSON with a `members` array.
+pub fn parse_hierarchy(json: &str, anchor: &str) -> Option<Vec<String>> {
+    let v: serde_json::Value = serde_json::from_str(json).ok()?;
+    let mut runs: Vec<String> = Vec::new();
+    for m in v.get("members")?.as_array()? {
+        let field = |k: &str| m.get(k).and_then(|x| x.as_str());
+        let Some(name) = field("name") else {
+            continue;
+        };
+        if field("kind") != Some("koto_session")
+            || m.get("alive").and_then(|a| a.as_bool()) != Some(true)
+            || !KOTO_SESSION_RE.is_match(name)
+        {
+            continue;
+        }
+        let held = m
+            .get("joined_by")
+            .and_then(|j| j.as_array())
+            .is_some_and(|links| {
+                links.iter().any(|l| {
+                    let link = |k: &str| l.get(k).and_then(|x| x.as_str());
+                    link("via") == Some("held-by link")
+                        && link("holder") == Some(name)
+                        && link("named") == Some(anchor)
+                })
+            });
+        if held && !runs.iter().any(|r| r == name) {
+            runs.push(name.to_string());
+        }
+    }
+    Some(runs)
+}
+
+/// The one koto run the session's anchor, `anchor-<session id>`, holds.
+/// None, several, or an answer that can't be read is `None`: the hooks
+/// never pick between runs, so a wrong one is never named.
+fn anchored_run(sid: &str, budget: &Budget) -> Option<String> {
+    let anchor = format!("anchor-{sid}");
+    let out = budget.run("koto", &["session", "hierarchy", &anchor, "--json"])?;
+    match parse_hierarchy(&out, &anchor)?.as_slice() {
+        [one] => Some(one.clone()),
+        _ => None,
+    }
+}
+
+/// The `execution_dir` a run's event log header records.
+fn header_execution_dir(head: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(head).ok()?;
+    v.get("execution_dir")?.as_str().map(str::to_string)
+}
+
+/// The `to` of the latest `execution_anchor_rebound` event in a log tail. A
+/// tail that doesn't start the log drops its first, partial line.
+fn rebound_to(tail: &LogTail) -> Option<String> {
+    let text = String::from_utf8_lossy(&tail.bytes);
+    let mut lines = text.split('\n');
+    if !tail.whole {
+        lines.next();
+    }
+    let mut to = None;
+    for line in lines {
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if event.get("type").and_then(|t| t.as_str()) != Some("execution_anchor_rebound") {
+            continue;
+        }
+        if let Some(t) = event.pointer("/payload/to").and_then(|t| t.as_str()) {
+            to = Some(t.to_string());
+        }
+    }
+    to
+}
+
+/// The directory koto session `ks` runs in: the latest rebind in its event
+/// log's tail when there is one, else the header's `execution_dir`. It must
+/// pass the repository path grammar and still be a work tree.
+fn run_dir(ks: &str, budget: &Budget) -> Option<String> {
+    let path = run_log_path(ks, budget)?;
+    let dir = read_log_tail(&path)
+        .as_ref()
+        .and_then(rebound_to)
+        .or_else(|| {
+            read_log_head(&path)
+                .as_deref()
+                .and_then(header_execution_dir)
+        })?;
+    if !valid_repo_path(&dir) {
+        return None;
+    }
+    work_tree(&dir, budget).map(str::to_string)
+}
+
+/// The pointer for a session with no usable ledger entry, derived from koto
+/// alone: the one run its anchor holds, the directory that run executes in,
+/// the branch read live there, and the run's compaction note only when koto
+/// lists the key. It reads koto and git and nothing else, so it is the same
+/// whether the ledger has no entry or an entry it refused. `None`, and so
+/// the generic text, when any of it can't be read, or `KOTO_SESSION` is set
+/// to another session.
+fn derived_entry(sid: &str, budget: &Budget) -> Option<Entry> {
+    let ks = anchored_run(sid, budget)?;
+    if let Ok(env) = std::env::var("KOTO_SESSION") {
+        if !env.is_empty() && env != ks {
+            return None;
+        }
+    }
+    let dir = run_dir(&ks, budget)?;
+    let branch = branch_in(Some(&dir), budget)?;
+    let has_note = budget
+        .run("koto", &["context", "list", &ks])
+        .and_then(|j| parse_key_list(&j))
+        .is_some_and(|keys| keys.iter().any(|k| k == NOTE_KEY));
+    Some(Entry {
+        koto_session: ks,
+        note_key: has_note.then(|| NOTE_KEY.to_string()),
+        branch,
+        repo: Some(dir),
+        pr: None,
+        skills: Vec::new(),
+    })
 }
 
 // --- the stale flag ----------------------------------------------------------------
@@ -702,11 +885,133 @@ fn parse_key_list(json: &str) -> Option<Vec<String>> {
         .collect()
 }
 
-/// Judge the entry's note against its koto session and its branch.
+/// The end of a run's event log, as read: its bytes, and whether they are
+/// the whole log.
+struct LogTail {
+    bytes: Vec<u8>,
+    whole: bool,
+}
+
+/// The tail of the event log of koto session `ks`: the directory `koto
+/// session dir` prints, which must be an absolute path with no control
+/// character, and `koto-<ks>.state.jsonl` in it, opened without following a
+/// link and without waiting on a FIFO, which must be a regular file. `ks`
+/// passed its grammar when the entry was read, so the name has no `/`.
+fn run_log_tail(ks: &str, budget: &Budget) -> Option<LogTail> {
+    read_log_tail(&run_log_path(ks, budget)?)
+}
+
+/// Where koto session `ks` keeps its event log, with the checks
+/// `run_log_tail` documents.
+fn run_log_path(ks: &str, budget: &Budget) -> Option<PathBuf> {
+    let out = budget.run("koto", &["session", "dir", ks])?;
+    let dir = out.strip_suffix('\n').unwrap_or(&out);
+    if !dir.starts_with('/') || dir.len() > MAX_SESSION_DIR || dir.chars().any(char::is_control) {
+        return None;
+    }
+    Some(Path::new(dir).join(format!("koto-{ks}.state.jsonl")))
+}
+
+/// The event log at `path`, opened without following a link and without
+/// waiting on a FIFO, when it is a regular file.
+fn open_log(path: &Path) -> Option<(fs::File, u64)> {
+    use rustix::fs::{open, Mode, OFlags};
+    let fd = open(
+        path,
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .ok()?;
+    let file = fs::File::from(fd);
+    let meta = file.metadata().ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    Some((file, meta.len()))
+}
+
+/// The first line of the event log at `path`: its header. Only the first
+/// `MAX_HEADER_BYTES` are read, and a header longer than that is `None`.
+fn read_log_head(path: &Path) -> Option<String> {
+    let (file, _) = open_log(path)?;
+    let mut bytes = Vec::new();
+    file.take(MAX_HEADER_BYTES).read_to_end(&mut bytes).ok()?;
+    let end = bytes.iter().position(|b| *b == b'\n')?;
+    String::from_utf8(bytes[..end].to_vec()).ok()
+}
+
+fn read_log_tail(path: &Path) -> Option<LogTail> {
+    use std::io::{Seek, SeekFrom};
+    let (mut file, len) = open_log(path)?;
+    let start = len.saturating_sub(LOG_TAIL_BYTES);
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut bytes = Vec::new();
+    file.take(LOG_TAIL_BYTES).read_to_end(&mut bytes).ok()?;
+    Some(LogTail {
+        bytes,
+        whole: start == 0,
+    })
+}
+
+/// Whether an event moved the work on. A read, an import and a key a cloud
+/// sync copied in are not work; every other event is.
+fn moves_work_on(event: &serde_json::Value, ty: &str) -> bool {
+    match ty {
+        "context_read" | "session_imported" => false,
+        "context_added" => {
+            event.pointer("/payload/writer").and_then(|w| w.as_str()) != Some("sync")
+        }
+        _ => true,
+    }
+}
+
+/// What a log tail says about a note last written at `note_seq`:
+/// `Some(true)` when an event after it moved the work on, `Some(false)` when
+/// none did, and `None` when the tail can't tell: it holds no event, or it
+/// starts past the event right after the note, so what came between isn't
+/// in it. A tail that doesn't start the log starts mid-line, so its first
+/// line is dropped. Lines that aren't an event (the log's header, a line
+/// still being written) are passed over.
+fn moved_on_after(tail: &LogTail, note_seq: u64) -> Option<bool> {
+    let text = String::from_utf8_lossy(&tail.bytes);
+    let mut lines = text.split('\n');
+    if !tail.whole {
+        lines.next();
+    }
+    let mut first_seq = None;
+    for line in lines {
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let (Some(seq), Some(ty)) = (
+            event.get("seq").and_then(|s| s.as_u64()),
+            event.get("type").and_then(|t| t.as_str()),
+        ) else {
+            continue;
+        };
+        first_seq.get_or_insert(seq);
+        if seq > note_seq && moves_work_on(&event, ty) {
+            return Some(true);
+        }
+    }
+    let first_seq = first_seq?;
+    if tail.whole || first_seq <= note_seq.saturating_add(1) {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+/// Judge the entry's note against its koto session and its branch. An entry
+/// with no note has nothing to judge, so its freshness is unknown; callers
+/// don't ask for one.
 fn note_freshness(e: &Entry, budget: &Budget) -> Freshness {
     let ks = e.koto_session.as_str();
+    let Some(note_key) = e.note_key.as_deref() else {
+        return Freshness::Unknown;
+    };
     let note = match budget
-        .run("koto", &["context", "history", ks, &e.note_key])
+        .run("koto", &["context", "history", ks, note_key])
         .and_then(|j| parse_history(&j))
     {
         Some(h) => match latest(&h) {
@@ -738,6 +1043,13 @@ fn note_freshness(e: &Entry, budget: &Budget) -> Freshness {
         None => unknown = true,
     }
 
+    // Any event after the note that moved the work on, whatever its kind.
+    match run_log_tail(ks, budget).and_then(|t| moved_on_after(&t, note.seq)) {
+        Some(true) => return Freshness::Stale,
+        Some(false) => {}
+        None => unknown = true,
+    }
+
     // A key written after the note.
     match budget
         .run("koto", &["context", "list", ks])
@@ -748,7 +1060,7 @@ fn note_freshness(e: &Entry, budget: &Budget) -> Freshness {
                 unknown = true;
             }
             for k in keys.iter().take(MAX_KEYS_SCANNED) {
-                if k == &e.note_key {
+                if k == note_key {
                     continue;
                 }
                 if !valid_koto_key(k) {
@@ -792,23 +1104,76 @@ pub fn freshness_line(f: Freshness) -> Option<&'static str> {
     }
 }
 
+/// The verdict the re-anchor opens with, for every freshness: the session
+/// after a compaction hears it whichever it is.
+pub fn re_anchor_verdict(f: Freshness) -> &'static str {
+    match f {
+        Freshness::Fresh => {
+            "The compaction note is fresh: nothing in the koto session or on the branch came after its last write."
+        }
+        Freshness::Stale => {
+            "The compaction note is stale: the koto session or the branch moved on after it was last written, so it is behind the work."
+        }
+        Freshness::Unknown => {
+            "Whether the compaction note is current could not be checked (koto or git could not be read), so it may be behind the work."
+        }
+    }
+}
+
+/// The re-anchor step after reading the note, for a note that is stale or
+/// may be; none for a fresh one.
+pub fn re_anchor_rewrite_step(f: Freshness) -> Option<&'static str> {
+    match f {
+        Freshness::Fresh => None,
+        Freshness::Stale => Some(
+            "Rewrite the compaction note before any other work, with `handoff-brief.sh note` (scripts/handoff-brief.sh in the shirabe plugin), from where koto says the run stands.",
+        ),
+        Freshness::Unknown => Some(
+            "If koto shows the run past what the note says, rewrite the note before any other work, with `handoff-brief.sh note` (scripts/handoff-brief.sh in the shirabe plugin).",
+        ),
+    }
+}
+
 // --- the outputs ---------------------------------------------------------------------
 
 /// The summary instruction PreCompact prints, from a valid entry.
 pub fn summary_instruction(e: &Entry) -> String {
+    summary_with(e, None)
+}
+
+/// The summary instruction PreCompact prints from the pointer derived from
+/// koto: the entry's lines, behind one saying where the run was found, with
+/// the run's worktree among them.
+pub fn derived_summary(e: &Entry) -> String {
+    summary_with(e, Some(e.repo.as_deref().unwrap_or_default()))
+}
+
+fn summary_with(e: &Entry, worktree: Option<&str>) -> String {
     let mut s = String::new();
     s.push_str("When you write the summary of this session, carry the way back to its work.\n");
+    if worktree.is_some() {
+        s.push_str("No compaction ledger entry is recorded for this session; koto's held-by link from the session's anchor names the run below.\n");
+    }
     s.push_str("Name each of these in the summary, exactly as written here:\n");
     s.push_str(&format!("- koto session: {}\n", e.koto_session));
+    if let Some(w) = worktree {
+        s.push_str(&format!("- worktree: {w}\n"));
+    }
     s.push_str(&format!("- branch: {}\n", e.branch));
     s.push_str(&format!(
         "- pull request: {}\n",
         e.pr.as_deref().unwrap_or("none recorded")
     ));
-    s.push_str(&format!(
-        "- compaction note: key {} in koto session {}\n",
-        e.note_key, e.koto_session
-    ));
+    match &e.note_key {
+        Some(k) => s.push_str(&format!(
+            "- compaction note: key {} in koto session {}\n",
+            k, e.koto_session
+        )),
+        None => s.push_str(&format!(
+            "- compaction note: none recorded in koto session {}\n",
+            e.koto_session
+        )),
+    }
     if !e.skills.is_empty() {
         s.push_str("- skills to re-read by path after the compaction, outermost first:\n");
         for sk in &e.skills {
@@ -839,10 +1204,13 @@ pub fn no_note_summary(branch: Option<&str>) -> String {
     s
 }
 
-/// The re-anchor text the SessionStart hook carries, from a valid entry.
-pub fn re_anchor_text(e: &Entry) -> String {
-    let mut s = String::new();
-    s.push_str("This session was just compacted. Before doing anything else, in this order:\n");
+/// The re-anchor text the SessionStart hook carries, from a valid entry and
+/// its note's freshness.
+pub fn re_anchor_text(e: &Entry, f: Freshness) -> String {
+    let mut s = format!(
+        "This session was just compacted. {} Before doing anything else, in this order:\n",
+        re_anchor_verdict(f)
+    );
     let mut n = 1;
     for sk in &e.skills {
         s.push_str(&format!(
@@ -856,11 +1224,45 @@ pub fn re_anchor_text(e: &Entry) -> String {
         "{n}. Run `koto status {}` to see where that run stands.\n",
         e.koto_session
     ));
-    n += 1;
+    re_anchor_tail(&mut s, e, Some(f), n + 1);
+    s
+}
+
+/// The re-anchor text from the pointer derived from koto, with the note's
+/// freshness when the run has a note (`None` when it has none). It names
+/// the run, its worktree and the branch read there, and no skill: koto
+/// records none, so the session works the skill out from the run.
+pub fn derived_re_anchor_text(e: &Entry, f: Option<Freshness>) -> String {
+    let mut s = format!(
+        "This session was just compacted. No compaction ledger entry is recorded for it; koto's held-by link from the session's anchor names its run, koto session {}, in worktree {}. {} Before doing anything else, in this order:\n",
+        e.koto_session,
+        e.repo.as_deref().unwrap_or_default(),
+        match f {
+            Some(f) => re_anchor_verdict(f),
+            None => "That run has no compaction note recorded.",
+        }
+    );
     s.push_str(&format!(
-        "{n}. Read your compaction note, key {}, with `handoff-brief.sh read --note --session {}` (scripts/handoff-brief.sh in the shirabe plugin), which prints it as data.\n",
-        e.note_key, e.koto_session
+        "1. In that worktree, run `koto status {}` to see where the run stands.\n",
+        e.koto_session
     ));
+    s.push_str("2. Work out the skill that run belongs to from its directive and its session name's prefix (`deliver-` is shirabe:deliver, `scope-` is shirabe:scope, `coordinate-` is shirabe:coordinate), and read that skill's SKILL.md again.\n");
+    re_anchor_tail(&mut s, e, f, 3);
+    s
+}
+
+/// The steps from the note on, numbered from `n`, and the closing line.
+fn re_anchor_tail(s: &mut String, e: &Entry, f: Option<Freshness>, mut n: usize) {
+    if let Some(k) = &e.note_key {
+        s.push_str(&format!(
+            "{n}. Read your compaction note, key {}, with `handoff-brief.sh read --note --session {}` (scripts/handoff-brief.sh in the shirabe plugin), which prints it as data.\n",
+            k, e.koto_session
+        ));
+        if let Some(step) = f.and_then(re_anchor_rewrite_step) {
+            n += 1;
+            s.push_str(&format!("{n}. {step}\n"));
+        }
+    }
     s.push_str(&format!(
         "Then carry on from where koto says the run stands, on branch {}",
         e.branch
@@ -869,17 +1271,29 @@ pub fn re_anchor_text(e: &Entry) -> String {
         s.push_str(&format!(" (pull request {pr})"));
     }
     s.push('.');
-    s
 }
 
-/// The steps both fixed re-anchor texts give: they name nothing read from
-/// anywhere.
+/// The three steps both fixed re-anchor texts give: they name nothing read
+/// from anywhere.
 macro_rules! generic_steps {
     () => {
         "1. Work out the skill you were running from your koto session's name prefix (`deliver-` is shirabe:deliver, `scope-` is shirabe:scope, `coordinate-` is shirabe:coordinate), and read that skill's SKILL.md again.\n\
 2. In your worktree, run `koto status` on that koto session (`koto workflows` lists the sessions there) to see where the run stands.\n\
-3. Read your compaction note with `handoff-brief.sh read --note --session <koto session>` (scripts/handoff-brief.sh in the shirabe plugin), which prints it as data.\n\
-Then carry on from where koto says the run stands."
+3. Read your compaction note with `handoff-brief.sh read --note --session <koto session>` (scripts/handoff-brief.sh in the shirabe plugin), which prints it as data.\n"
+    };
+}
+
+/// The line the fixed re-anchor texts end on.
+macro_rules! generic_carry_on {
+    () => {
+        "Then carry on from where koto says the run stands."
+    };
+}
+
+/// The opening of the re-anchor for an entry too long to show.
+macro_rules! over_cap_head {
+    () => {
+        "This session was just compacted. Its compaction ledger entry is recorded but too long to show here."
     };
 }
 
@@ -887,15 +1301,37 @@ Then carry on from where koto says the run stands."
 /// it names nothing read from anywhere.
 pub const GENERIC_RE_ANCHOR: &str = concat!(
     "This session was just compacted, and no compaction note is recorded for it. Before doing anything else, in this order:\n",
-    generic_steps!()
+    generic_steps!(),
+    generic_carry_on!()
 );
 
-/// The re-anchor text for a usable entry whose block would reach the cap.
-/// Fixed text, the generic steps behind a line saying the entry was too long.
+/// The re-anchor text for a usable entry whose block would reach the cap,
+/// with no freshness verdict: the generic steps behind a line saying the
+/// entry was too long. Fixed text; `over_cap_re_anchor` adds the verdict.
 pub const OVER_CAP_RE_ANCHOR: &str = concat!(
-    "This session was just compacted. Its compaction ledger entry is recorded but too long to show here. Before doing anything else, in this order:\n",
-    generic_steps!()
+    over_cap_head!(),
+    " Before doing anything else, in this order:\n",
+    generic_steps!(),
+    generic_carry_on!()
 );
+
+/// The re-anchor text for a usable entry whose block would reach the cap:
+/// the generic steps behind a line saying the entry was too long, with the
+/// note's freshness verdict and, for a note that is stale or may be, the
+/// rewrite step. It names nothing read from the entry.
+pub fn over_cap_re_anchor(f: Freshness) -> String {
+    let mut s = format!(
+        "{} {} Before doing anything else, in this order:\n{}",
+        over_cap_head!(),
+        re_anchor_verdict(f),
+        generic_steps!()
+    );
+    if let Some(step) = re_anchor_rewrite_step(f) {
+        s.push_str(&format!("4. {step}\n"));
+    }
+    s.push_str(generic_carry_on!());
+    s
+}
 
 /// `pre-compact`'s stdout for a hook input, or `None` for no output.
 pub fn pre_compact_output(input: &str) -> Option<String> {
@@ -910,25 +1346,54 @@ pub fn pre_compact_output(input: &str) -> Option<String> {
             }
             Some(s)
         }
-        None => Some(no_note_summary(cwd_branch(&budget).as_deref())),
+        None => match derived_entry(&sid, &budget) {
+            Some(e) => {
+                let mut s = derived_summary(&e);
+                if e.note_key.is_some() {
+                    if let Some(line) = freshness_line(note_freshness(&e, &budget)) {
+                        s.push('\n');
+                        s.push_str(line);
+                    }
+                }
+                Some(s)
+            }
+            None => Some(no_note_summary(cwd_branch(&budget).as_deref())),
+        },
     }
 }
 
-/// `re-anchor`'s stdout for a hook input, or `None` for no output. An entry
-/// whose block would reach the cap gets the generic steps behind a line
-/// saying so.
+/// `re-anchor`'s stdout for a hook input, or `None` for no output. With an
+/// entry it judges the note's freshness, under the same time budget as
+/// `pre-compact`, and carries the verdict. An entry whose block would reach
+/// the cap gets the generic steps behind a line saying so, still with the
+/// verdict. With no usable entry it looks for the run the session's anchor
+/// holds, under the same budget, and names it; failing that, the generic
+/// line.
 pub fn re_anchor_output(input: &str) -> Option<String> {
     let sid = hook_sid(input)?;
+    let budget = Budget::new(FRESHNESS_BUDGET);
     match read_entry(&sid) {
-        Some(e) => re_anchor_json(&e).or_else(|| context_json(OVER_CAP_RE_ANCHOR)),
-        None => context_json(GENERIC_RE_ANCHOR),
+        Some(e) => {
+            let f = note_freshness(&e, &budget);
+            re_anchor_json(&e, f)
+                .or_else(|| context_json(&over_cap_re_anchor(f)))
+                .or_else(|| context_json(OVER_CAP_RE_ANCHOR))
+        }
+        None => match derived_entry(&sid, &budget) {
+            Some(e) => {
+                let f = e.note_key.is_some().then(|| note_freshness(&e, &budget));
+                context_json(&derived_re_anchor_text(&e, f))
+                    .or_else(|| context_json(GENERIC_RE_ANCHOR))
+            }
+            None => context_json(GENERIC_RE_ANCHOR),
+        },
     }
 }
 
 /// The SessionStart hook JSON for an entry, withheld (`None`) rather than
 /// truncated when its text would reach the 10,000-character cap.
-fn re_anchor_json(e: &Entry) -> Option<String> {
-    context_json(&re_anchor_text(e))
+fn re_anchor_json(e: &Entry, f: Freshness) -> Option<String> {
+    context_json(&re_anchor_text(e, f))
 }
 
 /// A SessionStart hook JSON carrying `text` as `additionalContext`, or `None`
@@ -1045,15 +1510,158 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
     #[test]
     fn re_anchor_orders_skills_then_status_then_note() {
         let e = parse_entry(GOOD).unwrap();
-        let t = re_anchor_text(&e);
-        let deliver = t.find("skills/deliver/SKILL.md").unwrap();
-        let scope = t.find("skills/scope/SKILL.md").unwrap();
-        let status = t.find("koto status probe-run").unwrap();
-        let note = t
-            .find("handoff-brief.sh read --note --session probe-run")
-            .unwrap();
-        assert!(deliver < scope && scope < status && status < note);
-        assert!(t.chars().count() < CONTEXT_CAP);
+        for f in [Freshness::Fresh, Freshness::Stale, Freshness::Unknown] {
+            let t = re_anchor_text(&e, f);
+            let deliver = t.find("skills/deliver/SKILL.md").unwrap();
+            let scope = t.find("skills/scope/SKILL.md").unwrap();
+            let status = t.find("koto status probe-run").unwrap();
+            let note = t
+                .find("handoff-brief.sh read --note --session probe-run")
+                .unwrap();
+            assert!(deliver < scope && scope < status && status < note);
+            assert!(t.chars().count() < CONTEXT_CAP);
+        }
+    }
+
+    #[test]
+    fn re_anchor_opens_with_the_verdict_and_puts_a_rewrite_after_the_note() {
+        let e = parse_entry(GOOD).unwrap();
+        for f in [Freshness::Fresh, Freshness::Stale, Freshness::Unknown] {
+            let t = re_anchor_text(&e, f);
+            let verdict = re_anchor_verdict(f);
+            assert!(t.starts_with(&format!(
+                "This session was just compacted. {verdict} Before"
+            )));
+            let note = t.find("handoff-brief.sh read --note").unwrap();
+            let carry_on = t.find("Then carry on").unwrap();
+            match re_anchor_rewrite_step(f) {
+                Some(step) => {
+                    // Numbered after the note's step: two skills, status,
+                    // note, then the rewrite.
+                    let at = t.find(&format!("5. {step}\n")).expect("rewrite step");
+                    assert!(note < at && at < carry_on);
+                }
+                None => assert!(!t.contains("handoff-brief.sh note")),
+            }
+        }
+    }
+
+    #[test]
+    fn the_re_anchor_verdicts() {
+        let fresh = re_anchor_verdict(Freshness::Fresh);
+        let stale = re_anchor_verdict(Freshness::Stale);
+        let unknown = re_anchor_verdict(Freshness::Unknown);
+        assert!(fresh.contains("is fresh") && !fresh.contains("stale"));
+        assert!(stale.contains("is stale") && !stale.contains("fresh"));
+        assert!(unknown.contains("could not be checked"));
+        assert!(!unknown.contains("is fresh") && !unknown.contains("is stale"));
+        for v in [fresh, stale, unknown] {
+            assert!(!v.contains('\n'));
+        }
+        assert_eq!(re_anchor_rewrite_step(Freshness::Fresh), None);
+        let stale_step = re_anchor_rewrite_step(Freshness::Stale).unwrap();
+        assert!(stale_step.starts_with("Rewrite the compaction note before any other work"));
+        let unknown_step = re_anchor_rewrite_step(Freshness::Unknown).unwrap();
+        assert!(unknown_step.contains("before any other work"));
+        for s in [stale_step, unknown_step] {
+            assert!(s.contains("`handoff-brief.sh note`") && !s.contains('\n'));
+        }
+    }
+
+    #[test]
+    fn the_over_cap_re_anchor_carries_the_verdict() {
+        for f in [Freshness::Fresh, Freshness::Stale, Freshness::Unknown] {
+            let t = over_cap_re_anchor(f);
+            assert!(t.contains("too long to show"));
+            assert!(t.contains(re_anchor_verdict(f)));
+            assert!(t.contains("handoff-brief.sh read --note --session"));
+            assert!(!t.contains("no compaction note is recorded"));
+            assert!(t.ends_with("Then carry on from where koto says the run stands."));
+            assert_eq!(
+                t.contains("4. "),
+                re_anchor_rewrite_step(f).is_some(),
+                "{t}"
+            );
+            assert!(t.chars().count() < CONTEXT_CAP);
+        }
+    }
+
+    fn tail(lines: &[&str], whole: bool) -> LogTail {
+        LogTail {
+            bytes: lines.join("\n").into_bytes(),
+            whole,
+        }
+    }
+
+    #[test]
+    fn a_log_tail_sees_an_event_that_moved_the_work_on() {
+        let header = r#"{"schema_version":1,"workflow":"k"}"#;
+        let note = r#"{"seq":5,"timestamp":"t","type":"context_added","payload":{"key":"compaction/note.md"}}"#;
+        let evidence = r#"{"seq":6,"timestamp":"t","type":"evidence_submitted","payload":{}}"#;
+        let read = r#"{"seq":6,"timestamp":"t","type":"context_read","payload":{}}"#;
+        let import = r#"{"seq":7,"timestamp":"t","type":"session_imported","payload":{}}"#;
+        let sync =
+            r#"{"seq":8,"timestamp":"t","type":"context_added","payload":{"writer":"sync"}}"#;
+        let agent =
+            r#"{"seq":8,"timestamp":"t","type":"context_added","payload":{"writer":"agent"}}"#;
+        assert_eq!(moved_on_after(&tail(&[header, note], true), 5), Some(false));
+        assert_eq!(
+            moved_on_after(&tail(&[header, note, evidence], true), 5),
+            Some(true)
+        );
+        assert_eq!(
+            moved_on_after(&tail(&[header, note, read, import, sync], true), 5),
+            Some(false)
+        );
+        assert_eq!(
+            moved_on_after(&tail(&[header, note, read, agent], true), 5),
+            Some(true)
+        );
+        // An event at the note's own seq or before it never counts.
+        assert_eq!(
+            moved_on_after(&tail(&[header, evidence], true), 6),
+            Some(false)
+        );
+        // A trailing newline, a line still being written, and the header are
+        // passed over.
+        assert_eq!(
+            moved_on_after(&tail(&[header, note, "", r#"{"seq":9,"#], true), 5),
+            Some(false)
+        );
+        // No event at all can't tell.
+        assert_eq!(moved_on_after(&tail(&[header], true), 5), None);
+        assert_eq!(moved_on_after(&tail(&["", "not json"], true), 5), None);
+    }
+
+    #[test]
+    fn a_partial_log_tail_drops_its_first_line_and_must_reach_the_note() {
+        let cut = r#"type":"evidence_submitted","seq":99}"#;
+        let note = r#"{"seq":5,"timestamp":"t","type":"context_added","payload":{}}"#;
+        let next_read = r#"{"seq":6,"timestamp":"t","type":"context_read","payload":{}}"#;
+        let late_read = r#"{"seq":40,"timestamp":"t","type":"context_read","payload":{}}"#;
+        let late_work = r#"{"seq":41,"timestamp":"t","type":"decision_recorded","payload":{}}"#;
+        // The cut first line is dropped, even when it would parse.
+        let whole_line = r#"{"seq":99,"timestamp":"t","type":"evidence_submitted","payload":{}}"#;
+        assert_eq!(
+            moved_on_after(&tail(&[whole_line, note], false), 5),
+            Some(false)
+        );
+        assert_eq!(
+            moved_on_after(&tail(&[cut, note, next_read], false), 5),
+            Some(false)
+        );
+        // A tail starting right after the note still sees everything after it.
+        assert_eq!(
+            moved_on_after(&tail(&[cut, next_read], false), 5),
+            Some(false)
+        );
+        // A tail of reads that starts well past the note can't tell.
+        assert_eq!(moved_on_after(&tail(&[cut, late_read], false), 5), None);
+        // But work anywhere in it after the note is enough.
+        assert_eq!(
+            moved_on_after(&tail(&[cut, late_read, late_work], false), 5),
+            Some(true)
+        );
     }
 
     fn entry_with(skills: usize, arg_len: usize, args: usize) -> Entry {
@@ -1070,7 +1678,8 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
     #[test]
     fn re_anchor_json_is_hook_shaped() {
         let e = parse_entry(GOOD).unwrap();
-        let j: serde_json::Value = serde_json::from_str(&re_anchor_json(&e).unwrap()).unwrap();
+        let j: serde_json::Value =
+            serde_json::from_str(&re_anchor_json(&e, Freshness::Fresh).unwrap()).unwrap();
         assert_eq!(j["hookSpecificOutput"]["hookEventName"], "SessionStart");
         assert!(j["hookSpecificOutput"]["additionalContext"]
             .as_str()
@@ -1081,12 +1690,14 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
     #[test]
     fn re_anchor_is_withheld_at_the_cap_not_truncated() {
         // Eight skills with long paths and short arguments fit.
-        let fits = entry_with(MAX_SKILLS, 20, 3);
-        assert!(re_anchor_json(&fits).is_some());
-        // Eight skills each carrying 4,000 characters of arguments don't.
-        let over = entry_with(MAX_SKILLS, 200, 20);
-        assert!(re_anchor_text(&over).chars().count() >= CONTEXT_CAP);
-        assert!(re_anchor_json(&over).is_none());
+        for f in [Freshness::Fresh, Freshness::Stale, Freshness::Unknown] {
+            let fits = entry_with(MAX_SKILLS, 20, 3);
+            assert!(re_anchor_json(&fits, f).is_some());
+            // Eight skills each carrying 4,000 characters of arguments don't.
+            let over = entry_with(MAX_SKILLS, 200, 20);
+            assert!(re_anchor_text(&over, f).chars().count() >= CONTEXT_CAP);
+            assert!(re_anchor_json(&over, f).is_none());
+        }
     }
 
     #[test]
@@ -1236,6 +1847,77 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
             vec!["a".to_string(), "b/c".to_string()]
         );
         assert!(parse_key_list(r#"["a",1]"#).is_none());
+    }
+
+    #[test]
+    fn the_hierarchy_keeps_only_live_runs_the_anchor_holds() {
+        let a = "anchor-s1";
+        let held = |h: &str, n: &str| serde_json::json!([{"holder": h, "named": n, "target": n, "via": "held-by link"}]);
+        let m = |kind: &str, name: &str, alive: bool, links: serde_json::Value| serde_json::json!({"kind": kind, "name": name, "alive": alive, "joined_by": links});
+        let json = serde_json::json!({"session": a, "members": [
+            m("anchor", a, true, serde_json::json!([])),
+            m("koto_session", "run-a", true, held("run-a", a)),
+            m("koto_session", "run-a", true, held("run-a", a)),
+            m("koto_session", "dead", false, held("dead", a)),
+            m("koto_session", "elsewhere", true, held("elsewhere", "anchor-s2")),
+            m("koto_session", "via-other", true, held("someone", a)),
+            m("anchor_close", "close", true, held("close", a)),
+            m("koto_session", "-bad", true, held("-bad", a)),
+            m("koto_session", "parent", true,
+              serde_json::json!([{"holder": "parent", "named": a, "via": "parent link"}])),
+            serde_json::json!({"kind": "koto_session", "name": "no-links", "alive": true}),
+            m("koto_session", "run-b", true, serde_json::json!([
+                {"via": "parent link", "holder": "x", "named": "y"},
+                {"via": "held-by link", "holder": "run-b", "named": a}])),
+        ]})
+        .to_string();
+        assert_eq!(parse_hierarchy(&json, a).unwrap(), vec!["run-a", "run-b"]);
+        assert_eq!(
+            parse_hierarchy(&json, "anchor-s2").unwrap(),
+            vec!["elsewhere"]
+        );
+        assert_eq!(
+            parse_hierarchy(r#"{"members": []}"#, a).unwrap(),
+            Vec::<String>::new()
+        );
+        for bad in [
+            "",
+            "not json",
+            "[]",
+            r#"{"members": 7}"#,
+            r#"{"session": "x"}"#,
+        ] {
+            assert!(parse_hierarchy(bad, a).is_none(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_execution_dir_is_the_latest_rebind_else_the_header() {
+        assert_eq!(
+            header_execution_dir(r#"{"schema_version":1,"execution_dir":"/w/a"}"#).as_deref(),
+            Some("/w/a")
+        );
+        assert!(header_execution_dir(r#"{"schema_version":1}"#).is_none());
+        assert!(header_execution_dir(r#"{"execution_dir":7}"#).is_none());
+        assert!(header_execution_dir("not json").is_none());
+        let rb = |seq: u64, to: &str| {
+            format!(
+                r#"{{"seq":{seq},"type":"execution_anchor_rebound","payload":{{"from":"/x","to":"{to}"}}}}"#
+            )
+        };
+        let t = tail(
+            &[
+                r#"{"schema_version":1,"execution_dir":"/w/a"}"#,
+                &rb(2, "/w/b"),
+                r#"{"seq":3,"type":"transitioned"}"#,
+                &rb(4, "/w/c"),
+            ],
+            true,
+        );
+        assert_eq!(rebound_to(&t).as_deref(), Some("/w/c"));
+        assert!(rebound_to(&tail(&[r#"{"seq":3,"type":"transitioned"}"#], true)).is_none());
+        // A partial tail drops its first line, rebind or not.
+        assert!(rebound_to(&tail(&[&rb(2, "/w/b"), r#"{"seq":3,"type":"x"}"#], false)).is_none());
     }
 
     #[test]

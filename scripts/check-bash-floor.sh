@@ -53,7 +53,21 @@
 #     match macOS, whose tools are BSD: a GNU-only flag passes here and fails
 #     there, which only the system backend on macOS catches.
 #
+# Slicing:
+#   With SUITE_SLICE=i/n set (a CI matrix job), a suite runs only slice i of
+#   its list's harnesses, chosen by scripts/lib/suite-slice.sh; the n slices
+#   together run every harness once, and the "ran X of Y listed" line counts
+#   the slice and names it. The selector balances the slices on the list's
+#   `cost: <script> <seconds>` lines, then on the rows of the file
+#   SUITE_SLICE_COSTS names for scripts the list gives no cost. The harnesses
+#   of a sliced list run with SUITE_SLICE and SUITE_SLICE_COSTS unset, so
+#   nothing is sliced twice. A list carrying `slice: pass` is not sliced: every
+#   harness runs and keeps both variables, for a harness that slices its own
+#   work.
+#
 # Environment:
+#   SUITE_SLICE                     i/n: run slice i of n (see Slicing)
+#   SUITE_SLICE_COSTS               a cost table for the slices (see Slicing)
 #   SHIRABE_FLOOR_IMAGE             override the container image tag that gets
 #                                   built
 #   SHIRABE_BIN                     a shirabe binary to inject instead of
@@ -123,7 +137,9 @@ mktempdir() {
 # the same scripts the workflow runs so the local check and the CI check cannot
 # drift apart. A list is one entry per line: `workflow: <path>`, the workflow
 # whose macOS leg runs the suite; `needs: shirabe` when the suite runs the
-# shirabe binary; a `#` comment; or a script's path from the repository root.
+# shirabe binary; `cost: <script> <seconds>`, a script's cost for slicing;
+# `slice: pass`, when the list's harnesses slice their own work (see Slicing
+# above); a `#` comment; or a script's path from the repository root.
 # Any other line is an error check-bash-floor_test.sh reports, rather than a
 # script the floor silently never runs. The lists live outside this script so
 # that adding a script to a suite edits only that suite's list, and each
@@ -220,7 +236,51 @@ suite_scripts() {
     fi
     list=$(suite_list "$1") || return 1
     sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' -e '/^[[:space:]]*workflow:/d' -e '/^[[:space:]]*needs:/d' \
+        -e '/^[[:space:]]*cost:/d' -e '/^[[:space:]]*slice:/d' \
         -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$list"
+}
+
+# suite_cost_rows <suite>: the list's `cost: <script> <seconds>` lines as the
+# selector's cost rows, `cost<TAB><script file name><TAB><seconds>`. A line
+# with no seconds, or a value that is not a whole number, is passed on as it
+# stands for the selector to refuse.
+suite_cost_rows() {
+    local list
+    list=$(suite_list "$1") || return 0
+    awk '$1 == "cost:" { n = split($2, p, "/"); printf "cost\t%s\t%s\n", p[n], $3 }' "$list"
+}
+
+# A list whose harnesses slice their own work says so with `slice: pass`.
+suite_slice_pass() {
+    local list
+    list=$(suite_list "$1") || return 1
+    grep -Eq '^[[:space:]]*slice:[[:space:]]*pass[[:space:]]*$' "$list"
+}
+
+# Whether this run slices the suite's harness list: SUITE_SLICE is set and the
+# list doesn't pass it through.
+suite_is_sliced() {
+    [ -n "${SUITE_SLICE:-}" ] || return 1
+    ! suite_slice_pass "$1"
+}
+
+# slice_scripts <suite> <scripts> <costs file>: prints this run's slice of the
+# scripts. The selector reads the list's cost rows first and
+# SUITE_SLICE_COSTS's after them, both written to <costs file>, so a list's
+# own cost wins. Returns the selector's status when it refuses. The caller
+# makes the costs file's directory: this runs in a command substitution,
+# where mktempdir couldn't register it for cleanup.
+slice_scripts() {
+    local suite="$1" scripts="$2" costs="$3"
+    suite_cost_rows "$suite" >"$costs"
+    if [ -n "${SUITE_SLICE_COSTS:-}" ]; then
+        if [ ! -r "$SUITE_SLICE_COSTS" ] || [ -d "$SUITE_SLICE_COSTS" ]; then
+            echo "check-bash-floor: SUITE_SLICE_COSTS=$SUITE_SLICE_COSTS is not a readable file" >&2
+            return 2
+        fi
+        cat "$SUITE_SLICE_COSTS" >>"$costs"
+    fi
+    printf '%s\n' "$scripts" | SUITE_SLICE_COSTS="$costs" bash "$SCRIPT_DIR/lib/suite-slice.sh" "check-bash-floor.sh $suite"
 }
 
 suite_workflow() {
@@ -254,25 +314,48 @@ suite_needs_shirabe() {
 # way). The count check is the backstop for any path to the list this leaves
 # open: a suite that starts fewer harnesses than it lists fails, naming the
 # ones that never ran.
+#
+# Under a slice (see Slicing) the listed count is the slice's, the count line
+# names the slice and the list's full length, and each harness runs with
+# SUITE_SLICE and SUITE_SLICE_COSTS unset.
 run_harnesses() {
     local suite="$1" label="$2"
     shift 2
-    local scripts script listed ran=0 status=0
+    local scripts script listed ran=0 status=0 sliced=0 total="" rc
 
     scripts=$(suite_scripts "$suite") || return 1
+    if suite_is_sliced "$suite"; then
+        sliced=1
+        total=$(printf '%s\n' "$scripts" | grep -c .) || total=0
+        rc=0
+        mktempdir
+        scripts=$(slice_scripts "$suite" "$scripts" "$MKTEMP_RESULT/costs.tsv") || rc=$?
+        if [ "$rc" -ne 0 ]; then
+            echo "check-bash-floor: $suite: cannot take slice $SUITE_SLICE of its list" >&2
+            return 1
+        fi
+    fi
     listed=$(printf '%s\n' "$scripts" | grep -c .) || listed=0
     while read -r script <&3; do
         [ -n "$script" ] || continue
         ran=$((ran + 1))
         echo "--- bash 3.2 ($label): $script"
-        if ! "$@" "$script" </dev/null 3<&-; then
+        if [ "$sliced" = 1 ]; then
+            if ! (unset SUITE_SLICE SUITE_SLICE_COSTS; "$@" "$script" </dev/null 3<&-); then
+                status=1
+            fi
+        elif ! "$@" "$script" </dev/null 3<&-; then
             status=1
         fi
     done 3<<EOF
 $scripts
 EOF
 
-    echo "check-bash-floor: $suite: ran $ran of $listed listed harnesses"
+    if [ "$sliced" = 1 ]; then
+        echo "check-bash-floor: $suite: ran $ran of $listed listed harnesses (slice $SUITE_SLICE of $total)"
+    else
+        echo "check-bash-floor: $suite: ran $ran of $listed listed harnesses"
+    fi
     if [ "$ran" -ne "$listed" ]; then
         echo "check-bash-floor: $suite: never ran:" \
             $(printf '%s\n' "$scripts" | grep . | sed -n "$((ran + 1)),\$p") >&2
@@ -611,6 +694,15 @@ EOF
         args=("${args[@]}" --mount "$BIND_RO_RESULT")
         args=("${args[@]}" -e "SHIRABE_BIN=$INJECT_DIR/shirabe")
         args=("${args[@]}" -e "PATH=$INJECT_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+    fi
+
+    # A list that passes its slice through hands it to the container, which
+    # sees no host variable it isn't given.
+    if [ -n "${SUITE_SLICE:-}" ] && suite_slice_pass "$suite"; then
+        args=("${args[@]}" -e "SUITE_SLICE=$SUITE_SLICE")
+        if [ -n "${SUITE_SLICE_COSTS:-}" ]; then
+            args=("${args[@]}" -e "SUITE_SLICE_COSTS=$SUITE_SLICE_COSTS")
+        fi
     fi
 
     args=("${args[@]}" -w "$REPO_ROOT" "$FLOOR_IMAGE")

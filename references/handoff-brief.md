@@ -67,7 +67,10 @@ summary: name the koto session, branch, pull request, note key and each
 `SessionStart` hook JSON whose `additionalContext` says to re-read each
 `SKILL.md`, run `koto status` on the koto session, then read the note with
 `handoff-brief.sh read --note --session <koto session>`, which prints it as
-data (see [Reading the note back](#reading-the-note-back)).
+data (see [Reading the note back](#reading-the-note-back)). Both judge the
+note's freshness (see [The stale flag](#the-stale-flag)); the re-anchor opens
+with its verdict whichever it is, so a compacted session hears it even when
+the summary dropped pre-compact's line.
 
 Both read only `session_id` from the hook input on stdin. A session id that
 fails its grammar, or an input that isn't JSON, gets exit 0 and no output,
@@ -108,7 +111,8 @@ A hook uses an entry only when all of these hold:
 - where `KOTO_SESSION` is set, the entry's koto session equals it.
 
 An entry that fails any of these is treated as no entry at all, and the hooks
-print the no-entry outputs below, which hold none of its text.
+take the no-entry path below, which reads koto and git only and prints none of
+the entry's text.
 
 The `repo` line is checked apart from the rest, and failing its checks never
 makes the entry unusable. It may appear at most once. The hook uses it only
@@ -123,7 +127,39 @@ The path is never printed.
 ### No usable entry
 
 For a valid session id with no usable entry (none written, deleted, or
-refused by the checks above), `pre-compact` prints a summary instruction that
+refused by the checks above), the hooks first look for the koto run the
+session's anchor holds. They run
+`koto session hierarchy anchor-<session id> --json`, within the same 20-second
+budget and 5-second limit per call as the freshness read, and keep the
+members of kind `koto_session` that are alive and have a `joined_by` link
+with `via` set to `held-by link`, `holder` naming the member itself and
+`named` naming that anchor; each name must pass koto's session grammar. The
+hierarchy spans every session joined to the anchor, so another anchor's runs
+and links of any other kind are passed over. The hooks never list or search
+koto's sessions directory.
+
+Exactly one such run gives a pointer; none, two or more give the outputs
+below, so the hooks never pick between runs and never name a run the anchor
+holds no link to (an anchor lost when a session opened slowly, for one). With
+one run, the hooks read the directory it executes in: the `to` of the latest
+`execution_anchor_rebound` event in the tail of its event log (found through
+`koto session dir`, opened with the same checks as for the freshness read),
+else the `execution_dir` of the log's first line. That directory must pass
+the `repo` line's grammar, not be a symlink, and be inside a git work tree.
+The branch is read live there with `git -C <dir> symbolic-ref --short HEAD`.
+The pointer claims a compaction note only when `koto context list` lists
+`compaction/note.md` for the run; the freshness read runs only then. Where
+`KOTO_SESSION` is set, the run must be that session. `pre-compact` then says
+no ledger entry is recorded and names the koto session, its worktree, the
+branch, no pull request, and the note key or that none is recorded, with the
+freshness line when there is a note. `re-anchor` names the run and its
+worktree, gives the verdict (or says the run has no note), and tells the
+session to run `koto status` on the run, work out its skill from the
+directive and the session name's prefix, and read the note when there is
+one, with the rewrite step for a note that is stale or may be. Anything that
+can't be read, or fails a check, gives the outputs below instead.
+
+Without a run, `pre-compact` prints a summary instruction that
 says no compaction note is recorded and names the branch `git` reads in the
 hook's working directory (`git symbolic-ref --short HEAD`), or says the branch
 could not be read there. `re-anchor` prints a generic line: work out the skill
@@ -133,46 +169,66 @@ worktree (`koto workflows` lists the sessions there), and read the note with
 `handoff-brief.sh read --note --session <koto session>`. A usable entry whose
 re-anchor block would reach 10,000 characters gets the same steps rather than
 a cut block, behind a first line saying its ledger entry is recorded but too
-long to show, instead of saying no note is recorded. Both outputs stay under
-10,000 characters.
+long to show, instead of saying no note is recorded; that one still carries
+the freshness verdict, and the rewrite step when there is one. Both outputs
+stay under 10,000 characters.
 
 ### The stale flag
 
-`pre-compact` judges the note stale when the work moved on after the note's
-last write, and then adds one line: the note is stale, and rewriting it is the
-first step after the compaction. It has two inputs.
+Both hooks judge the note stale when the work moved on after the note's last
+write. `pre-compact` then adds one line to the summary instruction: the note
+is stale, and rewriting it is the first step after the compaction.
+`re-anchor` opens with one of three verdicts: the note is fresh (nothing in
+the koto session or on the branch came after its last write), stale (it is
+behind the work), or its freshness could not be checked. A stale note also
+gets a step right after the one that reads it: rewrite the note with
+`handoff-brief.sh note`, from where koto says the run stands, before any other
+work. A note whose freshness is unknown gets a step to rewrite it first if
+koto shows the run past it. A fresh note gets no extra step. The judgment has
+two inputs.
 
-- **The koto session.** koto prints no session-wide latest event seq (neither
-  `koto status` nor `koto session list` carries one), so the hook reads it
-  through koto's own CLI, none of whose verbs used here logs a read. `koto
-  context history <session> compaction/note.md` gives the note's last write:
-  its seq, timestamp and the state the run was in. `koto status <session>`
-  gives the run's current state; a different one means a transition came
-  after the note. `koto context list <session>`, then `koto context history`
-  for each other key, gives each key's latest write seq; one above the note's
-  means a key was written after it. Reads are logged by koto but don't count:
-  only writes and state changes move the work on. A transition that returns
-  to the note's own state, with no key written, isn't seen.
+- **The koto session.** koto's CLI prints no session-wide latest event seq
+  (neither `koto status` nor `koto session list` carries one), so the hooks
+  read it through calls that log no read. `koto context history <session>
+  compaction/note.md` gives the note's last write: its seq, timestamp and the
+  state the run was in. `koto status <session>` gives the run's current
+  state; a different one means a transition came after the note. The run's
+  event log, `koto-<session>.state.jsonl` in the directory `koto session dir
+  <session>` prints, gives every event's seq and type: any event with a seq
+  above the note's that moved the work on marks the note stale, so evidence,
+  a decision, an override, or a transition back to the note's own state is
+  seen even with no key written. A read (`context_read`), an import
+  (`session_imported`) and a key a cloud sync copied in (`context_added` by
+  writer `sync`) don't count. The log is opened without following a link and
+  must be a regular file; only its last mebibyte is read. `koto context list
+  <session>`, then `koto context history` for each other key, gives each
+  key's latest write seq; one above the note's means a key was written after
+  it.
 - **The branch.** The commit time of the tip of `refs/heads/<branch>`, the
   entry's branch (`git log -1 --no-show-signature --format=%ct`), run with
   `git -C` in the entry's `repo` when the hook accepts it, else in the hook's
   working directory's repository. A commit time later than the note's write,
   in whole seconds, marks the note stale.
 
-Rewriting the note puts its last write after every other key's and after the
-commit, which clears the line.
+Rewriting the note puts its last write after every other key's, every event
+and the commit, which clears the line.
 
 When freshness can't be read, the summary instruction is printed whole and
 gets a different line instead of the stale one: whether the note is current
 could not be checked, so after the compaction the session reads the note and
-rewrites it first if it is behind the work. That happens when koto or git
-can't be run, the note has no write history, any koto answer can't be read or
-parsed, the entry's branch isn't in the repository read (the entry's `repo`,
-or the working directory's when that is refused or absent), a key
-name falls outside koto's key grammar, or the session holds more than 256
-keys. Each koto or git call is killed after 5 seconds and the whole read after
-20. A stale finding wins over an unreadable one: if any input shows the note
-stale, the stale line is printed.
+rewrites it first if it is behind the work. The re-anchor says the same and
+never calls such a note fresh. That happens when koto or git can't be run,
+the note has no write history, any koto answer can't be read or parsed, the
+session directory koto prints isn't an absolute path or holds a control
+character, the event log is missing, a link, not a regular file or holds no
+event, the log's last mebibyte starts past the event right after the note's
+write (so what came between isn't in it), the entry's branch isn't in the
+repository read (the entry's `repo`, or the working directory's when that is
+refused or absent), a key name falls outside koto's key grammar, or the
+session holds more than 256 keys. Each koto or git call is killed after 5
+seconds and the whole read after 20, in each hook. A stale finding wins over
+an unreadable one: if any input shows the note stale, the note is reported
+stale.
 
 ## Reading the note back
 
@@ -318,9 +374,10 @@ session's id:
 | Session id holding a newline | exit 0, no output | exit 0, no output |
 
 These runs predate the no-entry outputs. Today a deleted entry still exits 0
-but prints the no-entry summary instruction and the generic re-anchor line
-described under [No usable entry](#no-usable-entry); the other rows are
-unchanged.
+but prints the no-entry outputs described under
+[No usable entry](#no-usable-entry): the pointer to the one run the session's
+anchor holds, or else the no-entry summary instruction and the generic
+re-anchor line; the other rows are unchanged.
 
 ### Second read: liveness while the compaction runs
 
@@ -816,7 +873,7 @@ The identity read for a worker launch, on Claude Code 2.1.332:
   nothing, read files whole until one compaction, printed the window and its
   session id after it, then paused 120 seconds in a background command so it
   stayed live through the last read.
-- It wrote no compaction note, since no shipped skill writes one yet, so the
+- It wrote no compaction note and held no koto run, so the
   hooks took their no-entry paths. That is what a worker launched this way
   gets today.
 - A poller outside the session read the job state file's `sessionId`,

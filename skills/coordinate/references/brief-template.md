@@ -41,7 +41,8 @@ script's header lists every field and its rule; this is the shape:
   "out_of_scope": ["Feature 3, which a sibling worker holds."],
   "surfaces": [{"surface": "ci-health", "coordinator": "<its session name>"}],
   "standing_rules": ["<the workspace's own rules for workers, copied verbatim>"],
-  "review_level": {"ceiling": "standard"}
+  "review_level": {"ceiling": "standard"},
+  "continues": "<the stranded topic this dispatch continues, only when it continues one>"
 }
 ```
 
@@ -76,6 +77,16 @@ The brief gets one line in Acceptance criteria and the invocation gets
 `entry_args` or `run_mode`: `render-brief.sh` refuses them there, so the
 level names always go through its check. Leave the field out and the brief
 is the same as before it existed.
+
+`continues` is the topic of the stranded holding this dispatch continues
+(`state-holding.sh --strand`), given only when the unit goes out again after
+its worker was stranded. `dispatch-worker.sh` reads it: the brief's
+Decisions name that holding's branch and last pushed head, and its row alone
+is retired once the new worker is dispatched. A unit can hold more than one
+topic, so a dispatch without `continues` names and retires no stranded row,
+even one on the same unit. A `continues` that isn't a valid topic, is the
+dispatch's own topic, or names no stranded holding of the unit is refused
+with nothing written.
 
 `grant` is what the worker is dispatched holding: the named authorities for
 the landing steps the brief hands it to take itself (`merge-pr`,
@@ -391,6 +402,33 @@ only when `niwa dispatch --help` lists them, for the same reason. So do
 (`--accept-session-messages=false` for `false`), one for each key of the
 input's `launch`; a flag the help doesn't list is left off with a line on
 stderr naming it, and the worker gets niwa's default for it.
+
+A coordinator's dispatch (entry point `coordinate`: a lane, or a successor)
+differs in two ways. It asks for niwa's coordinator dispatch profile,
+`--profile coordinator`, which starts the session without the tools, the
+skill listing and the connectors a coordinator never uses; the input's
+`launch.profile` names another `[session.dispatch_profiles]` entry instead,
+for this dispatch or any worker's. And its prompt starts with the
+invocation, so a session that can't call the Skill tool still loads its
+skill from the leading slash command:
+
+```bash
+niwa dispatch "/shirabe:coordinate <scope> --role <role>
+
+<authority> Work in <owner/repo>. Stop at: <last checkpoint> Read <workspace-root>/.niwa/dispatch-briefs/<topic>.md for your complete task brief, then do it." \
+  --name <topic> --detach --profile coordinator ...
+```
+
+The invocation keeps its first line to itself: the started coordinator takes
+its tokens from that line, and the lines after it are the dispatcher's
+words. `--profile` goes on only when the help lists it; with an older niwa
+it's left off with a line on stderr, and the prompt still starts with the
+invocation. niwa refuses a profile the workspace doesn't declare before it
+provisions anything, so when it refuses the `coordinator` default that way
+the dispatch runs once more without a profile. A profile the input named is
+never dropped: its refusal is the dispatch's failure. A worker's dispatch
+asks for no profile unless its input names one, and its prompt is the one
+above.
 
 Record the holding under the dispatch topic you passed, with
 `state-holding.sh`, before any other action. `scripts/dispatch-worker.sh`

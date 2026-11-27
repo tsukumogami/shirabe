@@ -327,6 +327,27 @@ else
     fail "a merge of main after impl_base: base is [$base_line], impl_base $ibase"
 fi
 
+# The same merge, then origin/main is replaced by a commit that shares no
+# history with HEAD: the default branch falls back to local main, which holds
+# the merged-in commit, and the merge is still folded (#1715).
+fixture merged-orphan-origin
+commit_file sibling/one.md "sibling one"
+run --base s-orphan
+commit_file mine/before.go
+(cd "$FX/seed" && mkdir -p skills/x/koto-templates && seq 1 500 > skills/x/koto-templates/x.md \
+    && git add -A && git commit -q -m up && git push -q origin main) >/dev/null 2>&1
+(cd "$FX/repo" && git fetch -q origin && git merge -q --no-edit origin/main \
+    && git branch -f main origin/main \
+    && git update-ref refs/remotes/origin/main \
+        "$(git commit-tree -m orphan "$(git hash-object -t tree -w /dev/null)")") >/dev/null 2>&1
+commit_file mine/after.go
+run --write s-orphan
+if [ "$RC" -eq 0 ] && [ "$(path_lines)" = "$(printf 'A\tmine/after.go\nA\tmine/before.go')" ]; then
+    pass "an origin/main with no shared history: local main's merge is folded, only the run's paths listed"
+else
+    fail "an origin/main with no shared history: rc $RC, paths [$PATHS]"
+fi
+
 # origin/main moves but is never merged: the base is impl_base, as before.
 fixture main-unmerged
 run --base s-unmerged
@@ -636,18 +657,19 @@ to_analysis() {
 to_implementation() {
     to_analysis "$1" "${2:-}"
     printf 'plan\n' | ctx add "$1" plan.md
+    # plan_ready runs through fix_determination, whose action records the
+    # bound and the kind and whose kind_route gate routes on it in the same
+    # tick, to implementation.
     tick "$1" '{"plan_outcome":"plan_ready"}'
-    choose_level "$1" "${2:-}"
+    raise_level "$1" "${2:-}"
 }
 
-# choose_level <session> [<plugin root>]: the review level, chosen before
-# implementation; full keeps every panel on the code route. The script is run
-# from the session's own plugin root, which its rebind passes as PLUGIN_ROOT.
-choose_level() {
+# raise_level <session> [<plugin root>]: a raise to full at implementation,
+# which the level check keeps; full keeps every panel on the code route. The
+# script is run from the session's own plugin root, which its rebind passes as
+# PLUGIN_ROOT.
+raise_level() {
     (cd "$FX/repo" && "${2:-$PLUGIN_ROOT}/skills/work-on/scripts/review-level.sh" set "$1" full) >/dev/null 2>&1
-    # Into fix_determination, whose action records the kind and whose
-    # kind_route gate routes on it in the same tick, to implementation.
-    tick "$1"
 }
 
 # The routing question, reached through changed_paths_record with no evidence.
@@ -818,7 +840,7 @@ else
 fi
 printf 'plan\n' | ctx add e-plan plan.md
 tick e-plan '{"plan_outcome":"plan_ready"}'
-choose_level e-plan
+raise_level e-plan
 commit_file src/mine.go
 tick e-plan '{"implementation_status":"complete"}'
 if ctx get e-plan changed_paths.txt | grep -q sibling; then

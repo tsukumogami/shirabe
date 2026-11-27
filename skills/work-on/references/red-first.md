@@ -7,8 +7,8 @@ read the records. `docs/designs/current/DESIGN-red-first-fixes.md` has the reaso
 
 ## Which units are fixes
 
-A run decides at `fix_determination`, after the review level is chosen and
-before implementation. `scripts/fix-kind.sh resolve` runs there as the state's
+A run decides at `fix_determination`, right after `analysis` and before
+implementation. `scripts/fix-kind.sh resolve` runs there as the state's
 action and records the unit as a fix when any of these holds:
 
 | Source | Recorded as | Where it comes from |
@@ -75,6 +75,16 @@ It is recorded only when every one of these holds; otherwise it prints a
 - its output holds the marker. A check that fails for another reason, a
   compile error say, is refused here.
 
+The red's command has to exit 0 once the test passes, because the green runs
+the same command unchanged. So run the test itself, not its output piped
+through a filter. In `bash -o pipefail -c 'make test 2>&1 | grep FAIL'`
+the exit comes from `grep`: it fails at the base, but once the test passes
+there's no `FAIL` line, `grep` exits 1, and no green can ever pass. The marker
+is already matched against the command's output, so the filter adds nothing.
+When the recorded command pipes into `grep`, `egrep`, `fgrep` or `rg`, the red
+is still recorded, with a `warning:` line saying so. Record the red again
+with the test run directly.
+
 The record keeps the command, the base, the reproducing tests and any harness
 files the command names with their blob ids, the exit, the last 40 lines of
 output (at most 4,096 bytes), the lines around the marker, the passage, the
@@ -130,7 +140,7 @@ A pass that came with an edited test, or a fix that rests on observations, is
 not counted until the review panels have judged each such item as it is now.
 `pass_counting`'s `tests_counted` gate (`test-change.sh status`) classifies the
 test files the unit's committed diff touched since `impl_base`, with the `test`
-class of the rules copy `review_level_choice` stored:
+class of the rules copy `review-level.sh init` stored in `analysis`'s action:
 
 | Label | When |
 |-------|------|

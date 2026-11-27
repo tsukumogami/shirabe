@@ -180,8 +180,8 @@ fix starts from a check that fails for the reported reason, recorded before the
 correcting change, and ends with that check passing. `references/red-first.md` has
 the rules; this is the route.
 
-- **`fix_determination`**, after the review level is chosen and before
-  implementation. Its action, `scripts/fix-kind.sh resolve`, records the unit as a
+- **`fix_determination`**, after `analysis` and before implementation. Its
+  action, `scripts/fix-kind.sh resolve`, records the unit as a
   fix when its issue carries a label the repository's `## Fix Labels:` lists (`bug`
   by default) or its plan step has a `**Fixes**:` line (`FIX_REPORT`), and as a
   change otherwise, and its `kind_route` gate routes on that in the same tick, so
@@ -397,8 +397,8 @@ step agent drives this child to its terminal from the hand-off in
 `skills/execute/references/step-agent-handoff.md`, not the session that owns the
 plan. The step agent may spawn its step's review seats, the panels the run's level
 calls for; the seats spawn nothing themselves. A step agent never edits a step's
-entry in the PLAN: the owning session details each step. The level is this child's
-own choice inside the run's bound, and `review_level_check` floors it on the
+entry in the PLAN: the owning session details each step. The level is set from this
+child's own facts inside the run's bound at `review_level_check`, measured on the
 child's own commits: on a shared branch `impl_base` is the only base, so earlier
 steps' commits don't raise it (see `references/review-levels.md`).
 
@@ -701,11 +701,14 @@ leg, since one leg answers one session.
   and the ids of those findings. The phase files
   under `references/phases/phase-4*` say how to act on the scope;
   `scripts/panel-scope_test.sh` is its harness.
-- `scripts/review-level.sh init|set|facts|check|slice|report|level` — the run's
-  review level (`references/review-levels.md`). koto runs `init` on entering
-  `review_level_choice`, and `facts`, `check` and `slice` at
-  `review_level_check`; the agent runs `set <session> <level>` to choose,
-  raise or lower the level, which rebinds `REVIEW_LEVEL` and appends to the
+- `scripts/review-level.sh init|set|set-from-facts|facts|check|slice|report|level` — the run's
+  review level (`references/review-levels.md`). koto runs `init` in
+  `analysis`'s action (and again, as a no-op safety net, in
+  `fix_determination`'s), and `facts`, `set-from-facts`, `level --exit`,
+  `check` and `slice` at `review_level_check`, where `set-from-facts` sets the
+  level from the facts within the bound; the agent runs `set <session> <level>`
+  to raise (or, with a reason, lower) it from `analysis` on. Each of the two
+  rebinds `REVIEW_LEVEL` and appends to the
   `review_level.jsonl` ledger together, and a maintainer runs `report` to read
   the ledgers of retained sessions. `work-on-open.sh` runs `level` to read the
   ledger's last level before it attaches a live session. The script's header has every subcommand's
@@ -862,33 +865,39 @@ see **A Fix Round After Done**.
 
 ### Review Level
 
-Every run chooses a review level after `analysis` and before implementing,
-at `review_level_choice`, with `scripts/review-level.sh set`:
+Nobody chooses a review level up front. A code change passes
+`review_level_check` before its first panel, on every lap, and that state sets
+the level from the facts of the change (its size, the path classes it touched,
+whether tests or acceptance criteria changed), within the coordinator's bound,
+and routes on it in the same tick, without stopping:
 
 - `light` — one panel, `light_review`, of one reviewer seat.
 - `standard` — `scrutiny` then `review`, no QA.
 - `full` — `scrutiny`, `review` and `qa_validation`.
 
-A code change passes `review_level_check` before its first panel, on every
-lap: the facts of the change (its size, the path classes it touched, whether
-tests or acceptance criteria changed) set a floor, and koto holds the run
-until the level is at or above it. Facts can raise the level, never lower it;
-a lower needs a recorded reason and never goes below the floor. A session from
-an earlier template has no level and takes the full path. `docs` and `task`
-runs record a level too, and their routes skip the panels as before.
-`references/review-levels.md` has the rules, the bound and the ledger.
+The level is the facts floor, or the bound's floor when that is higher, or
+higher still when you raised it. To raise it, because the change is riskier
+than its paths show, run `scripts/review-level.sh set <session> <level>
+--reason "<why>"` from `analysis` on, once koto has recorded the bound it
+checks against as the run entered `analysis`. The check keeps a raise, and the
+level never drops on its
+own when a later lap's facts are lighter; a lower needs a recorded reason and
+never goes below the floor. A facts floor above the bound's ceiling wins, and
+the ledger records the breach. A session from an earlier template has no level
+and takes the full path. `docs` and `task` runs skip the level check and the
+panels. `references/review-levels.md` has the rules, the bound and the ledger.
 
 A caller can bound the choice with `--review-floor=<level>` and
 `--review-ceiling=<level>`, which become `REVIEW_FLOOR` and `REVIEW_CEILING` at
 init (see **Initialize**); `/execute` and `/deliver` take the same two flags and
-pass them to every `/work-on` run they start. `review_level_choice` records the
-bound in the ledger's `bound` line before the first `choose`, and the bound doesn't
-move inside a run.
+pass them to every `/work-on` run they start. `analysis`'s action records the bound
+in the ledger's `bound` line before any level, and the bound doesn't move inside a
+run.
 
 | Flag | Variable | Values |
 |------|----------|--------|
-| `--review-floor=<level>` | `REVIEW_FLOOR` | `light`, `standard` or `full`; the lowest level the run may choose |
-| `--review-ceiling=<level>` | `REVIEW_CEILING` | `light`, `standard` or `full`; a raise past it needs a recorded reason, except a raise to the facts floor |
+| `--review-floor=<level>` | `REVIEW_FLOOR` | `light`, `standard` or `full`; the lowest level the run takes, whatever the facts say |
+| `--review-ceiling=<level>` | `REVIEW_CEILING` | `light`, `standard` or `full`; a raise past it needs a recorded reason, and a facts floor past it is taken and logged as a breach |
 
 ### Review Panel
 

@@ -140,13 +140,13 @@ stateDiagram-v2
     pr_precheck --> pass_counting : gates.tests_still_counted.exit_code: 1, precheck_status: recount
     pr_precheck --> pass_counting : gates.tests_still_counted.exit_code: 3, precheck_status: recount
     pr_precheck --> done_blocked : gates.on_feature_branch_pr.exit_code: 1, precheck_status: blocked
-    probe_arm_far --> review_level_choice
-    probe_arm_far_redeliver --> review_level_choice
-    probe_arm_near --> review_level_choice
+    probe_arm_far --> fix_determination
+    probe_arm_far_redeliver --> fix_determination
+    probe_arm_near --> fix_determination
     probe_draw --> probe_arm_near : gates.probe_arm.exit_code: 0
     probe_draw --> probe_arm_far : gates.probe_arm.exit_code: 1
     probe_draw --> probe_arm_far_redeliver : gates.probe_arm.exit_code: 4
-    probe_draw --> review_level_choice : gates.probe_arm.exit_code: 3
+    probe_draw --> fix_determination : gates.probe_arm.exit_code: 3
     probe_near --> pr_creation
     qa_validation --> verification : gates.qa_carried.exit_code: 0, vars.VERIFICATION: local
     qa_validation --> verification_deferred : gates.qa_carried.exit_code: 0, vars.VERIFICATION: hosted-ci
@@ -170,13 +170,10 @@ stateDiagram-v2
     review --> implementation : gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 1, review_outcome: blocking_retry
     review --> done_blocked : gates.review_carried.exit_code: 1, gates.review_verdict.exit_code: 1, review_outcome: blocking_escalate
     review --> done_blocked : gates.review_carried.exit_code: 1, gates.review_verdict.exit_code: 2, review_outcome: blocking_escalate
-    review_level_check --> light_review : gates.level_floor.exit_code: 0, vars.REVIEW_LEVEL: light
-    review_level_check --> scrutiny : gates.level_floor.exit_code: 0, vars.REVIEW_LEVEL: standard
-    review_level_check --> scrutiny : gates.level_floor.exit_code: 0, vars.REVIEW_LEVEL: full
-    review_level_check --> scrutiny : gates.level_floor.exit_code: 3, vars.REVIEW_LEVEL: {"is_set":false}
+    review_level_check --> light_review : gates.level_floor.exit_code: 0, gates.level_route.exit_code: 11
+    review_level_check --> scrutiny : gates.level_floor.exit_code: 0, gates.level_route.exit_code: 12
+    review_level_check --> scrutiny : gates.level_floor.exit_code: 0, gates.level_route.exit_code: 13
     review_level_check --> done_blocked : gates.level_floor.exit_code: 1, level_status: blocked
-    review_level_choice --> fix_determination : vars.REVIEW_LEVEL: {"is_set":true}
-    review_level_choice --> done_blocked : level_status: blocked, vars.REVIEW_LEVEL: {"is_set":false}
     scrutiny --> review : gates.scrutiny_carried.exit_code: 0
     scrutiny --> review : gates.has_commits.exit_code: 0, gates.scrutiny_carried.exit_code: 1, gates.scrutiny_recorded.exit_code: 0, gates.scrutiny_verdict.exit_code: 0
     scrutiny --> implementation : gates.scrutiny_carried.exit_code: 1, gates.scrutiny_recorded.exit_code: 0, gates.scrutiny_verdict.exit_code: 1, scrutiny_outcome: blocking_retry
@@ -417,6 +414,9 @@ stateDiagram-v2
     end note
     note left of review_level_check
         gate: level_floor
+    end note
+    note left of review_level_check
+        gate: level_route
     end note
     note left of scrutiny
         gate: has_commits

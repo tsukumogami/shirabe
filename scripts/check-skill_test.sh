@@ -26,6 +26,10 @@ set -uo pipefail
 # suites); these fixtures exercise the stubs, so it is cleared here and set
 # only by the case that tests it.
 unset SHIRABE_BIN
+# The skill gate's part and slice change what check-skill runs; a CI job that
+# sets them for its own run must not reach these cases, which set them where
+# they test them.
+unset SKILL_GATE_PART SUITE_SLICE SUITE_SLICE_COSTS
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 CHECK_SH="$SCRIPT_DIR/check-skill.sh"
@@ -1968,6 +1972,115 @@ expect "summary unset: the check reports as before" 1 \
     "ok: bash skills/demo/scripts/pass_test.sh" "FAIL: bash skills/demo/scripts/fail_test.sh"
 [ "$BEFORE" = "$AFTER" ] && pass "summary unset: no file is written" \
     || fail "summary unset: files appeared: $(comm -13 <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$AFTER") | tr '\n' ' ')"
+
+# -- The skill gate's parts and slices (SKILL_GATE_PART, SUITE_SLICE) -------------
+# Six suites, each recording its name and the three variables as it saw them.
+# check-skill.tsv makes heavy_test.sh cost as much as the other five together.
+SLICE_MARKS="$WORK/slice-marks"
+export SLICE_MARKS
+slice_tree() {
+    local s
+    new_tree
+    mkdir -p "$ROOT/skills/demo/scripts"
+    for s in heavy s1 s2 s3 s4 s5; do
+        printf 'printf "%%s %%s|%%s|%%s\\n" %s "${SUITE_SLICE-unset}" "${SUITE_SLICE_COSTS-unset}" "${SKILL_GATE_PART-unset}" >> "$SLICE_MARKS"\n' \
+            "$s" > "$ROOT/skills/demo/scripts/${s}_test.sh"
+    done
+    printf 'cost\theavy_test.sh\t500\ncost\ts1_test.sh\t100\ncost\ts2_test.sh\t100\ncost\ts3_test.sh\t100\ncost\ts4_test.sh\t100\ncost\ts5_test.sh\t100\n' \
+        > "$ROOT/skills/demo/check-skill.tsv"
+    : > "$SLICE_MARKS"
+}
+# run_part <SKILL_GATE_PART> <SUITE_SLICE> [args...]: run_check with the two set
+# (an empty value leaves the variable unset).
+run_part() {
+    local part=$1 slice=$2
+    shift 2
+    OUT=$(cd "$WORK" && unset SKILL_GATE_PART SUITE_SLICE SUITE_SLICE_COSTS \
+        && { [ -z "$part" ] || export SKILL_GATE_PART="$part"; } \
+        && { [ -z "$slice" ] || export SUITE_SLICE="$slice"; } \
+        && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" "$BASH_BIN" "$CHECK_SH" "$@" demo 2>&1)
+    RC=$?
+}
+ran_suites() { sed 's/ .*//' "$SLICE_MARKS" | sort | tr '\n' ' ' | sed 's/ $//'; }
+
+slice_tree
+ALL_SEEN=""
+for i in 1 2 3 4; do
+    : > "$SLICE_MARKS"
+    : > "$SHIRABE_LOG"
+    run_part suites "$i/4"
+    n=$(grep -c . "$SLICE_MARKS")
+    expect "suites part, slice $i/4: passes and counts its share" 0 "check-skill: $n of 6 suites (slice $i/4)"
+    ALL_SEEN="$ALL_SEEN $(ran_suites)"
+    if out_has "eval shape" || grep -q '^call' "$SHIRABE_LOG"; then
+        fail "  ... slice $i/4 ran a check outside step 4"
+    fi
+done
+ALL_SEEN=$(printf '%s\n' $ALL_SEEN | sort | tr '\n' ' ' | sed 's/ $//')
+if [ "$ALL_SEEN" = "heavy s1 s2 s3 s4 s5" ]; then
+    pass "the four slices together run every suite exactly once"
+else
+    fail "the four slices ran [$ALL_SEEN], want each of the six suites once"
+fi
+
+slice_tree
+run_part suites 1/2
+if [ "$(ran_suites)" = "heavy" ]; then
+    pass "unset SUITE_SLICE_COSTS balances on the skill's check-skill.tsv (heavy runs alone)"
+else
+    fail "slice 1/2 on check-skill.tsv ran [$(ran_suites)], want [heavy]"
+fi
+if grep -qv ' unset|unset|unset$' "$SLICE_MARKS"; then
+    fail "a suite saw SUITE_SLICE, SUITE_SLICE_COSTS or SKILL_GATE_PART: $(cat "$SLICE_MARKS")"
+else
+    pass "  ... and no suite sees SUITE_SLICE, SUITE_SLICE_COSTS or SKILL_GATE_PART"
+fi
+
+slice_tree
+run_part checks ""
+expect "checks part: every step but 4 runs" 0 "ok: eval shape" "ok: script cases" "check-skill: demo passed"
+if [ -s "$SLICE_MARKS" ] || out_has "started bash"; then
+    fail "  ... but a suite ran: $(cat "$SLICE_MARKS")"
+elif ! grep -q '^call' "$SHIRABE_LOG"; then
+    fail "  ... but shirabe validate did not run"
+else
+    pass "  ... and no suite runs"
+fi
+
+slice_tree
+run_part "" ""
+expect "SKILL_GATE_PART unset: both parts run" 0 "ok: eval shape" "ok: bash skills/demo/scripts/heavy_test.sh"
+if [ "$(ran_suites)" = "heavy s1 s2 s3 s4 s5" ] && ! out_has "suites (slice"; then
+    pass "  ... every suite, unsliced"
+else
+    fail "  ... ran [$(ran_suites)]"
+fi
+
+for bad in all SUITES "suites checks"; do
+    slice_tree
+    run_part "$bad" ""
+    expect "SKILL_GATE_PART [$bad] is a usage error" 2 "check-skill: SKILL_GATE_PART must be suites or checks (or unset)"
+    [ -s "$SLICE_MARKS" ] && fail "  ... but a suite ran"
+done
+
+slice_tree
+run_part "" 9/4
+expect "a malformed SUITE_SLICE exits 2" 2 "cannot take slice 9/4"
+
+slice_tree
+run_part checks "" --list
+if [ "$RC" = 0 ] && ! out_has "skills/demo/scripts/"; then
+    pass "--list under the checks part lists no suite"
+else
+    fail "--list, checks part (rc=$RC): $OUT"
+fi
+run_part suites 1/2 --list
+LISTED=$(printf '%s\n' "$OUT" | grep '^skills/' | tr '\n' ' ' | sed 's/ $//')
+if [ "$RC" = 0 ] && [ "$LISTED" = "skills/demo/scripts/heavy_test.sh" ] && [ ! -s "$SLICE_MARKS" ]; then
+    pass "--list lists the slice, running nothing"
+else
+    fail "--list, slice 1/2 (rc=$RC) listed [$LISTED]: $OUT"
+fi
 
 echo ""
 echo "check-skill_test: $PASS_COUNT passed, $FAIL_COUNT failed"

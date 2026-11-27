@@ -834,6 +834,100 @@ record scrutiny "$ALL_PASS"
 run --plan review "$SESSION"
 expect_full "the same fix at the next panel, after the first recorded it in full" review "changes 250 lines"
 
+# A merge of the default branch after the panel's last reviewed head (#1701).
+# merge_main <lines> <path>: main commits <lines> lines to <path>, and the
+# branch merges main.
+merge_main() {
+    (cd "$FX/repo" && git checkout -q main && mkdir -p "$(dirname "$2")" && seq 1 "$1" > "$2" \
+        && git add -A && git commit -q -m main-moves && git checkout -q "impl/$SESSION" \
+        && git merge -q --no-ff --no-edit main) >/dev/null 2>&1
+}
+
+# main adds 300 lines of docs and the branch merges it: the branch's own diff
+# since the panel's head is unchanged, so no full round on that account.
+fixture tr-merged
+plan_record scrutiny "$ALL_PASS"
+merge_main 300 docs/merged.md
+run --plan scrutiny "$SESSION"
+expect_not_full "a branch that merges main without changing its own files" scrutiny
+
+# The same merge followed by the branch's own 201-line fix: full, and the
+# reason counts the branch's lines only.
+fixture tr-merged-own
+plan_record scrutiny "$ALL_PASS"
+merge_main 300 docs/merged.md
+(cd "$FX/repo" && seq 1 201 > docs/own.txt && git add docs/own.txt && git commit -q -m own) >/dev/null 2>&1
+run --plan scrutiny "$SESSION"
+expect_full "a 201-line fix after a merge of main" scrutiny "changes 201 lines"
+
+# main's merge is already behind the panel's head: measured from that head as
+# before, and a 50-line fix stays under the threshold.
+fixture tr-merged-before
+merge_main 300 docs/merged.md
+plan_record scrutiny "$ALL_PASS"
+(cd "$FX/repo" && seq 1 50 > docs/own.txt && git add docs/own.txt && git commit -q -m own) >/dev/null 2>&1
+run --plan scrutiny "$SESSION"
+expect_not_full "a merge of main before the panel's head" scrutiny
+
+# A merge that can't be built cleanly keeps the panel's head as the base, so
+# what the merge brought in still counts: never less than the branch's own
+# change. main appends 300 lines to the file the branch extended.
+fixture tr-merged-conflict
+plan_record scrutiny "$ALL_PASS"
+(cd "$FX/repo" && git checkout -q main && seq 1001 1300 >> src/a.sh && git add -A \
+    && git commit -q -m main-moves && git checkout -q "impl/$SESSION" \
+    && { git merge -q --no-edit main || true; } && git checkout -q --theirs src/a.sh \
+    && git add src/a.sh && git commit -q --no-edit) >/dev/null 2>&1
+run --plan scrutiny "$SESSION"
+expect_full "a conflicting merge of main" scrutiny "over the 200-line threshold"
+
+# The fix-diff review is decided on the same folded base (#2156): a branch
+# whose only commit since the panel's record is a merge of main wrote no fix
+# diff, so no fix_review is planned. The branch's own commit after the merge
+# still plans one.
+fixture tr-merged-review
+plan_record scrutiny "$ALL_PASS"
+merge_main 30 docs/merged.md
+run --plan scrutiny "$SESSION"
+jq -e 'all(.decisions[]; (.fix_review // false) == false)' "$SHIM_STORE/$SESSION/scrutiny_scope.json" >/dev/null 2>&1 \
+    && pass "a merge-only change since the record plans no fix_review" \
+    || fail "a merge-only change planned $(jq -c '[.decisions[] | {seat, decision, fix_review}]' "$SHIM_STORE/$SESSION/scrutiny_scope.json")"
+edit src/b.sh 5 five
+run --plan scrutiny "$SESSION"
+jq -e '[.decisions[] | select(.seat == "reverifier") | .fix_review] == [true]' "$SHIM_STORE/$SESSION/scrutiny_scope.json" >/dev/null 2>&1 \
+    && pass "the branch's own commit after a merge of main still plans fix_review" \
+    || fail "own commit after a merge planned $(jq -c '[.decisions[] | {seat, decision, fix_review}]' "$SHIM_STORE/$SESSION/scrutiny_scope.json")"
+
+# The moved citations are measured from the folded judged_at too (#2156): main
+# appends to a file a seat cited and the branch merges main; the seat's next
+# round keeps the cited line range rather than coarsening it to the path.
+# The amended criteria make that round full, so every seat records again.
+fixture tr-merged-cited
+plan_record scrutiny '[{"seat":"completeness","blocking_count":0,"cited":[{"path":"src/b.sh","lines":"1-5"}]},
+                       {"seat":"justification","blocking_count":0},{"seat":"intent","blocking_count":0}]'
+(cd "$FX/repo" && git checkout -q main && seq 41 60 >> src/b.sh && git add -A && git commit -q -m main-moves \
+    && git checkout -q "impl/$SESSION" && git merge -q --no-ff --no-edit main) >/dev/null 2>&1
+printf 'AC: the issue body, amended\n' > "$SHIM_STORE/$SESSION/context.md"
+plan_record scrutiny '[{"seat":"completeness","blocking_count":0},{"seat":"justification","blocking_count":0},{"seat":"intent","blocking_count":0}]'
+jq -e '.seats["scrutiny/completeness"].cited == [{path: "src/b.sh", lines: "1-5"}]' "$SHIM_STORE/$SESSION/verdict_ledger.json" >/dev/null 2>&1 \
+    && pass "a merge of main keeps a seat's cited line range in a file main changed" \
+    || fail "after a merge of main the seat lost its cited line ranges: $(jq -c '.seats["scrutiny/completeness"].cited' "$SHIM_STORE/$SESSION/verdict_ledger.json")"
+
+# The fold doesn't carry a range main shifted: main prepends lines above a
+# cited range and the branch merges main, so the range's lines no longer read
+# the same at HEAD and the citation is coarsened to its path.
+fixture tr-merged-shifted
+plan_record scrutiny '[{"seat":"completeness","blocking_count":0,"cited":[{"path":"src/b.sh","lines":"1-5"}]},
+                       {"seat":"justification","blocking_count":0},{"seat":"intent","blocking_count":0}]'
+(cd "$FX/repo" && git checkout -q main && { seq 101 110; cat src/b.sh; } > src/b.sh.new && mv src/b.sh.new src/b.sh \
+    && git add -A && git commit -q -m main-shifts \
+    && git checkout -q "impl/$SESSION" && git merge -q --no-ff --no-edit main) >/dev/null 2>&1
+printf 'AC: the issue body, amended\n' > "$SHIM_STORE/$SESSION/context.md"
+plan_record scrutiny '[{"seat":"completeness","blocking_count":0},{"seat":"justification","blocking_count":0},{"seat":"intent","blocking_count":0}]'
+jq -e '.seats["scrutiny/completeness"].cited == [{path: "src/b.sh"}]' "$SHIM_STORE/$SESSION/verdict_ledger.json" >/dev/null 2>&1 \
+    && pass "a merge of main that shifts a cited range coarsens it to its path" \
+    || fail "a range main shifted was carried: $(jq -c '.seats["scrutiny/completeness"].cited' "$SHIM_STORE/$SESSION/verdict_ledger.json")"
+
 # A full round hands each seat its own unclosed findings, and the findings no
 # seat raised to a re-verifier.
 fixture tr-handoff
@@ -2361,14 +2455,16 @@ engine_to_scrutiny() {
     submit "$s" '{"status":"override"}'
     printf 'plan\n' | koto context add "$s" plan.md >/dev/null 2>&1
     printf 'AC: the issue body\n' | koto context add "$s" context.md >/dev/null 2>&1
-    submit "$s" '{"plan_outcome":"plan_ready"}'
+    # Before plan_ready, whose tick runs fix_determination's action, which
+    # reads it.
     git rev-parse main | koto context add "$s" impl_base >/dev/null 2>&1
-    # The full review level keeps all three panels on the path.
+    # plan_ready runs through fix_determination, whose action records the
+    # bound and the kind and whose kind_route gate routes on it in the same
+    # tick, to implementation.
+    submit "$s" '{"plan_outcome":"plan_ready"}'
+    # A raise to full, which the level check keeps: all three panels on the path.
     "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$s" full >/dev/null 2>&1 \
         || { fail "$s: review-level.sh set full failed"; return 1; }
-    # Into fix_determination, whose action records the kind and whose
-    # kind_route gate routes on it in the same tick, to implementation.
-    koto next "$s" --no-cleanup >/dev/null 2>&1
     submit "$s" '{"implementation_status":"complete"}'
     [ "$NEXT_STATE" = issue_type_routing ] && submit "$s" '{"issue_type":"code"}'
     [ "$NEXT_STATE" = scrutiny ] || { fail "$s: walk stopped at [$NEXT_STATE] before scrutiny"; return 1; }

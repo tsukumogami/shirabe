@@ -37,7 +37,7 @@
 #             exit is 0.
 #   classify  the unit's test files, one `<label>\t<path>\t<digest>` row each
 #             (scripts/lib/test-classify.sh over impl_base..HEAD with the rules
-#             copy review_level_choice stored): `added` (new, or only gaining
+#             copy review-level.sh init stored): `added` (new, or only gaining
 #             lines), `edited` (losing a line, deleted, binary, or a rename
 #             that changed a line) or `unchanged`. For a fix with a red, a
 #             reproducing test or harness file whose blob differs from the one
@@ -128,6 +128,10 @@
 #   SHIRABE_STATE_DIR      where `locks/` (the directory the lock files go in)
 #                          lives; default ${XDG_STATE_HOME:-$HOME/.local/state}/shirabe
 #   TEST_CHANGE_LOCK_WAIT  seconds a writer waits for the lock (tests)
+#   TEST_CHANGE_READBACK_TRIES  times a ledger write's read-back is tried
+#                          (default 3); the write itself is never repeated
+#   TEST_CHANGE_READBACK_DELAY  seconds between read-back tries (default 2;
+#                          tests)
 #
 # Exit codes:
 #   0   recorded, or the gate passes
@@ -142,7 +146,13 @@
 #       panel retry budget is spent, or the run went back once and still no
 #       panel has recorded)
 #   64  usage
-#   66  a koto context read or write failed
+#   66  a koto context read or write failed: a ledger write that read back
+#       without its line, or not as written
+#   67  a ledger write that could not be read back after
+#       TEST_CHANGE_READBACK_TRIES tries, or whose add exited 0 but read back
+#       as the prior ledger: written, not confirmed (or, when koto also
+#       reported the add failed, not known). Don't repeat the
+#       write, which would duplicate the line; `record` shows whether it's there
 #   75  the lock is held by a live writer; retry
 #
 # Bash 3.2: no associative arrays, no mapfile.
@@ -159,6 +169,10 @@ ITEMS_HEAD=""
 KIND_KEY=fix_kind.jsonl
 RULES_KEY=review_level_rules.tsv
 TEXT_MAX=300
+READBACK_TRIES=${TEST_CHANGE_READBACK_TRIES:-3}
+case $READBACK_TRIES in '' | *[!0-9]* | 0) READBACK_TRIES=3 ;; esac
+READBACK_DELAY=${TEST_CHANGE_READBACK_DELAY:-2}
+case $READBACK_DELAY in '' | *[!0-9]*) READBACK_DELAY=2 ;; esac
 
 show_errlog() {
     if [ -n "${ERRLOG:-}" ] && [ -s "$ERRLOG" ]; then
@@ -191,6 +205,12 @@ die66() {
     echo "test-change: $1" >&2
     show_errlog
     exit 66
+}
+
+die67() {
+    echo "test-change: $1" >&2
+    show_errlog
+    exit 67
 }
 
 refuse() {
@@ -299,10 +319,40 @@ ctx_get() {
     return 1
 }
 
+# ctx_put <session> <key> <file> <prior>: add <file> as <key>, then read it
+# back. The add runs once: the ledger is append-only, so a second add after
+# one that landed would duplicate the line. The read-back alone is retried, up
+# to READBACK_TRIES times, and it decides what happened, since an add can fail
+# after its write landed (a failed cloud push) and a read can fail on its own
+# (a transient listing error). Returns:
+#   0  the read-back ran and matches <file>
+#   1  the add failed and the read-back matches <prior>: not written
+#   2  the read-back ran and matches neither
+#   3  the add exited 0 and no read-back ran: written, not confirmed
+#   4  the add failed and no read-back ran: not known whether it was written
+#   5  the add exited 0 but the read-back matches <prior>: not confirmed
+# Three tries two seconds apart ride out a transient listing error (koto#713)
+# and hold the lock at most four seconds longer, well inside a waiting
+# writer's TEST_CHANGE_LOCK_WAIT default of ten.
 ctx_put() {
-    koto context add "$1" "$2" < "$3" >/dev/null 2>>"$ERRLOG" || return 1
-    koto context get "$1" "$2" > "$TMP/readback" 2>>"$ERRLOG" || return 1
-    cmp -s "$3" "$TMP/readback"
+    local added=0 try=1
+    koto context add "$1" "$2" < "$3" >/dev/null 2>>"$ERRLOG" && added=1
+    until koto context get "$1" "$2" > "$TMP/readback" 2>>"$ERRLOG"; do
+        [ "$try" -lt "$READBACK_TRIES" ] || { [ "$added" = 1 ] && return 3; return 4; }
+        try=$((try + 1))
+        sleep "$READBACK_DELAY"
+    done
+    if cmp -s "$3" "$TMP/readback"; then
+        [ "$added" = 1 ] || echo "test-change: warning: koto reported a failure adding $2, but it read back as written" >&2
+        return 0
+    fi
+    if cmp -s "$4" "$TMP/readback"; then
+        # An add that exited 0 and reads back as the prior ledger may be a
+        # stale copy, older than the write, so it is only not confirmed.
+        [ "$added" = 1 ] && return 5
+        return 1
+    fi
+    return 2
 }
 
 # koto_floor: undecided unless koto is at least shirabe's minimum, the one
@@ -403,7 +453,15 @@ load_header() {
 # append <session> <line-file>: the ledger plus one line, read back.
 append() {
     cat "$TMP/ledger" "$2" > "$TMP/ledger.next"
-    ctx_put "$1" "$LEDGER" "$TMP/ledger.next" || die66 "could not write $LEDGER (or it didn't read back as written)"
+    ctx_put "$1" "$LEDGER" "$TMP/ledger.next" "$TMP/ledger"
+    case $? in
+        0) ;;
+        1) die66 "could not write $LEDGER: it read back without the new line" ;;
+        2) die66 "$LEDGER didn't read back as written" ;;
+        3) die67 "wrote $LEDGER, but could not read it back to check it (written, not confirmed): do not run it again; \`test-change.sh record $1\` shows whether the line is there" ;;
+        5) die67 "wrote $LEDGER, but it read back without the new line, perhaps from a copy older than the write (not confirmed): do not run it again; \`test-change.sh record $1\` shows whether the line is there" ;;
+        *) die67 "koto reported a failure adding to $LEDGER and it could not be read back, so it may have been written: do not run it again; \`test-change.sh record $1\` shows whether the line is there" ;;
+    esac
     cp "$TMP/ledger.next" "$TMP/ledger"
 }
 
@@ -535,7 +593,7 @@ compute_items() {
     head=$(G rev-parse -q --verify "HEAD^{commit}" 2>>"$ERRLOG") || undecided "HEAD names no commit in $H_WORKTREE"
     ITEMS_HEAD=$head
     ctx_get "$s" "$RULES_KEY" "$TMP/rules" || die66 "could not read $RULES_KEY"
-    [ -s "$TMP/rules" ] || undecided "no rules copy ($RULES_KEY) is stored; review_level_choice stores it"
+    [ -s "$TMP/rules" ] || undecided "no rules copy ($RULES_KEY) is stored; review-level.sh init stores it, in analysis's action"
 
     # The test rows, with a fix's reproducing tests and harness files changed
     # since the red ran labelled edited too (test_classify_unit).
@@ -583,12 +641,14 @@ escaped() { LC_ALL=C cat -v "$1"; }
 # record_counted_head <session>: a passing status stores the commit it counted
 # at as `counted_head`, so a later reader (/execute's ci-fix-tests.sh) can tell
 # which commits the panels' record covered. Nothing here reads it back to
-# decide. Only a status that read the work tree has a head to store; a failed
-# write exits 66, so the gate holds rather than pass with no record.
+# decide. Only a status that read the work tree has a head to store. Unlike
+# the ledger it is overwritten, not appended to, so a repeated write is
+# harmless: any write that doesn't read back as written, confirmed or not,
+# exits 66 and the gate holds rather than pass with no record.
 record_counted_head() {
     [ -n "$ITEMS_HEAD" ] || return 0
     printf '%s' "$ITEMS_HEAD" > "$TMP/counted_head"
-    ctx_put "$1" "$COUNTED_HEAD_KEY" "$TMP/counted_head" || die66 "could not write $COUNTED_HEAD_KEY"
+    ctx_put "$1" "$COUNTED_HEAD_KEY" "$TMP/counted_head" /dev/null || die66 "could not write $COUNTED_HEAD_KEY (or it didn't read back as written)"
 }
 
 # ------------------------------------------------------------------- init ----
@@ -627,7 +687,7 @@ cmd_init() {
     head=$(git rev-parse -q --verify "HEAD^{commit}") || undecided "HEAD names no commit"
     top=$(git rev-parse --show-toplevel 2>>"$ERRLOG") || undecided "not inside a git work tree"
     ctx_get "$s" "$RULES_KEY" "$TMP/rules" || die66 "could not read $RULES_KEY"
-    [ -s "$TMP/rules" ] || undecided "no rules copy ($RULES_KEY) is stored; review_level_choice stores it"
+    [ -s "$TMP/rules" ] || undecided "no rules copy ($RULES_KEY) is stored; review-level.sh init stores it, in analysis's action"
 
     # Where the unit started: impl_base must be one of these, so neither a
     # later nor an older base narrows the test class. HEAD counts because

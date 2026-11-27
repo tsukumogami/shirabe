@@ -285,6 +285,54 @@ new_case r6-limit-200; fixture checks '[{"name":"build","bucket":"pending"}]'; a
 expect "row 6 limit 300, head 200 s old" "pending:checks"
 EXTRA_ENV=""
 
+# The deadline runs from each pending check's startedAt (#717): a head commit
+# older than the deadline whose checks started a minute ago (a re-run, or the
+# checks a ready event starts) is still pending. A pending check with no usable
+# start time, and a required check not yet reported, fall back to the commit.
+started() {
+    jq -cn --argjson s "$1" '((now - $s) | todate)'
+}
+new_case r6-fresh-start; age 2000
+fixture checks "[{\"name\":\"build\",\"bucket\":\"pending\",\"startedAt\":$(started 60)}]"
+expect "row 6 old head, pending check started 60 s ago" "pending:checks"
+if [ "$(calls 'pr checks .*--json name,bucket,startedAt')" -eq 1 ]; then
+    pass "row 6 the check read asks for startedAt"
+else
+    fail "row 6 the check read does not ask for startedAt: $(grep 'pr checks' "$CASE/calls.log")"
+fi
+
+new_case r6-fresh-fraction; age 2000
+fixture checks "[{\"name\":\"build\",\"bucket\":\"pending\",\"startedAt\":$(started 60 | sed 's/Z"$/.123Z"/')}]"
+expect "row 6 old head, start time with fractional seconds" "pending:checks"
+
+new_case r6-start-old; age 3000
+fixture checks "[{\"name\":\"build\",\"bucket\":\"pending\",\"startedAt\":$(started 60)},{\"name\":\"test\",\"bucket\":\"pending\",\"startedAt\":$(started 2000)}]"
+expect "row 6 one pending check started past the deadline" "error:execute:ci-timeout"
+
+new_case r6-start-zero; age 2000
+fixture checks '[{"name":"build","bucket":"pending","startedAt":"0001-01-01T00:00:00Z"}]'
+expect "row 6 zero start time falls back to the commit" "error:execute:ci-timeout"
+
+new_case r6-start-empty; age 2000
+fixture checks '[{"name":"build","bucket":"pending","startedAt":""}]'
+expect "row 6 empty start time falls back to the commit" "error:execute:ci-timeout"
+
+new_case r6-start-garbage; age 2000
+fixture checks '[{"name":"build","bucket":"pending","startedAt":"not-a-time"}]'
+expect "row 6 unreadable start time falls back to the commit" "error:execute:ci-timeout"
+
+new_case r6-start-young-head; age 60
+fixture checks '[{"name":"build","bucket":"pending","startedAt":"0001-01-01T00:00:00Z"}]'
+expect "row 6 zero start time on a young head is pending" "pending:checks"
+
+new_case r6-start-unreported; age 2000
+fixture checks "[{\"name\":\"lint\",\"bucket\":\"pending\",\"startedAt\":$(started 60)}]"
+expect "row 6 unreported required check falls back to the commit" "error:execute:ci-timeout"
+
+new_case r6-start-future; age 2000
+fixture checks "[{\"name\":\"build\",\"bucket\":\"pending\",\"startedAt\":$(started -300)}]"
+expect "row 6 start time in the future counts as just started" "pending:checks"
+
 new_case r7
 expect "row 7 merge not requested" "awaiting:merge-not-requested" --repo o/r --pr 7 --merge false --expected-head "$HEAD"
 if [ "$(calls 'branches/')" -eq 0 ] && [ "$(grep -cE '^api repos/o/r($| )' "$CASE/calls.log")" -eq 0 ]; then

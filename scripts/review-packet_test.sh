@@ -870,6 +870,80 @@ else
 fi
 [ "$CODE" -eq 0 ] && rm -f "$OUT"
 
+# A merge of the default branch after the base (#1701). main adds a 120 KB
+# document that sorts before every branch file, the branch merges main and
+# then commits its own file. The packets measure from a base that already
+# holds that merge, so neither carries the document, and the diff cap can't
+# land before the branch's own change.
+PRE_MERGE=$(git -C "$REPO" rev-parse feature)
+(
+    cd "$REPO" || exit 1
+    git checkout -q main
+    awk 'BEGIN { for (i = 0; i < 1500; i++) printf "%079d\n", i }' > a-merged.md
+    git add a-merged.md
+    git commit -q -m main-moves
+    git checkout -q feature
+    git merge -q --no-ff --no-edit main
+    echo own > own.txt
+    git add own.txt
+    git commit -q -m own
+) >/dev/null 2>&1
+MERGED_MAIN=$(git -C "$REPO" rev-parse main)
+HEAD_SHA=$(git -C "$REPO" rev-parse feature)
+MS="$ROOT/mstore"
+mkdir -p "$MS"
+echo "$PRE_MERGE" > "$MS/impl_base"
+FOLD_NOTE="with the default branch at $(printf '%.12s' "$MERGED_MAIN") merged in"
+
+run "$MS" code --session s
+if [ "$CODE" -eq 0 ] && [ -f "$OUT" ]; then
+    grep -q "^base: [0-9a-f]\{40\} (impl_base, $FOLD_NOTE)\$" "$OUT" \
+        && ! grep -q "^base: $PRE_MERGE " "$OUT" \
+        && pass "code: after a merge of main the base folds that merge in and says so" \
+        || fail "code: merged base line: $(grep '^base:' "$OUT")"
+    grep -q '^changed paths: 1$' "$OUT" && grep -q '^A	own.txt$' "$OUT" \
+        && grep -q '^+own$' "$OUT" && ! grep -q 'a-merged\.md' "$OUT" \
+        && ! grep -q '^\[truncated:' "$OUT" \
+        && pass "code: after a merge of main the paths and diff carry only the branch's own change" \
+        || fail "code: merged range: $(grep -c 'a-merged' "$OUT") lines name the merged file, paths $(grep '^changed paths:' "$OUT")"
+    rm -f "$OUT"
+else
+    fail "code: after a merge of main: exit $CODE, stderr: $ERR"
+fi
+
+# The same base with nothing of main merged after it is left alone: impl_base
+# at the merge itself already holds main.
+echo "$HEAD_SHA" > "$MS/impl_base"
+(cd "$REPO" && git commit -q --allow-empty -m after) >/dev/null 2>&1
+run "$MS" code --session s
+if [ "$CODE" -eq 0 ] && grep -q "^base: $HEAD_SHA (impl_base)\$" "$OUT"; then
+    pass "code: a base that already holds the merged main is used as it is"
+else
+    fail "code: unmerged base: exit $CODE, $(grep '^base:' "$OUT" 2>/dev/null)"
+fi
+[ "$CODE" -eq 0 ] && rm -f "$OUT"
+(cd "$REPO" && git reset -q --hard HEAD~1) >/dev/null 2>&1
+echo "$PRE_MERGE" > "$MS/impl_base"
+
+if command -v jq >/dev/null 2>&1; then
+    # The re-verifier's two ranges, both bounded before the merge.
+    printf '{"panel":"scrutiny","head":"%s","rev":2,"decisions":[{"seat":"completeness","decision":"keep","reason":"r"},{"seat":"reverifier","decision":"recheck","run":"scrutiny-r2-reverifier","reason":"r","findings":[{"id":"0123456789abcdef","severity":"blocking","summary":"own.txt says more","raiser":"intent","status":"open","path":"own.txt","lines":"1","due":"open, and the fix touched its location"}],"fix_diff_from":"%s","fix_review":true,"review_from":"%s"}]}\n' \
+        "$HEAD_SHA" "$PRE_MERGE" "$PRE_MERGE" > "$MS/scrutiny_scope.json"
+    run "$MS" recheck --session s --panel scrutiny --seat reverifier
+    if [ "$CODE" -eq 0 ] && [ -f "$OUT" ]; then
+        grep -q "^fix diff from: [0-9a-f]\{40\} (fix_diff_from, $FOLD_NOTE)\$" "$OUT" \
+            && grep -q "^review from: [0-9a-f]\{40\} (review_from, $FOLD_NOTE)\$" "$OUT" \
+            && pass "recheck: after a merge of main both ranges fold that merge in and say so" \
+            || fail "recheck: merged bounds: $(grep -E '^(fix diff|review) from:' "$OUT")"
+        grep -q '^A	own.txt$' "$OUT" && grep -q '^+own$' "$OUT" && ! grep -q 'a-merged\.md' "$OUT" \
+            && pass "recheck: after a merge of main the fix diff and review range carry only the branch's own change" \
+            || fail "recheck: merged range: $(grep -c 'a-merged' "$OUT") lines name the merged file"
+        rm -f "$OUT"
+    else
+        fail "recheck: after a merge of main: exit $CODE, stderr: $ERR"
+    fi
+fi
+
 # --------------------------------------------------------- spawn sites -------
 #
 # Every review spawn site carries a Seat commissioning line that names a model

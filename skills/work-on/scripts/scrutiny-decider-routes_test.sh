@@ -187,13 +187,16 @@ to_scrutiny() {
     tick "$s" '{"status":"override"}'
     printf '# Issue\n\n## Acceptance Criteria\n\n- [ ] it works\n' | koto context add "$s" context.md >/dev/null 2>&1
     printf 'plan\n' | koto context add "$s" plan.md >/dev/null 2>&1
-    tick "$s" '{"plan_outcome":"plan_ready"}'
+    # Before plan_ready, whose tick runs fix_determination's action, which
+    # reads it.
     printf '%s\n' "$MAIN" | koto context add "$s" impl_base >/dev/null 2>&1
-    "$RL" set "$s" standard >/dev/null 2>"$WORKDIR/set.err" || { fail "$s: set standard: $(cat "$WORKDIR/set.err")"; return 1; }
-    # Into fix_determination, whose action records the kind and whose
-    # kind_route gate routes on it in the same tick, to implementation.
-    tick "$s"
+    # plan_ready runs through fix_determination, whose action records the
+    # bound and the kind and whose kind_route gate routes on it in the same
+    # tick, to implementation.
+    tick "$s" '{"plan_outcome":"plan_ready"}'
     [ "$NEXT_STATE" = implementation ] || { fail "$s: at [$NEXT_STATE], not implementation"; return 1; }
+    # A raise to standard, which the level check keeps over the docs floor.
+    "$RL" set "$s" standard >/dev/null 2>"$WORKDIR/set.err" || { fail "$s: set standard: $(cat "$WORKDIR/set.err")"; return 1; }
     if [ -n "$2" ]; then
         koto decisions record "$s" --with-data "$2" >/dev/null 2>"$WORKDIR/dec.err" \
             || { fail "$s: koto decisions record failed: $(cat "$WORKDIR/dec.err")"; return 1; }

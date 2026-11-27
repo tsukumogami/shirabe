@@ -248,7 +248,8 @@ ledger() { koto context get "$1" test_change_ledger.jsonl 2>/dev/null; }
 
 # walk_to_implementation <session> <issue> <level> [<more init vars>...]: a
 # branch off main and a session through fix_determination to implementation
-# (a change) or reproduce (a fix).
+# (a change) or reproduce (a fix), where the level is raised to <level>
+# (review_level_check sets it from the facts, and keeps a raise).
 walk() {
     local s=$1 n=$2 level=$3
     shift 3
@@ -262,14 +263,12 @@ walk() {
     tick "$s" '{"status":"override"}'
     printf '# Issue %s\n\n## Acceptance Criteria\n\n- [ ] greet prints the greeting the issue asks for\n' "$n" | koto context add "$s" context.md >/dev/null 2>&1
     printf 'plan\n' | koto context add "$s" plan.md >/dev/null 2>&1
+    # The plan_ready tick runs through fix_determination and leaves it: its
+    # kind_route gate routes on the kind the action has just recorded.
     tick "$s" '{"plan_outcome":"plan_ready"}'
-    [ "$STATE" = review_level_choice ] || { fail "$s: walked to [$STATE], not review_level_choice"; return 1; }
-    "$RL" set "$s" "$level" >/dev/null 2>"$WORKDIR/set.err" || { fail "$s: review-level.sh set failed: $(cat "$WORKDIR/set.err")"; return 1; }
-    # The tick that enters fix_determination leaves it: its kind_route gate
-    # routes on the kind the action has just recorded.
-    tick "$s"
     [ "$(visits "$s" fix_determination)" = 1 ] || { fail "$s: fix_determination entered [$(visits "$s" fix_determination)] times"; return 1; }
     case "$STATE" in implementation|reproduce) ;; *) fail "$s: at [$STATE], not past fix_determination"; return 1 ;; esac
+    "$RL" set "$s" "$level" >/dev/null 2>"$WORKDIR/set.err" || { fail "$s: review-level.sh set failed: $(cat "$WORKDIR/set.err")"; return 1; }
     return 0
 }
 
@@ -433,10 +432,12 @@ EOF
     # A code hint over a diff with scripts in it takes the code route on entry
     # (code_route); the question is asked only when it didn't.
     [ "$STATE" = issue_type_routing ] && tick "$S" '{"issue_type":"code"}'
-    expect_state "a light fix below its facts floor" review_level_check
-    [ "$(unit_kind "$S")" = fix ] && pass "before the raise UNIT_KIND is fix" || fail "before the raise UNIT_KIND is [$(unit_kind "$S")]"
-    "$RL" set "$S" standard >/dev/null 2>"$WORKDIR/set.err" && pass "the level is raised to standard at review_level_check" \
-        || fail "the raise failed: $(cat "$WORKDIR/set.err")"
+    # The check's set-from-facts lifts the light choice to the standard floor
+    # and rebinds REVIEW_LEVEL in its own action, in the tick that entered it.
+    expect_state "a light fix below its facts floor, lifted by the check" scrutiny
+    [ "$(koto context get "$S" review_level.jsonl 2>/dev/null | jq -r 'select(.event == "from_facts") | "\(.from)|\(.to)"')" = "light|standard" ] \
+        && pass "the level is raised to standard at review_level_check" \
+        || fail "the ledger is [$(koto context get "$S" review_level.jsonl 2>/dev/null)]"
     K=$(unit_kind "$S")
     [ "$K" = fix ] && pass "after the raise UNIT_KIND is still fix" || fail "after the raise UNIT_KIND is [$K]"
     "$FK" agree "$S" "$K" >/dev/null 2>&1 && pass "fix-kind.sh agree still exits 0 after the raise" || fail "fix-kind.sh agree holds after the raise"
