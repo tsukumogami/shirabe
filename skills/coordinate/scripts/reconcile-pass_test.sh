@@ -316,7 +316,8 @@ echo "git $*" >> "$STUB_DIR/log"
 case " $* " in *" rev-parse --show-toplevel "*) [ -f "$STUB_DIR/top" ] && { cat "$STUB_DIR/top"; exit 0; }; exit 128 ;; esac
 exit 99
 STUB
-# The settle, the pass's one write: logs its arguments to <case>/settles and
+# The settle stand-in, for both writes it runs: the holding settle logs
+# its arguments to <case>/settles and
 # prints <case>/settle.out, else a settled fact. --successor logs to
 # <case>/succs and prints <case>/succ.out, else the row left as it was.
 cat > "$SC/reconcile-settle.sh" <<'STUB'

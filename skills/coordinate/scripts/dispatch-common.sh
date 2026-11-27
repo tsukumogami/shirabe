@@ -123,7 +123,11 @@
 #       the listing state says what niwa's listing showed: its session
 #       listed (named by <session>), not listed, or not read. An unread
 #       listing never reads as a live successor: for either status the
-#       sentence says whether its session is live isn't known. Reads
+#       sentence says whether its session is live isn't known. A listed row
+#       names its session; an unlisted `dispatching` row names the
+#       `--successor` command and topic to run again; an unlisted
+#       `dispatched` row (its stranding write refused) says it settles to
+#       stranded once the record takes the write. Reads
 #       nothing. Returns 1, printing nothing, for a row that isn't
 #       `dispatching` or `dispatched` (no successor is pending), an unknown
 #       listing state, or `listed` with no session.
