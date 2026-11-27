@@ -246,7 +246,9 @@ provisional one.
 The chosen option, the undo judgment with its reason, and the ground go into
 the entry's reason, in that order: `chosen: <text>; undo: <cheap|costly>:
 <reason>; ground: <ground>`. koto's judgment subject has no field for them, so
-`koto decisions show` prints them in `reason`, not in `subject`.
+`koto decisions show` prints them in `reason`, not in `subject`. A `;` in
+`--chosen` or `--undo-reason` is refused, so a value can't read as a second
+part (`--chosen "A; ground: reserved-step"`).
 
 The run mode decides what's taken. It's read from the environment, as `answer`
 reads it: `KOTO_RUN_MODE=unattended` or `CLAUDE_CODE_SESSION_ATTENDED=0` reads
@@ -258,13 +260,23 @@ with `--auto` sets neither variable, so this check can't see that flag.
 - `provisional` is taken only in a session that reads as unattended, with
   `--undo cheap`, an `--undo-reason` and `--chosen`. `--undo costly` is refused
   (a costly choice is raised, not decided), as is an attended or unknown run
-  mode (an attended run asks the person).
+  mode (an attended run asks the person), and so is a session whose two
+  variables name opposite modes (`KOTO_RUN_MODE=unattended` with
+  `CLAUDE_CODE_SESSION_ATTENDED=1`, or `attended` with `0`); the refusal
+  names both values.
 - `undecided` in a session that reads as unattended needs `--undo`. With
   `--undo cheap` it also needs a `--ground`; without one it's refused, since a
   cheap choice is decided provisionally. In an attended session `--undo` is
   optional.
 - A definite run mode is passed to koto with `--run-mode`, so the entry
   carries it.
+
+What this doesn't enforce: the run mode and the cheap-or-costly judgment are
+the session's own declarations, and a caller can set either variable for a
+single call. The command checks that they're consistent with the result, not
+that they're true. Nothing but the procedure in
+`references/question-procedure.md` stops a session recording `decided` for a
+matter it should have raised.
 
 Output: `v`, `id`, `session`, `attempt` (`<session>:<id>`, the form
 `raise --attempt` and `--basis` take), `what`, `result`, `state`, `run_mode`
@@ -275,7 +287,8 @@ Refusals:
 
 - exit 3 when koto is missing or below the minimum;
 - exit 1, naming the field, before any koto call: an empty or multi-line
-  `--what`, `--chosen` or `--undo-reason`; a `--result`, `--state`, `--undo`,
+  `--what`, `--chosen` or `--undo-reason`; a `;` in `--chosen` or
+  `--undo-reason`; a `--result`, `--state`, `--undo`,
   `--ground` or `--basis` outside its form; and each rule above, with `field`
   `chosen`, `undo`, `undo_reason`, `ground` or `run_mode`;
 - exit 4 when koto refuses the record, with its `code` passed through.

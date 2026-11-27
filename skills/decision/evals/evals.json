@@ -228,6 +228,17 @@
       "grader": "script",
       "handoff": "decision",
       "run": "scripts/cases/decision-handoff.sh decision"
+    },
+    {
+      "id": 18,
+      "name": "answering-run-resumes-open-session",
+      "prompt": "/decision package licence (an earlier /explore run handed this decision back UNDECIDED; decision-package-licence is still open, its work/context.md names explore-package-licence as the attempt session, and the owner has since answered the question raised from it)",
+      "expected_output": "The run opens decision-package-licence, which is still live, so skill-session.sh attaches it and its keys are there; it does not start a fresh Phase 0. The Resume Logic row for an undecided report brings it to Phase 6 step 6.7. It reads the attempt session from work/context.md, finds the answer with `shirabe question pending --in explore-package-licence` or `koto decisions history`, records `shirabe question attempt --in explore-package-licence --result decided --chosen <the answered option> --basis <answer session>:<id>`, rewrites work/report.md as a settled report with status confirmed whose Rationale cites the answer, and closes decision-package-licence done.",
+      "expectations": [
+        "Transcript attaches the existing decision-package-licence session rather than starting at Phase 0",
+        "Transcript records the decided attempt in explore-package-licence, the session the question was raised from, with --basis naming the answer",
+        "Transcript rewrites work/report.md with status confirmed and closes decision-package-licence only after that"
+      ]
     }
   ]
 }

@@ -125,7 +125,14 @@ A decider, or your own inline resolution, can end with no option chosen
 1. Check what came back:
    `"${CLAUDE_PLUGIN_ROOT}/skills/decision/scripts/check-undecided.sh" design-<topic> work/decision_<N>_report.md`.
    Exit 0 goes on. Exit 1 names a missing part: re-run the decider once with
-   that named; a second exit 1 marks the decision `failed` as 2.5 does.
+   that named, telling it the undecided attempt is already recorded (give it
+   the attempt id) so it rewrites the report and question without recording
+   a second one; the raise in step 2 rests on that first id. A second exit 1
+   marks the decision `failed` as 2.5 does, and its recorded attempt stays
+   undecided with no question raised on it. Exit 3 means the report is
+   settled after all: treat the decision as complete, as 2.5 does. Exit 2 or
+   4 (a wrong key, or koto unable to read the session) stops the run with the
+   script's line, since nothing can be raised.
 2. Raise the question from `design-<topic>`, the session the attempt is in:
 
    ```bash

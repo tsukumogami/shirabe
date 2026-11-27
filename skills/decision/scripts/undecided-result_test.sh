@@ -139,6 +139,20 @@ if grep -rn "follow the recommendation" "$REPO/skills/decision/references/phases
 fi
 [ "$phrase_ok" -eq 1 ] && pass "the three removed phrases are gone"
 
+# The rule that wrote a close call or a missing deciding fact as an assumed
+# best guess stays gone from the decision skill and the shared references.
+assume_ok=1
+if grep -rn -i "made best guess\|heuristic was close" "$REPO/references/decision-block-format.md"; then
+    fail "references/decision-block-format.md still makes a close call or a missing fact assumed"; assume_ok=0
+fi
+if grep -rn -i --exclude=undecided-result_test.sh "evidence was contested, or the decision was made in" "$REPO/skills/decision/"; then
+    fail "a decision file still makes contested evidence assumed"; assume_ok=0
+fi
+if grep -rn -i --exclude=undecided-result_test.sh "make a reasonable assumption and document it" "$REPO/skills/decision/" "$REPO/references/"; then
+    fail "a decision file still assumes an unknown the choice rests on"; assume_ok=0
+fi
+[ "$assume_ok" -eq 1 ] && pass "no close call or missing deciding fact is written as assumed"
+
 if grep -q 'shirabe question attempt' "$REPO/references/question-procedure.md"; then
     pass "the question procedure names shirabe question attempt"
 else
@@ -366,6 +380,25 @@ else
     fail "provisional refusals: costly $rc_costly [$msg_costly], attended $rc_att [$msg_att], listing $n_prov"
 fi
 
+# The two run-mode variables naming opposite modes, and a `;` that would make
+# one value read as two parts of the reason: both refused, nothing written.
+CLAUDE_CODE_SESSION_ATTENDED=1 att unattended --in worker --what "table name" --result provisional \
+    --undo cheap --undo-reason "local only" --chosen cache_entries
+rc_clash=$RC
+msg_clash=$(jq -r '.error.message // empty' "$T/att.out" 2>/dev/null)
+att unattended --in worker --what "table name" --result provisional --undo cheap \
+    --undo-reason "local only" --chosen "cache_entries; ground: reserved-step"
+rc_semi=$RC
+f_semi=$(jq -r '.error.field // empty' "$T/att.out" 2>/dev/null)
+koto decisions attempts --at manager --result provisional --awaiting-review >"$T/at.json" 2>>"$T/koto.err"
+n_prov=$(jq -r '.attempts | length' "$T/at.json" 2>/dev/null)
+case "$msg_clash" in *"KOTO_RUN_MODE=unattended"*"CLAUDE_CODE_SESSION_ATTENDED=1"*) c3=1 ;; *) c3=0 ;; esac
+if [ "$rc_clash" -eq 1 ] && [ "$c3" -eq 1 ] && [ "$rc_semi" -eq 1 ] && [ "$f_semi" = "chosen" ] && [ "$n_prov" = "1" ]; then
+    pass "provisional is refused when the run-mode variables disagree, naming both, and a ';' in --chosen is refused"
+else
+    fail "clash $rc_clash [$msg_clash], semicolon $rc_semi [$f_semi], listing $n_prov"
+fi
+
 # --- unattended undecided: the undo test ---------------------------------------
 
 att unattended --in worker --what "cache store" --result undecided --state implement:1
@@ -486,6 +519,23 @@ edited "a question with one option" "question" \
 edited "an option with no reason" "question" \
     'jq ".options[1].reason = \"\"" "$E/question.json" > "$E/q" && mv "$E/q" "$E/question.json"'
 edited "research removed" "research" ':'
+edited "the recommendation not first" "question" \
+    'jq ".options = [.options[1], .options[0]]" "$E/question.json" > "$E/q" && mv "$E/q" "$E/question.json"'
+
+# A koto that never answers: every call is bounded, so the check ends with
+# exit 4 instead of holding its caller.
+mkdir -p "$T/slowbin"
+printf '#!/bin/sh\nexec sleep 30\n' > "$T/slowbin/koto"
+chmod +x "$T/slowbin/koto"
+started=$(date +%s)
+PATH="$T/slowbin:$PATH" bash "$CHECK" worker work/decision_1_report.md >"$T/chk.out" 2>&1
+RC=$?
+took=$(( $(date +%s) - started ))
+if [ "$RC" -eq 4 ] && grep -q 'no answer within' "$T/chk.out" && [ "$took" -lt 20 ]; then
+    pass "check-undecided.sh gives up on a koto that never answers: exit 4 after ${took}s"
+else
+    fail "check-undecided.sh with a hung koto exited $RC after ${took}s: $(cat "$T/chk.out")"
+fi
 
 # A settled report.
 koto init settled --template "$T/two.md" >/dev/null 2>&1
@@ -523,17 +573,22 @@ fi
 # --- the hand-off to raise --------------------------------------------------------
 
 # handoff <session> <report_key> <question_key> <attempt id> <want recipient>
+# handoff <content session> <report key> <question key> <attempt id> <recipient> [<raise session>]
+# The raise session is the attempt session; it defaults to the content session
+# (a parent skill's layout, and a direct run nobody called). Under /explore the
+# content stays in decision-<topic> and the attempt and raise are in
+# explore-<topic>.
 handoff() {
-    local s=$1 rk=$2 qk=$3 id=$4 want=$5 identity got
+    local s=$1 rk=$2 qk=$3 id=$4 want=$5 rs=${6:-$1} identity got
     chk "$s" "$rk"
     if [ "$RC" -ne 0 ]; then
         fail "hand-off in $s: the check exited $RC: $(cat "$T/chk.out")"
         return
     fi
     koto context get "$s" "$qk" > "$T/q.json" 2>"$T/q.err" || { fail "hand-off in $s: koto context get $qk"; return; }
-    "$SHIRABE" question raise --in "$s" --content - --attempt "$id" < "$T/q.json" >"$T/raise.out" 2>"$T/raise.err"
+    "$SHIRABE" question raise --in "$rs" --content - --attempt "$id" < "$T/q.json" >"$T/raise.out" 2>"$T/raise.err"
     RC=$?
-    echo "hand-off from $s: exit $RC: $(cat "$T/raise.out" "$T/raise.err")"
+    echo "hand-off from $rs: exit $RC: $(cat "$T/raise.out" "$T/raise.err")"
     identity=$(jq -r '.identity // empty' "$T/raise.out" 2>/dev/null)
     got=$(jq -r '.recipient // empty' "$T/raise.out" 2>/dev/null)
     if [ "$RC" -ne 0 ] || [ -z "$identity" ] || [ "$got" != "$want" ]; then
@@ -574,17 +629,40 @@ if [ -n "$CALLER" ]; then
     # to person:owner. A direct /decision keeps its report at work/report.md.
     CS="$CALLER-licence"
     koto init "$CS" --template "$T/two.md" >/dev/null 2>"$T/init.err" || { fail "koto init $CS: $(cat "$T/init.err")"; finish; }
-    if [ "$CALLER" = "decision" ]; then
-        RK=work/report.md KD=work
-    else
-        RK=work/decision_1_report.md KD=work/decision-1
-    fi
-    load "$CS" "$RK" "$KD" || { fail "could not load the fixture into $CS"; finish; }
+    # Where the content lives (DS) and where the attempt is recorded and the
+    # question raised from (CS), as each caller really lays them out.
+    case "$CALLER" in
+        decision) DS=$CS RK=work/report.md KD=work ;;
+        design) DS=$CS RK=work/decision_1_report.md KD=work/decision-1 ;;
+        explore)
+            # /explore starts a direct /decision: its report and keys are in
+            # decision-<topic> at work/, and the attempt is in explore-<topic>.
+            DS=decision-licence RK=work/report.md KD=work
+            koto init "$DS" --template "$T/two.md" >/dev/null 2>"$T/init.err" || { fail "koto init $DS: $(cat "$T/init.err")"; finish; }
+            ;;
+    esac
+    load "$DS" "$RK" "$KD" || { fail "could not load the fixture into $DS"; finish; }
     att unattended --in "$CS" --what "package licence" --result undecided \
         --undo costly --undo-reason "a published version's licence cannot be taken back"
     CID=$(jq -r '.id // empty' "$T/att.out" 2>/dev/null)
     [ -n "$CID" ] || { fail "attempt in $CS exited $RC: $(out)"; finish; }
-    handoff "$CS" "$RK" "$KD/question.json" "$CID" person:owner
+    handoff "$DS" "$RK" "$KD/question.json" "$CID" person:owner "$CS"
+    if [ "$CALLER" = "explore" ]; then
+        # The decision session is left open while the question waits, so a
+        # later /decision attaches it rather than replacing a finished one.
+        term=$(koto status "$DS" 2>/dev/null | jq -r '.is_terminal | tostring' 2>/dev/null)
+        if [ "$term" = "false" ]; then
+            pass "explore layout: $DS is still live after the hand-off, so the answering run attaches it"
+        else
+            fail "explore layout: $DS reads is_terminal=[$term] after the hand-off"
+        fi
+        n=$(koto decisions attempts --in "$CS" 2>/dev/null | jq '[.attempts[] | select(.result == "undecided")] | length' 2>/dev/null)
+        if [ "$n" = "1" ]; then
+            pass "explore layout: the undecided attempt is in $CS, the session the question was raised from"
+        else
+            fail "explore layout: $CS holds [$n] undecided attempts, wanted 1"
+        fi
+    fi
 fi
 
 finish

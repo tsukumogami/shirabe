@@ -20,8 +20,9 @@ rationale: |
   and otherwise waits on the record while the session continues; R31 names the
   stop among the rules the work supersedes. The cheap-or-costly test is stated
   once, in references/question-procedure.md, and shirabe question attempt
-  refuses a provisional decision a costly or an attended run would otherwise
-  record.
+  refuses a provisional decision whose session declares itself attended or
+  calls the choice costly; it checks those declarations for consistency, not
+  for truth.
 ---
 
 # DECISION: an unattended run raises its question and continues
@@ -83,17 +84,21 @@ rest climbs to its coordinator and then to the person.
 ## Enforcement and its limits
 
 `shirabe question attempt` refuses a `provisional` result in a session that
-doesn't read as unattended, with `--undo costly`, without an `--undo-reason`,
-or without `--chosen`, and refuses an unattended `undecided` attempt that
-records no undo judgment, or calls the choice cheap without a ground.
+doesn't read as unattended, when the two run-mode variables name opposite
+modes, with `--undo costly`, without an `--undo-reason`, or without
+`--chosen`, and refuses an unattended `undecided` attempt that records no
+undo judgment, or calls the choice cheap without a ground. It refuses a `;`
+in `--chosen` and `--undo-reason`, so the entry's reason reads one way.
 `shirabe question raise --attempt` refuses an attempt that isn't `undecided`.
 
-The command reads the run mode from the environment (`KOTO_RUN_MODE`,
-`CLAUDE_CODE_SESSION_ATTENDED`), because koto 0.42.0 keeps no run mode per
-session for it to read; a skill started with `--auto` sets neither. Whether a
-choice is cheap or costly to undo is the session's judgment: the command
-checks that the judgment and its reason are recorded, not that they are
-right.
+The limits are these. The command reads the run mode from the environment
+(`KOTO_RUN_MODE`, `CLAUDE_CODE_SESSION_ATTENDED`), because koto 0.42.0 keeps
+no run mode per session for it to read; a skill started with `--auto` sets
+neither, and a caller can set either one for a single call. The run mode and
+the cheap-or-costly judgment are therefore the session's own declarations:
+the command checks that they are consistent with the result, not that they
+are true. Nothing but the procedure stops a session recording `decided` for
+a matter it should have raised.
 
 ## Options Considered
 

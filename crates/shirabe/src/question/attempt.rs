@@ -21,7 +21,13 @@
 //!     an `undecided` result.
 //!
 //! The run mode is read the way `answer` reads it (see [`super::run_mode`]),
-//! never from the fact that a caller asked for no prompts.
+//! never from the fact that a caller asked for no prompts. koto 0.42.0 keeps
+//! no run mode per session for this command to read instead, so the mode and
+//! the cheap-or-costly judgment are the session's own declarations: the
+//! command checks that they are consistent with the result, not that they are
+//! true. When the two run-mode variables name opposite modes, `provisional`
+//! is refused. Nothing here stops a session recording `decided` for a matter
+//! it should have raised; only the procedure does.
 
 use serde_json::{json, Map, Value};
 
@@ -73,6 +79,32 @@ fn text(field: &str, flag: &str, v: &str) -> Result<(), Failure> {
     Ok(())
 }
 
+/// A value that goes into the entry's reason, whose parts are joined by `; `
+/// (see [`reason`]): a `;` inside it would let one value read as two parts,
+/// so `--chosen "A; ground: reserved-step"` is refused rather than recorded.
+fn part(field: &str, flag: &str, v: &str) -> Result<(), Failure> {
+    text(field, flag, v)?;
+    if v.contains(';') {
+        return Err(Failure::refused(
+            field,
+            format!("{flag} holds a ';', which separates the parts of the entry's reason"),
+        ));
+    }
+    Ok(())
+}
+
+/// The two run-mode variables when both are set and name opposite modes
+/// (`KOTO_RUN_MODE=unattended` with `CLAUDE_CODE_SESSION_ATTENDED=1`, or
+/// `attended` with `0`). [`run_mode`] then reads unattended, which is the
+/// unsafe direction for a provisional decision, so `provisional` is refused.
+fn run_mode_conflict() -> Option<(String, String)> {
+    let koto = std::env::var("KOTO_RUN_MODE").ok()?;
+    let attended = std::env::var("CLAUDE_CODE_SESSION_ATTENDED").ok()?;
+    let clash =
+        (koto == "unattended" && attended == "1") || (koto == "attended" && attended == "0");
+    clash.then_some((koto, attended))
+}
+
 /// Check every input. Returns the run mode read, for the record.
 pub fn validate(i: &Input) -> Result<RunMode, Failure> {
     check_name("in", "--in", i.session)?;
@@ -96,7 +128,7 @@ pub fn validate(i: &Input) -> Result<RunMode, Failure> {
         }
     }
     if let Some(c) = i.chosen {
-        text("chosen", "--chosen", c)?;
+        part("chosen", "--chosen", c)?;
     }
     if let Some(u) = i.undo {
         if !UNDO.contains(&u) {
@@ -106,7 +138,7 @@ pub fn validate(i: &Input) -> Result<RunMode, Failure> {
             ));
         }
         match i.undo_reason {
-            Some(r) => text("undo_reason", "--undo-reason", r)?,
+            Some(r) => part("undo_reason", "--undo-reason", r)?,
             None => {
                 return Err(Failure::refused(
                     "undo_reason",
@@ -184,6 +216,12 @@ pub fn validate(i: &Input) -> Result<RunMode, Failure> {
         }
         _ => {
             // provisional
+            if let Some((koto, attended)) = run_mode_conflict() {
+                return Err(Failure::refused(
+                    "run_mode",
+                    format!("the run-mode variables disagree (KOTO_RUN_MODE={koto}, CLAUDE_CODE_SESSION_ATTENDED={attended}), so this session can't be read as unattended for a provisional decision"),
+                ));
+            }
             match mode {
                 RunMode::Unattended => {}
                 RunMode::Attended => {

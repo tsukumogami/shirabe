@@ -98,9 +98,12 @@ parent dispatched it:
 
 Any non-zero exit from either command stops the run with the script's message:
 127 or 69 means koto is missing or too old, and the skill never falls back to
-files. At the end of Phase 6 a direct run closes its session:
+files. At the end of Phase 6 a direct run with a settled result closes its
+session:
 `"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close decision-<topic> done`
-(`abandoned` when the user abandons the decision). Under a parent `/decision`
+(`abandoned` when the user abandons the decision). A direct run that ends
+undecided leaves it open while its question waits, since a later open
+replaces a finished session and its keys (Phase 6, 6.6). Under a parent `/decision`
 never closes a session.
 
 Keys are read and written with koto: `koto context exists <session> <key>`

@@ -18,7 +18,8 @@
 #   - `<key_dir>/question.json`: the question in the form
 #     `shirabe question raise` takes -- non-empty `context`, `problem`,
 #     `question` and `label`, two to four `options` each with a non-empty
-#     `label` and `reason`, a `ground` string and a `waiting` array;
+#     `label` and `reason`, the first of them the report's Recommendation, a
+#     `ground` string and a `waiting` array;
 #   - `<key_dir>/context.md`, `research.md` and `alternatives.md`: still
 #     present, since an undecided decision removes no intermediate key.
 #
@@ -28,7 +29,8 @@
 #   2  usage: wrong arguments, or a report key of neither shape
 #   3  the report is settled (a confirmed or assumed block with a Chosen
 #      section): the decision is complete and there is no question to raise
-#   4  koto is missing or could not read the session
+#   4  koto is missing, could not read the session, or gave no answer within
+#      the deadline: each koto call is bounded at 10 seconds
 #
 # Output is one line: `undecided: ok`, `missing: <part>: <why>`,
 # `complete: <report_key> is a settled decision`, or `usage: ...`.
@@ -59,19 +61,54 @@ esac
 command -v koto >/dev/null 2>&1 || { printf 'koto: not found on PATH\n'; exit 4; }
 command -v jq >/dev/null 2>&1 || { printf 'jq: not found on PATH\n'; exit 4; }
 
+# Every koto call is a read, bounded so a hung koto can't hold the caller:
+# timeout(1) where the host has it, otherwise a watcher that ends the call.
+DEADLINE=10
+kt() {
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$DEADLINE" "$@"
+        return
+    fi
+    local pid w rc
+    "$@" &
+    pid=$!
+    ( sleep "$DEADLINE"; kill -TERM "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+    w=$!
+    wait "$pid"
+    rc=$?
+    pkill -P "$w" 2>/dev/null
+    kill "$w" 2>/dev/null
+    wait "$w" 2>/dev/null
+    return "$rc"
+}
+# A call that ran out of time (timeout's 124, or the TERM's 143).
+late() {
+    case "$1" in
+        124|143) printf 'koto: no answer within %ss reading %s\n' "$DEADLINE" "$session"; exit 4 ;;
+    esac
+}
+
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/check-undecided.XXXXXX") || { printf 'koto: no scratch directory\n'; exit 4; }
 trap 'rm -rf "$tmp"' EXIT
 
-if ! koto context exists "$session" "$report_key" >/dev/null 2>&1; then
+kt koto context exists "$session" "$report_key" >/dev/null 2>&1
+rc=$?
+late "$rc"
+if [ "$rc" -ne 0 ]; then
     # Tell a missing key from a session koto cannot read.
-    if ! koto context list "$session" >/dev/null 2>"$tmp/err"; then
+    kt koto context list "$session" >/dev/null 2>"$tmp/err"
+    rc=$?
+    late "$rc"
+    if [ "$rc" -ne 0 ]; then
         printf 'koto: cannot read session %s\n' "$session"
         exit 4
     fi
     missing report "key $report_key is not in $session"
 fi
-koto context get "$session" "$report_key" > "$tmp/report.md" 2>/dev/null \
-    || { printf 'koto: cannot read %s in %s\n' "$report_key" "$session"; exit 4; }
+kt koto context get "$session" "$report_key" > "$tmp/report.md" 2>/dev/null
+rc=$?
+late "$rc"
+[ "$rc" -eq 0 ] || { printf 'koto: cannot read %s in %s\n' "$report_key" "$session"; exit 4; }
 
 # The block: its opening line, status and body.
 start=$(grep -n -m 1 '^<!-- decision:start id="[^"]*" status="[^"]*" -->$' "$tmp/report.md")
@@ -136,9 +173,14 @@ has_heading 'What Would Settle It\*\*' || missing "What Would Settle It" "no **W
 
 # The question.
 qkey="$key_dir/question.json"
-koto context exists "$session" "$qkey" >/dev/null 2>&1 || missing question "key $qkey is not in $session"
-koto context get "$session" "$qkey" > "$tmp/question.json" 2>/dev/null \
-    || { printf 'koto: cannot read %s in %s\n' "$qkey" "$session"; exit 4; }
+kt koto context exists "$session" "$qkey" >/dev/null 2>&1
+rc=$?
+late "$rc"
+[ "$rc" -eq 0 ] || missing question "key $qkey is not in $session"
+kt koto context get "$session" "$qkey" > "$tmp/question.json" 2>/dev/null
+rc=$?
+late "$rc"
+[ "$rc" -eq 0 ] || { printf 'koto: cannot read %s in %s\n' "$qkey" "$session"; exit 4; }
 jq -e . "$tmp/question.json" >/dev/null 2>&1 || missing question "$qkey is not JSON"
 qcheck() {
     jq -e "$1" "$tmp/question.json" >/dev/null 2>&1 || missing question "$2"
@@ -153,11 +195,18 @@ qcheck 'all(.options[]; (.label | type) == "string" and (.label | test("\\S")))'
 qcheck 'all(.options[]; (.reason | type) == "string" and (.reason | test("\\S")))' "an option in $qkey has no reason"
 qcheck '(.ground | type) == "string"' "$qkey has no ground"
 qcheck '(.waiting | type) == "array"' "$qkey has no waiting list"
+# The recommendation first: the report's **Recommendation: <Name>** is the
+# first option's label.
+rec=$(grep -m 1 '^\*\*Recommendation: [^*][^*]*\*\*' "$tmp/block.md" | sed 's/^\*\*Recommendation: //; s/\*\*.*$//')
+first=$(jq -r '.options[0].label' "$tmp/question.json")
+[ "$rec" = "$first" ] || missing question "the first option in $qkey is [$first], not the report's Recommendation [$rec]"
 
 # The research, kept.
 for k in context.md research.md alternatives.md; do
-    koto context exists "$session" "$key_dir/$k" >/dev/null 2>&1 \
-        || missing research "key $key_dir/$k is not in $session; an undecided decision removes no intermediate key"
+    kt koto context exists "$session" "$key_dir/$k" >/dev/null 2>&1
+    rc=$?
+    late "$rc"
+    [ "$rc" -eq 0 ] || missing research "key $key_dir/$k is not in $session; an undecided decision removes no intermediate key"
 done
 
 printf 'undecided: ok\n'

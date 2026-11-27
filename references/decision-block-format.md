@@ -78,13 +78,20 @@ contradicting evidence.
 
 ### assumed
 
-Best guess, pending review. Assigned when:
+A choice the evidence clearly favours that rests on stated assumptions, or a
+provisional decision, pending review. Assigned when:
 
 | Category | Condition |
 |----------|-----------|
-| Researchable | Agent couldn't find the answer, made best guess |
-| Judgment call | Heuristic was close (no clear winner), or contradicting evidence exists |
+| Researchable | The evidence clearly favours one option, and a fact the choice does not turn on couldn't be found; the assumption is stated |
+| Judgment call | A provisional decision: an unattended run's close call that is cheap to undo (`references/question-procedure.md`) |
 | Approval gate | Always -- auto-approval assumes the artifact meets the user's standards |
+
+A close call (no clear winner, or contradicting evidence) or a fact the
+choice turns on that couldn't be found is not settled by the evidence. It is
+never written as an `assumed` best guess. An attended run asks the person
+and records the reply as `confirmed`; otherwise it is decided provisionally
+under the cheap-or-costly test, in an unattended run, or it ends `undecided`.
 
 ### escalated
 
@@ -105,8 +112,7 @@ answer arrives, the caller writes a new block with the answer as its Choice
 and `confirmed` status, citing the answer.
 
 A provisional decision (an unattended run's cheap-to-undo choice, see
-`references/question-procedure.md`) is written as `assumed`, as a best guess
-is.
+`references/question-procedure.md`) is written as `assumed`.
 
 ## Review Priority
 

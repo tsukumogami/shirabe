@@ -85,7 +85,12 @@ are keys in `decision-<topic>`.
 1. Check them:
    `"${CLAUDE_PLUGIN_ROOT}/skills/decision/scripts/check-undecided.sh" decision-<topic> work/report.md`.
    Exit 0 goes on; exit 1 names the missing part, which goes into the
-   summary below as a failed hand-back.
+   summary below as a failed hand-back. Exit 3 means the report is settled
+   after all: handle it as a settled report (step 4 of the Handoff), raise
+   nothing, and close `explore-<topic>` as that path does. Exit 2 or 4 (a
+   wrong key, or koto unable to read `decision-<topic>`) raises nothing:
+   report the script's line as a failed hand-back, leave `decision-<topic>`
+   open, and close `explore-<topic>` as step 5 does.
 2. Raise the question from `explore-<topic>`:
 
    ```bash
@@ -104,9 +109,15 @@ are keys in `decision-<topic>`.
    the question stays open and the research keys (`research/...` here,
    `work/...` in `decision-<topic>`) stay readable for whoever answers it.
 
+`decision-<topic>` is not closed: the decision left it open while the
+question waits, so its report, `work/question.json` and research keys are
+still there when someone answers.
+
 Tell the user the exploration ended with an open question, its identity and
 who it is addressed to. Once it is answered, re-running `/decision` on the
-topic with the answer writes the Decision Record.
+topic attaches the still-open `decision-<topic>`, records the answer as the
+choice in `explore-<topic>` and writes the Decision Record (`/decision`'s
+Phase 6, 6.7).
 
 ## Escalation from Lightweight
 

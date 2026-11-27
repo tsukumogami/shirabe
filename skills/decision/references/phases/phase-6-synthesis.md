@@ -35,8 +35,8 @@ record provides the most refined view -- focus on:
 ### 6.2a When the Evidence Does Not Settle It
 
 The evidence does not settle the question when no option is a clear winner,
-or a fact the choice rests on could not be found: the cases
-`references/decision-block-format.md` lists as a best guess or a close call.
+the evidence contradicts itself, or a fact the choice rests on could not be
+found.
 A choice the evidence clearly favours is settled: go on to 6.3 as before.
 
 When it does not settle and the run can ask (an attended session, in a turn
@@ -66,7 +66,10 @@ its own question.
   "<why>"` in an unattended session, or `--undo cheap --undo-reason "<what
   undoing would take>" --ground <ground>` for a cheap choice a ground keeps
   from it), note its id, write the undecided report in 6.3a and the
-  question in 6.3b, and return `UNDECIDED` in 6.6.
+  question in 6.3b, and return `UNDECIDED` in 6.6. A re-run the caller
+  started to fill a part `check-undecided.sh` found missing, and that hands
+  in the earlier attempt's id, records no second attempt: it rewrites the
+  report and the question and returns that id.
 
 ### 6.3 Write Decision Report
 
@@ -128,10 +131,12 @@ that is missing; fix it and run the check again.
 Apply the status threshold from `references/decision-block-format.md`:
 
 - If evidence clearly favored the choice and no assumptions were made: `confirmed`
-- If assumptions exist, or evidence was contested, or the decision was made in
-  --auto mode without user confirmation: `assumed`
+- If evidence clearly favored the choice and it rests on stated assumptions
+  about facts it does not turn on: `assumed`
 - A provisional decision (6.2a): `assumed`
-- A decision that ends undecided (6.2a): `undecided`, in the undecided report
+- Contested evidence, or a missing fact the choice turns on, is never
+  `assumed` on its own: it goes through 6.2a, which makes it provisional
+  (`assumed`) or ends it `undecided`, in the undecided report
 
 ### 6.5 Remove the Intermediate Keys
 
@@ -199,12 +204,17 @@ koto context get decision-<topic> work/question.json \
   | shirabe question raise --in decision-<topic> --content - --attempt <id>
 ```
 
-If running standalone with an undecided result and nobody called it, present
-the summary, the report and the question's identity, and leave
-`decision-<topic>` open: the question waits on its answer (6.7). A direct run
-a skill started returns the result to that skill and closes
-`decision-<topic>` with `done`, as a settled run does. Its close, when it comes, keeps every key,
-since `skill-session.sh close` ticks with `--no-cleanup`.
+A direct run that ends undecided closes nothing, whether nobody called it or
+a skill started it: `decision-<topic>` stays open, live, while its question
+waits on an answer (6.7). This matters because of what a later open does.
+`skill-session.sh open decision <topic>` attaches a live session and reads
+its keys, but it replaces a finished one (`koto-open.sh --replace-terminal`):
+koto removes the finished session, or moves it aside under another name when
+it keeps it for its hierarchy, and the new run starts at Phase 0 with none of
+the kept report, `question.json` or research. Leaving the session live is
+what lets the answering run find them. A run nobody called presents the
+summary, the report and the question's identity; a run a skill started
+returns the result to that skill, which raises the question.
 
 If running standalone with a settled result, present a summary and the report to the user (it stays
 readable as key `work/report.md` in `decision-<topic>`), then close the
@@ -219,13 +229,23 @@ it at its own end.
 
 ### 6.7 After the Answer
 
-When the question a direct run raised is answered (`shirabe question pending
---in decision-<topic>` lists the answer, or `koto decisions history
-<identity>` shows it), record the answer as the choice: `shirabe question
-attempt --in decision-<topic> --what "<question>" --result decided --chosen
-"<the answer's option>" --basis <the answer's session>:<id>`, rewrite key
-`work/report.md` as a settled report with status `confirmed` whose Rationale
-cites the answer, then run 6.5 and close the session as a settled run does.
+A direct run's question was raised from its attempt session: the Attempt
+Session section of `work/context.md` names it, `decision-<topic>` when nobody
+called the run and the starting skill's session otherwise (`explore-<topic>`
+under `/explore`). Re-running `/decision` on the topic opens
+`decision-<topic>`, which is still live, and the Resume Logic row for an
+undecided report brings the run here. When that question is answered
+(`shirabe question pending --in <attempt session>` lists the answer, or
+`koto decisions history <identity>` shows it), record the answer as the
+choice in the same session: `shirabe question attempt --in <attempt session>
+--what "<question>" --result decided --chosen "<the answer's option>" --basis
+<the answer's session>:<id>`. koto takes a decision record in a finished
+session, so this works after `/explore` has closed `explore-<topic>`. Then
+rewrite key `work/report.md` in
+`decision-<topic>` as a settled report with status `confirmed` whose
+Rationale cites the answer, run 6.5, and close `decision-<topic>` as a
+settled run does. While the question is unanswered, the run changes nothing
+and says it is still waiting.
 
 ## Quality Checklist
 
@@ -234,7 +254,8 @@ cites the answer, then run 6.5 and close the session as a settled run does.
 - [ ] Status correctly assigned (confirmed vs assumed, or undecided)
 - [ ] Settled: intermediate keys removed; a standalone run closed `decision-<topic>`
 - [ ] Undecided: an undecided attempt recorded, `<key_dir>/question.json`
-      written, `check-undecided.sh` exits 0, no intermediate key removed
+      written, `check-undecided.sh` exits 0, no intermediate key removed,
+      and a direct run left `decision-<topic>` open
 
 ## Next Phase
 

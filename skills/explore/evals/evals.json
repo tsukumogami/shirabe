@@ -212,13 +212,14 @@
       "id": 16,
       "name": "handed-back-question-raised",
       "prompt": "/explore --auto package licence (crystallizes to a decision; the evidence cannot say whether the owner wants a patent grant, and a published licence cannot be taken back)",
-      "expected_output": "Phase 5 writes the decision brief with an Attempt Session section naming explore-<topic>, and hands off to /decision. The decision returns UNDECIDED, which /explore does not treat as a failure. It runs check-undecided.sh on decision-<topic> work/report.md and raises the question from explore-<topic> with `shirabe question raise --in explore-<topic> --content - --attempt <id>`. It writes no decision record with a chosen option, and the session's close leaves the question open and the research keys readable.",
+      "expected_output": "Phase 5 writes the decision brief with an Attempt Session section naming explore-<topic>, and hands off to /decision. The decision returns UNDECIDED, which /explore does not treat as a failure. It runs check-undecided.sh on decision-<topic> work/report.md and raises the question from explore-<topic> with `shirabe question raise --in explore-<topic> --content - --attempt <id>`. It writes no decision record with a chosen option, and the session's close leaves the question open and the research keys readable. It does not close decision-<topic>: the decision left it open while the question waits, so a later /decision attaches it with its report and keys. On check-undecided exit 3 it handles the report as settled and raises nothing; on exit 2 or 4 it raises nothing and reports a failed hand-back.",
       "expectations": [
         "Transcript names explore-<topic> as the attempt session in the decision brief",
         "Transcript treats the UNDECIDED return as neither a failure nor a reason to retry",
         "Transcript runs check-undecided.sh and raises the question from explore-<topic> with the attempt id",
         "Transcript writes no chosen option for the open question",
-        "Transcript leaves the research keys readable after the close"
+        "Transcript leaves the research keys readable after the close",
+        "Transcript leaves decision-<topic> open after the hand-back rather than closing it done"
       ]
     },
     {

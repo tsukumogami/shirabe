@@ -77,8 +77,12 @@ session that does not read as unattended or with `--undo costly`, and in an
 unattended session it refuses an `undecided` attempt that leaves the test out,
 or that calls a choice cheap with no ground. It reads attended or unattended
 from the same two environment variables `answer` reads (step 6), never from a
-skill's own non-interactive flag, and the judgment of what undoing would take
-is the session's own.
+skill's own non-interactive flag, and refuses `provisional` when the two name
+opposite modes. Those variables and the judgment of what undoing would take
+are the session's own declarations: koto 0.42.0 keeps no run mode per
+session to check them against, so the command checks that they are
+consistent, not that they are true, and nothing but this procedure stops a
+session recording `decided` for a matter it should have raised.
 
 ### 2. Read the owner's earlier answers for the subject
 

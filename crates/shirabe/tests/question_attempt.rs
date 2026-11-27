@@ -361,6 +361,88 @@ fn provisional_in_an_attended_session_is_refused_because_an_attended_run_asks() 
 }
 
 #[test]
+fn provisional_is_refused_when_the_run_mode_variables_disagree() {
+    let args = [
+        "--result",
+        "provisional",
+        "--undo",
+        "cheap",
+        "--undo-reason",
+        "r",
+        "--chosen",
+        "x",
+    ];
+    for (koto, attended) in [("unattended", "1"), ("attended", "0")] {
+        let s = Standin::new();
+        let mut c = attempt(&s, Some(koto), &args);
+        let out = c
+            .env("CLAUDE_CODE_SESSION_ATTENDED", attended)
+            .assert()
+            .code(1)
+            .get_output()
+            .clone();
+        let j = json(&out.stdout);
+        assert_eq!(j["error"]["field"], json!("run_mode"), "{j}");
+        let msg = j["error"]["message"].as_str().unwrap();
+        assert!(
+            msg.contains(&format!("KOTO_RUN_MODE={koto}"))
+                && msg.contains(&format!("CLAUDE_CODE_SESSION_ATTENDED={attended}")),
+            "{msg}"
+        );
+        assert!(s.writes().is_empty(), "{:?}", s.writes());
+    }
+}
+
+#[test]
+fn a_semicolon_in_a_reason_part_is_refused_so_the_layout_reads_one_way() {
+    let s = Standin::new();
+    let j = refused(
+        &s,
+        Some("unattended"),
+        &[
+            "--result",
+            "provisional",
+            "--undo",
+            "cheap",
+            "--undo-reason",
+            "r",
+            "--chosen=A; ground: reserved-step",
+        ],
+        "chosen",
+    );
+    assert!(
+        j["error"]["message"].as_str().unwrap().contains("';'"),
+        "{j}"
+    );
+    let s = Standin::new();
+    refused(
+        &s,
+        Some("unattended"),
+        &[
+            "--result",
+            "undecided",
+            "--undo",
+            "costly",
+            "--undo-reason=published; chosen: A",
+        ],
+        "undo_reason",
+    );
+    let s = Standin::new();
+    refused(
+        &s,
+        Some("unattended"),
+        &[
+            "--result",
+            "undecided",
+            "--undo",
+            "costly",
+            "--undo-reason=line one\nline two",
+        ],
+        "undo_reason",
+    );
+}
+
+#[test]
 fn provisional_in_a_session_whose_mode_is_unknown_is_refused() {
     let s = Standin::new();
     refused(
