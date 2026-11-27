@@ -32,8 +32,10 @@
 #   4  koto is missing, could not read the session, or gave no answer within
 #      the deadline: each koto call is bounded at 10 seconds
 #
-# Output is one line: `undecided: ok`, `missing: <part>: <why>`,
+# stdout is one line: `undecided: ok`, `missing: <part>: <why>`,
 # `complete: <report_key> is a settled decision`, or `usage: ...`.
+# stderr carries koto's and jq's own diagnostics, untouched, for whoever reads
+# them; nothing a tool says is thrown away.
 set -u
 
 usage() { printf 'usage: %s\n' "$1"; exit 2; }
@@ -58,8 +60,8 @@ case "$report_key" in
     *) usage "report key $report_key is not work/report.md or work/decision_<N>_report.md" ;;
 esac
 
-command -v koto >/dev/null 2>&1 || { printf 'koto: not found on PATH\n'; exit 4; }
-command -v jq >/dev/null 2>&1 || { printf 'jq: not found on PATH\n'; exit 4; }
+command -v koto >/dev/null || { printf 'koto: not found on PATH\n'; exit 4; }
+command -v jq >/dev/null || { printf 'jq: not found on PATH\n'; exit 4; }
 
 # Every koto call is a read, bounded so a hung koto can't hold the caller:
 # timeout(1) where the host has it, otherwise a watcher that ends the call.
@@ -91,12 +93,12 @@ late() {
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/check-undecided.XXXXXX") || { printf 'koto: no scratch directory\n'; exit 4; }
 trap 'rm -rf "$tmp"' EXIT
 
-kt koto context exists "$session" "$report_key" >/dev/null 2>&1
+kt koto context exists "$session" "$report_key" >/dev/null
 rc=$?
 late "$rc"
 if [ "$rc" -ne 0 ]; then
     # Tell a missing key from a session koto cannot read.
-    kt koto context list "$session" >/dev/null 2>"$tmp/err"
+    kt koto context list "$session" >/dev/null
     rc=$?
     late "$rc"
     if [ "$rc" -ne 0 ]; then
@@ -105,7 +107,7 @@ if [ "$rc" -ne 0 ]; then
     fi
     missing report "key $report_key is not in $session"
 fi
-kt koto context get "$session" "$report_key" > "$tmp/report.md" 2>/dev/null
+kt koto context get "$session" "$report_key" > "$tmp/report.md"
 rc=$?
 late "$rc"
 [ "$rc" -eq 0 ] || { printf 'koto: cannot read %s in %s\n' "$report_key" "$session"; exit 4; }
@@ -173,17 +175,17 @@ has_heading 'What Would Settle It\*\*' || missing "What Would Settle It" "no **W
 
 # The question.
 qkey="$key_dir/question.json"
-kt koto context exists "$session" "$qkey" >/dev/null 2>&1
+kt koto context exists "$session" "$qkey" >/dev/null
 rc=$?
 late "$rc"
 [ "$rc" -eq 0 ] || missing question "key $qkey is not in $session"
-kt koto context get "$session" "$qkey" > "$tmp/question.json" 2>/dev/null
+kt koto context get "$session" "$qkey" > "$tmp/question.json"
 rc=$?
 late "$rc"
 [ "$rc" -eq 0 ] || { printf 'koto: cannot read %s in %s\n' "$qkey" "$session"; exit 4; }
-jq -e . "$tmp/question.json" >/dev/null 2>&1 || missing question "$qkey is not JSON"
+jq -e . "$tmp/question.json" >/dev/null || missing question "$qkey is not JSON"
 qcheck() {
-    jq -e "$1" "$tmp/question.json" >/dev/null 2>&1 || missing question "$2"
+    jq -e "$1" "$tmp/question.json" >/dev/null || missing question "$2"
 }
 for f in context problem question label; do
     qcheck "(.$f | type) == \"string\" and (.$f | test(\"\\\\S\"))" "$qkey has no $f"
@@ -203,7 +205,7 @@ first=$(jq -r '.options[0].label' "$tmp/question.json")
 
 # The research, kept.
 for k in context.md research.md alternatives.md; do
-    kt koto context exists "$session" "$key_dir/$k" >/dev/null 2>&1
+    kt koto context exists "$session" "$key_dir/$k" >/dev/null
     rc=$?
     late "$rc"
     [ "$rc" -eq 0 ] || missing research "key $key_dir/$k is not in $session; an undecided decision removes no intermediate key"
