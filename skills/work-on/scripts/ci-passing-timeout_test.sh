@@ -200,6 +200,8 @@ $STUBBED
     terminal: true
   hosted_record:
     terminal: true
+  verification:
+    terminal: true
   done_blocked:
     terminal: true
     failure: true
@@ -219,6 +221,9 @@ Stand-in terminal: green CI reached it.
 
 ## hosted_record
 Stand-in terminal for the hosted-of-record read; a run with no record never reaches it.
+
+## verification
+Stand-in terminal for the hosted-twin re-check's way back; its gate is stubbed to pass.
 
 ## done_blocked
 Blocked.
