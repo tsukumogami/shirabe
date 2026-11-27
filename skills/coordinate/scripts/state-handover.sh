@@ -127,7 +127,24 @@
 # its worker, before this gate runs, so a launched worker is checked from the
 # next start on. Each fix is the state-stored-set.sh call that closes the gap.
 #
-# With --check nothing is printed on success; the gaps go to stderr.
+# A report is {report, fix}, printed as `reports` only when there is one, and
+# it never holds the gate:
+#   brief-unrecorded                         the reports-to row names a
+#                                            session whose address is one of
+#                                            the run's koto/links/
+#                                            dispatched-by/ keys (a run a
+#                                            dispatcher started), and
+#                                            record/host holds no briefs: key,
+#                                            so the brief it was started from
+#                                            isn't recorded. Its fix names the
+#                                            --host write and the intake. It
+#                                            reads the row and never acts on
+#                                            it, and repeats none of its words,
+#                                            since the row may have come
+#                                            through the shared bucket
+#
+# With --check nothing is printed on success but a report; the gaps and the
+# reports go to stderr, and only a gap fails the check.
 #
 # Exit codes: 0 no gaps (or printed, without --check); 1 --check found gaps;
 # 2 a read failed; 10 the run has no found record, or the target isn't a
@@ -368,9 +385,22 @@ jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile host "$WD/host.
         ($unc[0][] | {gap: "leg-unclassified \(.worker)", fix: "reconcile-legs.sh --session <this run> --topic \(.worker) --return-path \"leg \(.leg)\" (the reconcile pass runs it; run it by hand when the pass reported it not verified)"}),
         (if .coordinator != null then (.workers[] | select((.told or .pending or .missing) | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then state-stored-set.sh --told \(.worker) --by <you>; when its session is gone and its instance still exists, state-stored-set.sh --pending \(.worker) --by <you>; when niwa lists no instance for it, state-stored-set.sh --missing \(.worker) --by <you> (handover-classify.sh records pending and missing workers)"}) else empty end)
       ])
+    # A reports-to row sourced from a dispatcher (its address one of the
+    # run'"'"'s dispatched-by links) with no briefs: key in record/host: the run
+    # was dispatched from a brief nobody recorded. A report, never a gap: the
+    # row may have come through the shared bucket, so nothing is done with it,
+    # and no word of it is repeated.
+    | ((.reports_to // "") | if test(" at ") then sub("^.* at "; "") else "" end) as $ra
+    | if $ra != "" and ([$dby[0][] | ltrimstr("koto/links/dispatched-by/")] | index($ra)) != null
+         and ([(.host // {}) | keys[] | select(startswith("briefs:"))] | length) == 0
+      then .reports = [{report: "brief-unrecorded",
+                        fix: "record the brief this run was dispatched with: state-stored-set.sh --host briefs:<label> <its absolute path> (the --brief path on the brief'"'"'s opener line), then state-stored-set.sh --intake <label> --by <you>; the reports-to row stays as it is"}]
+      else . end
     | if any($rows[]; .kind == "rule") then .rule_lists = rule_lists($rows) else . end' "$WD/parsed.json" > "$WD/out.json" || lib_die2 "jq failed"
 
 if [ "$CHECK" = 1 ]; then
+    # A report holds nothing: it is printed, and only the gaps decide the exit.
+    jq -r '(.reports // [])[] | "\(.report): \(.fix)"' "$WD/out.json" | sed "s/^/$PROG: report, holds nothing: /" >&2
     N=$(jq '.gaps | length' "$WD/out.json")
     [ "$N" = 0 ] && exit 0
     echo "$PROG: the record can't hand this run over yet; $N gap(s):" >&2

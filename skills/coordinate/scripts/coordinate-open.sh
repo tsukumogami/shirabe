@@ -248,7 +248,7 @@
 # with no session left behind. --role and the change flags aren't variables:
 # this script checks them before any koto call (below, "The run's role").
 #
-# Usage: coordinate-open.sh [--plugin-root <path>] [--dispatched-by <name>] <args-file>
+# Usage: coordinate-open.sh [--plugin-root <path>] [--dispatched-by <name>] [--brief <path>] <args-file>
 # Prints koto-open.sh's result line, then `session=<name>` on success. At
 # discipline scope with no --host it opens nothing and prints
 # `ask=host`: ask the human once, with a recommendation, and re-invoke with
@@ -283,6 +283,46 @@
 # The order matters only for reading the output; the session/link-warning key
 # keeps one line per dispatcher either way (dispatch-link.sh).
 #
+# --brief <path> names the brief file a dispatched start was given
+# (render-brief.sh puts it on the brief's opener line). It is checked before
+# anything opens (brief_check, below), refused=brief (exit 2) when it fails,
+# and recorded in record/host as briefs:<label> and briefs-digest:<label>
+# once the run holds a record: on a resume, a takeover, a carry, an import
+# and a fresh start the legacy importer filled. A fresh start leaves the run
+# holding no record, so its guidance says how to record the brief once the
+# run's find has seeded it. A write that fails prints
+# warning=brief-unrecorded after session=, and the start goes on.
+#
+# Guidance. stdout is only the key=value lines. A takeover, an import, a
+# carry, a directory handover, a refusal or an ask also prints, on stderr,
+# the block of guidance its situation needs before the first tick (guide,
+# below; the text is the wording table's guide.<family> rows), at most once
+# a start and before any final refusal line:
+#   takeover             outcome=continued
+#   takeover-refused     outcome=refused from a takeover
+#   takeover-unfinished  failed=takeover_unfinished
+#   import               --import, before its first refusal
+#   import-template      refused=import_template_unavailable, the refusal
+#                        that names --trust-template
+#   import-legs          imported=
+#   import-incomplete    outcome=incomplete
+#   import-moved         state= (and tick=moved) on an older koto's resume
+#   carry                carried= and failed=carry
+#   handover             refused=bound-elsewhere, refused=candidate-unreadable
+#   ask-host, ask-role   ask=host, ask=role
+#   role-read, role-refused, role-changed, role-unwritten
+#                        failed=role_read, outcome=refused from a role,
+#                        role_changed_from=, warning=role-change-unwritten
+#   dispatched-self      the --dispatched-by usage on a resume or carry
+#   store-unsupported, rules-unrecorded
+#                        refused=store-unsupported, warning=rules-unrecorded
+#   brief, brief-pending, brief-unrecorded
+#                        refused=brief, a fresh start given --brief,
+#                        warning=brief-unrecorded
+#   compat               session= of a resume whose compiled template isn't
+#                        the shipped one and whose fingerprint is one the
+#                        table's pre-change.fingerprint rows freeze
+#
 # The role. Every start that knows the run's role prints role=<manager|director>
 # with its result lines, and role_changed_from=<old> for an accepted change
 # from above (with role_change_by= and role_change_source= on a carried
@@ -301,7 +341,7 @@
 #
 # Exit codes: 0 opened or resumed; 10 the human must name the host or the role first; 2
 # this koto lacks the session store's features (`refused=store-unsupported`),
-# or the legacy importer refused the start (`refused=record-unreadable` or
+# or --brief names no file it can take (`refused=brief`), or the legacy importer refused the start (`refused=record-unreadable` or
 # `refused=several`), or koto refused a read of the run the start would
 # carry (`refused=bound-elsewhere`, `refused=candidate-unreadable`); 1 the
 # shipped template didn't compile
@@ -332,17 +372,22 @@ PLUGIN_ROOT=
 ARGS_FILE=
 DISPATCHER=
 HAVE_DISPATCHER=0
+BRIEF=
+HAVE_BRIEF=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --plugin-root) [ $# -ge 2 ] || usage "--plugin-root needs a path"; PLUGIN_ROOT=$2; shift 2 ;;
         --dispatched-by) [ $# -ge 2 ] || usage "--dispatched-by needs the dispatcher's session name"
                          HAVE_DISPATCHER=$((HAVE_DISPATCHER + 1)); DISPATCHER=$2; shift 2 ;;
+        --brief) [ $# -ge 2 ] || usage "--brief needs the brief's absolute path"
+                 HAVE_BRIEF=$((HAVE_BRIEF + 1)); BRIEF=$2; shift 2 ;;
         --*) usage "unknown option $1" ;;
         *) [ -z "$ARGS_FILE" ] || usage "expected one <args-file>"; ARGS_FILE=$1; shift ;;
     esac
 done
 [ -n "$ARGS_FILE" ] && [ -r "$ARGS_FILE" ] || usage "expected a readable <args-file>"
 [ "$HAVE_DISPATCHER" -le 1 ] || usage "--dispatched-by given more than once"
+[ "$HAVE_BRIEF" -le 1 ] || usage "--brief given more than once"
 [ "$HAVE_DISPATCHER" -eq 0 ] || dl_valid_dispatcher "$DISPATCHER" \
     || usage "--dispatched-by must name a koto session: ^[A-Za-z0-9][A-Za-z0-9._-]*\$, at most 200 bytes, got [$DISPATCHER]"
 # not_self <run>: refuse, before the run is touched, a dispatcher that names it.
@@ -363,14 +408,17 @@ rules_record() {
     local d
     d=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-open-rules.XXXXXX") || {
         echo "warning=rules-unrecorded"
+        guide rules-unrecorded
         echo "coordinate-open: $1's rules digests weren't written: no scratch directory; the next start writes them" >&2
         return 0
     }
     if ! bash "$HERE/rule-files.sh" --plugin-root "$PLUGIN_ROOT" < /dev/null > "$d/files"; then
         echo "warning=rules-unrecorded"
+        guide rules-unrecorded
         echo "coordinate-open: $1's rules digests weren't written: the rule files couldn't be listed; the next start writes them" >&2
     elif ! bash "$HERE/state-stored-set.sh" --session "$1" --rule-files "$d/files" --by "$1" < /dev/null > /dev/null 2> "$d/err"; then
         echo "warning=rules-unrecorded"
+        guide rules-unrecorded
         echo "coordinate-open: $1's rules digests weren't written: $(tr -s '\t\n' '  ' < "$d/err" | head -c 400); the next start writes them" >&2
     fi
     rm -rf "$d"
@@ -416,6 +464,109 @@ wording() {
     local t
     t=$(awk -F'\t' -v c="$1" '$1 == c { print $2; exit }' "$WORDING")
     jq -rn --arg t "$t" --argjson f "$2" '$t | gsub("\\{(?<k>[a-z_]+)\\}"; ($f[.k] // "{\(.k)}"))'
+}
+# guide <family> [<run>] [<label>]: the family's guidance block, every
+# guide.<family> row of the wording table in order, on stderr, each line
+# `coordinate-open guide: <text>`, and at most once a start. A caller prints
+# it when the opener reaches the output line keyed to the family, and before
+# any final refusal line, so a reader of the last `coordinate-open:` line
+# still finds the refusal. The rows are static text: {session} is filled
+# only with <run> when it matches a coordinator run's name, and {label} only
+# with <label> when it matches a brief label; anything else reads <session>
+# or <label>. No command's output and no record's text reaches a block.
+GUIDED=" "
+guide() {
+    local run=${2:-} label=${3:-}
+    case "$GUIDED" in *" $1 "*) return 0 ;; esac
+    GUIDED="$GUIDED$1 "
+    [[ $run =~ ^coordinate-[a-z0-9-]+-[0-9]{8}T[0-9]{6}Z$ ]] || run="<session>"
+    [[ $label =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || label="<label>"
+    awk -F'\t' -v c="guide.$1" '$1 == c { print $2 }' "$WORDING" \
+        | jq -R -r --arg s "$run" --arg l "$label" \
+            '"coordinate-open guide: " + gsub("\\{(?<k>[a-z_]+)\\}"; ({session: $s, label: $l}[.k] // "{\(.k)}"))' >&2
+}
+
+# The brief (docs/designs/DESIGN-coordinate-entry-budget.md, "Brief
+# recording"): --brief <path> names the file a dispatched start's brief is,
+# and the opener records it in record/host itself, as briefs:<label> with
+# briefs-digest:<label> beside it, once the run holds a record. The path comes
+# from a dispatcher's prompt, so it is checked here, before anything opens,
+# and a path that fails is refused=brief (exit 2), the reason in fixed words:
+# an absolute path of at most 4096 bytes with no control character, each link
+# resolved (16 at most, each target checked the same way) and the directory
+# resolved with cd -P, the result the same file the path names, a regular
+# readable file, named <label>.md (or <label>) with a label of a-z, 0-9 and -,
+# at most 64 characters. The file is opened once and read from that one
+# handle, at most BRIEF_CAP bytes (a larger one is refused), and its sha256
+# is the digest recorded, so the intake (state-stored-set.sh --intake) refuses
+# a file swapped after the check. Its contents are never printed, no command
+# is built from the path, and the path itself is never printed: the recorded
+# one goes only to state-stored-set.sh, as an argument.
+BRIEF_CAP=262144
+BRIEF_LABEL= BRIEF_REAL= BRIEF_DIGEST=
+brief_refuse() {
+    guide brief
+    echo "refused=brief"
+    echo "coordinate-open: --brief $1; nothing was opened" >&2
+    exit 2
+}
+# brief_plain <path>: non-empty, at most 4096 bytes, no control character.
+brief_plain() {
+    [ -n "$1" ] && [ "${#1}" -le 4096 ] && [ "$(printf '%s' "$1" | LC_ALL=C tr -d '[:cntrl:]')" = "$1" ]
+}
+brief_check() {
+    local p=$BRIEF t n=0 d b copy sum size
+    case "$p" in /*) ;; *) brief_refuse "takes the brief's absolute path" ;; esac
+    brief_plain "$p" || brief_refuse "takes a path of at most 4096 bytes with no control character"
+    while [ -L "$p" ]; do
+        n=$((n + 1))
+        [ "$n" -le 16 ] || brief_refuse "names a link that doesn't resolve within 16 links"
+        t=$(readlink -- "$p") || brief_refuse "names a link that can't be read"
+        brief_plain "$t" || brief_refuse "names a link whose target holds a control character"
+        case "$t" in /*) p=$t ;; *) p=$(dirname -- "$p")/$t ;; esac
+    done
+    d=$(CDPATH='' cd -P -- "$(dirname -- "$p")" 2> /dev/null && pwd -P) || brief_refuse "names a directory that can't be read"
+    b=$(basename -- "$p")
+    p=$d/$b
+    brief_plain "$p" || brief_refuse "resolves to a path that holds a control character"
+    [ "$p" -ef "$BRIEF" ] || brief_refuse "doesn't resolve to the file it names"
+    [ -f "$p" ] && [ -r "$p" ] || brief_refuse "doesn't name a regular, readable file"
+    BRIEF_LABEL=${b%.md}
+    [[ $BRIEF_LABEL =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] \
+        || brief_refuse "names a file whose name isn't a brief's: <label>.md, the label a-z, 0-9 and -, at most 64 characters"
+    copy=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-brief.XXXXXX") || brief_refuse "couldn't be read: no scratch file"
+    # One open handle: checked as a regular file through it, and read from it.
+    { [ -f /dev/fd/8 ] && head -c "$((BRIEF_CAP + 1))" <&8 > "$copy"; } 8< "$p" 2> /dev/null \
+        || { rm -f "$copy"; brief_refuse "couldn't be read as a regular file"; }
+    size=$(wc -c < "$copy" | tr -d ' ')
+    [ "$size" -gt 0 ] || { rm -f "$copy"; brief_refuse "names an empty file"; }
+    [ "$size" -le "$BRIEF_CAP" ] || { rm -f "$copy"; brief_refuse "names a file larger than $BRIEF_CAP bytes"; }
+    if command -v sha256sum > /dev/null 2>&1; then sum=$(sha256sum < "$copy"); else sum=$(shasum -a 256 < "$copy"); fi
+    rm -f "$copy"
+    sum=${sum%% *}
+    [[ $sum =~ ^[0-9a-f]{64}$ ]] || brief_refuse "couldn't be read"
+    BRIEF_REAL=$p BRIEF_DIGEST=sha256:$sum
+}
+[ "$HAVE_BRIEF" -eq 0 ] || brief_check
+# brief_record <run>: the brief's host row, written into <run>, which holds a
+# record. A write that fails prints warning=brief-unrecorded, and the start
+# goes on; the reconcile reports brief-unrecorded while no brief is recorded.
+brief_record() {
+    local rc
+    [ "$HAVE_BRIEF" -eq 1 ] || return 0
+    bash "$HERE/state-stored-set.sh" --session "$1" --host "briefs:$BRIEF_LABEL" "$BRIEF_REAL" \
+        --host "briefs-digest:$BRIEF_LABEL" "$BRIEF_DIGEST" < /dev/null > /dev/null 2> /dev/null
+    rc=$?
+    [ "$rc" -eq 0 ] && return 0
+    echo "warning=brief-unrecorded"
+    guide brief-unrecorded "$1" "$BRIEF_LABEL"
+    echo "coordinate-open: $1's brief wasn't recorded (state-stored-set.sh --host exited $rc); the start goes on" >&2
+}
+# brief_pending <run>: a start that leaves the run holding no record yet (a
+# fresh run, whose find seeds it) can't write the row; its block says how.
+brief_pending() {
+    [ "$HAVE_BRIEF" -eq 1 ] || return 0
+    guide brief-pending "$1" "$BRIEF_LABEL"
 }
 # The run's role (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1;
 # PRD R5): --role, and a change from above, --role-change-by and
@@ -500,6 +651,7 @@ if [ "$DISC" -gt 0 ]; then
     NAME=$(printf '%s' "$MAPPED" | jq -r '[.pairs[] | select(.[0] == "DISCIPLINE")][0][1]')
     if [ "$(printf '%s' "$MAPPED" | jq '[.pairs[] | select(.[0] == "HOST_REPO")] | length')" -eq 0 ]; then
         echo "ask=host"
+        guide ask-host
         echo "coordinate-open: a discipline's host repository is the human's decision; ask once, with a recommendation, then re-invoke with --host <owner/repo>" >&2
         exit 10
     fi
@@ -558,6 +710,26 @@ rebind_root() {
 # compat table (coord-log.sh compat), for a refusal to name both sides.
 compat_line() { bash "$HERE/coord-log.sh" compat --session "$1" 2>/dev/null; }
 
+# compat_guide <run>: the older-compat continuation. A run resumed under a
+# compiled template that isn't the shipped one ($SHIPPED), whose fingerprint
+# (coord-log.sh compat's third field) is one of the wording table's
+# pre-change.fingerprint rows, was compiled before its states carried the
+# rules SKILL.md moved into them, so its directives don't hold them:
+# guide compat prints them once. The set is frozen in the table, never read
+# from the compat table at run time. A takeover or a carry opens the new run
+# from the shipped template, so neither asks.
+compat_guide() {
+    local hash fp
+    hash=$(bash "$HERE/coord-log.sh" template-hash --session "$1" 2> /dev/null) || return 0
+    [[ $hash =~ ^[0-9a-f]{64}$ ]] && [ "$hash" != "${SHIPPED:-}" ] || return 0
+    read -r _ _ fp <<EOF
+$(compat_line "$1")
+EOF
+    [[ ${fp:-} =~ ^[0-9a-f]{64}$ ]] || return 0
+    awk -F'\t' -v f="$fp" '$1 == "pre-change.fingerprint" && $2 == f { found = 1 } END { exit !found }' "$WORDING" || return 0
+    guide compat "$1"
+}
+
 # The session store's koto features, read by feature before anything else
 # (PRD R2): `context list --prefix` and `session import`. The help text is
 # captured whole before it is matched: piped into `grep -q` under pipefail,
@@ -567,6 +739,7 @@ MISSING=
 HELP=$("$KOTO" context list --help < /dev/null 2>/dev/null) || HELP=
 case "$HELP" in *--prefix*) ;; *) MISSING="context list --prefix" ;; esac
 "$KOTO" session import --help < /dev/null > /dev/null 2>&1 || MISSING="$MISSING${MISSING:+, }session import"
+[ -z "$MISSING" ] || guide store-unsupported
 [ -z "$MISSING" ] || refuse_import store-unsupported "this koto lacks $MISSING, which the coordinator's session store needs; install a koto that has it"
 
 # The takeover. The caller is the Claude session running this opener
@@ -693,7 +866,7 @@ compat_meta() {
     jq -e 'type == "object"' <<< "$o" > /dev/null 2>&1 && printf '%s\n' "$o" || echo '{}'
 }
 refuse_takeover() { # refuse_takeover <reason> <why>: nothing was written
-    printf 'outcome=refused\nreason=%s\n' "$1"; echo "coordinate-open: $2" >&2; exit 2
+    printf 'outcome=refused\nreason=%s\n' "$1"; guide takeover-refused; echo "coordinate-open: $2" >&2; exit 2
 }
 # takeover_unfinished <pred> <succ> <exit> <code> <why>: koto's init of this
 # session's successor failed after the fence named it. The predecessor is
@@ -702,6 +875,7 @@ refuse_takeover() { # refuse_takeover <reason> <why>: nothing was written
 # session finishes the takeover once what koto names is fixed.
 takeover_unfinished() {
     echo "failed=takeover_unfinished"
+    guide takeover-unfinished
     echo "coordinate-open: $1 is fenced by $2, this session's takeover, but koto couldn't finish $2 (exit $3${4:+, $4}): ${5:-koto gave no reason}; $1 drives no more. Fix what koto names and run the same opener again from this session to finish the takeover; carrying a large record can take many minutes, and the re-run starts the carry again" >&2
     exit 1
 }
@@ -846,6 +1020,8 @@ import_unfinished() {
     echo "failed=$1"
     [ -n "$IMPORTED_SAID" ] || printf 'imported=%s\n' "$IMPORT"
     printf 'outcome=incomplete\nreason=%s\n' "$1"
+    guide import-legs
+    guide import-incomplete
     echo "coordinate-open: $2; $IMPORT is imported here, and the same import run again from this session finishes it" >&2
     exit 1
 }
@@ -932,8 +1108,10 @@ finish_takeover() {
     [ -n "${WATCH_READ:-}" ] || read_watch "$pred"
     printf 'outcome=continued\npredecessor=%s\nsession=%s\npredecessor_stopped=%s\nwatcher=%s\nleg_wake=%s\n' \
         "$pred" "$succ" "$stopped" "$(watcher_result "$pred")" "$(leg_wake)"
+    guide takeover "$succ"
     role_lines
     link_dispatcher "$succ"
+    brief_record "$succ"
     rules_record "$succ"
     exit 0
 }
@@ -1112,9 +1290,10 @@ moved_lines() {
     local at
     at=$("$KOTO" status "$1" 2>/dev/null </dev/null | jq -r '.current_state // empty' 2>/dev/null)
     printf 'state=%s\n' "${at:-unknown}"
+    [ "$at" != wait ] || echo "tick=moved"
+    guide import-moved
     case "$at" in
-        reconcile|reconcile_pass) ;;
-        wait) echo "tick=moved" ;;
+        reconcile|reconcile_pass|wait) ;;
         *) echo "coordinate-open: $1 is at ${at:-an unreadable state}; it reconciles on this host when it next reaches wait, whose check sends it through moved" >&2 ;;
     esac
 }
@@ -1139,6 +1318,7 @@ refuse_bound() {
     local here
     here=$(pwd -P)
     echo "refused=bound-elsewhere"
+    guide handover
     echo "coordinate-open: koto refused a read of $1 from $here as session_bound_elsewhere: it is bound to another directory, and $2. In this order: stop the coordinator session that drives $1, run koto session rebind $1 --to $here from $here, start again here to carry it, and only then reap the predecessor's instance" >&2
     exit 2
 }
@@ -1191,11 +1371,13 @@ role_refuse() {
     msg=$(wording "$2" "$(role_fields)")
     [ "$ROLE_IMPORT_COPY" = 0 ] || msg="$msg $(wording role_import_copy "$(role_fields)")"
     printf 'outcome=refused\nreason=%s\n' "$1"
+    guide role-refused
     echo "coordinate-open: $msg" >&2
     exit 2
 }
 role_ask() {
     echo "ask=role"
+    guide ask-role
     echo "coordinate-open: $(wording ask_role '{}')" >&2
     exit 10
 }
@@ -1219,6 +1401,7 @@ role_unread() {
         case "$out" in *session_bound_elsewhere*) refuse_bound "$1" "nothing was opened" ;; esac
     fi
     echo "failed=role_read"
+    guide role-read
     echo "coordinate-open: $1's role couldn't be read${why:+ ($why)}; nothing was written. Make its record readable here, then start again" >&2
     exit 1
 }
@@ -1310,6 +1493,7 @@ role_lines() {
     echo "role=$ROLE_OUT"
     [ -n "$ROLE_FROM" ] || return 0
     echo "role_changed_from=$ROLE_FROM"
+    guide role-changed
     [ "$CARRIED_ROTATION" = 0 ] || printf 'role_change_by=%s\nrole_change_source=%s\n' "$CHANGE_BY" "$CHANGE_SOURCE"
 }
 # takes_over <run> <action>: the start takes the candidate over (takeover_check's
@@ -1341,6 +1525,7 @@ takes_over() {
 # run as in a takeover on one host (takeover above); on an older koto it is
 # resumed as it is.
 if [ -n "$IMPORT" ]; then
+    guide import
     [[ $IMPORT =~ ^coordinate-$SLUG-[0-9]{8}T[0-9]{6}Z$ ]] \
         || refuse_import session-name "$IMPORT is not a run of $SLUG (coordinate-$SLUG-<YYYYMMDDTHHMMSSZ>)"
     not_self "$IMPORT"
@@ -1384,12 +1569,15 @@ if [ -n "$IMPORT" ]; then
                 if [ -n "$FINISHED" ]; then
                     role_write_or_stop "$IMPORT_SUCC" "run the same import again to resume $IMPORT_SUCC"
                     printf 'outcome=resumed\nresumed=1\nsession=%s\n' "$IMPORT_SUCC"
+                    compat_guide "$IMPORT_SUCC"
                     role_lines
                     link_dispatcher "$IMPORT_SUCC"
+                    brief_record "$IMPORT_SUCC"
                     rules_record "$IMPORT_SUCC"
                     exit 0
                 fi
                 printf 'imported=%s\n' "$IMPORT"
+                guide import-legs
                 IMPORTED_SAID=1
                 takeover "$IMPORT" "$IMPORT_SUCC"
             fi
@@ -1488,7 +1676,10 @@ EOF
         if [ "$CODE" = import_template_unavailable ] && [ -z "$PRE_JUDGED" ]; then
             TEXT="$TEXT The source's template couldn't be judged before the import, so the compat check still lies ahead: an imported run on a template this plugin can't drive is refused then, and stays on this host."
         fi
-        echo "refused=$CODE"; echo "coordinate-open: koto refused the import: ${TEXT:-exit $RC}" >&2
+        echo "refused=$CODE"
+        # Only the refusal that names --trust-template says what it trusts.
+        [ "$CODE" != import_template_unavailable ] || guide import-template
+        echo "coordinate-open: koto refused the import: ${TEXT:-exit $RC}" >&2
         rm -rf "$DIR"
         # koto's exit 1 is a read, push or marker failure worth retrying;
         # everything else it refuses is exit 2, as this script's own refusals.
@@ -1556,6 +1747,7 @@ EOF
     fi
     [ -n "$TAKES_OVER" ] || host_facts "$IMPORT" "$IMPORT"
     printf 'imported=%s\n' "$IMPORT"
+    guide import-legs
     IMPORTED_SAID=1
     # The copy is the predecessor: the takeover fences it, carries its record
     # and legs into a new run, writes the import's record/host there and
@@ -1570,10 +1762,12 @@ EOF
     # as a resume writes it, before the result lines.
     role_write_or_stop "$IMPORT" "$IMPORT is imported here; run the same import again to write it"
     printf 'resumed=1\nsession=%s\n' "$IMPORT"
+    compat_guide "$IMPORT"
     role_lines
     link_dispatcher "$IMPORT"
     # The run reconciles again on this host.
     moved_lines "$IMPORT"
+    brief_record "$IMPORT"
     rules_record "$IMPORT"
     exit 0
 fi
@@ -1610,6 +1804,7 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
     if [ "$ACTION" = unreadable ]; then
         [ "$(printf '%s' "$CAND" | jq -r '.code // empty')" = bound-elsewhere ] && refuse_bound "$OLD" "nothing was opened"
         echo "refused=candidate-unreadable"
+        guide handover
         echo "coordinate-open: $OLD may hold $SLUG's record, but koto couldn't list its keys from here ($(printf '%s' "$CAND" | jq -r '.reason')); nothing was opened. Make it readable here, then start again" >&2
         exit 2
     fi
@@ -1631,6 +1826,7 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
     # every path (not_self below and in takeover).
     if [ -n "$OLD" ] && [ "$ACTION" != none ] && [ "$HAVE_DISPATCHER" -gt 0 ] && [ "$DISPATCHER" = "$OLD" ] \
         && ! takes_over "$OLD" "$ACTION"; then
+        guide dispatched-self
         usage "--dispatched-by names $OLD, which this start resumes or carries rather than takes over, so the run would be its own dispatcher; start again without --dispatched-by (a carry links the new run to $OLD itself)"
     fi
     # The role (Decision 1), after the candidate's refusals and before
@@ -1671,8 +1867,10 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
             # the result lines: a write that fails resumes nothing.
             role_write_or_stop "$OLD" "nothing was resumed; start again"
             printf 'outcome=resumed\nresumed=1\nsession=%s\n' "$OLD"
+            compat_guide "$OLD"
             role_lines
             link_dispatcher "$OLD"
+            brief_record "$OLD"
             rules_record "$OLD"
             exit 0 ;;
         carry) CARRY_FROM=$(printf '%s' "$CAND" | jq -r '.session')
@@ -1731,7 +1929,7 @@ if [ -n "$CARRY_FROM" ]; then
     PROG=coordinate-open SKIP_CHECKS=0 REPO=$HOST
     . "$HERE/state-common.sh"
     T=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-open.XXXXXX") \
-        || { "$KOTO" cancel "$SESSION" </dev/null >/dev/null; echo "failed=carry"; echo "coordinate-open: could not make a scratch directory; $SESSION is cancelled and $CARRY_FROM untouched" >&2; exit 1; }
+        || { "$KOTO" cancel "$SESSION" </dev/null >/dev/null; echo "failed=carry"; guide carry; echo "coordinate-open: could not make a scratch directory; $SESSION is cancelled and $CARRY_FROM untouched" >&2; exit 1; }
     trap 'rm -rf "$T" "$T_ERR"' EXIT
     . "$HERE/state-write-core.sh"
     # carry_stop <why>: the carry didn't land. The new run loses any
@@ -1753,6 +1951,7 @@ if [ -n "$CARRY_FROM" ]; then
         grep -q session_bound_elsewhere "$T/carry.err" "$T/probe" "$T/probe.err" "$T/probe.keys" "$T/probe.keys.err" 2>/dev/null \
             && refuse_bound "$CARRY_FROM" "$SESSION, opened to carry it, is cancelled holding no record"
         echo "failed=carry"
+        guide carry
         echo "coordinate-open: $CARRY_FROM's record wasn't carried into $SESSION ($1); $SESSION is cancelled holding no record, $CARRY_FROM is untouched, and the next start carries it again" >&2
         exit 1
     }
@@ -1786,6 +1985,7 @@ if [ -n "$CARRY_FROM" ]; then
             || echo "coordinate-open: $SESSION carries $CARRY_FROM with this session's coordinator row, but its entry wasn't posted ($(tr -s '\t\n' '  ' < "$T/address.err" | head -c 400)); post it with state-entry.sh --kind run: $(cat "$T/address.txt")" >&2
     fi
     echo "carried=$CARRY_FROM"
+    guide carry
     # The recycled coordinator: the new run is joined to the run it carried,
     # a dispatched-by link in the new run's own session, so the earlier run
     # and the workers it dispatched stay in one hierarchy with it. A failed
@@ -1850,8 +2050,14 @@ elif [ "$FRESH" = 1 ]; then
     esac
 fi
 role_lines
-[ "$ROLE_WARN" = 0 ] || echo "warning=role-change-unwritten"
+if [ "$ROLE_WARN" != 0 ]; then
+    echo "warning=role-change-unwritten"
+    guide role-unwritten
+fi
 printf 'session=%s\n' "$SESSION"
 link_dispatcher "$SESSION"
+# A run that holds a record takes its brief's row now; a fresh one's record
+# is seeded by its find, after this start, so its block says how to write it.
+if [ "$HELD" = 0 ]; then brief_pending "$SESSION"; else brief_record "$SESSION"; fi
 [ "$HELD" = 0 ] || rules_record "$SESSION"
 exit 0

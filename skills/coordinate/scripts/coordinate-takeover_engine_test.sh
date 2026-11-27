@@ -586,7 +586,7 @@ if OPEN_ROLE=director open_run tk-p && [ "$(at)" = reconcile ] && [ "$(at --with
     eq "11: a predecessor recorded director renders its successor's brief" 0 "$DW_RC"
     SBF="$T/work/.niwa/dispatch-briefs/succ-p.md"
     eq "11:   ... whose invocation line carries --role director" 'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-tk-p.md --role director` in acme/widgets.' "$(grep -F -- '--role' "$SBF")"
-    eq "11:   ... and whose opener line names the predecessor" "\"\${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh\" --plugin-root \"\${CLAUDE_PLUGIN_ROOT}\" --dispatched-by $P \"\$ARGS_DIR/args.json\"" "$(brief_opener "$SBF")"
+    eq "11:   ... and whose opener line names the predecessor" "\"\${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh\" --plugin-root \"\${CLAUDE_PLUGIN_ROOT}\" --dispatched-by $P --brief '$SBF' \"\$ARGS_DIR/args.json\"" "$(brief_opener "$SBF")"
     bopen "$SBF" "$T/work2" "$B_ID"
     eq "11: the successor's opener, run as its brief renders it, takes the predecessor over as director" "0 continued $P director" "$ORC $(line outcome) $(line predecessor) $(line role)"
     SUCC=$(line session)

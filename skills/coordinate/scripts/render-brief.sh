@@ -198,8 +198,13 @@
 #                     entry point's own opener with `--dispatched-by <name>`
 #                     filled in (dispatch-common.sh dc_opener). Every other
 #                     entry point's brief shows no such step: koto records
-#                     the dispatcher when the worker's session opens
-#   --stdout          print the brief instead of writing it
+#                     the dispatcher when the worker's session opens. A
+#                     /coordinate opener written to a workspace root also
+#                     carries `--brief '<root>/.niwa/dispatch-briefs/<topic>.md'`,
+#                     the file it's written to, which coordinate-open.sh
+#                     records as the run's briefs:<topic> host row
+#   --stdout          print the brief instead of writing it; with no
+#                     --workspace-root its opener line carries no --brief
 #   --units           the units pick_facts listed (coord/pick.json): the unit
 #                     must be a form pick reads as covering one of them
 #                     (dispatch-common.sh dc_unit_forms), else the input is
@@ -578,6 +583,32 @@ if [ "$RETURN_PATH" = message ]; then
         OPENER=${OPENER#*	}
     fi
 fi
+# A /coordinate worker's opener also names the file this brief is written
+# to, `--brief '<path>'`, so the opener records it in the run's record/host
+# (briefs:<topic>, with its digest). The path is known only when the brief is
+# written to a workspace root: under --stdout with no --workspace-root the
+# opener line carries no --brief. The path is single-quoted, a quote in it
+# written '\''; a path holding a control character or a backtick (which
+# would end the line's code span) isn't put on the line, and the run's
+# reconcile then reports its brief unrecorded with the fix.
+BRIEF_PATH=""
+if [ "$TO_STDOUT" = 0 ] && [ -z "$ROOT" ]; then
+    ROOT=$(dc_workspace_root) || { printf '%s: no workspace root found (see dc_workspace_root)\n' "$PROG" >&2; exit 2; }
+fi
+if [ "$OPENER_KIND" = open ] && [ "$(jq -r '.entry_point // "" | strings' "$INPUT")" = coordinate ] && [ -n "$ROOT" ]; then
+    case "$ROOT" in
+        /*) BRIEF_PATH="$ROOT/.niwa/dispatch-briefs/$TOPIC.md" ;;
+        *) BRIEF_PATH=$(CDPATH='' cd -- "$ROOT" 2>/dev/null && pwd) && BRIEF_PATH="$BRIEF_PATH/.niwa/dispatch-briefs/$TOPIC.md" || BRIEF_PATH="" ;;
+    esac
+    if [ -z "$BRIEF_PATH" ] || [ "$(printf '%s' "$BRIEF_PATH" | LC_ALL=C tr -d -c '[:cntrl:]`'; echo x)" != x ]; then
+        BRIEF_PATH=""
+    else
+        # Before the args file, which stays the command's last word.
+        Q="'\\''" ARGS_TAIL=' "$ARGS_DIR/args.json"' TAIL=
+        case "$OPENER" in *"$ARGS_TAIL") OPENER=${OPENER%"$ARGS_TAIL"} TAIL=$ARGS_TAIL ;; esac
+        OPENER="$OPENER --brief '${BRIEF_PATH//\'/$Q}'$TAIL"
+    fi
+fi
 
 JQ_RENDER='
 def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n")) else $none end;
@@ -607,7 +638,11 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
       "",
       "dispatcher_session: \(.dispatcher_session)",
       "",
-      "Record it in your own session: open your session with this command, in place of the open your entry point'"'"'s skill shows (the same command with `--dispatched-by` added):",
+      ( if $brief_path == "" then
+          "Record it in your own session: open your session with this command, in place of the open your entry point'"'"'s skill shows (the same command with `--dispatched-by` added):"
+        else
+          "Record it in your own session: open your session with this command, in place of the open your entry point'"'"'s skill shows (the same command with `--dispatched-by` and `--brief` added; `--brief` names this brief'"'"'s file, which the opener records in your run'"'"'s record):"
+        end ),
       "",
       "`\($opener)`",
       "",
@@ -735,7 +770,7 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   ]
 | join("\n")
 '
-BRIEF=$(jq -r --arg invocation "$INVOCATION" --arg rework "$REWORK" --arg opener_kind "$OPENER_KIND" --arg opener "$OPENER" \
+BRIEF=$(jq -r --arg invocation "$INVOCATION" --arg rework "$REWORK" --arg opener_kind "$OPENER_KIND" --arg opener "$OPENER" --arg brief_path "$BRIEF_PATH" \
     --argjson message "$([ "$RETURN_PATH" = message ] && echo true || echo false)" \
     --arg dispatcher "$(jq -r '.dispatcher_session // "" | strings | if test("\\S") then . else "" end' "$INPUT")" "$JQ_RENDER" "$INPUT") || { printf '%s: jq failed rendering the brief\n' "$PROG" >&2; exit 2; }
 

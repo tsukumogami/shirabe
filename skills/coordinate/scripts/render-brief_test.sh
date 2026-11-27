@@ -18,7 +18,11 @@
 # an entry point whose own opener takes --dispatched-by (skill-session.sh open
 # for /explore, /decision and /release, coordinate-open.sh for /coordinate)
 # has its Goal name dispatcher_session and show that open with the flag
-# filled in, and needs dispatcher_session; every other entry point (/scope,
+# filled in, and needs dispatcher_session; a /coordinate brief written to a
+# workspace root also passes `--brief '<the file>'` before the args file, the
+# path a shell reads back whole when the root holds a quote, a space or
+# $(...), while one printed with --stdout alone, and every other entry
+# point's, carries no --brief; every other entry point (/scope,
 # /deliver, /execute, /work-on, /charter) shows no link step, names no
 # dispatcher_session and no link-dispatcher.sh, with the field given, empty
 # or absent, and renders either way; Reporting names render-result.sh; a leg
@@ -353,6 +357,27 @@ E=$(bash "$S" --input "$(variant ep-coordinate '.entry_point = "coordinate" | .e
 has "dispatcher: /coordinate opens with coordinate-open.sh --dispatched-by" "$(section "$E" Goal)" \
     "\`\"\${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh\" --plugin-root \"\${CLAUDE_PLUGIN_ROOT}\" --dispatched-by $D \"\$ARGS_DIR/args.json\"\`"
 has "dispatcher: /coordinate's args file is its first step's" "$(section "$E" Goal)" '`$ARGS_DIR/args.json` the args file its first step writes'
+lacks "brief path: under --stdout with no --workspace-root the opener carries no --brief" "$E" "--brief"
+# Written to a workspace root, the /coordinate opener names the file it is
+# written to, single-quoted before the args file; a quote, a space and $(...)
+# in the root stay data.
+QW="$T/w s'q \$(x)"
+mkdir -p "$QW/.niwa" && : > "$QW/.niwa/workspace.toml"
+BP=$(bash "$S" --input "$(variant ep-coordinate-root '.entry_point = "coordinate" | .entry_args = ["docs/roadmaps/ROADMAP-sub.md"] | .run_mode = "" | .role = "manager"')" --workspace-root "$QW" 2>"$T/bp.err")
+eq "brief path: a /coordinate brief written to a root exits 0, printing its path" "0 $QW/.niwa/dispatch-briefs/$(jq -r .topic "$BASE").md" "$? $BP"
+QP=$(printf '%s' "$QW/.niwa/dispatch-briefs/$(jq -r .topic "$BASE").md" | sed "s/'/'\\\\''/g")
+has "brief path: its opener carries --brief '<the file>' before the args file" "$(section "$(cat "$BP")" Goal)" \
+    "\`\"\${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh\" --plugin-root \"\${CLAUDE_PLUGIN_ROOT}\" --dispatched-by $D --brief '$QP' \"\$ARGS_DIR/args.json\"\`"
+has "brief path: ... and says what --brief is" "$(section "$(cat "$BP")" Goal)" "the same command with \`--dispatched-by\` and \`--brief\` added"
+# The line's words as a shell reads them, the variable words swapped for
+# plain ones first so nothing expands: the seventh is the --brief path.
+WORDS=$(sed -n 's/^`\(.*coordinate-open.sh.*\)`$/\1/p' "$BP" | sed 's/"\${CLAUDE_PLUGIN_ROOT}\/skills[^"]*"/C/; s/"\${CLAUDE_PLUGIN_ROOT}"/X/g; s/"\$ARGS_DIR\/args.json"/A/')
+eq "brief path: the shell reads the --brief word back as the file's path" "--brief|$QW/.niwa/dispatch-briefs/$(jq -r .topic "$BASE").md|A" \
+    "$(eval "set -- $WORDS"; printf '%s|%s|%s' "$6" "$7" "$8")"
+for ep in explore decision release; do
+    lacks "brief path: /$ep's opener, written to a root, carries no --brief" \
+        "$(cat "$(bash "$S" --input "$(variant "ep-$ep-root" ".entry_point = \"$ep\" | .entry_args = [\"plugin-api\"] | .run_mode = (if \"$ep\" == \"release\" then \"\" else \"--auto\" end)")" --workspace-root "$QW")")" "--brief"
+done
 has "dispatcher: the template's Reporting names render-result.sh too" \
     "$(awk '/^```markdown$/ { on = 1; next } on && /^```$/ { exit } on' "$HERE/../references/brief-template.md" | awk '/^## / { on = ($0 == "## Reporting"); next } on')" \
     'scripts/render-result.sh --session <your session>'
