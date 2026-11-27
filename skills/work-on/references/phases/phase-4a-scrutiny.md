@@ -12,6 +12,8 @@ Spawn all three simultaneously using the Task tool:
 - **Justification reviewer**: Are deviations genuinely explained? Do reasons reflect real trade-offs, not shortcuts?
 - **Intent reviewer**: Does the implementation match the design doc's described behavior, not just the literal AC text? Does it provide a sufficient foundation for downstream issues?
 
+Tell each seat to give every blocking finding a `category` of `security`, `correctness` or `other`, as the Evidence Format below defines.
+
 Every seat also judges each test the packet's `## Test changes` section lists as edited: does the edit correct a test that checked the wrong thing (`corrects`), or does it check less than before, or something easier to pass (`weakens`)? It returns one `test_edits` item per edited test, `{"path": "<test>", "judgment": "corrects|weakens", "reason": "<one line>"}`. `--record` refuses a round in which a seat skipped an edited test, and records each `weakens` as a blocking finding raised by that seat (`../review-panel-orchestration.md`, "Edited tests"). A test the section lists as added needs no judgment.
 
 ## Which Seats Run
@@ -47,7 +49,7 @@ Each reviewer writes full findings to a `mktemp`-produced file outside the repos
   "focus": "completeness",
   "summary": "<1-3 paragraphs>",
   "cited": [{"path": "src/a.sh", "lines": "10-24"}, {"path": "README.md"}],
-  "findings": [{"severity": "blocking", "summary": "<one line>", "path": "src/a.sh", "lines": "12"},
+  "findings": [{"severity": "blocking", "category": "correctness", "summary": "<one line>", "path": "src/a.sh", "lines": "12"},
                {"severity": "advisory", "summary": "<one line>", "path": "README.md"}],
   "test_edits": [{"path": "tests/a_test.sh", "judgment": "corrects", "reason": "<one line>"}],
   "detail_file": "<the reviewer's mktemp path>"
@@ -55,6 +57,8 @@ Each reviewer writes full findings to a `mktemp`-produced file outside the repos
 ```
 
 `cited` is what the verdict rests on: the paths the seat judged and, where it can say, the line ranges in HEAD's numbering. It is kept in the ledger for the readers of seat entries; it no longer decides whether a seat re-runs. `findings` lists every finding with its location, and each carries a `severity`: `blocking` for a defect that must be fixed before the panel can pass, `advisory` for anything else worth saying. A finding's location (path, and lines where it can say) is what decides whether a later fix makes it due for re-verification, so give one wherever there is one.
+
+Every `blocking` finding also names its `category`, one of three: `security` (it weakens a trust boundary: a secret exposed, input reaching a shell, file or query unchecked, a permission or check loosened), `correctness` (the change does the wrong thing: a criterion it makes false, behaviour it breaks, a wrong result or a missed case), or `other` (anything else that must be fixed first, such as a design that won't hold or code the next developer will misread). Pick the most severe that fits, in that order. An `advisory` finding may carry one or leave it out. `--record` keeps the category on the finding and refuses any other value; the light-cap audit names a miss by it (`../review-levels.md`, "The audit"), and its reversal rule trips on one `security` or `correctness` miss, so a blocking finding left without one is read as `uncategorized`.
 
 Delete the detail files once the round is aggregated; anything worth keeping goes into `scrutiny_results.json`.
 
@@ -65,12 +69,12 @@ After every spawned run returns, record the round in the verdict ledger, passed 
 ```json
 [{"seat": "completeness", "run": "scrutiny-r1-completeness",
   "cited": [{"path": "src/a.sh", "lines": "10-24"}],
-  "findings": [{"severity": "blocking", "summary": "<one line>", "path": "src/a.sh", "lines": "12"}],
+  "findings": [{"severity": "blocking", "category": "correctness", "summary": "<one line>", "path": "src/a.sh", "lines": "12"}],
   "answers": [{"id": "<finding id>", "record": "holds|reverified|dismissed", "reason": "<one line>"}],
   "test_edits": [{"path": "tests/a_test.sh", "judgment": "corrects|weakens", "reason": "<one line>"}]},
  {"seat": "reverifier", "run": "scrutiny-r2-reverifier",
   "answers": [{"id": "<finding id>", "record": "reverified", "reason": "<what in the fix diff resolves it>"}],
-  "findings": [{"severity": "blocking", "summary": "<a defect the fix introduced>", "path": "src/b.sh", "lines": "3"}]}]
+  "findings": [{"severity": "blocking", "category": "other", "summary": "<a defect the fix introduced>", "path": "src/b.sh", "lines": "3"}]}]
 ```
 
 `answers` answer the findings the decision handed the run, by id, and no others. A `full` seat may answer its own findings `holds`, `reverified` or `dismissed`, and a dismissal needs a reason. The re-verifier may answer only `holds` or `reverified`, with a reason on each `reverified`, and may carry `findings` only when its decision planned the fix-diff review; those are raised by reviewer `fix-review`. A due finding left unanswered keeps its status and stays due. Every real seat's entry carries its `test_edits`, one item for each test the packet lists as edited; `--record` refuses (65, rule `review/test-edit-judgment`) a round in which one is missing, and records a `weakens` as a blocking finding the seat raised, under rule `review/test-edit-weakens`. The re-verifier carries none. `--record` refuses (65) a run the scope didn't mint, a run recorded twice, an answer for an id the decision didn't plan, and two findings of one run with the same id, and the ledger is left as it was.
@@ -81,7 +85,7 @@ ROUND=$(mktemp)
 "${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-scope.sh" --record scrutiny <WF> "$ROUND" && rm -f "$ROUND"
 ```
 
-A seat's verdict is its findings' severity: `--record` records the seat as blocking exactly when one of its findings is `severity: blocking`, and as passed otherwise. A finding with no `severity`, or one other than `blocking` or `advisory`, makes `--record` refuse the whole round (exit 65), so a seat is never recorded as passing because the field was left out. A `blocking_count` or `passed` field in the round file is ignored.
+A seat's verdict is its findings' severity: `--record` records the seat as blocking exactly when one of its findings is `severity: blocking`, and as passed otherwise. A finding with no `severity`, or one other than `blocking` or `advisory`, makes `--record` refuse the whole round (exit 65), so a seat is never recorded as passing because the field was left out. So does a `category` other than `security`, `correctness` or `other`; carry each seat's category into the round file as it returned it. A `blocking_count` or `passed` field in the round file is ignored.
 
 A blocking finding stays open until a verdict record closes it: a `reverified` or `dismissed` record written by a reviewer or a check, or by a decider on a finding that decider raised, naming the run that wrote it. Your own claim that a finding is fixed is a `fixed` record, which asks for re-verification and never closes anything, and the panel passes only when no blocking finding of the panel is open.
 

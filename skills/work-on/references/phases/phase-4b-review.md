@@ -12,6 +12,8 @@ Spawn all three simultaneously using the Task tool:
 - **Architect reviewer**: Does the implementation fit the design structure? Are interface contracts and dependency directions correct?
 - **Maintainer reviewer**: Can the next developer understand and modify this code? Are naming, implicit contracts, and context clear? Where a non-obvious decision was made — an approach rejected, a constraint forcing a shape, a load-bearing ordering — does a comment record *why*, and is it still true of the code beside it? A stale why-comment is worse than none.
 
+Tell each seat to give every blocking finding a `category` of `security`, `correctness` or `other`, as the Evidence Format below says.
+
 Every seat also judges each test the packet's `## Test changes` section lists as edited: does the edit correct a test that checked the wrong thing (`corrects`), or does it check less than before, or something easier to pass (`weakens`)? It returns one `test_edits` item per edited test, with its path, judgment and a one-line reason, in the entry `phase-4a-scrutiny.md` shows. `--record` refuses a round in which a seat skipped an edited test, and records each `weakens` as a blocking finding raised by that seat (`../review-panel-orchestration.md`, "Edited tests"). A test the section lists as added needs no judgment.
 
 ## Which Seats Run
@@ -31,13 +33,14 @@ Each reviewer writes full findings to a `mktemp`-produced file outside the repos
   "focus": "pragmatic",
   "summary": "<1-3 paragraphs>",
   "cited": [{"path": "src/a.sh", "lines": "10-24"}],
-  "findings": [{"severity": "advisory", "summary": "<one line>", "path": "src/a.sh", "lines": "12"}],
+  "findings": [{"severity": "blocking", "category": "correctness", "summary": "<one line>", "path": "src/a.sh", "lines": "12"},
+               {"severity": "advisory", "summary": "<one line>", "path": "src/a.sh", "lines": "30"}],
   "test_edits": [{"path": "tests/a_test.sh", "judgment": "corrects", "reason": "<one line>"}],
   "detail_file": "<the reviewer's mktemp path>"
 }
 ```
 
-`cited` and `findings` mean what they mean in `phase-4a-scrutiny.md`: what the verdict rests on, and every finding with its location, which decides whether a later fix makes it due, and a `severity` of `blocking` or `advisory`. The severity is the verdict: a seat with one `blocking` finding is blocking, and a finding without a severity makes `--record` refuse the round.
+`cited` and `findings` mean what they mean in `phase-4a-scrutiny.md`: what the verdict rests on, and every finding with its location, which decides whether a later fix makes it due, and a `severity` of `blocking` or `advisory`. The severity is the verdict: a seat with one `blocking` finding is blocking, and a finding without a severity makes `--record` refuse the round. Every `blocking` finding also names its `category` (`security`, `correctness` or `other`, defined in `phase-4a-scrutiny.md`); tell each seat so, and carry it into the round file. An `advisory` finding may leave it out, and any other value makes `--record` refuse the round.
 
 Delete the detail files once the round is aggregated; anything worth keeping goes into `review_results.json`.
 

@@ -35,13 +35,13 @@ The tester writes full results to a `mktemp`-produced file outside the repositor
   "scenarios_passed": 3,
   "scenarios_failed": 0,
   "cited": [{"path": "src/a.sh", "lines": "10-24"}],
-  "findings": [{"severity": "blocking", "summary": "<the failing scenario>", "path": "tests/a_test.sh"}],
+  "findings": [{"severity": "blocking", "category": "correctness", "summary": "<the failing scenario>", "path": "tests/a_test.sh"}],
   "test_edits": [{"path": "tests/a_test.sh", "judgment": "corrects", "reason": "<one line>"}],
   "detail_file": "<the tester's mktemp path>"
 }
 ```
 
-`cited` is the code the scenarios exercised, kept for the readers of seat entries. `findings` lists each failing scenario with `severity: blocking`, which a re-check round gets back; anything else worth noting that is not a failure goes in as `severity: advisory`. Every finding carries one of the two: the severity is the verdict, and a finding without one makes `--record` refuse the round.
+`cited` is the code the scenarios exercised, kept for the readers of seat entries. `findings` lists each failing scenario with `severity: blocking`, which a re-check round gets back; anything else worth noting that is not a failure goes in as `severity: advisory`. Every finding carries one of the two: the severity is the verdict, and a finding without one makes `--record` refuse the round. Every `blocking` finding also names its `category` (defined in `phase-4a-scrutiny.md`): a failed scenario is `correctness` unless the failure is a security defect (`security`) or something else that must be fixed (`other`). An `advisory` finding may leave it out, and any other value makes `--record` refuse the round.
 
 Delete the detail file once the round is aggregated; anything worth keeping goes into `qa_results.json`.
 
@@ -51,7 +51,7 @@ After the run returns, record it, as `phase-4a-scrutiny.md` describes, with `qa`
 
 ```bash
 ROUND=$(mktemp)
-# write [{"seat": "tester", "run": "qa-r1-tester", "cited": [...], "findings": [{"severity": "blocking", ...}]}]
+# write [{"seat": "tester", "run": "qa-r1-tester", "cited": [...], "findings": [{"severity": "blocking", "category": "correctness", ...}]}]
 # or [{"seat": "reverifier", "run": "qa-r2-reverifier", "answers": [{"id": "...", "record": "reverified", "reason": "..."}]}]
 # to "$ROUND"
 "${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-scope.sh" --record qa <WF> "$ROUND" && rm -f "$ROUND"

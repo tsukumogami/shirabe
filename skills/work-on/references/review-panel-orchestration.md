@@ -29,7 +29,10 @@ longer path.
 A panel's pass is koto's, not the agent's. Every finding a seat returns carries
 `severity: blocking` or `severity: advisory`; `panel-scope.sh --record` records a seat as
 blocking exactly when one of its findings is `blocking`, and refuses a round with a finding
-that has neither. Each panel state's `<panel>_verdict` gate runs `panel-scope.sh --verdict
+that has neither. On the scrutiny, review and QA panels every `blocking` finding also names
+its `category` (`security`, `correctness` or `other`, defined in
+`phases/phase-4a-scrutiny.md`), optional on an advisory one; `--record` keeps it and refuses
+any other value, and the light-cap audit names a miss by it. Each panel state's `<panel>_verdict` gate runs `panel-scope.sh --verdict
 <panel>` over the ledger: exit 0 (every run recorded, every blocking finding closed) advances with no
 evidence, exit 1 (a blocking finding is unclosed) prints one finding per unclosed
 blocking finding, under the rule it cites or `panel/open-finding`, and accepts `blocking_retry` or `blocking_escalate`, and exit 2 (the round

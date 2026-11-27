@@ -100,7 +100,9 @@ When the packet's `fix review:` line says `yes`, also review the fix
 diff from its `review from:` commit against every panel's criteria in
 the packet. You stand in for every panel this retry re-enters, so judge
 the fix as each of them would, and return each defect the fix introduced
-as a new finding with `severity: blocking` and its location.
+as a new finding with `severity: blocking`, its location and a `category`:
+`security` when it weakens a trust boundary, `correctness` when the change
+does the wrong thing, `other` for anything else that must be fixed.
 
 Return your answers as {"id", "record", "reason"} entries in an
 `answers` list, and any new defects in `findings`.

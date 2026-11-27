@@ -57,8 +57,9 @@
 #   an audited run      a session the audit selects goes from its passed
 #                       light panel to scrutiny, review and qa_validation,
 #                       then verification, and the QA round's record leaves a
-#                       no-miss decision; a blocking scrutiny finding leaves
-#                       a miss
+#                       no-miss decision; blocking scrutiny findings leave
+#                       one miss, named by the most severe category their
+#                       seats gave them
 #
 # The light retry runs the clearing block shipped in phase-4d-light.md, so an
 # edit that breaks it fails here.
@@ -846,9 +847,15 @@ S=$(audited_name audited-miss) || fail "no audited name found"
 if [ -n "$S" ] && new_case "$S" "$SMALL" && choose_and_implement "$S" - code; then
     pass_light "$S"
     expect_state "an audited light run's passed light panel" scrutiny
-    record_round "$S" scrutiny '[{"seat":"completeness","findings":[{"severity":"blocking","summary":"a criterion has no implementation","category":"correctness"}]},{"seat":"justification","findings":[]},{"seat":"intent","findings":[]}]'
-    [ "$(light_decisions "$S")" = '[{"outcome":"fail","what":"light-audit/miss/correctness"}]' ] \
-        && pass "a blocking scrutiny finding at the head the light seat passed left a miss decision" \
+    # Two blocking findings recorded through panel-scope.sh --record, each with
+    # the category its seat gave, and an advisory one with none: the miss
+    # names the more severe category.
+    record_round "$S" scrutiny '[{"seat":"completeness","findings":[{"severity":"blocking","summary":"a criterion has no implementation","category":"correctness"}]},{"seat":"justification","findings":[{"severity":"advisory","summary":"a reason could be clearer"}]},{"seat":"intent","findings":[{"severity":"blocking","summary":"the token is written to the log","category":"security"}]}]'
+    GOT=$(koto context get "$S" verdict_ledger.json 2>/dev/null | jq -c '[.findings[] | select(.panel == "scrutiny") | "\(.severity):\(.category // "-")"] | sort')
+    [ "$GOT" = '["advisory:-","blocking:correctness","blocking:security"]' ] \
+        && pass "--record kept each blocking finding's category, and none on the advisory one" || fail "the ledger's scrutiny findings are $GOT"
+    [ "$(light_decisions "$S")" = '[{"outcome":"fail","what":"light-audit/miss/security"}]' ] \
+        && pass "the recorded blocking findings at the head the light seat passed left one miss, named by the security category" \
         || fail "decisions are [$(light_decisions "$S")]"
 fi
 

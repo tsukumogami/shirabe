@@ -343,7 +343,9 @@ check:light-audit`: outcome `fail` with subject
 pass, fail and inconclusive), or outcome `pass` with
 `what=light-audit/no-miss` once QA passes with none. The category is the
 most severe of the missed findings' `category` (`security`, `correctness`,
-`other`, which a full-panel seat may give each finding), or `uncategorized`.
+`other`), which every full-panel seat gives each blocking finding
+(`phases/phase-4a-scrutiny.md`, "Evidence Format"), or `uncategorized` for
+one recorded without it.
 The decisions reach the signals as `koto.decision_recorded`. An escalated
 run isn't an audit: it reaches the full panels at `standard`.
 
