@@ -358,6 +358,26 @@ check.
 **A live check only.** It can't fail a pull request, so growth is found after
 it has reached every coordinator.
 
+### Decision 3: How the change lands
+
+Resolved inline, from the architecture. The entry and the carriers its moved
+text needs could land together or in steps.
+
+#### Chosen: The new entry and every carrier in one pull request
+
+A rule that leaves SKILL.md before its carrier lands lives nowhere for as long
+as the gap lasts, and every coordinator started in that window runs without
+it. One pull request means `rule-coverage.tsv` checks every row against the
+tree that carries it, in the same CI run that checks the ceiling.
+
+#### Alternatives Considered
+
+**Carriers first, then the entry.** It leaves no rule uncarried, but for the
+length of the gap every rule is carried twice, which raises turn 1 for every
+start in the meantime and makes the coverage rows ambiguous about which copy
+counts. The pull request is large either way; splitting it buys review
+convenience at the cost of a state no coordinator should run in.
+
 ## Decision Outcome
 
 The coordinate skill's SKILL.md becomes an entry of at most 8,400 bytes,
@@ -374,11 +394,168 @@ gets today. Both kinds of start read the same, smaller skill.
 
 ## Solution Architecture
 
-Not written yet: a later /design phase replaces this line.
+### Overview
+
+Today one file carries the coordinator's whole contract, and every start
+reads all of it. After this change the contract is spread over four carriers,
+and each rule sits in the one that fires when the rule applies:
+
+| Carrier | Fires | Holds |
+|---------|-------|-------|
+| `skills/coordinate/SKILL.md` | once, at turn 0, for every start | the entry: identity rules, first steps, the opener call, settings, standing tick rules, Roles, Reporting, glossary |
+| `coordinate-open.sh` stderr | when the opener prints the output line a family is keyed to | takeover, import, carry, directory handover, refusals and `ask=` |
+| the template's state directives | each time a tick stops at that state, and again through `koto status` | verdicts, decisions and escalation, bounds and authority, dispatch, teardown, pausing |
+| `skills/coordinate/MAINTAINING.md` | never, at runtime | known limitations, deferred work, how to change the skill, background |
+
+### Components
+
+**The entry, `skills/coordinate/SKILL.md`.** Rewritten, not cut down: the
+sections that stay are tightened, and the ones that go leave whole. It keeps
+its frontmatter, its preflight line and its `## Roles` and `## Reporting`
+headings, since the template and the references point at those two by name.
+It has no `$ARGUMENTS` or `$<digit>` placeholder, so the `ARGUMENTS:` copy of
+the dispatcher's prompt stays.
+
+**The opener's guidance blocks, `skills/coordinate/scripts/coordinate-open.sh`.**
+A new function prints a family's block to stderr when the opener reaches the
+output line that names the situation. The blocks are the takeover family
+(`outcome=continued`, `outcome=refused`, `failed=takeover_unfinished`), the
+import family (`--import`, `imported=`, `outcome=incomplete`, `tick=moved`),
+carry (`carried=`, `failed=carry`), the directory handover
+(`refused=bound-elsewhere`) and the refusal and `ask=` families, most of which
+print their own text already. stdout stays `key=value`. Each block prints
+before any final refusal line, so the tests that read the last
+`coordinate-open:` line still find it. The block text lives in the
+opener's existing wording table, `coordinate-open.wording.tsv`, so it's
+reviewed as text rather than as shell strings.
+
+**Brief recording.** The brief template's opener command gains the brief's
+path, and the opener writes the `briefs:` host row itself. `reconcile` gains a
+`brief-unrecorded` gap: a `reports-to` row sourced from a dispatcher with no
+`briefs:` row.
+
+**The template, `skills/coordinate/koto-templates/coordinate.md`.** The
+verdict, decision, escalation, surface, `pick`, `land`, `goal_fit`,
+`verify_board`, dispatch and teardown states take what SKILL.md held for them
+and doesn't already appear there. `rotation_end` and `roadmap_close_step` each
+take one line on the successor input's shape. `wait`, the action states and
+the `done*` states take nothing. The template's compat record gets the new
+digest.
+
+**The maintainer doc, `skills/coordinate/MAINTAINING.md`.** Known
+Limitations, What This Version Leaves for Later, Changing This Skill and the
+record's background prose. Its two runtime caveats go to the `reconcile` and
+failure details instead. Nothing in the skill reads or links it at runtime.
+
+**The Reference Files sidecar.** `rule-files.sh` parses SKILL.md's Reference
+Files table at every start. The table moves to
+`skills/coordinate/references/reference-files.tsv`, which `rule-files.sh`
+reads instead, and it lists every reference this change adds, so the run's
+`rules` rows and the `--rules` answer still cover them.
+
+**The checks.**
+
+- `skills/coordinate/scripts/entry-ceiling_test.sh` and
+  `entry-ceiling.tsv`, from Decision 2, with `walk` rows in
+  `skills/coordinate/check-skill.tsv`.
+- `directive-ceiling.tsv` rows for `record_open`, `reconcile` and `pick`.
+- `scripts/testdata/rule-coverage.tsv`: the rows whose phrases leave
+  SKILL.md, about 40 of 77, point at their new carrier. Each row already names
+  a carrier file and, optionally, a template state, so a script, a reference
+  or a state is a carrier with no change to `rule-coverage_test.sh`. Its check
+  that the Roles lists hold three, five and six items stays as it is.
+- `milestone-verdicts_test.sh` and `skill-states_test.sh` look for their
+  strings and state names in the template instead of SKILL.md.
+- `rule-files_test.sh` and `rule-files_engine_test.sh` read the sidecar.
+- A new opener test runs each keyed output line and checks that its block
+  printed, so no family can go missing across the opener's exit paths.
+
+### Key Interfaces
+
+- **The entry ceiling.** `entry-ceiling.tsv` holds one row, the ceiling in
+  bytes, read at the merge base and in the tree. The test fails when the
+  rendered entry is over the merge-base row, when the tree's row is over the
+  merge base's, or when either is over 8,400.
+- **The opener's output.** stdout is unchanged. stderr gains blocks keyed to
+  the existing output lines. No caller parses stderr except the tests.
+- **Pointers into SKILL.md.** The template and references keep pointing at
+  `SKILL.md, Roles` and `SKILL.md, Reporting`, which stay. The other
+  pointers, about 11 of them in `record_open`, `goal_fit`, `wait`,
+  `rotation_end`, `loop.md`, `state-keys.md`, `brief-template.md` and
+  `verification-checklist.md`, are rewritten to name the new carrier.
+
+### Data Flow
+
+A dispatched start:
+
+1. `dispatch-worker.sh` launches `niwa dispatch --profile coordinator` with a
+   prompt led by `/shirabe:coordinate <tokens>`. Unchanged.
+2. Claude Code expands the entry into turn 0: harness, entry, wrapper and the
+   prompt lines, about 30.4K to 31.8K tokens.
+3. The coordinator reads its brief, writes the args file and runs the opener.
+   The opener prints `key=value` lines on stdout and, for a takeover, import,
+   carry or refusal, that family's block on stderr.
+4. Each `koto next --no-cleanup` returns the directive of the state the tick
+   stops at, which carries the rules for what that state does.
+5. After a compaction, the template's text comes back on the next arrival or
+   through `koto status`.
+
+A hand start follows the same path from step 2, with the owner's harness.
 
 ## Implementation Approach
 
-Not written yet: a later /design phase replaces this line.
+### Phase 1: A measured draft of the entry
+
+Write the new SKILL.md in full and measure it before anything else moves:
+its rendered size against 8,400 bytes, and one print-mode turn-0 run under
+the workspace's coordinator profile, the way the Context section's figures
+were taken. If it doesn't fit, the glossary is the next cut, never a rule
+every start needs.
+
+Deliverables:
+- the draft entry, with its rendered size and print-mode figure in the pull
+  request
+
+### Phase 2: Carriers for the moved text
+
+Move each family to its carrier: the opener's guidance blocks and wording
+rows, the template states' text, the brief-path recording and the
+`brief-unrecorded` gap, the maintainer doc, and the Reference Files sidecar.
+
+Deliverables:
+- `coordinate-open.sh`, `coordinate-open.wording.tsv`
+- `koto-templates/coordinate.md` and its compat record
+- `references/brief-template.md`, `scripts/render-brief.sh`
+- `MAINTAINING.md`, `references/reference-files.tsv`, `scripts/rule-files.sh`
+
+### Phase 3: Checks, then the switch
+
+Land the entry ceiling test and its rows, the new directive-ceiling rows, the
+opener block test, and the retargeted coverage, verdict, state and
+rule-files tests. Then replace SKILL.md with the Phase 1 draft. The draft and
+its carriers land in one pull request, so there's no commit where a rule
+lives nowhere.
+
+Deliverables:
+- `scripts/entry-ceiling_test.sh`, `scripts/entry-ceiling.tsv`,
+  `check-skill.tsv` rows
+- `directive-ceiling.tsv` rows
+- updated `rule-coverage.tsv` and the retargeted suites
+- the new `SKILL.md`
+
+### Phase 4: The live acceptance read
+
+After a shirabe release carries the change and the host installs it,
+dispatch one coordinator under the profile, its prompt led by
+`/shirabe:coordinate`, with an instruction to open nothing, and read its
+turn 0 from the transcript. It has to be below 35,000. In the same run,
+SendMessage, CronCreate, CronList, CronDelete and TaskStop load through
+ToolSearch and work, and a background command starts and stops. Then one
+hand start and one takeover start each reach their first report correctly.
+
+Deliverables:
+- the figures, recorded on the pull request that closes the milestone's
+  check
 
 ## Security Considerations
 
@@ -386,4 +563,43 @@ Not written yet: a later /design phase replaces this line.
 
 ## Consequences
 
-Not written yet: a later /design phase replaces this line.
+### Positive
+
+- A dispatched coordinator starts near 31K instead of 60.9K, and the saving
+  is paid on every turn of its tenure, not only at turn 0. A hand-started
+  coordinator gets the same saving.
+- Each situational rule lives where it fires. The template re-sends a state's
+  text on every arrival and through `koto status`, so a rule there comes back
+  after a compaction, where a paragraph read once at turn 0 might not.
+- The entry has a ceiling a test enforces, so a new standing rule has to
+  displace something or come with a measured case for raising the row.
+- About 15 KB of maintainer text stops being read by every run.
+
+### Negative
+
+- A one-time migration: about 40 coverage rows re-pointed, three suites
+  retargeted, `rule-files.sh` reading a sidecar, about 11 pointers rewritten,
+  and new ceiling rows.
+- Writing a situational rule is more deliberate: its author has to put it in
+  the opener path or the state where it's acted on, not append it to
+  SKILL.md.
+- Managers carry the director list, about 450 tokens, because koto can't show
+  role-conditional text.
+- The opener grows guidance blocks across many exit paths, and a family that
+  stops printing would go unnoticed without its test.
+- The ceiling can't see the harness. A Claude Code or plugin release that
+  grows the harness by more than about 3K tokens crosses 35K with every
+  shirabe check green.
+- The `wait` state keeps its per-visit cost. Trimming it is a separate change.
+
+### Mitigations
+
+- The opener block test runs every keyed output line, so a missing block
+  fails at the pull request.
+- The `record_open`, `reconcile` and `pick` ceiling rows stop the entry's text
+  from drifting back into the states every start renders early.
+- The live acceptance read is rerun after a Claude Code upgrade, as niwa's
+  guide already asks for the profile; when it shows harness growth, the fix is
+  a change that lowers the entry row.
+- Phase 1 measures the draft before anything moves, so a draft that doesn't
+  fit is found before the migration starts.
