@@ -75,9 +75,10 @@ changed, and, for a fix, when a reproducing test changed after its red; a new te
 or one that only gained lines, is added. The same classifier decides three things, so
 they never disagree:
 
-- `review-level.sh facts` records `tests_edited`, and the rule `full tests_edited` floors
-  the change at `full`, so the QA seat reviews it too. An added-only change floors at
-  `standard`, as any change to a test does.
+- `review-level.sh facts` records `tests_edited`, a fact the seats and the acceptance
+  hold read. The `full` floor is narrower: `rule full red_test_edited` fires when a
+  fix's own reproducing test changed after its red. Any other change to a test floors
+  at `standard`, or at `light` when the light cap applies (`review-levels.md`).
 - The code packet's `## Test changes` section, between the changed paths and the diff,
   lists the added tests by path and the edited tests by path, then each edited test's
   hunks. It says `none` when the change touches no test file.
