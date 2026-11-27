@@ -151,7 +151,7 @@ pub struct Failure {
     pub field: Option<String>,
     pub check: Option<String>,
     pub message: String,
-    pub extra: Map<String, Value>,
+    pub extra: Box<Map<String, Value>>,
 }
 
 impl Failure {
@@ -162,7 +162,7 @@ impl Failure {
             field: None,
             check: None,
             message: message.into(),
-            extra: Map::new(),
+            extra: Box::default(),
         }
     }
     fn refused(field: &str, message: impl Into<String>) -> Self {
@@ -240,7 +240,7 @@ pub fn run(args: QuestionArgs) -> ExitCode {
                 err.insert("check".into(), json!(check));
             }
             err.insert("message".into(), json!(f.message));
-            for (k, v) in f.extra {
+            for (k, v) in *f.extra {
                 err.insert(k, v);
             }
             emit(&json!({"v": 1, "error": Value::Object(err)}));
@@ -407,7 +407,7 @@ fn check_attempt(session: &str, attempt: Option<&str>) -> Result<String, Failure
 
 /// The stored content of a question, or why there is none to use.
 enum Stored {
-    Good(Content),
+    Good(Box<Content>),
     /// The question was raised with no packet: nothing is stored for it.
     NoPacket,
     Missing,
@@ -425,7 +425,7 @@ fn read_stored(identity: &str, packet_want: Option<&str>) -> Stored {
                 return Stored::Mismatch;
             }
             match Content::from_stored(&bytes) {
-                Ok(c) => Stored::Good(c),
+                Ok(c) => Stored::Good(Box::new(c)),
                 Err(_) => Stored::Unreadable,
             }
         }
@@ -815,7 +815,7 @@ fn gather(person: bool, at: Option<&str>) -> Result<Pending, Failure> {
         let qid = h.id();
         let stored = read_stored(&identity, h.packet().as_deref());
         let content = match stored {
-            Stored::Good(c) => Some(c),
+            Stored::Good(c) => Some(*c),
             Stored::NoPacket => None,
             other => {
                 let reason = match other {
@@ -1056,7 +1056,7 @@ fn render_item(identity: &str) -> Result<render::Item, Failure> {
             Ok(render::Item {
                 identity: identity.to_string(),
                 header,
-                content: c,
+                content: *c,
             })
         }
         Stored::NoPacket => Err(Failure::unpresentable(

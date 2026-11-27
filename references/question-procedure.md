@@ -112,7 +112,9 @@ After the owner chose in the prompt:
 shirabe question answer <identity> --in <session>
 ```
 
-It finds the question-tool call in this harness session's record that carried
+`--in` is the session the prompt was opened from, never the one that raised
+the question: koto records an answer where it was given. It finds the
+question-tool call in this harness session's record that carried
 the question's header and hands koto the pointer; koto checks the call against
 the stored question and records `person:owner` only if it matches. Nothing
 else can record the owner's answer: the command takes no answer text, and it

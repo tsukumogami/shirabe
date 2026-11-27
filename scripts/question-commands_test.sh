@@ -45,6 +45,11 @@
 set -uo pipefail
 . "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 
+# The suite stands in for an attended harness session: a run mode inherited
+# from the session running it would refuse every answer before koto checks
+# it. The unattended refusal itself is covered by crates/shirabe/tests.
+unset KOTO_RUN_MODE CLAUDE_CODE_SESSION_ATTENDED CLAUDE_CONFIG_DIR
+
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$SCRIPT_DIR/.." && pwd)
 FIXTURE="$REPO/scripts/fixtures/question-commands/accepted.jsonl"
@@ -243,6 +248,9 @@ fi
 
 # --- answer ------------------------------------------------------------------
 
+# koto records an answer in the session that gives it, never in the asker's:
+# the owner answers solo's questions from manager.
+
 mkdir -p "$ACCOUNT_HOME/.claude/projects" || { fail "cannot make $ACCOUNT_HOME/.claude/projects"; finish; }
 RECORDS=$(mktemp -d "$ACCOUNT_HOME/.claude/projects/shirabe-question-commands-test.XXXXXX") \
     || { fail "mktemp under the account's .claude/projects failed"; finish; }
@@ -276,7 +284,7 @@ record() {
 sleep 1
 H=$(harness_id)
 record "$T/render1.out" "$H" "SQLite" none
-CLAUDE_CODE_SESSION_ID="$H" "$SHIRABE" question answer "$Q_SOLO" --in solo >"$T/answer.out" 2>"$T/answer.err"
+CLAUDE_CODE_SESSION_ID="$H" "$SHIRABE" question answer "$Q_SOLO" --in manager >"$T/answer.out" 2>"$T/answer.err"
 RC=$?
 if [ "$RC" -eq 0 ] && [ "$(jq -r '.reading' "$T/answer.out")" = "verified" ] && [ "$(jq -r '.text' "$T/answer.out")" = "SQLite" ]; then
     pass "an answered prompt is recorded as the owner's and reads verified"
@@ -284,6 +292,7 @@ else
     fail "answer exited $RC: $(cat "$T/answer.out" "$T/answer.err")"
 fi
 ANSWER_ID=$(jq -r '.id // empty' "$T/answer.out")
+ANSWER_IN=$(jq -r '.session // empty' "$T/answer.out")
 
 "$SHIRABE" question pending --in solo >"$T/pending2.out" 2>/dev/null
 if jq -e --arg q "$Q_SOLO" '[.answered[] | select((.identity // .question.identity // "") == $q or (.question // "") == $q)] | length >= 1' "$T/pending2.out" >/dev/null 2>&1; then
@@ -292,7 +301,7 @@ else
     fail "pending --in solo does not list the answer: $(jq -c '.answered' "$T/pending2.out")"
 fi
 if [ -n "$ANSWER_ID" ] && koto decisions record solo --kind judgment --outcome settled \
-        --subject what="used the cache answer" --basis "solo:$ANSWER_ID" --by session >/dev/null 2>"$T/cite.err"; then
+        --subject what="used the cache answer" --basis "$ANSWER_IN:$ANSWER_ID" --by session >/dev/null 2>"$T/cite.err"; then
     "$SHIRABE" question pending --in solo >"$T/pending3.out" 2>/dev/null
     if [ "$(jq '.answered | length' "$T/pending3.out")" = 0 ]; then
         pass "an answer a decision cites leaves answered"
@@ -314,7 +323,7 @@ refused() {
     sleep 1
     h=$(harness_id)
     record "$T/r-$mut.render" "$h" "SQLite" "$mut"
-    CLAUDE_CODE_SESSION_ID="$h" "$SHIRABE" question answer "$q" --in "$s" >"$T/r.out" 2>"$T/r.err"
+    CLAUDE_CODE_SESSION_ID="$h" "$SHIRABE" question answer "$q" --in manager >"$T/r.out" 2>"$T/r.err"
     RC=$?
     if [ "$RC" -eq 4 ] && [ "$(jq -r '.error.check' "$T/r.out")" = "$check" ] \
         && "$SHIRABE" question pending --in "$s" | jq -e --arg q "$q" '[.questions[] | select(.identity == $q)] | length == 1' >/dev/null; then

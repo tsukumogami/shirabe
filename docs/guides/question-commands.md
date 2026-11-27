@@ -127,7 +127,10 @@ call whose question at some position carries the question's `prompt_header`.
 It reads structured fields only and prints nothing from the record.
 
 It runs `koto decisions answer <raiser> <id> --in <session> --by person:owner
---prompt <harness session>/<call>/<position>` and reads the entry back.
+--prompt <harness session>/<call>/<position>` and reads the entry back. The
+answer is recorded in the session the owner answered in, so `--in` names
+that session; koto refuses `--in` naming the session that raised the
+question.
 Output: `identity`, `session`, `id`, `prompt`, `reading` (as koto prints it)
 and `text`.
 
