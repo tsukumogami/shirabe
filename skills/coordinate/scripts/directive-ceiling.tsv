@@ -8,5 +8,5 @@
 # state<TAB>bytes
 wait	10802
 record_open	1791
-reconcile	8349
+reconcile	8346
 pick	8655

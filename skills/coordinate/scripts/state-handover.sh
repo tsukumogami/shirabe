@@ -137,7 +137,10 @@
 #                                            record/host holds no briefs: key,
 #                                            so the brief it was started from
 #                                            isn't recorded. Its fix names the
-#                                            --host write and the intake. It
+#                                            --host write and the intake, and,
+#                                            for an opener line with no
+#                                            --brief, asking the dispatcher
+#                                            for the file's path. It
 #                                            reads the row and never acts on
 #                                            it, and repeats none of its words,
 #                                            since the row may have come
@@ -394,7 +397,7 @@ jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile host "$WD/host.
     | if $ra != "" and ([$dby[0][] | ltrimstr("koto/links/dispatched-by/")] | index($ra)) != null
          and ([(.host // {}) | keys[] | select(startswith("briefs:"))] | length) == 0
       then .reports = [{report: "brief-unrecorded",
-                        fix: "record the brief this run was dispatched with: state-stored-set.sh --host briefs:<label> <its absolute path> (the --brief path on the brief'"'"'s opener line), then state-stored-set.sh --intake <label> --by <you>; the reports-to row stays as it is"}]
+                        fix: "record the brief this run was dispatched with: state-stored-set.sh --host briefs:<label> <its absolute path> (the --brief path on the brief'"'"'s opener line when it has one; when it has none, ask whoever dispatched you for the file'"'"'s path, and a brief with no file stays unrecorded), then state-stored-set.sh --intake <label> --by <you>; this is a report and holds nothing, and the reports-to row stays as it is"}]
       else . end
     | if any($rows[]; .kind == "rule") then .rule_lists = rule_lists($rows) else . end' "$WD/parsed.json" > "$WD/out.json" || lib_die2 "jq failed"
 

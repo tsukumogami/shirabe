@@ -291,9 +291,11 @@
 # and a fresh start the legacy importer filled. A fresh start leaves the run
 # holding no record, so it stores the checked brief (its resolved path, label
 # and digest) in the run's coord/start_brief.json, and state-open.sh writes
-# the two rows from it after record_open's seed, the digest checked again. A
-# write or store that fails prints warning=brief-unrecorded after session=,
-# and the start goes on.
+# the two rows from it after record_open's seed, through the same --host
+# write; the intake checks the digest when it reads the file. A write or
+# store that fails prints warning=brief-unrecorded after session=, and the
+# start goes on. A scratch file the check couldn't make is failed=brief
+# (exit 1), nothing opened.
 #
 # Guidance. stdout is only the key=value lines. A takeover, an import, a
 # carry, a directory handover, a refusal or an ask also prints, on stderr,
@@ -303,7 +305,7 @@
 #   takeover             outcome=continued
 #   takeover-refused     outcome=refused from a takeover
 #   takeover-unfinished  failed=takeover_unfinished
-#   import               --import, before its first refusal
+#   import               every --import, before anything else it prints
 #   import-template      refused=import_template_unavailable, the refusal
 #                        that names --trust-template
 #   import-legs          imported=
@@ -321,8 +323,9 @@
 #   brief, brief-unrecorded
 #                        refused=brief, warning=brief-unrecorded
 #   compat               session= of a resume whose compiled template isn't
-#                        the shipped one and whose fingerprint is one the
-#                        table's pre-change.fingerprint rows freeze
+#                        the shipped one and whose own compiled copy's pick
+#                        text lacks the table's compat-guide.phrase
+#                        (compat_guide, below)
 #
 # The role. Every start that knows the run's role prints role=<manager|director>
 # with its result lines, and role_changed_from=<old> for an accepted change
@@ -348,7 +351,8 @@
 # shipped template didn't compile
 # (`failed=template_compile`), this host's runs couldn't be read
 # (`failed=resume_candidate`), a cancel failed, a carry failed after the new
-# run opened (`failed=carry`), or the legacy import failed (`failed=import`);
+# run opened (`failed=carry`), the legacy import failed (`failed=import`), or
+# --brief's check couldn't make its scratch file (`failed=brief`);
 # koto-open.sh's own codes otherwise (2 refused, 64 usage, 127 koto or jq
 # missing). An import exits 0
 # imported; 2 refused, by this script or by koto; 1 koto couldn't read or push
@@ -496,14 +500,18 @@ guide() {
 # an absolute path of at most 4096 bytes with no control character, each link
 # resolved (16 at most, each target checked the same way) and the directory
 # resolved with cd -P, the result the same file the path names, a regular
-# readable file, named <label>.md (or <label>) with a label of a-z, 0-9 and -,
-# at most 64 characters. The file is opened once and read from that one
-# handle, at most BRIEF_CAP bytes (a larger one is refused), and its sha256
-# is the digest recorded, so the intake (state-stored-set.sh --intake) refuses
-# a file swapped after the check. Its contents are never printed, no command
-# is built from the path, and the path itself is never printed: the recorded
-# one goes only to state-stored-set.sh, as an argument, or, on a fresh start,
-# into coord/start_brief.json through a file jq writes.
+# readable file, named <label>.md with a label of a-z, 0-9 and -, at most 64
+# characters. The file is opened once and read from that one handle, at most
+# BRIEF_CAP bytes (a larger one is refused), and its sha256 is the digest
+# recorded, so the intake (state-stored-set.sh --intake) refuses a file
+# swapped after the check. Its contents are never printed, no command is
+# built from the path, and the path itself is never printed: the recorded one
+# goes only to state-stored-set.sh, as an argument, or, on a fresh start, into
+# coord/start_brief.json through a file jq writes. A scratch file the read
+# can't make is an environment failure, failed=brief (exit 1), as the
+# opener's other scratch failures are.
+# BRIEF_CAP is the intake's read cap too: state-stored-set.sh --intake refuses
+# a brief over 262144 bytes as a literal. Change the two together.
 BRIEF_CAP=262144
 BRIEF_LABEL= BRIEF_REAL= BRIEF_DIGEST=
 brief_refuse() {
@@ -512,9 +520,11 @@ brief_refuse() {
     echo "coordinate-open: --brief $1; nothing was opened" >&2
     exit 2
 }
-# brief_plain <path>: non-empty, at most 4096 bytes, no control character.
+# brief_plain <path>: non-empty, at most 4096 bytes (counted as bytes, not
+# as the locale's characters), no control character.
 brief_plain() {
-    [ -n "$1" ] && [ "${#1}" -le 4096 ] && [ "$(printf '%s' "$1" | LC_ALL=C tr -d '[:cntrl:]')" = "$1" ]
+    [ -n "$1" ] && [ "$(printf '%s' "$1" | LC_ALL=C wc -c | tr -d ' ')" -le 4096 ] \
+        && [ "$(printf '%s' "$1" | LC_ALL=C tr -d '[:cntrl:]')" = "$1" ]
 }
 brief_check() {
     local p=$BRIEF t n=0 d b copy sum size
@@ -534,9 +544,13 @@ brief_check() {
     [ "$p" -ef "$BRIEF" ] || brief_refuse "doesn't resolve to the file it names"
     [ -f "$p" ] && [ -r "$p" ] || brief_refuse "doesn't name a regular, readable file"
     BRIEF_LABEL=${b%.md}
-    [[ $BRIEF_LABEL =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] \
+    [ "$BRIEF_LABEL.md" = "$b" ] && [[ $BRIEF_LABEL =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] \
         || brief_refuse "names a file whose name isn't a brief's: <label>.md, the label a-z, 0-9 and -, at most 64 characters"
-    copy=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-brief.XXXXXX") || brief_refuse "couldn't be read: no scratch file"
+    copy=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-brief.XXXXXX") || {
+        echo "failed=brief"
+        echo "coordinate-open: --brief couldn't be checked: no scratch file could be made; nothing was opened" >&2
+        exit 1
+    }
     # One open handle: checked as a regular file through it, and read from it.
     { [ -f /dev/fd/8 ] && head -c "$((BRIEF_CAP + 1))" <&8 > "$copy"; } 8< "$p" 2> /dev/null \
         || { rm -f "$copy"; brief_refuse "couldn't be read as a regular file"; }
@@ -556,6 +570,9 @@ brief_check() {
 brief_record() {
     local rc
     [ "$HAVE_BRIEF" -eq 1 ] || return 0
+    # stderr is dropped, where rules_record passes the writer's reason on: a
+    # refusal or a failed write could quote the value, and the brief's path
+    # is never printed. The exit code is all the warning names.
     bash "$HERE/state-stored-set.sh" --session "$1" --host "briefs:$BRIEF_LABEL" "$BRIEF_REAL" \
         --host "briefs-digest:$BRIEF_LABEL" "$BRIEF_DIGEST" < /dev/null > /dev/null 2> /dev/null
     rc=$?
@@ -567,9 +584,9 @@ brief_record() {
 # brief_store <run>: a start that leaves the run holding no record yet (a
 # fresh run, whose record_open seeds it) can't write the row, so the checked
 # brief, {label, path, digest}, goes into the run's own session as
-# coord/start_brief.json, written from a file, and state-open.sh writes the
-# host row from it after the seed, checking the digest again. A store that
-# fails prints warning=brief-unrecorded, and the start goes on.
+# coord/start_brief.json, written from a file, and state-open.sh passes the
+# three straight to the same state-stored-set.sh --host write after the seed.
+# A store that fails prints warning=brief-unrecorded, and the start goes on.
 brief_store() {
     local d rc=0
     [ "$HAVE_BRIEF" -eq 1 ] || return 0
@@ -730,22 +747,31 @@ rebind_root() {
 compat_line() { bash "$HERE/coord-log.sh" compat --session "$1" 2>/dev/null; }
 
 # compat_guide <run>: the older-compat continuation. A run resumed under a
-# compiled template that isn't the shipped one ($SHIPPED), whose fingerprint
-# (coord-log.sh compat's third field) is one of the wording table's
-# pre-change.fingerprint rows, was compiled before its states carried the
-# rules SKILL.md moved into them, so its directives don't hold them:
-# guide compat prints them once. The set is frozen in the table, never read
-# from the compat table at run time. A takeover or a carry opens the new run
-# from the shipped template, so neither asks.
+# compiled template that isn't the shipped one ($SHIPPED) may run text from
+# before the rules SKILL.md held moved into the states. The run's own
+# compiled copy says which: the template_path its log's workflow_initialized
+# event records, read as coord-log.sh's run_copy reads it. When that copy's
+# pick text (its directive and details together) lacks the wording table's
+# compat-guide.phrase, a sentence this release moved into pick (rule-coverage
+# row S68 pins it there), its directives don't hold the moved rules, and
+# guide compat prints them once. A run compiled from this release's template
+# or a later one keeps the phrase and gets no block, whatever else changed in
+# its text. A copy that can't be read, a pick that doesn't read as text, or a
+# table without the phrase prints nothing. A takeover or a carry opens the new
+# run from the shipped template, so neither asks.
 compat_guide() {
-    local hash fp
+    local hash phrase runlog copy has
     hash=$(bash "$HERE/coord-log.sh" template-hash --session "$1" 2> /dev/null) || return 0
     [[ $hash =~ ^[0-9a-f]{64}$ ]] && [ "$hash" != "${SHIPPED:-}" ] || return 0
-    read -r _ _ fp <<EOF
-$(compat_line "$1")
-EOF
-    [[ ${fp:-} =~ ^[0-9a-f]{64}$ ]] || return 0
-    awk -F'\t' -v f="$fp" '$1 == "pre-change.fingerprint" && $2 == f { found = 1 } END { exit !found }' "$WORDING" || return 0
+    phrase=$(awk -F'\t' '$1 == "compat-guide.phrase" { print $2; exit }' "$WORDING")
+    [ -n "$phrase" ] || return 0
+    runlog="$("$KOTO" session dir "$1" < /dev/null 2> /dev/null)/koto-$1.state.jsonl"
+    copy=$(jq -r 'select(.type == "workflow_initialized") | .payload.template_path // empty' "$runlog" 2> /dev/null | head -1)
+    [ -n "$copy" ] && [ -r "$copy" ] || return 0
+    has=$(jq -r --arg p "$phrase" '.states.pick
+        | if type == "object" and ((.directive // "") | type == "string") and ((.details // "") | type == "string")
+          then ((.directive // "") + "\n" + (.details // "")) | contains($p) else "unread" end' "$copy" 2> /dev/null)
+    [ "$has" = false ] || return 0
     guide compat "$1"
 }
 

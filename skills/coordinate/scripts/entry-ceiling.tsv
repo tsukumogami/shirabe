@@ -1,4 +1,5 @@
 # entry-ceiling.tsv -- the most bytes skills/coordinate/SKILL.md may render to,
 # as entry-ceiling_test.sh renders it. Read at the merge base, so a change can
-# lower this row but not raise it; the test's CAP bounds it.
+# lower this row, and raise it only with the test's CAP in the same change;
+# that CAP bounds it.
 SKILL.md	8218

@@ -91,7 +91,7 @@
 # of sleeping. The template never passes it.
 #
 # Like every check, the pass runs in the environment of the `koto next` call
-# that triggered it (koto#261; see SKILL.md's Known Limitations).
+# that triggered it (koto#261; see MAINTAINING.md's Known Limitations).
 #
 # Requires: bash 3.2+, jq, gh, git, koto, niwa, pkill, and a sha256 tool.
 set -uo pipefail

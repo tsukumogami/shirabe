@@ -17,9 +17,10 @@
 # home directory walking past where the home directory would stop; a label
 # outside the Run label grammar (a space, over 64 bytes) left out and named on
 # stderr; an unreadable SKILL.md or reference, and a sidecar that is missing,
-# names no file, or has a row with a `..` segment, no second column, a file
-# that doesn't exist or a file named twice, each failing with nothing on
-# stdout; and the usage errors.
+# names no file, or has a row with a `..` segment, a file that doesn't exist
+# or a file named twice, each failing with nothing on stdout (the second
+# column is checked on this tree's sidecar only, since a start reads just the
+# first); the sidecar naming the opener's wording table; and the usage errors.
 #
 # Usage: bash skills/coordinate/scripts/rule-files_test.sh
 set -uo pipefail
@@ -49,6 +50,8 @@ SIDECAR="$SKILL/references/reference-files.tsv"
 TABLE=$(grep -v '^#' "$SIDECAR" | grep . | cut -f1)
 grep -qx 'koto-templates/coordinate.md' <<< "$TABLE" && ok "the sidecar names the template" \
     || bad "the sidecar names the template" "$TABLE"
+grep -qx 'scripts/coordinate-open.wording.tsv' <<< "$TABLE" && ok "the sidecar names the opener's wording table" \
+    || bad "the sidecar names the opener's wording table" "$TABLE"
 BADROWS=$(grep -v '^#' "$SIDECAR" | grep . | awk -F'\t' 'NF != 2 || $1 == "" || $2 == ""')
 eq "  ... every row is <file>TAB<when to load it>, both columns set" "" "$BADROWS"
 # Every file under references/ but the sidecar itself has a row, so a
@@ -86,9 +89,10 @@ eq "  ... each labelled skill-<file name> with its file's sha256" "" "$BADROW"
 
 # A copy of the skill's files whose sidecar gains a row lists the new file,
 # after the rows before it; SKILL.md's own text plays no part.
-mkdir -p "$T/copy/.claude-plugin" "$T/copy/skills/coordinate"
+mkdir -p "$T/copy/.claude-plugin" "$T/copy/skills/coordinate/scripts"
 cp "$ROOT/.claude-plugin/plugin.json" "$T/copy/.claude-plugin/"
 cp -R "$SKILL/SKILL.md" "$SKILL/koto-templates" "$SKILL/references" "$T/copy/skills/coordinate/"
+cp "$SKILL/scripts/coordinate-open.wording.tsv" "$T/copy/skills/coordinate/scripts/"
 CSIDE="$T/copy/skills/coordinate/references/reference-files.tsv"
 printf 'extra\n' > "$T/copy/skills/coordinate/references/extra-notes.md"
 printf 'references/extra-notes.md\tnever\n' >> "$CSIDE"
@@ -153,7 +157,6 @@ side_fails() {
     cp "$T/sidecar.saved" "$C2SIDE"
 }
 side_fails "a sidecar path with a .. segment" "$(printf '../outside.md\tnever')"
-side_fails "a sidecar row with no when-to-load column" "references/extra-notes.md"
 side_fails "a sidecar row whose file doesn't exist" "$(printf 'references/missing.md\tnever')"
 side_fails "a sidecar row naming a file twice" "$(printf 'references/loop.md\tagain')"
 grep '^#' "$T/sidecar.saved" > "$C2SIDE"

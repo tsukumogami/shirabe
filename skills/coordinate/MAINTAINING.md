@@ -242,8 +242,11 @@ before adding it.
 Two tests hold what the skill costs a session. `scripts/entry-ceiling_test.sh`
 holds the rendered SKILL.md (frontmatter dropped, includes counted in full)
 under the row in `scripts/entry-ceiling.tsv`, read at the merge base, with a
-fixed cap of 8,400 bytes over every row, so a change can lower its row but
-not raise it. `scripts/directive-ceiling_engine_test.sh` fails a change that
+cap of 8,400 bytes over every row, so a change can lower its row but not
+raise it on its own. More room means raising the test's `CAP` and the row in
+one change, argued with a fresh turn-0 measurement: the test reads `CAP` at
+the merge base too, so raising either alone fails or gives nothing.
+`scripts/directive-ceiling_engine_test.sh` fails a change that
 grows the `wait` directive, or any other state with a row, past its ceiling at
 the merge base (`scripts/directive-ceiling.tsv`).
 

@@ -29,6 +29,12 @@
 # and for a stale digest; not listed for a matching row, nor when record/host
 # names no brief (the read's fields as before) or a file that can't be read;
 # one gap of two briefs when one is taken; the brief never edited.
+# And the report brief-unrecorded, which holds nothing: a run a dispatcher
+# started whose record/host names no brief passes the gate with no gap and
+# prints the report, its fix naming the --host write and the intake, how to
+# find the path when the opener line carried no --brief, and that it is a
+# report; a briefs: key clears it, and a run with no dispatched-by link, or
+# reporting to a person, gets none.
 #
 # Usage: bash skills/coordinate/scripts/state-handover_test.sh
 set -uo pipefail
@@ -228,6 +234,10 @@ printf '{}' | koto context add "$SR" koto/links/dispatched-by/coord-lead
 gate; eq "a dispatched run with no briefs: host key passes the gate, listing no gap" "0 " "$G"
 grep -qF 'state-handover: report, holds nothing: brief-unrecorded: record the brief this run was dispatched with: state-stored-set.sh --host briefs:<label>' "$T/gate" \
     && ok "  ... and prints the brief-unrecorded report with its fix" || bad "  ... and prints the brief-unrecorded report with its fix" "$(cat "$T/gate")"
+grep -qF 'when it has none, ask whoever dispatched you for the file' "$T/gate" \
+    && ok "  ... its fix covering an opener line with no --brief" || bad "  ... its fix covering an opener line with no --brief" "$(cat "$T/gate")"
+grep -qF 'this is a report and holds nothing' "$T/gate" && ! grep -q 'gap.*brief-unrecorded' "$T/gate" \
+    && ok "  ... calling itself a report, never a gap" || bad "  ... calling itself a report, never a gap" "$(cat "$T/gate")"
 eq "  ... the read carries it as reports" "brief-unrecorded" "$(bash "$RH" "${RM[@]}" 2>/dev/null | jq -r '[(.reports // [])[].report] | join(",")')"
 printf '%s' '{"briefs:worker": "/srv/briefs/worker.md"}' | koto context add "$SR" record/host
 gate; grep -qF 'brief-unrecorded' "$T/gate" && bad "  ... a briefs: host key clears it" "$(cat "$T/gate")" || ok "  ... a briefs: host key clears it"

@@ -1271,6 +1271,8 @@ intake)
     IREC=$(jq -r --arg k "briefs-digest:$ILABEL" '.[$k] // "" | if type == "string" then . else "" end' "$WD/host") || lib_die2 "jq failed"
     [ -z "$IREC" ] || [ "$IREC" = "$IDIG" ] \
         || refuse "the brief briefs:$ILABEL changed after it was recorded (its digest isn't the one record/host keeps); record it again with --host briefs:$ILABEL <absolute path>"
+    # 262144 is coordinate-open.sh's BRIEF_CAP, the read cap its --brief
+    # check keeps: change the two together.
     [ "$(wc -c < "$WD/brief" | tr -d ' ')" -le 262144 ] \
         || refuse "the brief briefs:$ILABEL is larger than 262144 bytes, the most the intake reads"
     ISRC="inferred brief $ILABEL $IDIG"

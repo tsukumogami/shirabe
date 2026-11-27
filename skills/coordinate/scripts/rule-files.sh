@@ -72,8 +72,10 @@ add() {
 }
 
 # The skill's files: SKILL.md, then the sidecar's paths in its row order, each
-# relative to the skill's directory. A sidecar row is <file>TAB<when>; `#`
-# lines and blank lines are skipped.
+# relative to the skill's directory. A sidecar row is <file>TAB<when>; only
+# the file is read here, so a slip in the when column never stops a start's
+# digest (rule-files_test.sh checks that column). `#` lines and blank lines
+# are skipped.
 SKILL_DIR="$ROOT/skills/coordinate"
 SIDECAR=references/reference-files.tsv
 [ -r "$SKILL_DIR/SKILL.md" ] || fail "can't read $SKILL_DIR/SKILL.md"
@@ -81,11 +83,8 @@ SIDECAR=references/reference-files.tsv
 REFS=
 while IFS= read -r row || [ -n "$row" ]; do
     case "$row" in ''|'#'*) continue ;; esac
-    case "$row" in
-        *$'\t'*) rel=${row%%$'\t'*} when=${row#*$'\t'} ;;
-        *) fail "$SIDECAR has a row with no when-to-load column: $row" ;;
-    esac
-    [ -n "$rel" ] && [ -n "$when" ] || fail "$SIDECAR has a row with an empty column: $row"
+    rel=${row%%$'\t'*}
+    [ -n "$rel" ] || fail "$SIDECAR has a row with no file: $row"
     REFS="$REFS$rel"$'\n'
 done < "$SKILL_DIR/$SIDECAR" || fail "can't read $SKILL_DIR/$SIDECAR"
 [ -n "$REFS" ] || fail "$SIDECAR names no file"

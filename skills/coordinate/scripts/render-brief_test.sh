@@ -21,7 +21,7 @@
 # filled in, and needs dispatcher_session; a /coordinate brief written to a
 # workspace root also passes `--brief '<the file>'` before the args file, the
 # path a shell reads back whole when the root holds a quote, a space or
-# $(...), while one printed with --stdout alone, and every other entry
+# $(...), while one printed with --stdout, with or without a root, and every other entry
 # point's, carries no --brief; every other entry point (/scope,
 # /deliver, /execute, /work-on, /charter) shows no link step, names no
 # dispatcher_session and no link-dispatcher.sh, with the field given, empty
@@ -375,6 +375,10 @@ has "dispatcher: /coordinate opens with coordinate-open.sh --dispatched-by" "$(s
     "\`\"\${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh\" --plugin-root \"\${CLAUDE_PLUGIN_ROOT}\" --dispatched-by $D \"\$ARGS_DIR/args.json\"\`"
 has "dispatcher: /coordinate's args file is its first step's" "$(section "$E" Goal)" '`$ARGS_DIR/args.json` the args file its first step writes'
 lacks "brief path: under --stdout with no --workspace-root the opener carries no --brief" "$E" "--brief"
+QS="$T/stdout-root"
+mkdir -p "$QS/.niwa" && : > "$QS/.niwa/workspace.toml"
+lacks "brief path: under --stdout with a --workspace-root, which writes no file, the opener carries no --brief" \
+    "$(bash "$S" --input "$(variant ep-coordinate-sroot '.entry_point = "coordinate" | .entry_args = ["docs/roadmaps/ROADMAP-sub.md"] | .run_mode = "" | .role = "manager"')" --stdout --workspace-root "$QS")" "--brief"
 # Written to a workspace root, the /coordinate opener names the file it is
 # written to, single-quoted before the args file; a quote, a space and $(...)
 # in the root stay data.

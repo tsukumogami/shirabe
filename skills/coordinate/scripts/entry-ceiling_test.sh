@@ -16,9 +16,11 @@
 #     moving text into an included file doesn't escape the count.
 # Refused outright, since their size depends on a host or on the dispatcher's
 # prompt and can't be measured ahead: any `!` shell line other than the
-# preflight line, and any `$ARGUMENTS` or `$<digit>` placeholder. The opener's
-# line must keep its stderr, where the opener prints the guidance for a
-# takeover, import, carry or refusal, so a stderr redirect on it is refused.
+# preflight line, any `$ARGUMENTS` or `$<digit>` placeholder, and an `@`
+# include of a file outside the skill's tree. The opener's line must keep its
+# stderr, where the opener prints the guidance for a takeover, import, carry
+# or refusal, so a redirect of its stderr (`2>`, `&>`, `>&` or `|&`) on it is
+# refused.
 #
 # What it is judged against: entry-ceiling.tsv, one `SKILL.md<TAB><bytes>`
 # row. The rendered entry must be at most the row at the merge base of HEAD
@@ -30,8 +32,12 @@
 # no merge base can be read the tree's row judges too, and the suite says so,
 # except in a pull request's CI run, where a missing base fails.
 #
-# Making more room is a change to CAP in this file, reviewed as one and argued
-# with a fresh turn-0 measurement.
+# Making more room: raise CAP in this file and the row in the same change.
+# CAP is read from this file at the merge base too, and only a change whose
+# CAP is above the base's may set the row above the base's row, still under
+# its own CAP. Raising the row alone fails, and raising CAP alone gives no
+# room. Such a change is reviewed as one and argued with a fresh turn-0
+# measurement (MAINTAINING.md, Changing This Skill).
 #
 # The judge also runs against scratch repositories, to show each rule holds.
 #
@@ -60,31 +66,44 @@ body() {
     awk 'NR == 1 && $0 == "---" { fm = 1; next } fm && $0 == "---" { fm = 0; next } !fm' "$1"
 }
 
-# refusals <SKILL.md>: one line per construct the count can't measure ahead.
-refusals() {
-    body "$1" > "$T/body.$$"
-    grep -nE '!`' "$T/body.$$" | grep -vE "^[0-9]+:${PREFLIGHT#^}" | sed 's/^/shell line /'
-    grep -nE '\$(ARGUMENTS|[0-9])' "$T/body.$$" | sed 's/^/placeholder /'
-    grep -n 'coordinate-open\.sh' "$T/body.$$" | grep -E '2>' | sed 's/^/stderr redirect on the opener line /'
-    rm -f "$T/body.$$"
-}
-
-# rendered_size <SKILL.md>: the bytes the expansion renders, includes counted.
-rendered_size() {
-    local md=$1 dir size inc f
+# includes <SKILL.md>: "<in|out> <resolved path>" for each `@` include that
+# names an existing file, in or out of the skill's tree.
+includes() {
+    local md=$1 dir inc f
     dir=$(cd "$(dirname "$md")" && pwd)
-    size=$(body "$md" | EC_STAND=$STAND EC_PF='!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh ' awk '
-        index($0, ENVIRON["EC_PF"]) == 1 { print ""; next }
-        { gsub(/\$\{CLAUDE_PLUGIN_ROOT\}/, ENVIRON["EC_STAND"]); print }' | wc -c | tr -d ' ')
     for inc in $(body "$md" | grep -oE '(^|[[:space:](])@[A-Za-z0-9_./${}-]+' | sed -E 's/^[[:space:](]*@//' | sort -u); do
         f=${inc//\$\{CLAUDE_PLUGIN_ROOT\}/$dir/../..}
         case "$f" in /*) ;; *) f=$dir/$f ;; esac
         [ -f "$f" ] || continue
         f=$(cd "$(dirname "$f")" && pwd)/$(basename "$f")
-        case "$f" in "$dir"/*) size=$((size + $(wc -c < "$f" | tr -d ' '))) ;; esac
+        case "$f" in "$dir"/*) echo "in $f" ;; *) echo "out $inc" ;; esac
+    done
+}
+
+# refusals <SKILL.md>: one line per construct the count can't measure ahead.
+refusals() {
+    body "$1" > "$T/body.$$"
+    grep -nE '!`' "$T/body.$$" | grep -vE "^[0-9]+:${PREFLIGHT#^}" | sed 's/^/shell line /'
+    grep -nE '\$(ARGUMENTS|[0-9])' "$T/body.$$" | sed 's/^/placeholder /'
+    grep -n 'coordinate-open\.sh' "$T/body.$$" | grep -E '2>|&>|>&|[|]&' | sed 's/^/stderr redirect on the opener line /'
+    includes "$1" | awk '$1 == "out" { print "include outside the skill tree: @" $2 }'
+    rm -f "$T/body.$$"
+}
+
+# rendered_size <SKILL.md>: the bytes the expansion renders, includes counted.
+rendered_size() {
+    local md=$1 size f
+    size=$(body "$md" | EC_STAND=$STAND EC_PF='!`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh ' awk '
+        index($0, ENVIRON["EC_PF"]) == 1 { print ""; next }
+        { gsub(/\$\{CLAUDE_PLUGIN_ROOT\}/, ENVIRON["EC_STAND"]); print }' | wc -c | tr -d ' ')
+    for f in $(includes "$md" | awk '$1 == "in" { print $2 }'); do
+        size=$((size + $(wc -c < "$f" | tr -d ' ')))
     done
     echo "$size"
 }
+
+# cap_of <file>: the CAP= value a copy of this test holds, or nothing.
+cap_of() { awk '/^CAP=[0-9]+$/ { sub(/^CAP=/, ""); print; exit }' "$1"; }
 
 row() { awk -F'\t' '!/^#/ && $1 == "SKILL.md" { print $2; exit }' "$1"; }
 
@@ -107,17 +126,32 @@ placement() {
        1. A script or a gate, if one can enforce the rule.
        2. The opener's stderr guidance, for what is acted on before the
           first tick (skills/coordinate/scripts/coordinate-open.wording.tsv).
-       3. The template state where the rule is acted on.
-       4. SKILL.md, only by replacing or tightening text already there.
-     Raising the row in the same change doesn't pass: it is read at the
-     merge base. Lowering it is always allowed.
+       3. The template state where the rule is acted on, or a reference
+          file with a one-line cue in that state.
+       4. Maintainer text goes to skills/coordinate/MAINTAINING.md, which no
+          session loads.
+       5. SKILL.md, only by replacing or tightening text already there.
+     Raising the row alone doesn't pass: it is read at the merge base.
+     Lowering it is always allowed. See skills/coordinate/MAINTAINING.md,
+     Changing This Skill.
 EOF
 }
 
-# judge <repo> <skill.md> <ceilings>: paths relative to <repo>.
+# judge <repo> <skill.md> <ceilings> [<cap file>]: paths relative to <repo>.
+# <cap file> is the copy of this test whose CAP= line judges the row; with
+# none, CAP judges at both the base and the tree.
 judge() {
-    local repo=$1 md=$2 cfile=$3 mb b t size bad=0 refused
+    local repo=$1 md=$2 cfile=$3 capf=${4-} mb b t size bad=0 sized=0 refused tcap bcap
     mb=$(cd "$repo" && base_commit)
+    tcap=$CAP bcap=$CAP
+    if [ -n "$capf" ]; then
+        tcap=$(cap_of "$repo/$capf"); [ -n "$tcap" ] || { echo "FAIL $capf has no CAP= line"; return 1; }
+        bcap=$tcap
+        if [ -n "$mb" ] && git -C "$repo" cat-file -e "$mb:$capf" 2>/dev/null; then
+            git -C "$repo" show "$mb:$capf" > "$T/base.cap"
+            bcap=$(cap_of "$T/base.cap"); [ -n "$bcap" ] || bcap=$tcap
+        fi
+    fi
     b=
     if [ -z "$mb" ]; then
         if [ -n "${GITHUB_BASE_REF-}" ]; then
@@ -141,24 +175,29 @@ judge() {
         printf '%s\n' "$refused" | sed 's/^/     /'
         bad=1
     fi
-    if [ "$t" -gt "$CAP" ]; then echo "FAIL the row in $cfile ($t) is over the cap of $CAP"; bad=1; fi
-    if [ -n "$b" ] && [ "$b" -gt "$CAP" ]; then echo "FAIL the merge base's row ($b) is over the cap of $CAP"; bad=1; fi
-    if [ -n "$b" ] && [ "$t" -gt "$b" ]; then echo "FAIL the row in $cfile ($t) is over the merge base's ($b); a change can't raise its own ceiling"; bad=1; fi
+    if [ "$t" -gt "$tcap" ]; then echo "FAIL the row in $cfile ($t) is over the cap of $tcap"; bad=1; fi
+    # A change that raises CAP may raise the row with it; the base's row then
+    # no longer judges the size.
+    if [ -n "$b" ] && [ "$t" -gt "$b" ] && [ "$tcap" -gt "$bcap" ]; then
+        b=
+    fi
+    if [ -n "$b" ] && [ "$b" -gt "$tcap" ]; then echo "FAIL the merge base's row ($b) is over the cap of $tcap"; bad=1; fi
+    if [ -n "$b" ] && [ "$t" -gt "$b" ]; then echo "FAIL the row in $cfile ($t) is over the merge base's ($b); a change raises its ceiling only with CAP"; bad=1; fi
     size=$(rendered_size "$repo/$md")
     if [ -n "$b" ] && [ "$size" -gt "$b" ]; then
-        echo "FAIL $md renders $size bytes, over its ceiling of $b at the merge base"; bad=1
+        echo "FAIL $md renders $size bytes, over its ceiling of $b at the merge base"; bad=1 sized=1
     elif [ "$size" -gt "$t" ]; then
-        echo "FAIL $md renders $size bytes, over its ceiling of $t in $cfile"; bad=1
+        echo "FAIL $md renders $size bytes, over its ceiling of $t in $cfile"; bad=1 sized=1
     elif [ "$bad" = 0 ]; then
         echo "ok   $md renders $size bytes, within its ceiling of ${b:-$t}${b:+ at the merge base}"
     fi
     [ "$bad" = 0 ] && return 0
-    placement
+    [ "$sized" = 1 ] && placement
     return 1
 }
 
 # The real entry, judged as CI and the local gate judge it.
-OUT=$(cd "$ROOT" && judge "$ROOT" skills/coordinate/SKILL.md skills/coordinate/scripts/entry-ceiling.tsv); st=$?
+OUT=$(cd "$ROOT" && judge "$ROOT" skills/coordinate/SKILL.md skills/coordinate/scripts/entry-ceiling.tsv skills/coordinate/scripts/entry-ceiling_test.sh); st=$?
 printf '%s\n' "$OUT" | sed 's/^/     /'
 [ "$st" = 0 ] && pass "SKILL.md renders within its ceiling" || fail "SKILL.md renders within its ceiling" "see above"
 
@@ -207,6 +246,30 @@ F=$T/raise; fixture "$F" "$TEXT" "$(( $(printf '\n\n%s\n' "$TEXT" | wc -c) ))"
 write_md "$F" "$TEXT And one more rule."; write_row "$F" 300; commit "$F" raise
 OUT=$(judged "$F"); [ $? = 1 ] && pass "raising the row in the same change still fails" || fail "raising the row in the same change still fails" "$OUT"
 
+judgedc() { ( unset GITHUB_BASE_REF; cd "$1" && judge "$1" s/SKILL.md ceil.tsv cap.sh ); }
+EXACT=$(( $(printf '\n\n%s\n' "$TEXT" | wc -c) ))
+
+F=$T/capraise; fixture "$F" "$TEXT" "$EXACT"
+echo 'CAP=300' > "$F/cap.sh"; commit "$F" cap; git -C "$F" update-ref refs/remotes/origin/main HEAD
+write_md "$F" "$TEXT And one more rule."; write_row "$F" 200; echo 'CAP=400' > "$F/cap.sh"; commit "$F" raise
+OUT=$(judgedc "$F"); [ $? = 0 ] && pass "raising CAP and the row in one change passes" || fail "raising CAP and the row in one change passes" "$OUT"
+
+F=$T/caponly; fixture "$F" "$TEXT" "$EXACT"
+echo 'CAP=300' > "$F/cap.sh"; commit "$F" cap; git -C "$F" update-ref refs/remotes/origin/main HEAD
+write_md "$F" "$TEXT And one more rule."; echo 'CAP=400' > "$F/cap.sh"; commit "$F" raise
+OUT=$(judgedc "$F"); st=$?
+[ "$st" = 1 ] && printf '%s' "$OUT" | grep -q "Put new text where it fires" && pass "raising CAP alone gives no room, and the failure says where text goes" || fail "raising CAP alone gives no room, and the failure says where text goes" "exit $st: $OUT"
+
+F=$T/caprow; fixture "$F" "$TEXT" "$EXACT"
+echo 'CAP=300' > "$F/cap.sh"; commit "$F" cap; git -C "$F" update-ref refs/remotes/origin/main HEAD
+write_md "$F" "$TEXT And one more rule."; write_row "$F" 200; commit "$F" raise
+OUT=$(judgedc "$F"); [ $? = 1 ] && pass "raising the row with CAP unchanged fails" || fail "raising the row with CAP unchanged fails" "$OUT"
+
+F=$T/outside; mkdir -p "$T/elsewhere"; printf 'more text\n' > "$T/elsewhere/x.md"; fixture "$F" "$TEXT See @$T/elsewhere/x.md here." 400
+OUT=$(judged "$F"); st=$?
+[ "$st" = 1 ] && printf '%s' "$OUT" | grep -q "outside the skill tree" && pass "an include outside the skill's tree is refused" || fail "an include outside the skill's tree is refused" "exit $st: $OUT"
+printf '%s' "$OUT" | grep -q "Put new text where it fires" && fail "  ... and a refusal prints no placement advice" "$OUT" || pass "  ... and a refusal prints no placement advice"
+
 F=$T/lower; fixture "$F" "$TEXT And one more rule." 300
 write_md "$F" "$TEXT"; write_row "$F" 100; commit "$F" lower
 OUT=$(judged "$F"); [ $? = 0 ] && pass "a lowered row and a shrunk entry pass" || fail "a lowered row and a shrunk entry pass" "$OUT"
@@ -225,7 +288,7 @@ F=$T/no-base; mkdir -p "$F" && git -C "$F" init -q -b main; write_md "$F" "$TEXT
 OUT=$( (GITHUB_BASE_REF=main; cd "$F" && judge "$F" s/SKILL.md ceil.tsv) ); st=$?
 [ "$st" = 1 ] && pass "a pull request's CI run with no merge base fails" || fail "a pull request's CI run with no merge base fails" "exit $st: $OUT"
 
-for bad in 'Run !`date` here.' 'Your scope is $ARGUMENTS.' 'The roadmap is $1.' 'Run ${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh args.json 2>/dev/null'; do
+for bad in 'Run !`date` here.' 'Your scope is $ARGUMENTS.' 'The roadmap is $1.' 'Run ${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh args.json 2>/dev/null' 'Run ${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh args.json &>/dev/null' 'Run ${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh args.json |& cat'; do
     F=$T/refuse-$PASS-$FAIL; fixture "$F" "$bad" 400
     OUT=$(judged "$F"); st=$?
     [ "$st" = 1 ] && pass "refused: $bad" || fail "refused: $bad" "exit $st: $OUT"

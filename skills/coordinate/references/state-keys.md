@@ -88,7 +88,7 @@ yourself with `koto context get <session> <key>`; never write one by hand.
 | `record/entries/<n>`, `record/posted/<n>` | the account, one entry each, and the URL of an outward entry's comment | `state-entry.sh` |
 | `record/archive/<n>` | `{n}`, the marker beside a `decisions` entry, so the archived rows are read without listing every entry | `state-entry.sh`; the legacy importer |
 | `legs/<request>/<leg>` | a worker leg (see Where State Lives) | `dispatch-worker.sh`, `wait-target.sh`, `reconcile-legs.sh` |
-| `coord/start_brief.json` | `{label, path, digest}`: the brief a fresh start was given with `--brief`, as the opener checked it, kept for the seed because a fresh run holds no record yet; not a record key, so a carry doesn't copy it | `coordinate-open.sh`, on a fresh start; read by `state-open.sh` after each seed it makes, which checks the file's digest again and writes `record/host`'s `briefs:<label>` and `briefs-digest:<label>` through `state-stored-set.sh --host` |
+| `coord/start_brief.json` | `{label, path, digest}`: the brief a fresh start was given with `--brief`, as the opener checked it, kept for the seed because a fresh run holds no record yet; not a record key, so a carry doesn't copy it | `coordinate-open.sh`, on a fresh start; read by `state-open.sh` after each seed it makes, which passes the stored label, path and digest unchanged to `state-stored-set.sh --host`, and that writes `record/host`'s `briefs:<label>` and `briefs-digest:<label>` |
 
 Any section key may also be written by the core's carry: `state-open.sh`
 seeding a new run or carrying a predecessor's state, `coordinate-open.sh`

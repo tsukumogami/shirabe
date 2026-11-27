@@ -2327,7 +2327,8 @@ director, the human (whoever
 dispatched you; when that is another coordinator, everything this workflow sends
 to the human goes to it instead), worker (named everywhere by its dispatch
 topic), local agent, brief, holding, deferral, reconcile, rotation, surface,
-teardown and unique material. `skills/coordinate/SKILL.md` has the glossary;
+teardown and unique material. A brief is the file a session is dispatched
+with, and `teardown` defines the last two. From `skills/coordinate/SKILL.md`,
 read its Roles list for the role your record holds, and the list both roles
 share.
 
@@ -2619,8 +2620,8 @@ read from your brief, your dispatch link or a person's message, is written
 with `--inferred "<the reading, in one sentence>"` beside `--run reports-to`,
 `--run cap` or `--run parked-bound`. The same write adds a Standing `rule`
 row whose Source is `inferred`, which the start report lists as awaiting
-confirmation; a refusal of either writes neither (the 60-inferred cap full,
-say), so don't act on that value then. A `reports-to` naming a session
+confirmation; a refusal of either writes neither (the 60-inferred cap
+full), so don't act on that value then. A `reports-to` naming a session
 (`<name> at <address>`) whose address is neither one of this run's
 dispatched-by links nor named by a Standing row is a gap too
 (`reports-to-unsourced`): the `--inferred` write closes it when its sentence
@@ -2630,8 +2631,8 @@ person's name to clear it.
 
 A brief you started from goes in through the intake. The opener records a
 dispatched start's brief when its command passes the brief path; a
-dispatcher-sourced `reports-to` row with no `briefs:` row is the
-`brief-unrecorded` gap. Close it by recording the brief with
+dispatcher-sourced `reports-to` row with no `briefs:` row is reported as
+`brief-unrecorded`, which holds nothing. Record the brief with
 `state-stored-set.sh --host briefs:<label> <absolute path>`. The check then
 names `brief-unread <label>` until `state-stored-set.sh --intake <label> --by
 <you>` has written one `inferred brief` rule row per brief rule sentence no
@@ -2641,8 +2642,8 @@ Don't type the brief's rules in as `--standing rule` rows, don't write the
 cap, the gap stays open and its fix names two routes, in order: a brief
 rewritten with its rules under `## Standing rules`, recorded under the same
 label, when the lines left out aren't standing rules; otherwise a person
-saying which rule rows to confirm or end. Then run the intake again: it goes
-on after the lines it already took. Don't end rows yourself to make room.
+saying which rule rows to confirm or end. Then run the intake again; it
+resumes after the lines it took. Don't end rows yourself to make room.
 A rule row holds nothing: pick and the dispatch, land and merge checks read
 pauses, go-aheads and assignments, never a rule's words, so a brief line
 shaped like a pause comes in as a rule row that pauses nothing.
@@ -4512,8 +4513,8 @@ root coordinator, for its own verdict edits too: whoever writes a verdict
 never approves its own Done. Someone other than the author approves it, and
 no coordinator approves its own verdict pull request. Who merges it after that
 approval, at the head that was approved, isn't this step's call: it comes from the merge
-grant, as `land` reads it, and whoever in the chain holds the grant merges it after
-that approval: you when your posture permits a merge, otherwise the reviewer
+grant, as `land` reads it, and whoever in the chain holds the grant merges
+it: you when your posture permits a merge, otherwise the reviewer
 that approved it when its own grant does, otherwise the next one up the
 chain, and a person at the root; never a worker. A
 repository that merges these pull requests automatically gives up the review

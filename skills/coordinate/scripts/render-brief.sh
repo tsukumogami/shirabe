@@ -588,7 +588,7 @@ fi
 # A /coordinate worker's opener also names the file this brief is written
 # to, `--brief '<path>'`, so the opener records it in the run's record/host
 # (briefs:<topic>, with its digest). The path is known only when the brief is
-# written to a workspace root: under --stdout with no --workspace-root the
+# written to a workspace root: under --stdout, which writes no file, the
 # opener line carries no --brief. The path is single-quoted, a quote in it
 # written '\''; a path holding a control character or a backtick (which
 # would end the line's code span) isn't put on the line, and the run's
@@ -597,7 +597,7 @@ BRIEF_PATH=""
 if [ "$TO_STDOUT" = 0 ] && [ -z "$ROOT" ]; then
     ROOT=$(dc_workspace_root) || { printf '%s: no workspace root found (see dc_workspace_root)\n' "$PROG" >&2; exit 2; }
 fi
-if [ "$OPENER_KIND" = open ] && [ "$(jq -r '.entry_point // "" | strings' "$INPUT")" = coordinate ] && [ -n "$ROOT" ]; then
+if [ "$OPENER_KIND" = open ] && [ "$(jq -r '.entry_point // "" | strings' "$INPUT")" = coordinate ] && [ "$TO_STDOUT" = 0 ]; then
     case "$ROOT" in
         /*) BRIEF_PATH="$ROOT/.niwa/dispatch-briefs/$TOPIC.md" ;;
         *) BRIEF_PATH=$(CDPATH='' cd -- "$ROOT" 2>/dev/null && pwd) && BRIEF_PATH="$BRIEF_PATH/.niwa/dispatch-briefs/$TOPIC.md" || BRIEF_PATH="" ;;
@@ -781,9 +781,6 @@ if [ "$TO_STDOUT" = 1 ]; then
     exit 0
 fi
 
-if [ -z "$ROOT" ]; then
-    ROOT=$(dc_workspace_root) || { printf '%s: no workspace root found (see dc_workspace_root)\n' "$PROG" >&2; exit 2; }
-fi
 [ -f "$ROOT/.niwa/workspace.toml" ] || { printf '%s: %s holds no .niwa/workspace.toml\n' "$PROG" "$ROOT" >&2; exit 2; }
 
 DIR="$ROOT/.niwa/dispatch-briefs"

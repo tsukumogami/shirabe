@@ -22,7 +22,11 @@
 #      reads 2;
 #   2. the successor's opener, started from another Claude session with the
 #      brief's tokens in its args file and --dispatched-by naming the
-#      predecessor, prints outcome=continued and predecessor=<run>; its Run
+#      predecessor, prints outcome=continued and predecessor=<run>, only
+#      key=value lines on stdout, and on stderr the takeover's guidance block
+#      once, its line telling the successor to start `koto request watch
+#      --session <its run> --timeout-secs 7200` before the first tick naming
+#      its own run, before the last `coordinate-open:` line; its Run
 #      section holds its own coordinator row, role manager and no successor
 #      row; both runs' chain-start reads the same; and its first reconcile's
 #      record line ends `Role: manager.`;
@@ -303,6 +307,20 @@ if mrun handover owed; then
         eq "2: the successor's opener prints outcome=continued" "0 continued" "$ORC $(line outcome)"
         eq "2: ... and predecessor= names the run" "$A" "$(line predecessor)"
         SB=$(line session)
+        # The takeover's guidance, once: its line telling the successor to
+        # start the watch on its own run before the first tick, named from
+        # session=, comes before the last coordinate-open: line when there is
+        # one, and stdout holds only key=value lines.
+        WATCH="start one background \`koto request watch --session $SB --timeout-secs 7200\`"
+        GN=$(grep '^coordinate-open guide: ' "$T/open.err" | grep -cF -- "$WATCH")
+        GL=$(grep -n '^coordinate-open guide: ' "$T/open.err" | tail -1 | cut -d: -f1)
+        GM=$(grep -n '^coordinate-open: ' "$T/open.err" | tail -1 | cut -d: -f1)
+        if [ "$GN" = 1 ] && [ -n "$GL" ] && { [ -z "$GM" ] || [ "$GL" -lt "$GM" ]; }; then
+            ok "2: ... its stderr carrying the takeover's block once, its watch line naming the successor's run"
+        else
+            bad "2: ... its stderr carrying the takeover's block once, its watch line naming the successor's run" "$(cat "$T/open.err")"
+        fi
+        eq "2: ... and its stdout only key=value lines" "" "$(printf '%s\n' "$OUT" | grep -v '^$' | grep -vE '^[a-z][a-z_-]*=')"
         eq "2: its Run section holds its own coordinator row, role manager and no successor row" "coord-b manager []" \
             "$(run_rows "$SB" "$T/work2" | jq -r '[([.[] | select(.key == "coordinator") | .value][0]), ([.[] | select(.key == "role") | .value][0]), ([.[] | select(.key == "successor")] | tojson)] | join(" ")')"
         CA=$(cd "$WD" && bash "$PS/coord-log.sh" chain-start --session "$A")

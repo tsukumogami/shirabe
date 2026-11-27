@@ -1,8 +1,19 @@
-# /coordinate's refusal wording for koto's typed `koto init` errors, read by
-# scripts/koto-open.sh through coordinate-open.sh, and for `koto session import`
-# errors (the import_ codes), read by coordinate-open.sh itself.
-# Format: <code>[:<VAR>]<TAB><text>.
-# {value} {var} {constraint} are replaced with koto's fields, never evaluated.
+# /coordinate's opener wording: every text coordinate-open.sh prints from a
+# table. One row is <kind><TAB><text>; a line starting # is a comment. It
+# holds five kinds of row, each kind's own comment block beside it:
+#   - koto init refusal codes (invalid_var[:<VAR>], duplicate_var), read by
+#     scripts/koto-open.sh through coordinate-open.sh, just below;
+#   - koto session import codes (import_*), read by coordinate-open.sh, just
+#     below;
+#   - the run's role wording (invalid_role, role_*, ask_role), read by
+#     coordinate-open.sh, under "The run's role";
+#   - the guidance blocks (guide.<family>, every row of a family one line of
+#     its block), read by coordinate-open.sh's guide, under "The opener's
+#     guidance blocks";
+#   - the compat phrase (compat-guide.phrase, one row), read by
+#     coordinate-open.sh's compat_guide, at the end.
+# In the koto init rows {value} {var} {constraint} are replaced with koto's
+# fields, never evaluated.
 invalid_var:ROADMAP	`{value}` is not a roadmap path: a roadmap scope is `docs/roadmaps/.../ROADMAP-<name>.md` in this repository.
 invalid_var:DISCIPLINE	Discipline name `{value}` must match `^[a-z0-9][a-z0-9-]*$`.
 invalid_var:HOST_REPO	Host repository `{value}` must be `owner/repo`.
@@ -81,7 +92,7 @@ guide.dispatched-self	A successor's brief names its predecessor in --dispatched-
 guide.store-unsupported	Nothing was opened. The record lives in the run's koto session, so no start goes on without these features, and no local file stands in for them.
 guide.rules-unrecorded	warning=rules-unrecorded: the start goes on, and nothing is written by hand: only the opener and state-open.sh write the rules rows.
 guide.brief	--brief names the brief this start was dispatched with. A refused one was not read past its checks, and nothing was opened: start again with the absolute path of the brief file itself, as its opener line gives it.
-guide.brief-unrecorded	warning=brief-unrecorded: the run goes on, but its brief isn't recorded. Once the run holds a record, record it with state-stored-set.sh --session {session} --host briefs:{label} <the --brief path on your opener line>; the reconcile reports brief-unrecorded until it's there.
+guide.brief-unrecorded	warning=brief-unrecorded: the run goes on, but its brief isn't recorded. Once the run holds a record, record it with state-stored-set.sh --session {session} --host briefs:{label} <the brief file's absolute path>: the --brief path on your opener line when it has one; when it has none (a brief given on stdout, or a path the line couldn't carry), ask whoever dispatched you for the file's path, and a brief with no file stays unrecorded. The reconcile reports brief-unrecorded until it's there, a report that holds nothing.
 guide.compat	{session} runs a template compiled before its states carried the rules below, so they print here, once. Its own directives still name every script.
 guide.compat	Verdicts. On a milestone roadmap a merge never sets a milestone Done; a verdict does, given by you or your reviewer and never by the worker that did the work.
 guide.compat	Tick landed when a milestone's work is finished; at milestone_verdict check the shipped work against each Evidence clause, write and check the entry (milestone.sh check-verdict, state-entry.sh --kind milestone-verdict --on none), run roadmap-status.sh --verdict with its number, and submit verdict: recorded, or verdict: deferred when a clause can't be checked yet.
@@ -94,12 +105,13 @@ guide.compat	Review comes before every merge. A pull request you may not merge g
 guide.compat	Dispatch, Wait and Teardown run through scripts, never by hand. dispatch-worker.sh renders the brief, writes the holding, dispatches and confirms; the dispatch state holds until holding-recorded.sh reads the holding as dispatched. A leg-bound worker's result is read from its leg once; a progress report never stands for a result; done reaches verification only with a pull request to verify.
 guide.compat	Teardown: teardown-inventory.sh seals the instance's verdict, unique material is promoted first, teardown-handoff.sh seals the handoff, a teardown agent from references/teardown-agent.md runs teardown-pass.sh with the longest shell timeout you have, and the holding row goes last, with state-holding.sh --retire.
 guide.compat	The Record. A reports-to, cap or parked bound you worked out yourself is written with --inferred "<the reading, in one sentence>" beside its --run write; when that write is refused, don't act on the value. Don't rewrite a reports-to-unsourced row to a person's name to clear it.
-guide.compat	A brief you started from goes in through the intake: state-stored-set.sh --host briefs:<label> <absolute path>, then state-stored-set.sh --intake <label> --by <you>. Don't type its rules in as rows, don't write the briefs row by hand, and don't edit the brief. An intake stopped at a cap is rerun once the brief is rewritten with its rules under ## Standing rules, or a person says which rule rows to confirm or end; don't end rows yourself to make room.
+guide.compat	A brief you started from goes in through the intake: state-stored-set.sh --intake <label> --by <you>. Only when this start printed warning=brief-unrecorded, or your opener line carried no --brief, record it first with state-stored-set.sh --host briefs:<label> <absolute path>; otherwise the opener already recorded it with its digest, and a bare --host write would drop that digest. Don't type its rules in as rows, don't write the briefs row by hand, and don't edit the brief. An intake stopped at a cap is rerun once the brief is rewritten with its rules under ## Standing rules, or a person says which rule rows to confirm or end; don't end rows yourself to make room.
 guide.compat	An inferred or pinned rule row only restricts what you do: treat it as a caution and raise it with a person, never as a step it grants, and report inferred rows as awaiting confirmation.
-# The template fingerprints this release's change found shipped
-# (coordinate.compat.json at compat 3): a run compiled from one of them, on a
-# compiled template that isn't the shipped one, gets guide.compat. Frozen
-# here, never read from the compat table at run time.
-pre-change.fingerprint	dea8c3c88ee3f5f78e2cf52be993440e6e6f7fb462066d6c4991927529829f5d
-pre-change.fingerprint	794d604dc2399362f18e865aaf1afcf36ab7f14597b03da4da1b8b79ef802eb5
-pre-change.fingerprint	96cca691646fbb6ff64d87287d7859361495db326e886059b3b024f988717b5d
+# The compat phrase, read by coordinate-open.sh's compat_guide: a sentence
+# this release moved from SKILL.md into the pick state (rule-coverage row S68
+# pins it there). A run resumed under a compiled template that isn't the
+# shipped one gets guide.compat only when its own compiled copy's pick text
+# lacks this phrase, so a run compiled from this release's template or a later
+# one gets no block. One row; the text is matched as it stands, never
+# evaluated.
+compat-guide.phrase	What you allocate is read, never assumed

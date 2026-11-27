@@ -10,6 +10,10 @@
 #   1. the opener run by another Claude session from another directory prints
 #      outcome=continued, predecessor=A, session=B and, A's last koto event
 #      being seconds old and no Claude job for A seen, predecessor_stopped=yes;
+#      its stderr carries the takeover's guidance block once, its line telling
+#      the agent to start `koto request watch --session B --timeout-secs 7200`
+#      before the first tick with B's name filled in, every guide line before
+#      the last `coordinate-open:` line, and its stdout only key=value lines;
 #   2. no session is cancelled, `koto session hierarchy B` shows B continuing
 #      A, and every key A held under legs/, taken_legs, leg_children and
 #      record/ (but record/meta and record/run, which the takeover rewrites)
@@ -37,7 +41,8 @@
 #      message, and opens, cancels and writes nothing; with the stand-in
 #      refusing the fence as koto's cloud backend does (cloud_unsupported),
 #      the start prints outcome=refused reason=cloud_unsupported, exit 2, and
-#      writes nothing; and a run with no driver and no coordinator row is
+#      writes nothing, its stderr carrying the refused takeover's guidance
+#      block before the refusal's own line; and a run with no driver and no coordinator row is
 #      still resumed;
 #   9. with a run's record holding a Standing row of a kind this plugin
 #      doesn't know (as a newer plugin's row looks to it), the start prints
@@ -111,6 +116,20 @@ opener() { # opener <name> <workdir>: coordinate-open.sh as the agent runs it, a
     OUT=$(cd "$2" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err"); ORC=$?
 }
 line() { printf '%s\n' "$OUT" | sed -n "s/^$1=//p"; }
+# guided <label> <text>: the opener's last run printed its guidance block (the
+# `coordinate-open guide: ` lines of $T/open.err) with <text> on exactly one
+# line, every guide line before the last `coordinate-open: ` line when there
+# is one, and nothing on stdout ($OUT) but key=value lines.
+guided() {
+    local n g m odd
+    n=$(grep '^coordinate-open guide: ' "$T/open.err" | grep -cF -- "$2")
+    g=$(grep -n '^coordinate-open guide: ' "$T/open.err" | tail -1 | cut -d: -f1)
+    m=$(grep -n '^coordinate-open: ' "$T/open.err" | tail -1 | cut -d: -f1)
+    if [ "$n" = 1 ] && [ -n "$g" ] && { [ -z "$m" ] || [ "$g" -lt "$m" ]; }; then ok "$1"
+    else bad "$1" "$(cat "$T/open.err")"; fi
+    odd=$(printf '%s\n' "$OUT" | grep -v '^$' | grep -vE '^[a-z][a-z_-]*=')
+    eq "$1, stdout holding only key=value lines" "" "$odd"
+}
 keyset() { # keyset <session> <workdir>: every carried key and its value's digest
     local p k
     for p in record/ legs/ taken_legs leg_children; do
@@ -191,6 +210,10 @@ B=$(line session)
 case "$B" in coordinate-roadmap-takeover-2*Z) [ "$B" != "$A" ] && ok "1: session= names a new run" || bad "1: session= names a new run" "$B" ;; *) bad "1: session= names a new run" "$OUT $(cat "$T/open.err")" ;; esac
 eq "1: A's last event is seconds old and no job for A is seen: predecessor_stopped=yes" yes "$(line predecessor_stopped)"
 eq "1: the role A records, named by the start, is printed" manager "$(line role)"
+# The one pre-tick step no template state repeats: the watch on the new run,
+# named from session= and started before the first tick.
+guided "1: stderr carries the takeover's block once, its watch line naming B" \
+    "start one background \`koto request watch --session $B --timeout-secs 7200\`"
 
 # ---- 2. nothing cancelled, the relation, the carried keys -------------------------
 ALOG="$(koto session dir "$A")/koto-$A.state.jsonl"
@@ -384,6 +407,8 @@ if to_reconciled unread "$(two_holdings unread)"; then
     rm -f "$T/rs-armed"
     RS_FENCE=1 PATH="$T/rshim:$PATH" opener unread "$T/work2"
     eq "8 fence: a cloud_unsupported fence refuses with koto's code" "2 refused cloud_unsupported" "$ORC $(line outcome) $(line reason)"
+    guided "8 fence:   ... stderr carrying the refused takeover's block before the refusal's line" \
+        "A refused takeover wrote nothing, and the old run still drives."
     eq "8 fence:   ... opening no run" "$BEFORE_S" "$(sessions)"
     eq "8 fence:   ... and writing nothing to the run" "$BEFORE_L" "$(wc -l < "$A3LOG")"
     # A run whose record/meta names no driver and whose record has no

@@ -1,31 +1,50 @@
 #!/usr/bin/env bash
 # coordinate-open-guidance_engine_test.sh -- coordinate-open.sh's guidance
-# blocks and its --brief recording, against real koto and the shipped
-# coordinate.md.
+# blocks, its --brief check and recording, and the older-compat
+# continuation, against real koto and the shipped coordinate.md.
 #
-# Proves: an output line keyed to a guidance family (ask=role, ask=host,
-# refused=brief, a resume's role-mismatch refusal) prints that family's block
-# on stderr, every guide.<family> row of
-# the wording table in order, each line `coordinate-open guide: <text>`, the
-# block before the start's last `coordinate-open:` line, and stdout holding
-# nothing but key=value lines; a start keyed to no family prints no block.
+# Every family, statically: each `guide <family>` call in coordinate-open.sh
+# names a family with at least one guide.<family> row in the wording table,
+# and every family the table has rows for has a caller there. Most families
+# aren't printed live here: the takeover, carry, import and handover blocks
+# are asserted live by their own engine suites.
+#
+# Live here, each block being every guide.<family> row of the wording table
+# in order, each line `coordinate-open guide: <text>`, before the start's last
+# `coordinate-open:` line, with stdout holding nothing but key=value lines:
+# ask-role (ask=role), ask-host (ask=host, and no other family's block),
+# store-unsupported (refused=store-unsupported, from a koto wrapper whose
+# `context list --help` lacks --prefix, nothing opened), brief
+# (refused=brief), role-refused (a resume's role-mismatch refusal),
+# brief-unrecorded (a resume whose --brief path the --host write refuses as
+# token-shaped, naming the run and the label, the path never echoed),
+# rules-unrecorded (a resume whose working directory holds an unreadable
+# CLAUDE.md, so rule-files.sh fails), and compat (below). A resume keyed to no
+# family prints no block.
+#
 # --brief: a relative path, one holding a newline, a missing file, a
-# directory, a dangling link, a file named outside the label pattern, an empty
-# file and one over 262144 bytes are each refused=brief (exit 2) with nothing
-# opened, the path never echoed; --brief twice is usage (64). A path whose
-# directory holds spaces, both quote characters and `$(...)` is taken as
-# data, nothing in it run; a fresh start prints no block and no warning and
-# stores the checked brief (label, resolved path, sha256) in the run's
-# coord/start_brief.json, and state-open.sh's seed then records record/host's
-# briefs:<label> and briefs-digest:<label> from it; a fresh start with no
-# --brief stores none; a resume through a symlink records record/host's
-# briefs:<label> as the resolved path and briefs-digest:<label> as the sha256
-# of its contents. Text a record holds, instruction-like included, never
-# reaches stderr on a resume or in a refusal's block. The older-compat
-# continuation: a run resumed under a compiled template that isn't the
-# shipped one but shares its structure prints the compat block exactly when
-# the shipped fingerprint is one of the table's pre-change.fingerprint rows,
-# and a resume under the shipped template prints none.
+# directory, a dangling link, a file named outside the label pattern, a file
+# whose name lacks .md, an empty file and one over 262144 bytes are each
+# refused=brief (exit 2) with nothing opened, the path never echoed; a path
+# over 4096 bytes but under 4096 characters, under a UTF-8 locale when this
+# host has one, is refused for its length; --brief twice is usage (64). A
+# path whose directory holds spaces, both quote characters and `$(...)` is
+# taken as data, nothing in it run; a fresh start prints no block and no
+# warning and stores the checked brief (label, resolved path, sha256) in the
+# run's coord/start_brief.json, and state-open.sh's seed then records
+# record/host's briefs:<label> and briefs-digest:<label> from it; a fresh
+# start with no --brief stores none; a resume through a symlink records
+# record/host's briefs:<label> as the resolved path and briefs-digest:<label>
+# as the sha256 of its contents. Text a record holds, instruction-like
+# included, never reaches stderr on a resume or in a refusal's block.
+#
+# The older-compat continuation: the wording table's compat-guide.phrase row
+# is found in the shipped coordinate.md and in its compiled pick text. A run
+# compiled from the shipped template with that phrase taken out of pick, then
+# resumed under the shipped template, prints the compat block naming the run;
+# a run compiled from the shipped template plus one unrelated text line (the
+# phrase kept), resumed the same way, prints none; a resume under the shipped
+# template itself prints none.
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -126,6 +145,15 @@ rec_run() {
     found_run "$1" "$R"
 }
 
+echo "== every family has rows and a caller =="
+OPENER="$REPO_ROOT/skills/coordinate/scripts/coordinate-open.sh"
+grep -v -E '^[[:space:]]*#' "$OPENER" | grep -o -E '(^|[^A-Za-z0-9_./-])guide [a-z][a-z-]*' | sed 's/.*guide //' | sort -u > "$T/called"
+awk -F'\t' '$1 ~ /^guide\./ { sub(/^guide\./, "", $1); print $1 }' "$WORDING" | sort -u > "$T/rowed"
+if [ "$(grep -c . "$T/called")" -ge 20 ]; then pass "the opener's guide calls read: $(grep -c . "$T/called") families"
+else fail "the opener's guide calls read" "$(cat "$T/called")"; fi
+eq "every guide <family> call names a family with guide.<family> rows" "" "$(comm -23 "$T/called" "$T/rowed" | tr '\n' ' ')"
+eq "every family with guide.<family> rows has a guide call in the opener" "" "$(comm -13 "$T/called" "$T/rowed" | tr '\n' ' ')"
+
 echo "== the asks =="
 B0=$(sessions)
 op "$T/plugin" '["docs/roadmaps/ROADMAP-guide-a.md"]'
@@ -140,6 +168,19 @@ has_block "  ... printing the ask-host block" ask-host
 before_last "  ... before the final coordinate-open: line"
 eq "  ... and no other family's block" "$(block ask-host)" "$(grep '^coordinate-open guide: ' "$T/err")"
 
+echo "== a koto without the session store's features =="
+# This koto, but its `context list --help` names no --prefix.
+printf '%s\n' '#!/usr/bin/env bash' \
+    'if [ "${1-} ${2-} ${3-}" = "context list --help" ]; then echo "usage: koto context list <session>"; exit 0; fi' \
+    "exec $(printf '%q' "$(command -v koto)") \"\$@\"" > "$T/koto-nostore"
+chmod +x "$T/koto-nostore"
+B0=$(sessions)
+KOTO_BIN="$T/koto-nostore" op "$T/plugin" '["docs/roadmaps/ROADMAP-guide-s.md","--role","manager"]'
+eq "a koto lacking context list --prefix is refused=store-unsupported, exit 2" "2 refused=store-unsupported" "$RC $OUT"
+has_block "  ... printing the store-unsupported block" store-unsupported
+before_last "  ... before the final coordinate-open: line"
+eq "  ... and opening nothing" "$B0" "$(sessions)"
+
 echo "== --brief refusals =="
 mkdir -p "$T/b/dir.md" "$T/b/nl
 x"
@@ -147,13 +188,15 @@ printf 'brief\n' > "$T/b/topic-a.md"
 printf 'brief\n' > "$T/b/nl
 x/topic-a.md"
 printf 'brief\n' > "$T/b/Upper.md"
+printf 'brief\n' > "$T/b/topic-a"
 : > "$T/b/empty-one.md"
 head -c 262145 /dev/zero | tr '\0' a > "$T/b/big-one.md"
 ln -s "$T/b/gone.md" "$T/b/dangling.md"
 RA='["docs/roadmaps/ROADMAP-guide-b.md","--role","manager"]'
 for c in "a relative path|b/topic-a.md" "a path holding a newline|$T/b/nl
 x/topic-a.md" "a missing file|$T/b/missing.md" "a directory|$T/b/dir.md" "a dangling link|$T/b/dangling.md" \
-    "a file named outside the label pattern|$T/b/Upper.md" "an empty file|$T/b/empty-one.md" "a file over 262144 bytes|$T/b/big-one.md"; do
+    "a file named outside the label pattern|$T/b/Upper.md" "a file whose name lacks .md|$T/b/topic-a" \
+    "an empty file|$T/b/empty-one.md" "a file over 262144 bytes|$T/b/big-one.md"; do
     B0=$(sessions)
     op "$T/plugin" "$RA" --brief "${c#*|}"
     eq "--brief naming ${c%%|*} is refused=brief, exit 2" "2 refused=brief" "$RC $OUT"
@@ -162,6 +205,16 @@ x/topic-a.md" "a missing file|$T/b/missing.md" "a directory|$T/b/dir.md" "a dang
     grep -qF "$T/b" "$T/err" && fail "  ... never echoing the path" "$(cat "$T/err")" || pass "  ... never echoing the path"
     eq "  ... and opening nothing" "$B0" "$(sessions)"
 done
+# 2100 two-byte characters: 4201 bytes, 2101 characters. The limit counts
+# bytes, so it refuses the path for its length whatever the locale; under a
+# UTF-8 locale a character count would let it through to a later check.
+LONG=/$(printf "\\303\\251%.0s" $(seq 2100))
+UL=$(locale -a 2>/dev/null | grep -i -m1 -E '^(c|en_us)\.utf-?8$')
+B0=$(sessions)
+LC_ALL=${UL:-C} op "$T/plugin" "$RA" --brief "$LONG"
+eq "--brief naming a path over 4096 bytes and under 4096 characters is refused=brief, exit 2 (locale ${UL:-C})" "2 refused=brief" "$RC $OUT"
+grep -qF 'at most 4096 bytes' "$T/err" && pass "  ... for its length" || fail "  ... for its length" "$(cat "$T/err")"
+eq "  ... and opening nothing" "$B0" "$(sessions)"
 op "$T/plugin" "$RA" --brief "$T/b/topic-a.md" --brief "$T/b/topic-a.md"
 eq "--brief given twice is usage, exit 64" 64 "$RC"
 
@@ -210,36 +263,86 @@ has_block "  ... printing the role-refused block" role-refused
 before_last "  ... before the final coordinate-open: line"
 kv_only "  ... stdout holding only key=value lines"
 grep '^coordinate-open guide: ' "$T/err" | grep -qF "MARKER-7731" && fail "  ... no block line holds the record's text" "$(cat "$T/err")" || pass "  ... no block line holds the record's text"
+# A path the opener's check takes but the --host write refuses: a directory
+# with a token-shaped name (split here so no scanner reads it as one).
+TOKDIR="$T/b/gh""p_aaaaaaaaaaaaaaaaaaaaaaaa"
+mkdir -p "$TOKDIR"
+printf '# Brief: topic-a\n\nRun it.\n' > "$TOKDIR/topic-a.md"
+op "$T/plugin" '["docs/roadmaps/ROADMAP-guide-c.md","--role","manager"]' --brief "$TOKDIR/topic-a.md"
+eq "a resume whose --brief path the --host write refuses resumes and warns, exit 0" "0 resumed $RC1 brief-unrecorded" \
+    "$RC $(line outcome) $(line session) $(line warning)"
+kv_only "  ... stdout holding only key=value lines"
+has_block "  ... printing the brief-unrecorded block, naming the run and the label" brief-unrecorded "$RC1" topic-a
+before_last "  ... before the final coordinate-open: line"
+grep -qF "$TOKDIR" "$T/err" && fail "  ... never echoing the path" "$(cat "$T/err")" || pass "  ... never echoing the path"
+eq "  ... leaving the brief rows as they were" "$WEIRD/topic-a.md|sha256:$WD" \
+    "$(koto context get "$RC1" record/host 2>/dev/null | jq -r '"\(.["briefs:topic-a"])|\(.["briefs-digest:topic-a"])"')"
+# A CLAUDE.md in the working directory that can't be read: rule-files.sh
+# fails, so the rules digests aren't written.
+printf 'rules\n' > "$T/repo/CLAUDE.md"
+chmod 000 "$T/repo/CLAUDE.md"
+if [ -r "$T/repo/CLAUDE.md" ]; then
+    pass "a resume whose rule files can't be listed: skipped, this user reads a mode-000 file"
+else
+    op "$T/plugin" '["docs/roadmaps/ROADMAP-guide-c.md","--role","manager"]'
+    eq "a resume whose rule files can't be listed resumes and warns, exit 0" "0 resumed $RC1 rules-unrecorded" \
+        "$RC $(line outcome) $(line session) $(line warning)"
+    kv_only "  ... stdout holding only key=value lines"
+    has_block "  ... printing the rules-unrecorded block" rules-unrecorded
+    before_last "  ... before the final coordinate-open: line"
+fi
+rm -f "$T/repo/CLAUDE.md"
 koto cancel "$RC1" > /dev/null 2>&1
 
 echo "== the older-compat continuation =="
+# The phrase compat_guide looks for is the shipped template's: in
+# coordinate.md, and in its compiled pick text, so a run compiled from it
+# gets no block.
+SHIP_TPL="$REPO_ROOT/skills/coordinate/koto-templates/coordinate.md"
+PHRASE=$(awk -F'\t' '$1 == "compat-guide.phrase" { print $2 }' "$WORDING")
+eq "the wording table holds one compat-guide.phrase row" 1 "$(awk -F'\t' '$1 == "compat-guide.phrase"' "$WORDING" | grep -c .)"
+if [ -n "$PHRASE" ] && grep -qF -- "$PHRASE" "$SHIP_TPL"; then pass "  ... its phrase found in the shipped coordinate.md"
+else fail "  ... its phrase found in the shipped coordinate.md" "[$PHRASE]"; fi
+eq "  ... and in the compiled shipped template's pick text" true \
+    "$(jq -r --arg p "$PHRASE" '((.states.pick.directive // "") + "\n" + (.states.pick.details // "")) | contains($p)' "$(koto template compile "$SHIP_TPL" 2>/dev/null)" 2>/dev/null)"
 # A second plugin root: links to the repository, but its own koto-templates
-# directory whose coordinate.md is the shipped one with one directive's text
-# changed, the structure (and so the fingerprint) the shipped one's. A run
-# opened from it, then resumed after the shipped text is back, runs a
-# compiled template that isn't the shipped one.
+# directory whose coordinate.md is the shipped one with some text changed,
+# the structure (and so the fingerprint) the shipped one's. A run opened from
+# it, then resumed after the shipped text is back, runs a compiled template
+# that isn't the shipped one.
 P2="$T/plugin2"
 mkdir -p "$P2/skills/coordinate/koto-templates"
 for e in "$REPO_ROOT"/* "$REPO_ROOT"/.claude-plugin; do [ "${e##*/}" = skills ] || ln -s "$e" "$P2/${e##*/}"; done
 for e in "$REPO_ROOT"/skills/*; do [ "${e##*/}" = coordinate ] || ln -s "$e" "$P2/skills/${e##*/}"; done
 for e in "$REPO_ROOT"/skills/coordinate/*; do [ "${e##*/}" = koto-templates ] || ln -s "$e" "$P2/skills/coordinate/${e##*/}"; done
 for e in "$REPO_ROOT"/skills/coordinate/koto-templates/*; do [ "${e##*/}" = coordinate.md ] || ln -s "$e" "$P2/skills/coordinate/koto-templates/${e##*/}"; done
-SHIP_TPL="$REPO_ROOT/skills/coordinate/koto-templates/coordinate.md"
-awk 'BEGIN { done = 0 } /^## / && !done { print; print ""; print "Text that changes no structure."; done = 1; next } { print }' "$SHIP_TPL" > "$P2/skills/coordinate/koto-templates/coordinate.md"
+P2_TPL="$P2/skills/coordinate/koto-templates/coordinate.md"
 SHIP_FP=$(bash "$HERE/template-fingerprint.sh" "$(koto template compile "$SHIP_TPL" 2>/dev/null)")
-P2_FP=$(bash "$HERE/template-fingerprint.sh" "$(koto template compile "$P2/skills/coordinate/koto-templates/coordinate.md" 2>/dev/null)")
-eq "the second root's template shares the shipped structure" "$SHIP_FP" "$P2_FP"
-rec_run "$P2" guide-e '{}'
-RE=$R
-cp -f "$SHIP_TPL" "$P2/skills/coordinate/koto-templates/coordinate.md"
-op "$P2" '["docs/roadmaps/ROADMAP-guide-e.md","--role","manager"]'
-eq "a run compiled from the changed text is resumed, exit 0" "0 resumed $RE" "$RC $(line outcome) $(line session)"
-kv_only "  ... stdout holding only key=value lines"
-if awk -F'\t' -v f="$SHIP_FP" '$1 == "pre-change.fingerprint" && $2 == f { found = 1 } END { exit !found }' "$WORDING"; then
-    has_block "  ... its fingerprint a pre-change one: the compat block, naming the run" compat "$RE"
-else
-    no_block "  ... its fingerprint not a pre-change one: no compat block"
-fi
-koto cancel "$RE" > /dev/null 2>&1
+# older_run <scope> <case>: a run of <scope> opened from P2's changed
+# template, then P2's template made the shipped one again and the run
+# resumed from P2. Sets R.
+older_run() {
+    local fp
+    fp=$(bash "$HERE/template-fingerprint.sh" "$(koto template compile "$P2_TPL" 2>/dev/null)")
+    eq "$2: the changed template shares the shipped structure" "$SHIP_FP" "$fp"
+    rec_run "$P2" "$1" '{}'
+    cp -f "$SHIP_TPL" "$P2_TPL"
+    op "$P2" "[\"docs/roadmaps/ROADMAP-$1.md\",\"--role\",\"manager\"]"
+    eq "  ... a run compiled from it is resumed under the shipped template, exit 0" "0 resumed $R" "$RC $(line outcome) $(line session)"
+    kv_only "  ... stdout holding only key=value lines"
+}
+# (a) The phrase taken out of pick: a run compiled before the rules moved in.
+awk -v p="$PHRASE" '{ i = index($0, p); if (i) $0 = substr($0, 1, i - 1) "What you allocate is counted" substr($0, i + length(p)); print }' \
+    "$SHIP_TPL" > "$P2_TPL"
+eq "the phrase taken out of the second root's template" 0 "$(grep -cF -- "$PHRASE" "$P2_TPL")"
+older_run guide-e "a template whose pick lacks the phrase"
+has_block "  ... printing the compat block, naming the run" compat "$R"
+koto cancel "$R" > /dev/null 2>&1
+# (b) One unrelated text line added, the phrase kept: a run compiled from this
+# release's template or a later one.
+awk 'BEGIN { done = 0 } /^## / && !done { print; print ""; print "Text that changes no structure."; done = 1; next } { print }' "$SHIP_TPL" > "$P2_TPL"
+older_run guide-f "a template with one unrelated line added"
+no_block "  ... and no compat block: its pick keeps the phrase"
+koto cancel "$R" > /dev/null 2>&1
 
 echo; echo "coordinate-open-guidance engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]
