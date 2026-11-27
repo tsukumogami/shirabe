@@ -13,7 +13,10 @@
 #
 # Each `hosted` entry is also held to the workflow it names (see "hosted twins
 # against their workflows" below): the file exists, runs on pull requests, has
-# the named job, and that job's plan runs the same command as `runs`.
+# the named job, and that job's plan runs the same command as `runs`. Each
+# `always_required` entry is held to its workflow the same way, and to a
+# pull_request trigger with no paths filter (see "always_required against its
+# workflows" below).
 #
 # Each jq check is a named query run against a file, so the negative cases run
 # the same query on altered copies of the map and require it to fail; a check
@@ -128,7 +131,7 @@ fi
 
 # The schema reference names every field the design lists, and the merge-base
 # read.
-for field in run each timeout_secs network unattended max_procs entries default build_output; do
+for field in run each timeout_secs network unattended max_procs entries default build_output always_required; do
     if grep -Fq "\`$field\`" "$REF"; then
         pass "verification-map.md documents \`$field\`"
     else
@@ -364,6 +367,86 @@ if [ -n "$T_ROW" ]; then
     twin_refused "negative: a runs line the plan doesn't print fails" "with no line" \
         twin_plan_ok "$ROOT/$T_WF" "$T_JOB" "${T_RUNS%% *} --changed {skill}" "$T_ROW"
 fi
+
+# --- always_required against its workflows ----------------------------------------------
+#
+# always_required turns ci_monitor's relevant-checks wait on, and each entry
+# is a check the run waits on whatever the change touches. So the key is a
+# row of the top-level table, CI_WAIT=all is documented as the opt-out, and
+# shirabe's list is held to its workflows: well formed, the public-content
+# check (the one that guards what a public repository ships) among them, and
+# each entry a job of a workflow that runs on every pull request. A paths:
+# filter on the trigger is refused: such a workflow reports nothing on a
+# change outside its paths, and the run would wait for a check that never
+# comes.
+
+Q_ALWAYS='(.always_required | type) == "array" and (.always_required | length) > 0
+    and (.always_required | all(type == "object" and (keys == ["job", "workflow"])
+        and all(.workflow, .job; type == "string" and . != "")
+        and (.workflow | startswith(".github/workflows/") and (split("/") | all(. != ".." and . != "." and . != "")))))'
+Q_ALWAYS_SECURITY='any(.always_required[]; . == {"workflow": ".github/workflows/check-public-content.yml", "job": "shipped-paths"})'
+check "always_required is a non-empty list of {workflow, job} under .github/workflows/" "$Q_ALWAYS"
+check "always_required holds the public-content check" "$Q_ALWAYS_SECURITY"
+neg "an always_required entry without a job is refused" "$Q_ALWAYS" '.always_required[0] |= del(.job)'
+neg "an always_required workflow outside .github/workflows/ is refused" "$Q_ALWAYS" \
+    '.always_required[0].workflow = "scripts/x.yml"'
+neg "an always_required that isn't an array is refused" "$Q_ALWAYS" '.always_required = {}'
+neg "an always_required without the public-content check is refused" "$Q_ALWAYS_SECURITY" \
+    '.always_required |= map(select(.workflow != ".github/workflows/check-public-content.yml"))'
+
+# always_row <file>: the reference's `## The file` table has an
+# `always_required` row.
+always_row() {
+    awk '/^## / { in_f = ($0 == "## The file") }
+         in_f && /^\| `always_required` \|/ { found = 1 }
+         END { exit !found }' "$1"
+}
+if always_row "$REF"; then
+    pass "verification-map.md's top-level table has an \`always_required\` row"
+else
+    fail "verification-map.md's top-level table has an \`always_required\` row"
+fi
+grep -v '^| `always_required` |' "$REF" > "$WORKDIR/ref-no-always.md"
+if always_row "$WORKDIR/ref-no-always.md"; then
+    fail "a copy of the reference without the \`always_required\` row still passes the row check"
+else
+    pass "a copy of the reference without the \`always_required\` row fails the row check"
+fi
+if grep -Fq '**`CI_WAIT=all`**' "$REF" && grep -Fq -- '--ci-wait=all' "$REF"; then
+    pass "verification-map.md documents CI_WAIT=all and --ci-wait=all"
+else
+    fail "verification-map.md documents CI_WAIT=all and --ci-wait=all"
+fi
+
+# always_unfiltered <workflow file>: its pull_request trigger has no paths:
+# or paths-ignore: filter.
+always_unfiltered() {
+    awk '/^[^ #]/ { top = $0; inpr = 0 }
+         top ~ /^on:/ && /^  [a-z_]+:/ { inpr = ($0 ~ /^  pull_request:/) }
+         top ~ /^on:/ && inpr && /^    paths(-ignore)?:/ { bad = 1 }
+         END { exit bad }' "$1" && return 0
+    echo "$1 filters its pull_request trigger by paths, so it doesn't report on every pull request"
+    return 1
+}
+
+n=$(jq -r '.always_required // [] | length' "$MAP")
+i=0
+while [ "$i" -lt "$n" ]; do
+    wf=$(jq -r --argjson i "$i" '.always_required[$i].workflow' "$MAP")
+    job=$(jq -r --argjson i "$i" '.always_required[$i].job' "$MAP")
+    twin_expect "always_required: $wf exists and runs on pull requests" twin_workflow_ok "$ROOT/$wf"
+    twin_expect "always_required: $wf has job [$job], not kept off pull requests" twin_job_ok "$ROOT/$wf" "$job"
+    twin_expect "always_required: $wf runs on every pull request, with no paths filter" always_unfiltered "$ROOT/$wf"
+    i=$((i + 1))
+done
+twin_refused "negative: a workflow filtered by paths can't be always required" "filters its pull_request trigger" \
+    always_unfiltered "$ROOT/.github/workflows/check-pipe-readers.yml"
+printf 'on:\n  pull_request:\n    paths-ignore:\n      - docs/**\njobs: {}\n' > "$WORKDIR/ignore.yml"
+twin_refused "negative: a paths-ignore filter is refused too" "filters its pull_request trigger" \
+    always_unfiltered "$WORKDIR/ignore.yml"
+printf 'on:\n  pull_request:\n    types: [opened]\n  push:\n    paths:\n      - x/**\njobs: {}\n' > "$WORKDIR/push-paths.yml"
+twin_expect "a paths filter on push alone leaves the pull_request trigger unfiltered" \
+    always_unfiltered "$WORKDIR/push-paths.yml"
 
 # work-on.md points at the map and lists no commands of its own.
 n=$(grep -c 'verification-map.json' "$EXT")

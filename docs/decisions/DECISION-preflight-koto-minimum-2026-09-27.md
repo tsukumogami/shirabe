@@ -37,7 +37,9 @@ rationale: |
 
 ## Status
 
-Accepted on 2026-09-27.
+Accepted on 2026-09-27. The minimum this record states is superseded by
+`DECISION-koto-minimum-0-37-2026-11-23.md`, which raises it to 0.37.0; how the
+preflight reads and compares the minimum stands as decided here.
 
 ## Context
 

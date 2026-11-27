@@ -72,6 +72,8 @@
 #                          `--verification-reason=<text>`, the same way.
 #   STEP_DRAFTS            `--step-drafts=<on|off>`, the same way, on a single-pr
 #                          PLAN only; a coordinated PLAN gets no pair.
+#   MAX_CONCURRENT_STEPS   `--max-concurrent-steps=<1 to 6>`, the same way, on a
+#                          single-pr PLAN only; a coordinated PLAN gets no pair.
 #   STORE                  `--store <v>` or `--store=<v>`
 #   COORDINATION_PR        `--coordination-pr <url>`
 #   FOLLOW_UP              `--follow-up <node>=<url>` -> `<node> <url>`: the
@@ -681,6 +683,9 @@ printf '%s' "$TOKENS" | jq -c \
     # STEP_DRAFTS exists only in the single-pr template (execute.md); a
     # coordinated PLAN takes no pair, so the flag is ignored there.
     | (if $coordinated == 1 then [] else bound("--step-drafts"; "STEP_DRAFTS") end) as $drafts
+    # MAX_CONCURRENT_STEPS is declared by execute.md alone too: the coordinated
+    # loop dispatches one work item at a time, so the flag is ignored there.
+    | (if $coordinated == 1 then [] else bound("--max-concurrent-steps"; "MAX_CONCURRENT_STEPS") end) as $concurrent
     | [ .[] | select(. == "--merge" or startswith("--merge=")) ] as $merges
     | [ .[] | select(. == "--auto" or . == "--interactive") ] as $modes
     | (if $plan == "" then [] else [["PLAN_DOC", $plan], ["PLAN_SLUG", $slug]] end)
@@ -689,7 +694,7 @@ printf '%s' "$TOKENS" | jq -c \
          else [ $merges[] | ["MERGE", (if . == "--merge" then "true" else ltrimstr("--merge=") end)] ] end)
       + (if ($modes | length) == 0 then [["PAUSE_BEFORE_FINALIZE", pause_of($header)]]
          else [ $modes[] | ["PAUSE_BEFORE_FINALIZE", pause_of(ltrimstr("--"))] ] end)
-      + $floors + $ceilings + $verifications + $reasons + $drafts
+      + $floors + $ceilings + $verifications + $reasons + $drafts + $concurrent
       + coord("--store"; "STORE") + coord("--coordination-pr"; "COORDINATION_PR")
       + (coord("--follow-up"; "FOLLOW_UP") | map(.[1] |= sub("="; " ")))
       + coord("--remove"; "FOLLOW_UP_REMOVE")

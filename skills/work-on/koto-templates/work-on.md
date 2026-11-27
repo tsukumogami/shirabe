@@ -225,6 +225,19 @@ variables:
       measurement window until 02:40Z". Not rebindable, like VERIFICATION.
     required: false
     pattern: ^([a-zA-Z0-9].*)?$
+  CI_WAIT:
+    description: >-
+      Which checks ci_monitor waits on before its green edge. Empty (the
+      default) waits on the relevant set when the merge-base's verification
+      map carries `always_required`: the selected commands' hosted twins and
+      that list, read from the merge-base's map and the current default
+      branch's (ci-relevant.sh, run-verification.sh --relevant). A map with
+      no `always_required` waits on every check, as before. `all` waits on
+      every check whatever the map says: the opt-out, set at init with
+      `--var CI_WAIT=all` or `--ci-wait=all` through work-on-open.sh. Not
+      rebindable: a run never changes what it waits on partway through.
+    required: false
+    pattern: ^(all)?$
   DELIVERY:
     description: >-
       Whether this run's pull request closes its issue. `closes` (the default)
@@ -974,8 +987,8 @@ states:
     # copy if analysis's run found no context.md.
     #
     # Then it writes the test-change ledger's header (test-change.sh init
-    # --entry): the author, impl_base and the work tree every later
-    # acceptance is judged against. It runs after review-level.sh init
+    # --entry): the author, impl_base and the work tree the counting gates
+    # classify the unit's tests against. It runs after review-level.sh init
     # because it reads the rules copy init stores, and writes once; a later
     # entry finds the header and changes nothing.
     default_action:
@@ -1593,7 +1606,11 @@ states:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --recorded scrutiny "{{SESSION_NAME}}"'
       # The panel's pass, from the ledger (gate 6). A person's override is the
-      # only way past it, listed by `koto overrides list`.
+      # only way past it, listed by `koto overrides list`. The run records it
+      # itself, naming the person (`--by person:<handle> --surface ...`, koto
+      # 0.37.0 and later), once the person says so; the person never writes
+      # into the run's session from their own shell, and an unattended run
+      # records none and escalates (DESIGN-acceptance-write-drift Decision 4).
       scrutiny_verdict:
         type: command
         command: 'SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=scrutiny_verdict SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --verdict scrutiny "{{SESSION_NAME}}"'
@@ -2510,46 +2527,54 @@ states:
     #   fix_green      red-first.sh check-green. Passes for a unit that isn't a
     #                  fix; a fix needs a green, the red's command re-run at
     #                  HEAD with exit 0, which the agent records with
-    #                  red-first.sh green, or an observation pair a live
-    #                  acceptance covers. Every hold prints finding
-    #                  red-first/no-green.
+    #                  red-first.sh green, or an observation pair the review
+    #                  panels judged shown at its digests now. Every hold
+    #                  prints finding red-first/no-green.
     #   tests_counted  test-change.sh status. Classifies the test files the
     #                  unit's committed diff touched since impl_base: an edited
     #                  test (a line removed, deleted, renamed with a change) or
-    #                  an observation holds the unit until the session ledger
-    #                  test_change_ledger.jsonl shows a live acceptance by
-    #                  someone other than the run, under the interim rule in
-    #                  scripts/lib/acceptance-rule.sh. Exit 1 holds (finding
-    #                  test-change/held), 2 can't decide, 3 means one set of
-    #                  paths was declined three times.
+    #                  an observation pair holds the unit while it is due for
+    #                  a panel (no judgment of that panel at its content now;
+    #                  before any panel has recorded, every item is due) or
+    #                  carries an open weakens or not-shown finding, read from
+    #                  the panels' record through panel-scope.sh --due-items.
+    #                  No line of test_change_ledger.jsonl but its header
+    #                  counts or holds anything. Exit 1 holds (finding
+    #                  test-change/held), 2 can't decide, 3 holds with no lap
+    #                  left to clear it: the panel retry budget is spent
+    #                  (panel-retry-budget.sh --remaining reports none left),
+    #                  or the run already went back once with no panel on
+    #                  record, a docs or task route that never reaches one.
+    #                  A pass (exit 0) records the head it counted at as the
+    #                  context key counted_head, here and at pr_precheck and
+    #                  ci_pass_counting alike. /execute's ci_monitor reads
+    #                  the newest one its children and fix rounds recorded
+    #                  (ci-fix-tests.sh) to tell whether a CI fix changed a
+    #                  test no panel judged.
     #
-    # A held run in a repository that isn't person-required mints a seat
-    # (test-change.sh seat) and commissions it with the brief the script
-    # prints; the seat accepts or declines under its minted identity, and the
-    # next tick re-reads the ledger. In a repository that declares
-    # `## Test Change Acceptance: person` no seat can accept: the run stops
-    # here, status prints the command a person runs at a terminal, and the
-    # resumed run's next tick finds the person's acceptance.
+    # A held run sends itself back with `declined`: implementation, whose
+    # clear_on_entry drops the panels' stale results, then the panels again,
+    # where --plan plans a re-verifier for each due item and the panels'
+    # seats or re-verifier judge it. A unit routed as docs or task that edits
+    # a test has no panel to judge it; it goes back the same way and routes
+    # as code; if it reaches this hold again with still no panel on record,
+    # status exits 3 rather than let it loop. check-green compares the
+    # green's head with HEAD, and status compares each judgment's content
+    # with HEAD's, so a later commit holds again. A hold no further lap can
+    # clear (exit 3) goes to done_blocked with no evidence. Nothing here
+    # waits for a person.
     #
-    # A green that failed, or a decline, sends the run back to implementation,
-    # whose clear_on_entry drops the panels' stale results; check-green
-    # compares the green's head with HEAD, and status compares every
-    # acceptance's digests with HEAD's, so a later commit holds again. The
-    # third decline of one path set goes to done_blocked with no evidence.
-    #
-    # A held run that finds a gap in its own tests before anyone has judged
-    # them (an assertion narrowed too far, a case left unchecked) submits
-    # `test_gap` with the gap in `detail` (#1915). The fix is a test-only
-    # commit, and the review panels have to see it: a commit made here with
-    # no route out moves HEAD under the held gates, and nothing on this
-    # state plans a review of it. `test_gap` returns to implementation like
-    # a decline, but no seat declined: the acceptance ledger is untouched
-    # and the decline limit doesn't move. The next lap reaches the run's
-    # first panel, whose panel-scope.sh --plan plans a re-verifier with a
-    # fix-diff review for any commit since the panel last recorded, so the
+    # A held run that finds a gap in its own tests before the panels have
+    # judged them (an assertion narrowed too far, a case left unchecked)
+    # submits `test_gap` with the gap in `detail` (#1915). The fix is a
+    # test-only commit, and the review panels have to see it: a commit made
+    # here with no route out moves HEAD under the held gates, and nothing on
+    # this state plans a review of it. `test_gap` returns to implementation
+    # like `declined`. The next lap reaches the run's first panel, whose
+    # panel-scope.sh --plan plans a re-verifier for the test now due, so the
     # fix is reviewed before verification runs again. Its two edges are the
-    # two holds a run can stop at short of the decline limit: an edit not
-    # yet counted (tests_counted 1), and a fix held only on its green
+    # two holds a run can stop at short of a spent budget: an edit not yet
+    # counted (tests_counted 1), and a fix held only on its green
     # (tests_counted 0, fix_green 1).
     gates:
       fix_green:
@@ -2566,10 +2591,11 @@ states:
           Absent on the passing path: koto advances once fix_green and
           tests_counted pass. `green_failed` returns to implementation after a
           green that exited non-zero; `declined` returns to implementation
-          after the acceptance seat declined a test edit; `test_gap` returns
-          to implementation for a test-only fix the run found itself, named in
-          `detail`, with no seat's decline; `blocked` stops the run when a
-          hold can't be cleared.
+          while tests_counted holds an edited test or observation pair as due
+          for a panel or under an open weakens or not-shown finding, so the
+          panels judge it again; `test_gap` returns to implementation for a
+          test-only fix the run found itself, named in `detail`; `blocked`
+          stops the run when a hold can't be cleared.
       detail:
         type: string
         description: >-
@@ -2584,7 +2610,7 @@ states:
         when:
           gates.tests_counted.exit_code: 3
         context_assignments:
-          failure_reason: "pass_counting: the acceptance seats declined the same test edits three times. The ledger is in context as test_change_ledger.jsonl."
+          failure_reason: "pass_counting: an edited test or observation pair is still due for a panel or under an open adverse finding, and no further lap can clear it: the panel retry budget is spent, or the run already went back once and still reached no panel. The panels' record is in context as verdict_ledger.json."
       - target: implementation
         when:
           gates.tests_counted.exit_code: 0
@@ -2940,9 +2966,10 @@ states:
       # The pass counted at pass_counting, counted again before a pull
       # request shows it (../references/red-first.md): test-change.sh status
       # re-reads the committed diff, so a commit made after counting that
-      # edits a test, or changes an accepted one, holds here. Exit 1 holds;
-      # `precheck_status: recount` sends the run back to pass_counting,
-      # where the acceptance is given. Every pull request edge needs 0.
+      # edits a test, or changes one the panels judged, holds here. Exit 1
+      # holds; `precheck_status: recount` sends the run back to
+      # pass_counting, which routes it back through the panels. Every pull
+      # request edge needs 0.
       tests_still_counted:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=tests_still_counted "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"'
@@ -3002,8 +3029,8 @@ states:
         when:
           precheck_status: recount
           gates.tests_still_counted.exit_code: 1
-      # The decline limit (status exit 3) recounts too: pass_counting's own
-      # exit-3 edge then ends the run at done_blocked with its reason.
+      # A spent retry budget (status exit 3) recounts too: pass_counting's
+      # own exit-3 edge then ends the run at done_blocked with its reason.
       - target: pass_counting
         when:
           precheck_status: recount
@@ -3355,9 +3382,24 @@ states:
       # fallback script's own). 180 s covers three at about twice that.
       # owned_ci_passing in execute.md carries the same limit.
       #   test: skills/work-on/scripts/ci-passing-timeout_test.sh
+      #
+      # The relevant set comes first. ci-relevant.sh
+      # reads it with run-verification.sh --relevant, from the merge-base's
+      # map and again from the current default branch's on every read, and
+      # answers 0 when every relevant check passed, 1 when one hasn't (a
+      # skipped twin among them: a twin that `needs:` its slices is skipped
+      # when one fails), and 3 when the filter is off (no always_required at
+      # the merge-base, CI_WAIT=all, nothing relevant). Off, or any other
+      # answer, falls to the bucket filter over every check, as before the set
+      # existed. A failing check outside the set doesn't hold this gate:
+      # ci-relevant.sh comments on it once per head and records it as
+      # ci_outside_failures.txt. Not green either way goes on to the two
+      # fallbacks. The gate's own --jq stays last, so the expression tests
+      # still read it.
+      #   test: skills/work-on/scripts/ci-relevant_test.sh
       ci_passing:
         type: command
-        command: "\"{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh\" $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq 'length > 0 and ([.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0)' | grep -q true || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" \"{{SESSION_NAME}}\" || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-none-declared.sh\" \"{{SESSION_NAME}}\" || exit 1"
+        command: "\"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-relevant.sh\" --session \"{{SESSION_NAME}}\" --ci-wait \"{{CI_WAIT}}\" $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty'); case $? in 0) exit 0 ;; 1) ;; *) \"{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh\" $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq 'length > 0 and ([.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0)' | grep -q true && exit 0 ;; esac; \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" \"{{SESSION_NAME}}\" || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-none-declared.sh\" \"{{SESSION_NAME}}\" || exit 1"
         timeout: 180
       # A DIRTY pull request has merge conflicts, and GitHub creates no new
       # check-runs for one, so its CI gate says nothing about the change: it
@@ -3600,11 +3642,29 @@ states:
     # green edge). The pass is counted again here, with pass_counting's two
     # gates under the same names and commands (../references/red-first.md),
     # because a commit that fixed CI may have edited a test or moved HEAD
-    # past a fix's green. A held run is accepted here as at pass_counting; a
-    # decline or a failed green returns it to ci_monitor, where the edit is
-    # reworked and pushed. A separate state rather than a shared one with a
+    # past a fix's green. A held run is counted here as at pass_counting,
+    # from the panels' record; `declined` or a failed green returns it to
+    # ci_monitor, where the edit is reworked and pushed. A separate state
+    # rather than a shared one with a
     # variable naming where it came from: a hand rebind of that variable
     # could send a post-CI hold to finalization.
+    #
+    # ci_monitor plans no panel round, so a hold answered there with another
+    # test edit is held again on the next green, with nothing to judge it
+    # (shirabe#1931). A run whose hold is on a test, or that finds a gap in
+    # its own tests after CI, submits `test_gap` instead: it returns to
+    # implementation, the route pass_counting already has, and the next lap
+    # reaches the run's first panel, whose panel-scope.sh --plan plans the
+    # re-verifier for the test now due. Verification, counting and CI then
+    # run again, and pr_creation reuses the open pull request. Each lap whose
+    # re-verifier finds the test weakened spends a panel retry
+    # (panel-retry-budget.sh), so the loop ends: at a spent budget the panel
+    # escalates, and a hold here exits 3 to done_blocked. `declined` keeps
+    # its route to ci_monitor, for a hold answered with a fix that isn't a
+    # test change. The two test_gap edges are pass_counting's: an edit not
+    # yet counted (tests_counted 1), and a fix held only on its green
+    # (tests_counted 0, fix_green 1); the second names fix_green so it can't
+    # overlap the counted edges below.
     gates:
       fix_green:
         type: command
@@ -3632,14 +3692,21 @@ states:
     accepts:
       counting_status:
         type: enum
-        values: [green_failed, declined, blocked]
+        values: [green_failed, declined, test_gap, blocked]
         description: >-
           Absent on the passing path: koto routes once fix_green and
-          tests_counted pass. `green_failed` and `declined` return to
-          ci_monitor; `blocked` stops the run when a hold can't be cleared.
+          tests_counted pass. `green_failed` returns to ci_monitor after a
+          green that exited non-zero, and `declined` while tests_counted
+          holds an edited test or observation pair as due for a panel or
+          under an open adverse finding and the answer isn't a test change;
+          `test_gap` returns to implementation when the answer is a
+          test-only fix the panels must judge, named in `detail`; `blocked`
+          stops the run when a hold can't be cleared.
       detail:
         type: string
-        description: Why the run can't be counted.
+        description: >-
+          Why the run can't be counted, or, with `test_gap`, the gap in the
+          unit's own tests that the test-only fix closes.
     transitions:
       # The cascade belongs to the run that owns the PLAN, and that is the root.
       # A child materialized by /execute lands its own pull request and must not
@@ -3662,7 +3729,7 @@ states:
         when:
           gates.tests_counted.exit_code: 3
         context_assignments:
-          failure_reason: "ci_pass_counting: the acceptance seats declined the same test edits three times. The ledger is in context as test_change_ledger.jsonl."
+          failure_reason: "ci_pass_counting: an edited test or observation pair is still due for a panel or under an open adverse finding, and no further lap can clear it: the panel retry budget is spent, or the run already went back once and still reached no panel. The panels' record is in context as verdict_ledger.json."
       - target: ci_monitor
         when:
           gates.tests_counted.exit_code: 0
@@ -3677,6 +3744,15 @@ states:
         when:
           gates.tests_counted.exit_code: 1
           counting_status: declined
+      - target: implementation
+        when:
+          gates.tests_counted.exit_code: 1
+          counting_status: test_gap
+      - target: implementation
+        when:
+          gates.tests_counted.exit_code: 0
+          gates.fix_green.exit_code: 1
+          counting_status: test_gap
       - target: done_blocked
         when:
           gates.tests_counted.exit_code: 0
@@ -4328,7 +4404,7 @@ the bug with `--tests <path>...`.
 When no automated check can reproduce the bug, record a before-observation instead
 (`red-first.sh observe {{SESSION_NAME}} --phase before --file <observation.md>`;
 `references/red-first.md` lists its sections). An observation pair counts only once
-an acceptance seat accepts it, at `pass_counting`.
+the review panels have judged it `shown` as it is recorded, at `pass_counting`.
 
 Then tick with nothing submitted. The `red_recorded` gate passes once a red or a
 before-observation is recorded, and the run goes on to `implementation`. If neither
@@ -4529,6 +4605,14 @@ koto decider answer {{SESSION_NAME}} --gate scrutiny_decider --criterion work-on
 
 Submit nothing when the panel passes. While `scrutiny_verdict` exits 1, submit `scrutiny_outcome: blocking_retry` when the findings are correctable (it routes to `implementation`, where the coder agent addresses them), or `blocking_escalate` when the work cannot proceed without escalation. `blocking_escalate` is also taken while the gate exits 2, for a round that can't be recorded at all. Include `failure_reason` for `blocking_escalate`. Neither value is accepted while the gate exits 0, and no value advances the panel: only the recorded verdicts do, or a person's override of `scrutiny_verdict`.
 
+A person's override of `scrutiny_verdict`. Only a person can pass this panel past its verdict, and the run records the override, not the person. When a person tells you the panel should pass, in this conversation (`terminal`), on the pull request or issue (`forge`), or in a message relayed to you (`relay`), run
+
+```bash
+koto overrides record {{SESSION_NAME}} --gate scrutiny_verdict --rationale "<the person's words>" --by person:<handle> --surface <terminal|forge|relay>
+```
+
+adding `--link <url>` to the original message for `relay`, then tick again. The rationale quotes what the person said, and `<handle>` is the login or name they go by. Run it only after the person says so: never on your own judgment, and never ask the person to run it in their own shell. An unattended run (`--auto`, or a session no person is attending, such as a dispatched worker or a step agent) has no person to ask, so it records no person override and submits `scrutiny_outcome: blocking_escalate` instead.
+
 Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_validation and light_review and follow progress. The first 2 are granted whatever the counts. A third is granted only when this panel's count of blocking findings is lower than on its own previous blocking round in this run, or when none of its open blocking findings was open on the run's previous blocking round in any panel, and no run gets more than 3. `panel-retry-budget.sh` applies the rule and records each retry it grants in the context key `panel_retries`, so before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" scrutiny` once for the round. It takes no count: it reads the panel's unclosed blocking findings from the ledger itself (`panel-scope.sh --open-count` and `--open-ids`), the same set `scrutiny_verdict` printed, so the count it compares is never the agent's. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`, which ends the run at `done_blocked`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
 
 ## review
@@ -4544,6 +4628,14 @@ Where a passing panel goes depends on the run's review level: at `standard` it g
 
 The `level_unchanged` gate holds every passing route, the carried one included, when `REVIEW_LEVEL` no longer matches the level ledger's last level: the variable was changed by hand after the review-level check. Its `hold:` line names both levels. Put the variable back with `"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" <the ledger's level>` and tick again. A level change goes through `set`, which records it in the ledger; a hand rebind never moves the run.
 
+A person's override of `review_verdict`. Only a person can pass this panel past its verdict, and the run records the override, not the person. When a person tells you the panel should pass, in this conversation (`terminal`), on the pull request or issue (`forge`), or in a message relayed to you (`relay`), run
+
+```bash
+koto overrides record {{SESSION_NAME}} --gate review_verdict --rationale "<the person's words>" --by person:<handle> --surface <terminal|forge|relay>
+```
+
+adding `--link <url>` to the original message for `relay`, then tick again. The rationale quotes what the person said, and `<handle>` is the login or name they go by. Run it only after the person says so: never on your own judgment, and never ask the person to run it in their own shell. An unattended run (`--auto`, or a session no person is attending, such as a dispatched worker or a step agent) has no person to ask, so it records no person override and submits `review_outcome: blocking_escalate` instead.
+
 Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_validation and light_review and follow progress. The first 2 are granted whatever the counts. A third is granted only when this panel's count of blocking findings is lower than on its own previous blocking round in this run, or when none of its open blocking findings was open on the run's previous blocking round in any panel, and no run gets more than 3. `panel-retry-budget.sh` applies the rule and records each retry it grants in the context key `panel_retries`, so before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" review` once for the round. It takes no count: it reads the panel's unclosed blocking findings from the ledger itself (`panel-scope.sh --open-count` and `--open-ids`), the same set `review_verdict` printed, so the count it compares is never the agent's. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`, which ends the run at `done_blocked`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
 
 ## qa_validation
@@ -4555,6 +4647,14 @@ koto decides whether the panel passed, from the ledger, as at scrutiny: the `qa_
 Read `qa_scope.json` for what runs: in a full round the tester runs a full validation and answers its own unclosed failures by id; any other round keeps the tester and plans at most one run, the panel's re-verifier, which runs each due failing scenario again and answers it by id with `holds` or `reverified`, reading the `review-packet.sh recheck --seat reverifier` packet the phase file's commissioning line gives. Record every run with `panel-scope.sh --record qa` after the round; `qa_recorded` holds the passing route and `blocking_retry` until you have. A carried panel submits nothing and neither spends nor resets the retry count below.
 
 Submit nothing when QA passes. While `qa_verdict` exits 1, submit `qa_outcome: blocking_retry` when the defects are correctable, or `blocking_escalate` when they cannot be resolved without escalation; `blocking_escalate` is also taken while the gate exits 2. Include `failure_reason` for `blocking_escalate`. Neither value is accepted while the gate exits 0.
+
+A person's override of `qa_verdict`. Only a person can pass this panel past its verdict, and the run records the override, not the person. When a person tells you the panel should pass, in this conversation (`terminal`), on the pull request or issue (`forge`), or in a message relayed to you (`relay`), run
+
+```bash
+koto overrides record {{SESSION_NAME}} --gate qa_verdict --rationale "<the person's words>" --by person:<handle> --surface <terminal|forge|relay>
+```
+
+adding `--link <url>` to the original message for `relay`, then tick again. The rationale quotes what the person said, and `<handle>` is the login or name they go by. Run it only after the person says so: never on your own judgment, and never ask the person to run it in their own shell. An unattended run (`--auto`, or a session no person is attending, such as a dispatched worker or a step agent) has no person to ask, so it records no person override and submits `qa_outcome: blocking_escalate` instead.
 
 Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_validation and light_review and follow progress. The first 2 are granted whatever the counts. A third is granted only when this panel's count of failed scenarios is lower than on its own previous blocking round in this run, or when none of its failed scenarios was open on the run's previous blocking round in any panel, and no run gets more than 3. `panel-retry-budget.sh` applies the rule and records each retry it grants in the context key `panel_retries`, so before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" qa_validation` once for the round. It takes no count: it reads the panel's unclosed blocking findings from the ledger itself (`panel-scope.sh --open-count` and `--open-ids`), the same set `qa_verdict` printed, so the count it compares is never the agent's. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`, which ends the run at `done_blocked`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
 
@@ -4571,6 +4671,14 @@ Read `light_scope.json` and spawn only the decisions that aren't `keep`, as at s
 The `level_unchanged` gate holds both passing routes, the carried one included, when `REVIEW_LEVEL` no longer matches the level ledger's last level (`light`): the variable was changed by hand after the review-level check. Put it back with `"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" light` and tick again. A level change goes through `set`, which records it in the ledger; a hand rebind never moves the run.
 
 Submit nothing when the seat passes (the run goes to `verification`). While `light_verdict` exits 1, submit `light_outcome: blocking_retry` when the findings are correctable (it routes to `implementation`, and the run comes back through the review-level check, which may raise the level), or `blocking_escalate` when the work cannot proceed without escalation; `blocking_escalate` is also taken while the gate exits 2. Include `failure_reason` for `blocking_escalate`. Neither value is accepted while the gate exits 0.
+
+A person's override of `light_verdict`. Only a person can pass this panel past its verdict, and the run records the override, not the person. When a person tells you the panel should pass, in this conversation (`terminal`), on the pull request or issue (`forge`), or in a message relayed to you (`relay`), run
+
+```bash
+koto overrides record {{SESSION_NAME}} --gate light_verdict --rationale "<the person's words>" --by person:<handle> --surface <terminal|forge|relay>
+```
+
+adding `--link <url>` to the original message for `relay`, then tick again. The rationale quotes what the person said, and `<handle>` is the login or name they go by. Run it only after the person says so: never on your own judgment, and never ask the person to run it in their own shell. An unattended run (`--auto`, or a session no person is attending, such as a dispatched worker or a step agent) has no person to ask, so it records no person override and submits `light_outcome: blocking_escalate` instead.
 
 Retry cap: retries from this panel share the run's blocking retries with scrutiny, review and qa_validation, under the rule the scrutiny directive states: the first 2 are granted whatever the counts, a third only when this panel's count of blocking findings is lower than on its own previous blocking round in this run, or when none of its open blocking findings was open on the run's previous blocking round in any panel, and no run gets more than 3. Before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" light_review` once for the round. It takes no count: it reads the panel's unclosed blocking findings from the ledger itself (`panel-scope.sh --open-count` and `--open-ids`), the same set `light_verdict` printed, so the count it compares is never the agent's. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
 
@@ -4785,71 +4893,54 @@ fix doesn't pass its own check: submit `counting_status: green_failed` and the r
 returns to `implementation`.
 
 `tests_counted` passes when no test file in the unit's committed diff was edited
-(only added tests, or none) and no observation is recorded. An edited test (a line
-removed, a file deleted, a rename with a change) or an observation holds the unit,
-one `held:` line each:
+(only added tests, or none) and no observation is recorded, or when the review
+panels have judged each edited test and the observation pair at its content now.
+It reads the panels' record, never a line a run or anyone else writes into the
+test-change ledger, one `held:` line per hold:
 
 ```bash
 "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"
 ```
 
-`held: unaccepted <path>`, `held: changed since acceptance <path>` and
-`held: overruled <path> by <identity>` need an acceptance from someone other than
-this run. You can't give it: the rule refuses the run's own identity
-(`agent:{{SESSION_NAME}}`) and any reviewer name the run didn't mint. An overruled
-edit needs an acceptance at or above the overruling's authority, which a seat
-can't give: stop and report it.
+An item is due for a panel when no seat or re-verifier of that panel judged it at
+its content now: `held: <path> due for <panel>`, or `held: observation due for
+<panel>`. Before any panel has recorded, every edited test and the pair are due
+(`held: <item> due: no panel has judged it`), which is what a unit routed as `docs`
+or `task` sees when it edits a test: no panel ran, so none judged it. `held: <path>
+weakens: ...` and `held: observation not shown: ...` name an open blocking finding
+a seat raised. Submit `counting_status: declined` for any of these: the run returns
+to `implementation`, where a weakening edit is reworked or reverted, and goes
+through the panels again, routed as `code` when the diff edits a test. The next
+round's `panel-scope.sh --plan` plans the panel's re-verifier for each due item,
+and its packet carries the test's hunks with your note on why you edited it (or
+the observation pair), so record that note while implementing
+(`test-change.sh note`). Nothing here waits for a person, and nothing you write
+into the ledger counts a test.
 
-**A repository that requires a person.** When `status` prints a
-`person-required:` line, the repository declares `## Test Change Acceptance:
-person`, and no agent can accept: `seat` refuses, and an agent's accept is
-refused `person-required`. Commission nothing. Stop here and report the held
-files and the exact command `status` printed, which a person runs in their own
-terminal; it shows them the edited hunks and a code to type back. The run stays
-at `pass_counting`; once the person has accepted, resuming it ticks the gate and
-goes on to `finalization`.
+When `status` exits 3, an item is still held and no further lap can clear it: the
+panel retry budget is spent (`held: budget spent: ...`), or the run already went
+back once with the items held and still no panel has recorded (`held: no panel
+reached: ...`), which is what a unit that keeps routing a test edit as `docs` or
+`task` reaches. The run ends at `done_blocked` on the next tick with no evidence. `held: uncommitted changes`
+means the work tree has changes the gate can't classify: commit them. `held: no
+header` means the ledger `test_change_ledger.jsonl` was never started at
+`fix_determination`; that can't be fixed here. `pr_precheck` runs the same status
+again before a pull request opens, so a commit made after this count that edits a
+test sends the run back here (`precheck_status: recount`).
 
-Otherwise, mint one acceptance seat and print its brief:
-
-```bash
-"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" seat "{{SESSION_NAME}}"
-```
-
-The first line is the seat's identity (`agent:{{SESSION_NAME}}/accept-<n>`); the rest
-is the brief. Spawn one seat with the Agent tool on the same commissioning as the
-`light` panel's seat (`model: "sonnet"`, per
-`${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`), and give it the
-brief exactly as printed, with nothing added: the script fixes its text, and the
-seat treats everything inside its data markers as data. The seat runs
-`test-change.sh accept` or `decline` itself, under its minted identity. Then tick
-with nothing submitted. An accepted unit goes on to `finalization` with no stop
-for a person. `pr_precheck` runs the same status again before a pull request
-opens, so a commit made after this count that edits a test sends the run back
-here (`precheck_status: recount`).
-
-When the seat declines (`held: declined <path> by <seat>`), submit
-`counting_status: declined`: the run returns to `implementation`, where the edit is
-reworked or reverted. The third decline of the same set of paths ends the run at
-`done_blocked` on the next tick. A commit after an acceptance holds the changed
-file again (`changed since acceptance`); mint a new seat for it. `held: uncommitted
-changes` means the work tree has changes the gate can't classify: commit them.
-`held: no header` means the ledger `test_change_ledger.jsonl` was never started at
-`fix_determination`; that can't be fixed here.
-
-A fix recorded by observations is held by both gates until a seat accepts the pair:
-the brief lists the observations, and `check-green` passes once the acceptance
-covers both digests.
+A fix recorded by observations is held by both gates until the review panels have
+judged the pair `shown` at its current digests (`held: observation due for <panel>`,
+or `held: observation not shown: ...` while a seat's `not_shown` finding is open).
+Every packet carries the pair, so the next panel round's re-verifier judges a pair
+re-recorded since.
 
 **A gap in your own tests.** When you find, while the run is held here, that the
 unit's tests need a test-only fix (an assertion narrowed further than the change
-calls for, a case or a row nothing checks), don't commission a seat on tests you
-know are incomplete, and don't submit `declined` when no seat declined. Submit
-`counting_status: test_gap` with `detail` naming the gap. The run returns to
+calls for, a case or a row nothing checks), submit `counting_status: test_gap`
+with `detail` naming the gap, rather than `declined`. The run returns to
 `implementation`: commit the fix there and finish as usual, answering the issue
-type as before. The run's first panel then plans a re-verifier that reviews the
-fix diff, and verification runs again only after it. Nothing is written to the
-acceptance ledger, so the decline limit doesn't move, and the edit is held again
-at its new digest when the run comes back here.
+type as before. The run's first panel then plans a re-verifier that judges the
+test at its new content, and verification runs again only after it.
 
 Submit `counting_status: blocked` with `detail` to stop the run when a hold can't be
 cleared.
@@ -5022,7 +5113,7 @@ One more gate checks what the branch carries, and holds the state until it passe
 
 An exit 2 means the check could not decide (a missing `shirabe` or `jq`, an unreadable range); run the command by hand, through `{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh`, for the reason. On `SHARED_BRANCH` it passes at once: this child opens no pull request, and `/execute` checks the shared branch before it finalizes its own.
 
-`tests_still_counted` re-runs `"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"`, the gate `pass_counting` passed. A commit made since then that edits a test, or changes one that was accepted, holds here (`held:` lines name the file). Submit `precheck_status: recount` to go back to `pass_counting`, where it is accepted as before; nothing else moves the run past this gate while it holds. `held: decline-limit` (the gate exits 3) also takes `recount`, and `pass_counting` then ends the run at `done_blocked`.
+`tests_still_counted` re-runs `"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"`, the gate `pass_counting` passed. A commit made since then that edits a test, or changes one the panels judged, holds here (`held:` lines name the file and the panel it is due for). Submit `precheck_status: recount` to go back to `pass_counting`, which sends it back through the panels as before; nothing else moves the run past this gate while it holds. A hold the gate exits 3 on (`held: budget spent` or `held: no panel reached`) also takes `recount`, and `pass_counting` then ends the run at `done_blocked`.
 
 The branch name is delivered to `pr_creation` and `ci_monitor` as `BRANCH`, so neither recovers it again.
 
@@ -5051,7 +5142,10 @@ Author the title and body to the mechanical rule in `{{PR_BODY_RULES}}`, which
 `skills/writing-style`: the gate below also holds on a banned word from its
 rules (`pr-body/banned-word`), a check that runs here, not in CI.
 
-Check if a PR already exists: `gh pr list --head {{BRANCH}}`
+Check if a PR already exists: `gh pr list --head {{BRANCH}}`. A run that came
+back here from `ci_pass_counting` on `test_gap` has one: reuse it, push the new
+commits to its branch, and submit its URL with `pr_status: created` rather than
+opening another.
 
 Push with `git push -u origin {{BRANCH}}`. `pr_precheck` read the branch and it is already interpolated above; do not recover it again.
 
@@ -5226,6 +5320,19 @@ context names those checks: mention them in your final report. A cancel on an
 open pull request, a failed or pending check, and a cancel outside those
 workflows still fail the gate.
 
+When the merge-base's verification map carries `always_required`, `ci_passing`
+waits only on the checks this change can reach: the hosted twins of the
+commands the change selects and the map's `always_required` checks, read from
+the merge-base's map and again from the current default branch's on every
+read (`relevant_checks.txt` in context lists them). Every one of those must
+pass; a skipped one is not passed, and one not reported yet is pending. A
+check outside that set doesn't hold the run. When one fails, the gate posts
+one pull request comment naming it and its link, once per head, and lists it
+in `ci_outside_failures.txt` in context: name every check that key lists in
+your final report, as failing outside this change, and don't fix it or wait
+for it here. Merging still needs every check green. `CI_WAIT=all` (set at
+init) waits on every check, as does a map with no `always_required`.
+
 A pull request with no checks at all is not green. Just after a push, before
 GitHub creates the check suites, `gh pr checks` answers `no checks reported`:
 that is pending, and the state holds on `ci_passing` exactly as it does while a
@@ -5351,12 +5458,36 @@ on the passing path you submit nothing.
   and tick; a green that exits non-zero is `counting_status: green_failed`, which
   returns the run to `ci_monitor` to fix and push.
 - `tests_counted`: `"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"`.
-  An edited test held here is accepted exactly as at `pass_counting`: mint a seat
-  with `test-change.sh seat` and commission it with the brief, or, in a
-  repository that requires a person, stop and report the command `status`
-  prints. A decline is `counting_status: declined`, back to `ci_monitor`, where
-  the edit is reworked or reverted and pushed; the third decline of the same
-  paths ends at `done_blocked`.
+  It holds an edited test or observation pair exactly as at `pass_counting`: due
+  for a panel that hasn't judged it at its content now, or under an open
+  weakens or not-shown finding. When `status` exits 3 no further lap can clear
+  the hold (the panel retry budget is spent, or the run went back once and
+  still no panel has recorded) and the run ends at `done_blocked`.
+
+How you answer a hold depends on what the answer is:
+
+- **The answer is a test change**: submit `counting_status: test_gap` with
+  `detail` naming what the test change fixes. Use it when the held item is a
+  test the CI fix edited and the test itself is what you keep, rework or
+  extend, and when you find, after CI, that the unit's tests need a test-only
+  fix (an assertion narrowed further than the change calls for, a case
+  nothing checks). The run returns to `implementation`: commit the test change
+  there and finish as usual. The next lap reaches the run's first panel, whose
+  re-verifier judges the test at its new content before verification runs
+  again, and the run comes back here once CI passes on the new head. A
+  re-verifier that finds the test weakened sends the run back to
+  `implementation` and spends one panel retry; once the budget is spent the
+  run ends at `done_blocked`.
+- **The answer isn't a test change**: submit `counting_status: declined`, back
+  to `ci_monitor`, when you revert the test edit and fix CI some other way.
+  `ci_monitor` plans no panel round, so a test edit pushed from there is held
+  again on the next green with nothing to judge it; don't answer a test hold
+  that way.
+
+On the way back through `pr_creation` after `test_gap`, the run already has its
+pull request: push the new commits to the same branch and submit the same URL
+with `pr_status: created`. Don't open a second one. A child on `/execute`'s
+shared branch submits `pr_status: shared` as before.
 
 Once both pass, the `is_root` gate decides where the run goes: it runs
 `"{{PLUGIN_ROOT}}/skills/work-on/scripts/session-role.sh" {{SESSION_NAME}}`, which

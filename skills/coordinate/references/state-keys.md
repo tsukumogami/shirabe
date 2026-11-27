@@ -407,7 +407,11 @@ settles the row against niwa's listing before every dispatch
 (`dc_successor_settle` in `dispatch-common.sh`): a `dispatching` row whose
 session is listed is written `dispatched`, and a `dispatched` row whose
 session a listing that was read doesn't show is written `stranded`; a
-listing that can't be read writes nothing. `--successor clear --by <who>`
+listing that can't be read writes nothing. Reconcile settles the row too:
+the pass runs `reconcile-settle.sh --successor` when the record read finds
+it `dispatching` or `dispatched`, under the run's successor lock, with the
+same rule, and the report names a row still pending on its
+`Successor pending:` line. `--successor clear --by <who>`
 removes the row; the successor's opener runs it when it takes the run over
 with `--dispatched-by` naming the run in the row's Set by, and any other
 takeover keeps the row, carried with the rest of the record.

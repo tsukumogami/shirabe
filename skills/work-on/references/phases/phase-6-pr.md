@@ -291,10 +291,10 @@ If checks fail:
 4. Re-check
 
 Fix a failing test by fixing the code it tests. A test edit holds the unit until
-someone other than you accepts it: an edited test (a line removed or changed, the
+the review panels have judged it: an edited test (a line removed or changed, the
 file deleted or renamed with a change) is held at `ci_pass_counting` once CI
-passes, and the run goes no further until an acceptance seat, or a person where
-the repository requires one, accepts the edit. When the test itself is wrong,
+passes, and the run goes no further until a panel's judgment at its content now
+is recorded. When the test itself is wrong,
 edit it and record why with `test-change.sh note`, as
 `phase-4-implementation.md` describes; never edit or skip a test only to turn a
 check green.
@@ -326,13 +326,21 @@ ready pull request (the macOS legs, for example) are waited for like any other.
 
 None on the green path: once every check passes and the pull request is not
 DIRTY, koto routes the run itself: `ci_pass_counting` counts the pass (a test
-edited while fixing CI is held there until accepted, as at `pass_counting`),
+edited while fixing CI is held there until the panels have judged it, as at `pass_counting`),
 then sends a root to the cascade and a child to `done` (the `is_root` gate).
 That includes a pull request GitHub reports MERGED whose
 only non-green checks are cancelled runs of the repo's macOS floor workflows:
 the gate passes it, and `ci_cancelled_after_merge.txt` in context names the
 cancelled checks for the final report. A failed or pending check, and a cancel
 on an open pull request, still fail it.
+
+When the merge-base's verification map carries `always_required`, "every check"
+is the relevant set: the selected commands' hosted twins and that list, from the
+merge-base's map and the current default branch's (`relevant_checks.txt` in
+context). Each must pass; a skipped twin isn't passed. A failing check outside the
+set doesn't hold the run: the gate comments on it once per head and lists it in
+`ci_outside_failures.txt`, which the final report names. Don't fix or wait for it
+in this run. `CI_WAIT=all` waits on every check.
 
 A pull request with no checks at all fails it too. Just after a push, before
 GitHub creates the check suites, `gh pr checks` answers `no checks reported`:

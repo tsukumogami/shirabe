@@ -5,7 +5,7 @@ stateDiagram-v2
     ci_monitor --> merge_readiness : gates.monitor_owned_pr.exit_code: 0, gates.owned_pr_merged.exit_code: 0
     ci_monitor --> merge_readiness : gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 0, gates.owned_merge_state_clean.exit_code: 0, gates.owned_pr_merged.exit_code: 1
     ci_monitor --> escalate_dirty_merge_state : gates.monitor_owned_pr.exit_code: 0, gates.owned_merge_state_clean.exit_code: 1, gates.owned_pr_merged.exit_code: 1
-    ci_monitor --> merge_readiness : ci_outcome: failing_fixed, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0, gates.owned_pr_merged.exit_code: 1
+    ci_monitor --> merge_readiness : ci_outcome: failing_fixed, gates.ci_fix_tests_judged.exit_code: 0, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0, gates.owned_pr_merged.exit_code: 1
     ci_monitor --> merge_readiness : ci_outcome: pending, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0, gates.owned_pr_merged.exit_code: 1
     ci_monitor --> done_blocked : ci_outcome: failing_unresolvable, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0, gates.owned_pr_merged.exit_code: 1
     ci_monitor --> done_blocked : gates.monitor_owned_pr.exit_code: 3
@@ -52,7 +52,7 @@ stateDiagram-v2
     pr_finalization --> done_blocked : gates.final_owned_pr.exit_code: 2
     settled_branch_record --> drift_facts : gates.settled_branch_recorded.matches: true
     settled_branch_record --> done_blocked : gates.settled_branch_recorded.matches: false, status: blocked
-    spawn_and_await --> pr_finalization : gates.batch_done.all_complete: true, gates.batch_done.all_success: true
+    spawn_and_await --> pr_finalization : gates.batch_done.all_complete: true, gates.batch_done.all_success: true, gates.steps_landed.exit_code: 0
     spawn_and_await --> escalate : gates.batch_done.all_complete: true, gates.batch_done.all_success: false, gates.batch_done.needs_attention: true
     worktree_discipline_check --> spawn_and_await : impact: informational
     worktree_discipline_check --> escalate_upstream_drift : impact: intent-changing
@@ -67,6 +67,9 @@ stateDiagram-v2
     merged --> [*]
     paused_for_review --> [*]
     ready_awaiting_merge --> [*]
+    note left of ci_monitor
+        gate: ci_fix_tests_judged
+    end note
     note left of ci_monitor
         gate: monitor_owned_pr
     end note
@@ -159,6 +162,9 @@ stateDiagram-v2
     end note
     note left of spawn_and_await
         gate: batch_done
+    end note
+    note left of spawn_and_await
+        gate: steps_landed
     end note
     note left of worktree_sync
         gate: current_with_main

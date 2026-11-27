@@ -32,8 +32,7 @@
 # hide behind an earlier line.
 #
 # Callers: skills/work-on/scripts/fix-kind.sh reads `## Fix Labels:` with it,
-# skills/work-on/scripts/test-change.sh `## Test Change Acceptance:`, and
-# skills/work-on/scripts/clean-build-output.sh `## Build Output Cleanup:`
+# and skills/work-on/scripts/clean-build-output.sh `## Build Output Cleanup:`
 # through claude_md_header_named.
 #
 # Written for the bash 3.2 floor.

@@ -120,7 +120,7 @@
 # Functions (the contract for check-verification.sh, check-pr-output.sh and
 # /execute parity): vr_now, vr_locate, vr_map_at, vr_timed_out_checks,
 # vr_closing_paths, vr_diff_check, vr_open_check, vr_sanitize_reason,
-# vr_validate_record, vr_body_line, vr_reason_line, vr_body_check,
+# vr_validate_record, vr_body_line, vr_neutral, vr_reason_line, vr_body_check,
 # vr_pr_object, vr_runs, vr_job, vr_child_checks. Each sets VR_* globals
 # rather than printing where a caller needs more than one value; VR_CAUSES is
 # a newline list of causes.
@@ -637,13 +637,23 @@ vr_body_line() {
                      | join("; "))' <<<"$1"
 }
 
-# vr_reason_line <record json>: the reason as one line in a code span. The
-# backticks are gone (vr_sanitize_reason) and @, #, <, >, [ and ] become _,
-# so it mentions nobody, references nothing, links nothing, renders no tag,
-# and can't start a `Hosted of record:` line.
+# VR_NEUTRAL_JQ: the jq definition `neutral`, which makes a string safe to
+# post inside a code span: control characters become spaces, backticks go,
+# and @, #, <, >, [ and ] become _, so it mentions nobody, references
+# nothing, links nothing and renders no tag. vr_reason_line and
+# ci-relevant.sh's pull request comment both use it.
+VR_NEUTRAL_JQ='def neutral: gsub("[[:cntrl:]]"; " ") | gsub("`"; "") | gsub("[@#<>\\[\\]]"; "_");'
+
+# vr_neutral <text>: the text, neutral (VR_NEUTRAL_JQ), on one line.
+vr_neutral() {
+    jq -rn --arg t "$1" "$VR_NEUTRAL_JQ"' $t | neutral'
+}
+
+# vr_reason_line <record json>: the reason as one line in a code span,
+# neutral (VR_NEUTRAL_JQ), so it can't start a `Hosted of record:` line
+# either.
 vr_reason_line() {
-    jq -r '"Reason for the hosted route: `"
-           + (.reason | gsub("[[:cntrl:]]"; " ") | gsub("`"; "") | gsub("[@#<>\\[\\]]"; "_")) + "`"' <<<"$1"
+    jq -r "$VR_NEUTRAL_JQ"' "Reason for the hosted route: `" + (.reason | neutral) + "`"' <<<"$1"
 }
 
 # vr_body_check <draft|ready> <body file> <record json> <pr url>: sets

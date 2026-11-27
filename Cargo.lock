@@ -524,6 +524,7 @@ dependencies = [
  "assert_cmd",
  "clap",
  "getrandom",
+ "libc",
  "predicates",
  "regex",
  "rustix",

@@ -17,6 +17,11 @@
 #
 # Usage: pr-checks.sh [<number> | <url> | <branch>] [--repo <owner/repo>]
 #                     [--json <fields>] [--jq <filter>]
+#                     [--relevant <file> | --outside <file>]
+#
+# --relevant and --outside are this script's own: gh never sees them. Without
+# either, everything below holds exactly as written. With one, see "The
+# relevant filter" at the end of this header.
 #
 # 1. It runs `gh pr checks` with its arguments as given. Unless gh's stderr
 #    says the read was refused (`Resource not accessible`), gh's stdout,
@@ -85,6 +90,34 @@
 # Exit codes: gh's own on the passthrough; on the fallback 0 a list printed,
 # 1 no checks or a failed read, 2 usage.
 #
+# The relevant filter. `--relevant <file>` keeps only the checks a run waits
+# on; `--outside <file>` keeps only the others. The file is what
+# `run-verification.sh --relevant` prints (koto key relevant_checks.txt): one
+# line per check, `<workflow file>\t<job>\t<workflow display name>`, and a
+# check can have several lines, one per display name its workflow file has at
+# the commits read. A check is relevant when its name is a line's job and its
+# workflow (the display name gh reports, `name:` in the workflow file) is
+# that line's display name: the workflow and the job together, never a bare
+# check name, so a same-named job in another workflow is not relevant, and a
+# sliced or matrix job is relevant only under its exact name
+# (`skill-gate (ubuntu-latest)`, not `skill-gate-suites (ubuntu-latest, 2)`).
+# Under --relevant, a check of the file that is not reported at all is listed
+# as pending (state EXPECTED, workflow its first display name), so a check
+# that hasn't started yet never reads as absent. An empty file keeps nothing,
+# which no gate reads as green. Blank lines are ignored; a line without three
+# non-empty tab-separated fields is a usage error.
+#
+# With either flag the list is read in full before it is filtered: gh pr
+# checks is run with the selector, --repo, and --json carrying name and
+# workflow besides the fields asked for (name,bucket,workflow,link without
+# --json), never with --jq or any other flag, and its pending exit (8) with
+# a JSON list on stdout is a list like any other. Then the filter, the
+# fields asked for and --jq are applied here; without --json the lines are
+# the fallback's tab-separated ones. A refused read takes the fallback, whose
+# list is filtered the same way. Any other gh failure passes through as gh's
+# own. A flag the fallback can't serve is a usage error with either flag,
+# whether or not the token can read checks.
+#
 # Bash 3.2: no associative arrays, no mapfile.
 set -uo pipefail
 
@@ -94,7 +127,25 @@ PROG=pr-checks
 ACTIONS_APP=15368
 FIELDS_OK=" name workflow link state bucket description event startedAt completedAt "
 
-usage() { echo "$PROG: $*" >&2; echo "usage: pr-checks.sh [<number> | <url> | <branch>] [--repo <owner/repo>] [--json <fields>] [--jq <filter>]" >&2; exit 2; }
+usage() { echo "$PROG: $*" >&2; echo "usage: pr-checks.sh [<number> | <url> | <branch>] [--repo <owner/repo>] [--json <fields>] [--jq <filter>] [--relevant <file> | --outside <file>]" >&2; exit 2; }
+
+# --relevant and --outside come out first, so gh never sees them. A value
+# another flag takes is passed over, whatever it says.
+REL_MODE="" REL_FILE=""
+KEEP=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --relevant|--outside)
+            [ $# -ge 2 ] || usage "$1 needs a file"
+            [ -z "$REL_MODE" ] || usage "only one of --relevant and --outside, once"
+            REL_MODE=${1#--}; REL_FILE=$2; shift 2 ;;
+        --repo|-R|--json|--jq|-q)
+            KEEP+=("$1"); shift
+            [ $# -eq 0 ] || { KEEP+=("$1"); shift; } ;;
+        *) KEEP+=("$1"); shift ;;
+    esac
+done
+set -- ${KEEP[@]+"${KEEP[@]}"}
 
 # The arguments are read for the fallback only. Whatever they are, gh gets
 # them first, as given: a flag the fallback can't serve (--watch, --required,
@@ -116,21 +167,61 @@ done
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/pr-checks.XXXXXX") || exit 1
 trap 'rm -rf "$TMP"' EXIT
 
+no() { echo "$PROG: $*" >&2; exit 1; }
+
+# The relevant filter's file, read before any check read: a bad file is a
+# usage error whatever GitHub would answer.
+if [ -n "$REL_MODE" ]; then
+    [ -z "$BADARG" ] || usage "with --$REL_MODE, $BADARG"
+    [ -f "$REL_FILE" ] && [ -r "$REL_FILE" ] || usage "--$REL_MODE file [$REL_FILE] is not a readable file"
+    jq -Rn '[inputs | select(test("\\S")) | split("\t")
+             | if length == 3 and all(.[]; length > 0) then {workflow: .[0], job: .[1], display: .[2]}
+               else error("the line [\(join("\t"))] is not <workflow file> TAB <job> TAB <display name>") end]' \
+        "$REL_FILE" >"$TMP/rel.json" 2>"$TMP/rel.err" \
+        || usage "--$REL_MODE file [$REL_FILE]: $(head -n 1 "$TMP/rel.err")"
+    if [ "$HAVE_JSON" = 1 ]; then
+        for f in $(printf '%s' "$FIELDS" | tr ',' ' '); do
+            case "$FIELDS_OK" in *" $f "*) ;; *) usage "field [$f] can't be read with --$REL_MODE" ;; esac
+        done
+        READ_FIELDS=$(jq -rn --arg f "name,workflow,$FIELDS" '$f | split(",") | map(select(. != "")) | unique | join(",")') \
+            || no "internal: the fields could not be read"
+    else
+        READ_FIELDS="name,bucket,workflow,link"
+    fi
+fi
+
 # ---- 1. the check read itself ---------------------------------------------
 # Only GitHub's refusal of the check read falls back: "Resource not
 # accessible" is in both the GraphQL and the REST wording. Any other failure,
 # a 403 for a rate limit included, passes through as gh's own.
-gh pr checks ${ARGS[@]+"${ARGS[@]}"} </dev/null >"$TMP/out" 2>"$TMP/err"
-RC=$?
-if [ "$RC" -eq 0 ] || ! grep -q 'Resource not accessible' "$TMP/err"; then
-    cat "$TMP/out"
-    cat "$TMP/err" >&2
-    exit "$RC"
+FALLBACK=1
+if [ -z "$REL_MODE" ]; then
+    gh pr checks ${ARGS[@]+"${ARGS[@]}"} </dev/null >"$TMP/out" 2>"$TMP/err"
+    RC=$?
+    if [ "$RC" -eq 0 ] || ! grep -q 'Resource not accessible' "$TMP/err"; then
+        cat "$TMP/out"
+        cat "$TMP/err" >&2
+        exit "$RC"
+    fi
+    [ -z "$BADARG" ] || usage "the check read was refused, and $BADARG"
+else
+    # The full list, filtered below: gh's own --jq would run before the
+    # filter, so it is never passed.
+    gh pr checks ${SELECTOR:+"$SELECTOR"} ${REPO_ARG:+--repo "$REPO_ARG"} --json "$READ_FIELDS" \
+        </dev/null >"$TMP/out" 2>"$TMP/err"
+    RC=$?
+    if { [ "$RC" -eq 0 ] || [ "$RC" -eq 8 ]; } && jq -e 'type == "array"' "$TMP/out" >/dev/null 2>"$TMP/out.jqerr"; then
+        mv "$TMP/out" "$TMP/list.json"
+        FALLBACK=0
+    elif [ "$RC" -eq 0 ] || ! grep -q 'Resource not accessible' "$TMP/err"; then
+        [ "$RC" -ne 0 ] || no "gh pr checks printed no JSON list: $(head -n 1 "$TMP/out.jqerr")"
+        cat "$TMP/err" >&2
+        exit "$RC"
+    fi
 fi
-[ -z "$BADARG" ] || usage "the check read was refused, and $BADARG"
 
 # ---- 2. the fallback --------------------------------------------------------
-no() { echo "$PROG: $*" >&2; exit 1; }
+read_fallback() {
 echo "$PROG: the check read was refused ($(head -n 1 "$TMP/err" | cut -c1-160)); reading the Actions runs and the commit's statuses instead" >&2
 
 if [ "$HAVE_JSON" = 1 ]; then
@@ -311,6 +402,28 @@ jq -nc --argjson app "$ACTIONS_APP" --slurpfile runs "$TMP/runs.json" --slurpfil
 if [ "$(jq length "$TMP/list.json")" = 0 ]; then
     echo "no checks reported on the '$BRANCH' branch" >&2
     exit 1
+fi
+}
+[ "$FALLBACK" = 0 ] || read_fallback
+
+# ---- 3. the relevant filter -------------------------------------------------
+# Workflow and job together, never a bare name (see the header).
+if [ -n "$REL_MODE" ]; then
+    jq -c --arg mode "$REL_MODE" --slurpfile rel "$TMP/rel.json" '
+        $rel[0] as $R
+        | def hit($c): any($R[]; .job == $c.name and .display == ($c.workflow // ""));
+          ([ .[] | select(hit(.)) ]) as $kept
+        | if $mode == "outside" then [ .[] | select(hit(.) | not) ]
+          else $kept
+            + [ $R | map({workflow, job}) | unique | .[] | . as $g
+                | [ $R[] | select(.workflow == $g.workflow and .job == $g.job) | .display ] as $names
+                | select(any($kept[]; .name == $g.job and ((.workflow // "") as $w | $names | index([$w]) != null)) | not)
+                | {name: $g.job, workflow: $names[0], link: "", state: "EXPECTED", bucket: "pending",
+                   description: "relevant to this change (\($g.workflow)), and not reported yet",
+                   event: "", startedAt: "", completedAt: ""} ]
+          end' "$TMP/list.json" >"$TMP/filtered.json" \
+        || no "internal: the relevant filter could not be applied"
+    mv "$TMP/filtered.json" "$TMP/list.json"
 fi
 
 if [ "$HAVE_JSON" = 0 ]; then

@@ -12,7 +12,7 @@ description: >-
   this skill per issue. Do NOT use it for a feature whose requirements are not
   written down anywhere — starting to code is how that feature gets decided
   by accident, and `/scope` is what settles it first.
-argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description"> [--review-floor=<level>] [--review-ceiling=<level>] [--verification=auto|local|hosted-ci [--verification-reason=<why>]] [--delivery=partial --delivery-reason=<why>] [--koto-leg=<request-id>:work-on]'
+argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description"> [--review-floor=<level>] [--review-ceiling=<level>] [--verification=auto|local|hosted-ci [--verification-reason=<why>]] [--delivery=partial --delivery-reason=<why>] [--ci-wait=all] [--koto-leg=<request-id>:work-on]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
@@ -207,6 +207,29 @@ silent skip:
   (`references/phases/phase-6-pr.md` has the section). `ci_monitor` then requires
   that CI green, as it does for every run.
 
+### Waiting Only on Relevant Checks
+
+`ci_monitor` waits on every check of the pull request unless the verification map
+at the merge-base carries `always_required` (`references/verification-map.md`,
+**Waiting only on relevant checks**). With it, `ci_passing` waits only on the
+checks the change can reach: the `hosted` twins of the commands the change selects,
+and the `always_required` list, read from the merge-base's map and again from the
+current default branch's on every read, keeping the union
+(`run-verification.sh --relevant`, recorded as `relevant_checks.txt`). Checks match
+on workflow and job together, never on a bare name. Every one must pass: a skipped
+twin isn't passed, since a twin that `needs:` its slices is skipped when one fails,
+and one not reported yet is pending.
+
+A failing check outside that set doesn't hold the green edge. The gate posts one pull
+request comment carrying only the check's name and link, mentions and markup
+neutralised, once per check per head, and lists it in `ci_outside_failures.txt`:
+name every check there in the final report. Merging is unchanged: `/execute`'s merge
+readiness still needs every check green.
+
+`CI_WAIT=all`, the opt-out, waits on every check whatever the map says: pass
+`--ci-wait=all` in the invocation (see **Initialize**). koto refuses any other value
+(`invalid_var`), and the variable isn't rebindable.
+
 ### Fixes Start Red
 
 A unit whose purpose is to correct behaviour reported as wrong is a **fix**, and a
@@ -233,29 +256,27 @@ the rules; this is the route.
   with `red-first.sh green` and exiting 0, before `fix_green` lets it finalize.
   `tests_counted` (`scripts/test-change.sh status`) holds a unit whose committed
   diff edits a test (removes a line, deletes it, renames it with a change) or
-  that rests on observations, until someone other than the run accepts it. In a
-  repository that isn't person-required the run mints an acceptance seat with
-  `test-change.sh seat`, commissions it with the brief the script prints, and the
-  seat accepts or declines under its minted identity; nothing waits for a person.
-  A decline returns the run to implementation, and the third decline of the same
-  tests ends it at `done_blocked`. A run that finds a gap in its own tests while
-  held submits `counting_status: test_gap`, naming the gap: it returns to
-  implementation for a test-only fix, which the first panel's re-verifier reviews
-  before verification runs again, and no decline is recorded. A unit that only
+  that rests on observations, until the review panels have judged each such item
+  at its content now. It reads the panels' record through
+  `panel-scope.sh --due-items`: an item is due for a panel that has no judgment
+  of it at its current content (before any panel has recorded, every item is
+  due), and a `weakens` or `not_shown` judgment is an open blocking finding. A
+  held run submits `counting_status: declined` and goes back through
+  implementation to the panels, whose re-verifier judges what is due; nothing
+  waits for a person. When `panel-retry-budget.sh --remaining` reports no retry
+  left, or the run already went back once and still no panel has recorded,
+  `status` exits 3 and the run ends at `done_blocked`. A run that finds a
+  gap in its own tests while held submits `counting_status: test_gap`, naming
+  the gap: it returns to implementation for a test-only fix, which the first
+  panel's re-verifier judges before verification runs again. A unit that only
   adds tests is counted at once.
-  A repository whose `CLAUDE.md` declares `## Test Change Acceptance: person` takes
-  no seat: the run stops at `pass_counting`, `status` prints the exact
-  `test-change.sh accept` command a person runs in a terminal, and the run is
-  resumed once they have. A higher authority can overrule an acceptance with
-  `test-change.sh overrule`, before or after the run finished.
 - **`pr_precheck`** re-runs `status` as `tests_still_counted`, so a commit made
   after counting that edits a test is held again (`precheck_status: recount`
   goes back to `pass_counting`).
 - **`ci_pass_counting`**, after CI passes on the open pull request. The same two
-  gates run again, since a commit that fixed CI may have edited a test; a decline
-  returns the run to `ci_monitor`. Who accepted, under what authority, reads back
-  from the session with `test-change.sh record`; nothing is written to the pull
-  request.
+  gates run again, since a commit that fixed CI may have edited a test;
+  `declined` returns the run to `ci_monitor`. The record reads back from the
+  session with `test-change.sh record`; nothing is written to the pull request.
 
 ### Finalization and No Silent Deferral
 
@@ -370,9 +391,10 @@ description. Set aside the review-level bound the same way, `--review-floor=<lev
 and `--review-ceiling=<level>` (see **Review Level**), and the verification deferral,
 `--verification=<value>` and `--verification-reason=<why>` (see **Deferring
 Verification to Hosted CI**), and the partial delivery, `--delivery=<value>` and
-`--delivery-reason=<why>` (see **Initialize**). Set aside only for
+`--delivery-reason=<why>` (see **Initialize**), and the CI wait, `--ci-wait=<value>`
+(see **Waiting Only on Relevant Checks**). Set aside only for
 detection: the tokens file `work-on-open.sh` reads is the original `$ARGUMENTS`,
-`--koto-leg`, the bound, the deferral and the delivery included.
+`--koto-leg`, the bound, the deferral, the delivery and the CI wait included.
 
 - If `$ARGUMENTS` begins with `-- plan-backed` — **plan-backed child mode** (highest priority; the plan-level coordinator /execute is spawning this as a per-issue child workflow)
 - If the argument is a path matching `docs/plans/PLAN-*.md`, or any `.md` file whose frontmatter contains `schema: plan/v1` or `schema: plan/v2` — **plan dispatcher mode** (see Plan Input above). `plan/v1` plans carry issue outlines; `plan/v2` plans carry steps (see `skills/plan/references/plan-format.md`)
@@ -512,6 +534,11 @@ characters. Both refusals are `error=usage`; say which, and stop rather than ope
 without the deferral. koto refuses a `VERIFICATION` other than `auto`, `local` or
 `hosted-ci`, and a reason outside its pattern (`invalid_var`); report the refusal
 and stop.
+
+**The CI wait.** `--ci-wait=all` stays in the tokens too: the script hands koto
+`CI_WAIT=all`, and `ci_monitor` then waits on every check rather than on the
+relevant set (see **Waiting Only on Relevant Checks**). Don't pass it as `--var`.
+koto refuses any other value (`invalid_var`); report the refusal and stop.
 
 **The partial delivery.** A planned split, where this run's pull request delivers
 one step of the issue and leaves the issue open, is declared with
@@ -707,7 +734,18 @@ leg, since one leg answers one session.
   the Actions jobs at the head and the commit's statuses, and lists each
   required check neither answers, or that only another app's check run could,
   in the bucket `unreadable`, which no gate counts as green. It never touches
-  the token. `scripts/pr-checks_test.sh` is its harness.
+  the token. `--relevant <file>` keeps only the checks whose workflow and job
+  match a line of the relevant set, listing one not reported yet as pending;
+  `--outside <file>` keeps the others. gh never sees either flag, and both
+  work on the fallback too. `scripts/pr-checks_test.sh` is its harness.
+- `scripts/ci-relevant.sh --session <s> [--ci-wait <all|>] [<pr>]` — run by
+  koto, never by the agent, as `ci_passing`'s first read (see **Waiting Only on
+  Relevant Checks**). It reads the relevant set with `run-verification.sh
+  --relevant`, exits 0 when every relevant check passed, 1 when one hasn't, and
+  3 when the filter is off, which sends the gate to its read of every check. On
+  green it comments once per head on each failing check outside the set and
+  records it in `ci_outside_failures.txt`. `scripts/ci-relevant_test.sh` is its
+  harness.
 - `scripts/pr-url.sh` — sourced, never run: `pr_url_parse` splits a pull
   request URL into its host, owner and repository, or refuses it. Both CI
   fallbacks above take the repository from the pull request's URL through it
@@ -774,19 +812,19 @@ leg, since one leg answers one session.
   asked; 1 otherwise, and the agent answers `issue_type`. Bad arguments also
   exit 1, with a `route: ask` line, since the gate's edges name only 0 and 1.
   `scripts/issue-type-route_test.sh` is its harness.
-- `scripts/test-change.sh init|classify|note|seat|accept|decline|overrule|status|covered|record`
+- `scripts/test-change.sh init|classify|note|status|covered|record`
   — the held test change (`references/red-first.md`), the only writer of the
-  `test_change_ledger.jsonl` context key. koto runs `init --entry` in
+  `test_change_ledger.jsonl` context key. A passing `status` also records
+  the head it counted at as `counted_head`, which `/execute`'s
+  `ci-fix-tests.sh` reads. koto runs `init --entry` in
   `fix_determination`'s action and `status` as `pass_counting`'s and
   `ci_pass_counting`'s `tests_counted` gate and `pr_precheck`'s
   `tests_still_counted` (finding `test-change/held`); the agent runs `note` while
-  implementing and `seat` at a hold, and the seat runs `accept` or `decline`. A
-  person runs `accept` at a terminal, a coordinator or person `overrule`, and
-  anyone `record` to read the ledger back. Every decision is
-  asked of `scripts/lib/acceptance-rule.sh`, the interim rule, which a later
-  shared decision rule replaces in that one file. Exit codes are in its header;
-  `scripts/test-change_test.sh`, `scripts/test-change-routes_test.sh` and
-  `scripts/lib/acceptance-rule_test.sh` are its harnesses.
+  implementing, and anyone runs `record` to read the ledger back. `status` and
+  `covered` answer from the panels' record (`panel-scope.sh --due-items`) and
+  `panel-retry-budget.sh --remaining`, never from a ledger line but the header.
+  Exit codes are in its header; `scripts/test-change_test.sh` and
+  `scripts/test-change-routes_test.sh` are its harnesses.
 - `scripts/work-on-open.sh --workflow <WF> [--var NAME=VALUE]... [--dispatched-by <dispatcher>] <tokens-file>`
   — the one entry for every issue-backed and free-form run (see **Initialize**
   and **Answering a Caller's Leg**): maps `--review-floor=`/`--review-ceiling=`,
@@ -819,6 +857,9 @@ leg, since one leg answers one session.
   directives run it before the retry loop. Exit codes: 0 granted, 1 refused,
   64 the record could not be read or is malformed, 66 the grant could not be
   recorded, 67 bad arguments; every exit but 0 means escalate.
+  `--remaining <session-name>` is its read-only mode for `test-change.sh
+  status`: it prints how many retries the ceiling still allows and writes
+  nothing.
 - `scripts/check-closing-keyword.sh` — run by koto, never by the agent, as
   `pr_creation`'s `closing_keyword` gate, in three modes. `--approved-pass <log>`
   is the log probe, run on every issue-backed run that didn't declare

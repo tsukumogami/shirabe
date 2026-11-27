@@ -799,4 +799,79 @@ if mrun relaunch owed; then
     eq "14 relaunch: ... one dispatching entry for the topic across both runs" 1 "$(entries_with "Run successor dispatching relaunch-successor-1")"
 fi
 
+# ---- 15. reconcile settles a pending successor row and names it -----------------------
+# A manager run's successor launch is left dispatching (the launch failed
+# with the listing unreadable, exit 6) and its session then shows in the
+# stand-in's listing: the run's next reconcile pass settles the row
+# dispatched and its report names it on a Successor pending: line. With the
+# session gone, the next pass settles it stranded, with no line. A second
+# run whose launch was left dispatching with no session listed gets a line
+# naming the command to run again; that command with the topic it names
+# launches once, exits 0 and leaves the row dispatched.
+# rpass: a restart's reconcile, through the template's own path. From pick
+# a hold takes the run to wait, and the moved tick takes it into reconcile_pass, a
+# new visit (a visit already sealed would only say its report again), whose
+# action runs the pass with the niwa stand-in, at most three times until it
+# seals. The pass is run once more for its line, which a sealed visit says
+# again: PRC its exit, PLINE its line, REP the report. The run is then ticked
+# back to pick, so a dispatch after it runs from where the run was.
+rpass() {
+    local n=0 sd st
+    : > "$T/work/.niwa/workspace.toml"
+    [ "$(now_at)" = wait ] || [ "$(at --with-data '{"choice":"hold"}')" = wait ] \
+        || bad "15: a hold takes the run to wait" "$(now_at) $(cat "$T/tick.err")"
+    st=$(NIWA="$NS/niwa" at --with-data '{"event":"moved"}')
+    while [ "$st" = reconcile_pass ] && [ $n -lt 3 ]; do st=$(NIWA="$NS/niwa" at); n=$((n + 1)); done
+    [ "$st" = reconcile ] || bad "15: the moved tick takes the run through a reconcile" "$st $(cat "$T/tick.err")"
+    sd=$(koto session dir "$S")
+    PLINE=$(cd "$WD" && NIWA="$NS/niwa" bash "$PS/reconcile-pass.sh" --session "$S" --session-dir "$sd" 2> "$T/rp.err"); PRC=$?
+    rm -f "$T/work/.niwa/workspace.toml"
+    REP=$(cd "$WD" && bash "$PS/reconcile-report-get.sh" --session "$S" --md 2>&1)
+    [ "$(at --with-data '{"reconciled":"reported"}')" = pick ] \
+        || bad "15: the run goes back to pick after the pass" "$(now_at) $(cat "$T/tick.err")"
+}
+pending_line() { printf '%s\n' "$REP" | sed -n 's/^Successor pending: //p'; }
+ns_reset
+if mrun settle owed; then
+    : > "$NS/fail-next"; : > "$NS/blind-next"
+    successor settle-successor-1
+    eq "15: a launch left with the listing unreadable leaves the row dispatching" "6 dispatching settle-successor-1 $TODAY" "$SRC $(succ_value)"
+    rm -f "$NS/list-fail"
+    SN1=settle_successor_1-""1a2b3c4d
+    printf '[{"name":"x","path":"/p","session_name":"%s"}]\n' "$SN1" > "$NS/sessions.json"
+    rpass
+    case "$PLINE" in "reconciled "*) ok "15: the pass seals, exit 0" ;; *) bad "15: the pass seals, exit 0" "$PRC [$PLINE] $(cat "$T/rp.err")" ;; esac
+    eq "15: ... the listed dispatching row settled dispatched" "dispatched settle-successor-1 $TODAY" "$(succ_value)"
+    eq "15: ... told as an entry" 1 "$(entries_with "Run successor dispatched settle-successor-1")"
+    has_line "15: ... the move under Changed since then" "$REP" "the Run successor row settled: record said \`dispatching settle-successor-1 $TODAY\`, now \`dispatched settle-successor-1 $TODAY\`"
+    eq "15: ... and a Successor pending: line naming dispatched and the listed session" \
+        "the Run successor row reads \`dispatched settle-successor-1 $TODAY\`, session \`$SN1\` listed; a new successor can be dispatched once the row reads dispatch-failed or stranded" \
+        "$(pending_line)"
+    echo '[]' > "$NS/sessions.json"
+    rpass
+    case "$PLINE" in "reconciled "*) ok "15: with the session gone, the next pass seals" ;; *) bad "15: with the session gone, the next pass seals" "$PRC [$PLINE] $(cat "$T/rp.err")" ;; esac
+    eq "15: ... the row settled stranded" "stranded settle-successor-1 $TODAY" "$(succ_value)"
+    eq "15: ... told as an entry" 1 "$(entries_with "Run successor stranded settle-successor-1")"
+    has_line "15: ... the move under Changed since then" "$REP" "now \`stranded settle-successor-1 $TODAY\`"
+    eq "15: ... and no Successor pending: line" "" "$(pending_line)"
+fi
+ns_reset
+if mrun unconfirmed owed; then
+    : > "$NS/fail-next"; : > "$NS/blind-next"
+    successor unconfirmed-successor-1
+    eq "15 unconfirmed: the row is left dispatching" "6 dispatching unconfirmed-successor-1 $TODAY" "$SRC $(succ_value)"
+    rm -f "$NS/list-fail"
+    rpass
+    case "$PLINE" in "reconciled "*) ok "15 unconfirmed: the pass seals" ;; *) bad "15 unconfirmed: the pass seals" "$PRC [$PLINE] $(cat "$T/rp.err")" ;; esac
+    eq "15 unconfirmed: ... nothing written" "dispatching unconfirmed-successor-1 $TODAY" "$(succ_value)"
+    eq "15 unconfirmed: ... the line names the command to run again" \
+        "the Run successor row reads \`dispatching unconfirmed-successor-1 $TODAY\`, its launch unconfirmed; to finish it, run \`dispatch-worker.sh --session $S --successor\` again with successor_input.json naming \`unconfirmed-successor-1\`" \
+        "$(pending_line)"
+    TOPIC=$(pending_line | sed -n 's/.*successor_input.json naming `\([a-z0-9-]*\)`$/\1/p')
+    successor "$TOPIC"
+    eq "15 unconfirmed: the command with the topic it names exits 0" "0 session=unconfirmed_successor_1-""1a2b3c4d" "$SRC $SO"
+    eq "15 unconfirmed: ... launching once" 2 "$(grep -c '^niwa dispatch' "$NS/calls.log")"
+    eq "15 unconfirmed: ... the row dispatched" "dispatched unconfirmed-successor-1 $TODAY" "$(succ_value)"
+fi
+
 echo; echo "successor-handover engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]

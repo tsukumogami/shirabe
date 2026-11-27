@@ -137,6 +137,20 @@
 #                  verdict for, now owed one, is reported under changes, a
 #                  failed write under not_verified; absent, nothing is
 #                  reported
+#   successor      optional: {row, fact, pending}, the Run successor row
+#                  the record read found dispatching or dispatched. row is
+#                  its value as read; fact the pass's fourth write
+#                  (reconcile-settle.sh --successor): {kind: "successor",
+#                  status: ok|not_verified, before, now, settled, session,
+#                  listing, reason, read_at}, a written row (settled true)
+#                  reported under changes, a failed settle under
+#                  not_verified; pending, null or {row, status, topic,
+#                  session, sentence}: the row as the settle left it (as
+#                  read when the settle didn't finish) while it still reads
+#                  dispatching or dispatched, with the sentence
+#                  dispatch-common.sh dc_successor_pending_msg gave the pass
+#                  for it, the same one dispatch-worker.sh's exit 12 prints.
+#                  Absent, nothing is reported
 #
 # Output: coordinate-reconcile-report/v1
 #
@@ -179,6 +193,14 @@
 #                  (filed #<n>, closed, carried <time>, raised this run)
 #   reasoning      {status, key} or null
 #   not_verified[] {what, reason, raw}
+#   successor      optional: {row, status, topic, session, line}, present
+#                  only while the Run successor row reads dispatching or
+#                  dispatched after the pass. line is `Successor pending: `
+#                  and the facts' sentence; the text prints it after the
+#                  Scope line. A stranded or dispatch-failed row, and no
+#                  row, give no key and no line: the slot is free. The key
+#                  is optional, so the schema stays
+#                  coordinate-reconcile-report/v1
 #   chain          the facts' chain, {start, back_to}, as given, present only
 #                  when the facts hold one whose start is a string and whose
 #                  back_to is a string or null. It is not rendered: the pass
@@ -456,7 +478,12 @@ def changes_of($written):
              plugin_root: (if ($in.plugin_root == "inside" or $in.plugin_root == "outside") then $in.plugin_root else null end)},
     changes: ([$in.holdings[]? | select(.refused == null) | changes_of($w)[]]
       + [($in.owe // null) | select(ok(.)) | (.owed // [])[] | strings
-         | {topic: ., what: "verdict owed", recorded: "Completed, no verdict owed", live: "verdict owed", written: $w, grade: "measured"}]),
+         | {topic: ., what: "verdict owed", recorded: "Completed, no verdict owed", live: "verdict owed", written: $w, grade: "measured"}]
+      # The Run successor row the pass settled (reconcile-settle.sh --successor).
+      + [($in.successor // null) | select(type == "object") | .fact as $sf
+         | select(ok($sf) and $sf.settled == true)
+         | {topic: ((($sf.before // "") | split(" "))[1] // ""), what: "successor row", recorded: ($sf.before // ""),
+            live: ($sf.now // ""), written: $w, grade: "measured"}]),
     holdings: [$in.holdings[]? | phase_of as $ph | {
         topic: topic, unit: (.row.unit // ""), phase: $ph,
         pull_request: ((.row.pull_request // "") as $p
@@ -539,13 +566,22 @@ def changes_of($written):
       + [$in.side_effects[]? | select((.fact.status // "ok") != "ok")
           | {what: ((.row.action // "") + " " + (.row.target // "")), action: (.row.action // ""), target: (.row.target // ""), reason: (.fact.reason // "read failed"), raw: null}]
       + [($in.owe // null) | select(. != null and (ok(.) | not))
-          | {what: "the verdicts owed for Completed milestones", reason: (.reason // "the write failed"), raw: null}])
+          | {what: "the verdicts owed for Completed milestones", reason: (.reason // "the write failed"), raw: null}]
+      + [($in.successor // null) | select(type == "object" and .fact != null and (ok(.fact) | not))
+          | {what: "the Run successor row'"'"'s settle", reason: (.fact.reason // "the settle failed"), raw: null}])
   }
   # The chain facts the deferrals were judged against, carried for the later
   # readers of the seal; a facts document without them gets no key, so its
   # report reads as it did before.
   + ($in.chain | if type == "object" and (.start | type == "string") and (.back_to == null or (.back_to | type == "string"))
                  then {chain: {start, back_to}} else {} end)
+  # A Run successor row still pending after the pass: its line, after the
+  # Scope line. No pending row, no key, so the report reads as before.
+  + ($in.successor.pending // null
+     | if type == "object" and (.sentence | type) == "string" and .sentence != ""
+       then {successor: {row: (.row // ""), status: (.status // ""), topic: (.topic // ""), session: (.session // ""),
+                         line: ("Successor pending: " + .sentence)}}
+       else {} end)
 | .waiting = (
     [.holdings[] | select(.next_code == "land" or .next_code == "held") | {topic, why: .next, grade: "inferred"}]
     + [.side_effects[] | select(.action == "merge" and .code == "not_confirmed") | {topic: .target, why: "merge not confirmed", grade: "inferred"}])
@@ -632,11 +668,13 @@ def code: "`" + . + "`";
   + (if .header.plugin_root == "inside" then " The reconcile scripts ran from inside the repository being worked on."
      elif .header.plugin_root == "outside" then " The reconcile scripts ran from outside the repository being worked on."
      else "" end),
+(if (.successor.line // null) | type == "string" then .successor.line else empty end),
 "",
 section("Changed since then"; [.changes[] | "- \(.topic | code): "
     + (if .what == "head moved" then "head moved past the verified head"
        elif .what == "branch tip differs" then "branch tip differs from the pull request head"
        elif .what == "dispatch status" then "settled: record said dispatching, the worker is live, and the record now says dispatched"
+       elif .what == "successor row" then "the Run successor row settled: record said \(.recorded | code), now \(.live | code)"
        elif .what == "verdict owed" then "verdict owed: the roadmap reads it Completed and the record owed no verdict for it, so the record now owes its verdict and pick offers it"
        elif .what == "leg relegged" then "re-legged: its session came here with the import, so the record now says \(.live | code) in place of \(.recorded | code)"
        elif .what == "leg unwatchable" then "reports by message: its leg \(.recorded | code) cannot be watched from this host, so the record now says message; re-brief the worker (dispatch-worker.sh --rebrief) so its brief gives this coordinator'"'"'s address and names this run as the dispatcher it records"
