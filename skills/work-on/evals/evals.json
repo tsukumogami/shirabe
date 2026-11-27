@@ -1131,6 +1131,22 @@
         "Agent expects the run to go from review_level_check to scrutiny in the same tick with nothing submitted there",
         "Agent expects all three panels (scrutiny, review, QA) at full"
       ]
+    },
+    {
+      "id": 76,
+      "name": "verification-auto-resolves-hosted-ci",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #812 with no --verification flag, in a repository whose verification map at the merge-base declares a hosted twin for the check-skill row. The change edits only skills/plan/SKILL.md, so the map selects check-skill for plan alone, and no changed path is in the ci, security, template or engine class. What happens when the panels pass, what does the pull request say about verification, and what changes if the twin is gone from the default branch's map by the time CI is green?",
+      "expected_output": "With no flag the run is VERIFICATION=auto, the default; the agent passes no --var for it. When the panels pass, koto routes the run through verification_plan, whose verification_route_plan gate runs run-verification.sh --plan in the same tick: every started command has a hosted twin and no path is in a risky class, so it exits 0 and the run goes to verification_deferred, recording verification_deferral as `hosted twins cover every selected command`. No local suite runs. The run finalizes and opens its pull request; the body's Verification section says hosted CI is the build of record (with the Reason: line only when the repository opts in to workflow content). At ci_monitor the hosted_twins gate re-reads the twins from the current default branch; if the twin is gone, koto sends the run back to verification, which runs the map locally, and the run stays local from then on. A failing twin is a failing CI check the agent fixes at ci_monitor. The agent names --verification=local as the way to always verify locally.",
+      "files": [],
+      "expectations": [
+        "Agent treats a run with no --verification flag as VERIFICATION=auto and passes no VERIFICATION --var",
+        "Agent expects verification_plan's gate (run-verification.sh --plan) to decide in the same tick, without the agent submitting anything",
+        "Agent expects the run to reach verification_deferred with the reason `hosted twins cover every selected command`, and runs no local suite",
+        "Agent says a twin gone from the default branch's map at ci_monitor sends the run back to local verification",
+        "Agent names --verification=local as the opt-out"
+      ]
     }
   ]
 }

@@ -143,6 +143,9 @@ stub_gates() {
             if (gate == "fix_green" || gate == "tests_counted") { print "        command: \"exit 0\""; next }
             # The leak gate of the probe passes, as it does for a run in no arm.
             if (gate == "probe_value_absent") { print "        command: \"exit 0\""; next }
+            # The hosted-twin re-check passes, as it does for any run that
+            # did not resolve to hosted CI under VERIFICATION=auto.
+            if (gate == "hosted_twins") { print "        command: \"exit 0\""; next }
         }
         { print }
     '
@@ -173,6 +176,8 @@ $(stub_gates "$CI_PASS_COUNTING" "${3:-0}" "${4:-0}" "${5:-0}")
     terminal: true
   hosted_record:
     terminal: true
+  verification:
+    terminal: true
   done:
     terminal: true
   done_blocked:
@@ -191,6 +196,9 @@ Green CI routes on the gates; submit ci_outcome only while CI fails.
 
 ## hosted_record
 Stub terminal for the hosted-of-record read, which a run with no record never reaches.
+
+## verification
+Stub terminal for the hosted-twin re-check's way back, which a run with its twins never takes.
 
 ## ci_pass_counting
 Counts the pass, then routes on is_root.

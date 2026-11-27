@@ -170,23 +170,31 @@ and review round lines), and tells the started coordinator to fill its
 bare name.
 
 `launch` is how niwa starts the worker, and changes nothing in the brief.
-Give it one or more of `model`, `permission_mode` and
-`accept_session_messages`:
+Give it one or more of `model`, `permission_mode`,
+`accept_session_messages` and `profile`:
 
 ```json
-"launch": {"model": "opus", "permission_mode": "bypassPermissions", "accept_session_messages": true}
+"launch": {"model": "opus", "permission_mode": "bypassPermissions", "accept_session_messages": true, "profile": "lean-worker"}
 ```
 
 `model` is one of niwa's capability categories (`balanced`, `fast`,
 `powerful`) or a versionless model name (`fable`, `opus`, `sonnet`,
 `haiku`); `permission_mode` is one of `default`, `acceptEdits`, `plan`,
 `auto`, `dontAsk` and `bypassPermissions`; `accept_session_messages` is
-`true` or `false`. `render-brief.sh` refuses any other key or value, so
-nothing you didn't pick from those sets reaches the launch. Use it to start
-a worker in the permission mode you run in, so it doesn't stall on a prompt
-nobody answers, and with `accept_session_messages: true`, so your messages
-reach it without an approval in its session. Leave it out and the worker
-gets niwa's and the machine's defaults, as before the field existed.
+`true` or `false`; `profile` is a niwa dispatch profile name, one of the
+workspace's `[session.dispatch_profiles]`, in niwa's grammar
+`^[a-z0-9][a-z0-9-]*$` with no length cap.
+`render-brief.sh` refuses any other key or value, so nothing you didn't pick
+reaches the launch. Use it to start a worker in the permission mode you run
+in, so it doesn't stall on a prompt nobody answers, and with
+`accept_session_messages: true`, so your messages reach it without an
+approval in its session. A workspace with no `default_dispatch_profile`
+launches a worker under no profile unless `launch` names one, so give
+`profile` for every worker that should run under one. A name the workspace
+doesn't define fails the launch before anything starts (exit 4, with niwa's
+message on stderr): fix the name rather than retrying. Leave `launch` out
+and the worker gets niwa's and the machine's defaults, as before the field
+existed.
 
 The rendered brief also names both reporting channels (status and blockers
 to your session, the only source of direction; tooling problems to the
@@ -403,7 +411,7 @@ niwa dispatch "<authority>. Read <workspace-root>/.niwa/dispatch-briefs/<topic>.
   --name <topic> --detach \
   --brief <workspace-root>/.niwa/dispatch-briefs/<topic>.md --skill shirabe:<entry point> \
   --grant <authority> --parent-from <your instance root> \
-  --model <model> --permission-mode <mode> --accept-session-messages
+  --model <model> --permission-mode <mode> --profile <profile> --accept-session-messages
 ```
 
 `--brief` and `--skill` let niwa put the brief's digest and the requested
@@ -411,7 +419,7 @@ skill on the worker's telemetry. niwa accepts them from 0.28.0; with an older
 niwa, leave both off, since it refuses flags it doesn't know. `--grant` (one
 per authority, none for a worker granted nothing) and `--parent-from` go on
 only when `niwa dispatch --help` lists them, for the same reason. So do
-`--model`, `--permission-mode` and `--accept-session-messages`
+`--model`, `--permission-mode`, `--profile` and `--accept-session-messages`
 (`--accept-session-messages=false` for `false`), one for each key of the
 input's `launch`; a flag the help doesn't list is left off with a line on
 stderr naming it, and the worker gets niwa's default for it.

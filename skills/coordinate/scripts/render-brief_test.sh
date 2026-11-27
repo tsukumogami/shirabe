@@ -301,6 +301,23 @@ for l in '{}' '"opus"' '{"model": "opus", "agent": "coder"}'; do
     has "launch: $l's refusal names the field" "$(cat "$T/err")" "launch: "
 done
 
+# A launch profile is a niwa dispatch profile name: the brief is the golden one
+# with it, a name matching niwa's grammar (^[a-z0-9][a-z0-9-]*$) is taken
+# alone or beside the other keys, and anything else is refused.
+golden "launch: a profile leaves the brief unchanged" "$GOLD/base.txt" \
+    --input "$(variant launch-profile '.launch = {"profile": "lean-worker"}')"
+for l in '{"profile": "lean-worker"}' '{"profile": "a"}' '{"profile": "0"}' '{"profile": "coordinator"}' \
+         '{"model": "opus", "permission_mode": "bypassPermissions", "accept_session_messages": true, "profile": "lean-worker"}'; do
+    bash "$S" --input "$(variant launch-ok ".launch = $l")" --stdout >/dev/null 2>"$T/err"
+    eq  "launch: $l is taken" "0" "$?"
+done
+for l in '{"profile": "Lean"}' '{"profile": "-x"}' '{"profile": "--no-profile"}' '{"profile": "lean worker"}' \
+         '{"profile": ""}' '{"profile": 7}' '{"profile": "lean\nworker"}' '{"profile": "lean\n"}'; do
+    bash "$S" --input "$(variant launch-bad ".launch = $l")" --stdout >/dev/null 2>"$T/err"
+    eq  "launch: $l is refused" "1" "$?"
+    has "launch: $l's refusal names the profile" "$(cat "$T/err")" "launch: profile must be"
+done
+
 # --- the dispatcher, on the message path ---------------------------------------------
 #
 # A worker with no request leg whose entry point's own opener takes
