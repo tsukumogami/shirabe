@@ -1502,7 +1502,10 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
         let sync = added_by(8, "sync");
         let agent = added_by(8, "agent");
         let unrecorded = run_event(8, "context_added");
-        assert_eq!(moved_on_after(&log_of(&[note.clone()]), 5), Some(false));
+        assert_eq!(
+            moved_on_after(&log_of(std::slice::from_ref(&note)), 5),
+            Some(false)
+        );
         assert_eq!(
             moved_on_after(&log_of(&[note.clone(), evidence.clone()]), 5),
             Some(true)
