@@ -60,6 +60,11 @@ keeps no tools directory, no snapshot of the state, no standing answers or
 progress facts in a local file: what has to outlive the session goes in the
 record.
 
+A run of 65 or more record entries is taken over with no single koto call
+reaching koto's 30-second action limit, even at a one-minute load average of
+25: koto copies every carried key in one read and one write batch, so the
+takeover's koto calls don't grow with the number of entries.
+
 ## Verdicts
 
 Two points of the shipped behaviour follow the milestone verdicts PRD where
