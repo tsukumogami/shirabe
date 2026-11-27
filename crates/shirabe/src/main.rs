@@ -130,7 +130,9 @@ enum Commands {
     /// Raise, list, render and answer a question a session cannot settle,
     /// recorded in koto. Exits 0 done, 1 refused before any koto write,
     /// 2 usage, 3 koto missing or below the minimum, 4 koto refused,
-    /// 5 cannot be presented or the answer does not read as verified.
+    /// 5 cannot be presented or the answer does not read as verified,
+    /// 6 a koto call ran past its time bound or failed to answer, 7 an answer
+    /// koto recorded that did not read back, 8 a question no longer open.
     Question(question::QuestionArgs),
 }
 

@@ -35,6 +35,12 @@ naming the koto command and writes nothing further. The one exception is
 its read-back withdraws the `escalate`, as a failed content write does, and
 the error carries `withdrawn`.
 
+A read that koto doesn't answer stops the whole command at the first one: the
+command exits 6 on a timeout, or with the failure's own code (4) on any other
+koto failure, and prints no listing. It never reads that as a question with
+missing content, an unrecorded origin or an unheld dependency. Only koto's own
+not-found answer (`decision_not_found`) puts a question under `incomplete`.
+
 A session or anchor name given to any subcommand (`--in`, `--at`, the session
 in `--attempt`) must have koto's session-name shape: a letter or digit first,
 then letters, digits, `.`, `_` and `-`. Anything else exits 1 before any koto

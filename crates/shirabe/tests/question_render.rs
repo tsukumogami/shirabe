@@ -459,3 +459,110 @@ fn a_raised_question_with_no_content_renders_nothing_and_pending_names_the_withd
         json!("koto decisions answer solo 000000000003 --in solo --outcome withdrawn --reason 'incomplete question' --by session")
     );
 }
+
+/// Four healthy questions for the owner, listed in `open-person.json`.
+fn four_for_owner(s: &Standin) -> Vec<String> {
+    let mut ids = Vec::new();
+    let mut els = Vec::new();
+    for (i, name) in ["a", "b", "c", "d"].iter().enumerate() {
+        let (id, el) = open_for_owner(s, name, 1, &format!("2026-11-27T09:00:0{i}Z"), None);
+        ids.push(id);
+        els.push(el);
+    }
+    s.write(
+        "open-person.json",
+        json!({"v": 1, "questions": els}).to_string(),
+    );
+    ids
+}
+
+/// Run `args`, expecting `code`, and return the parsed output, its raw text
+/// and how long the command took.
+fn timed(s: &Standin, args: &[&str], code: i32) -> (Value, String, std::time::Duration) {
+    let t = std::time::Instant::now();
+    let out = s.cmd(args).assert().code(code).get_output().clone();
+    let took = t.elapsed();
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    (serde_json::from_str(&text).unwrap(), text, took)
+}
+
+fn assert_stopped_on(j: &Value, text: &str, command: &str) {
+    assert_eq!(j["error"]["code"], json!("koto_timeout"), "{text}");
+    let msg = j["error"]["message"].as_str().unwrap();
+    assert!(msg.contains(command), "{msg}");
+    assert!(j.get("incomplete").is_none(), "{text}");
+    assert!(
+        !text.contains("withdrawn"),
+        "a withdraw command was printed: {text}"
+    );
+}
+
+#[test]
+fn a_content_read_that_hangs_stops_the_command_and_lists_nothing_incomplete() {
+    let s = Standin::new();
+    let ids = four_for_owner(&s);
+    s.write("sleep", "decisions content read\n");
+    // One bound, not one per question: four questions at 10 seconds each
+    // would take 40.
+    let bound = std::time::Duration::from_secs(18);
+
+    let (j, text, took) = timed(&s, &["render", "--person", "owner"], 6);
+    assert_stopped_on(&j, &text, "koto decisions content read");
+    assert!(took < bound, "render --person owner took {took:?}");
+
+    let (j, text, took) = timed(&s, &["pending", "--in", "manager", "--person", "owner"], 6);
+    assert_stopped_on(&j, &text, "koto decisions content read");
+    assert!(took < bound, "pending took {took:?}");
+
+    let (j, text, took) = timed(&s, &["render", &ids[0]], 6);
+    assert_stopped_on(&j, &text, "koto decisions content read");
+    assert!(took < bound, "render <identity> took {took:?}");
+    assert!(s.writes().is_empty());
+}
+
+#[test]
+fn a_content_read_koto_fails_is_its_failure_not_a_missing_question() {
+    let s = Standin::new();
+    four_for_owner(&s);
+    s.write(
+        "fail",
+        "decisions content read|store_locked|the store is locked by another process\n",
+    );
+    let (j, text, _) = timed(&s, &["render", "--person", "owner"], 4);
+    assert_eq!(j["error"]["code"], json!("store_locked"), "{text}");
+    assert!(j.get("incomplete").is_none(), "{text}");
+    assert!(!text.contains("withdrawn"), "{text}");
+}
+
+#[test]
+fn a_session_origin_that_hangs_stops_pending() {
+    let s = Standin::new();
+    four_for_owner(&s);
+    s.write("sleep", "session origin\n");
+    let (j, text, took) = timed(&s, &["pending", "--in", "manager", "--person", "owner"], 6);
+    assert_stopped_on(&j, &text, "koto session origin");
+    assert!(!text.contains("\"unlinked\""), "{text}");
+    assert!(
+        took < std::time::Duration::from_secs(18),
+        "pending took {took:?}"
+    );
+}
+
+#[test]
+fn a_dependency_read_that_hangs_stops_the_command() {
+    let s = Standin::new();
+    let (dep, _) = open_for_owner(&s, "first", 1, "2026-11-27T09:00:00Z", None);
+    let (_, el) = open_for_owner(&s, "later", 1, "2026-11-27T09:00:01Z", Some(&dep));
+    s.write(
+        "open-person.json",
+        json!({"v": 1, "questions": [el]}).to_string(),
+    );
+    s.write("sleep", format!("decisions history {dep}\n"));
+    let (j, text, took) = timed(&s, &["pending", "--in", "manager", "--person", "owner"], 6);
+    assert_stopped_on(&j, &text, "koto decisions history");
+    assert!(!text.contains("\"held\""), "{text}");
+    assert!(
+        took < std::time::Duration::from_secs(18),
+        "pending took {took:?}"
+    );
+}

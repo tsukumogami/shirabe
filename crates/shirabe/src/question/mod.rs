@@ -356,24 +356,28 @@ fn default_recipient(session: &str) -> Result<(String, bool), Failure> {
     }
 }
 
-fn origin_unrecorded(session: &str, cache: &mut BTreeMap<String, bool>) -> bool {
+/// Whether koto reads `session`'s origin as unrecorded. A session koto says
+/// does not exist reads as recorded (nothing to link); a koto that did not
+/// answer is an error.
+fn origin_unrecorded(session: &str, cache: &mut BTreeMap<String, bool>) -> Result<bool, Refused> {
     if let Some(v) = cache.get(session) {
-        return *v;
+        return Ok(*v);
     }
     // A session koto names in its own listing; one not in koto's name shape
     // is never passed back to it.
     if !name_ok(session) {
-        return false;
+        return Ok(false);
     }
     let v = match koto::run(&["session", "origin", "--", session]) {
         Ok(o) => !matches!(
             o.pointer("/origin/state").and_then(Value::as_str),
             Some("dispatched") | Some("none")
         ),
-        Err(_) => false,
+        Err(r) if r.not_found() => false,
+        Err(r) => return Err(r),
     };
     cache.insert(session.to_string(), v);
-    v
+    Ok(v)
 }
 
 // ---------------------------------------------------------------------------
@@ -463,21 +467,35 @@ enum Stored {
     Unreadable,
 }
 
-fn read_stored(identity: &str, packet_want: Option<&str>) -> Stored {
+/// A question's stored content. Only koto's own not-found answer makes it
+/// `Missing`; a koto that did not answer (a timeout, any other failure) is an
+/// error, so a healthy question is never reported broken during a stall.
+fn read_stored(identity: &str, packet_want: Option<&str>) -> Result<Stored, Refused> {
     let Some(want) = packet_want else {
-        return Stored::NoPacket;
+        return Ok(Stored::NoPacket);
     };
     match koto::run_raw(&["decisions", "content", "read", "--", identity]) {
         Ok(bytes) => {
             if packet(&bytes) != want {
-                return Stored::Mismatch;
+                return Ok(Stored::Mismatch);
             }
-            match Content::from_stored(&bytes) {
+            Ok(match Content::from_stored(&bytes) {
                 Ok(c) => Stored::Good(Box::new(c)),
                 Err(_) => Stored::Unreadable,
-            }
+            })
         }
-        Err(_) => Stored::Missing,
+        Err(r) if r.not_found() => Ok(Stored::Missing),
+        Err(r) => Err(r),
+    }
+}
+
+/// A question's history, `None` when koto answers that it holds no such
+/// question, and an error when koto did not answer.
+fn history_if_any(identity: &str) -> Result<Option<History>, Refused> {
+    match History::read(identity) {
+        Ok(h) => Ok(Some(h)),
+        Err(r) if r.not_found() => Ok(None),
+        Err(r) => Err(r),
     }
 }
 
@@ -498,8 +516,10 @@ fn check_dependency(dep: &str) -> Result<(), Failure> {
     seen.insert(dep.to_string());
     let mut cur = dep.to_string();
     for _ in 0..256 {
-        let Ok(h) = History::read(&cur) else { break };
-        let Stored::Good(c) = read_stored(&cur, h.packet().as_deref()) else {
+        let Some(h) = history_if_any(&cur)? else {
+            break;
+        };
+        let Stored::Good(c) = read_stored(&cur, h.packet().as_deref())? else {
             break;
         };
         let Some(next) = c.depends_on else { break };
@@ -880,7 +900,7 @@ fn gather(person: bool, at: Option<&str>) -> Result<Pending, Failure> {
         let h = History::read(&identity)?;
         let raiser = h.raiser();
         let qid = h.id();
-        let stored = read_stored(&identity, h.packet().as_deref());
+        let stored = read_stored(&identity, h.packet().as_deref())?;
         let content = match stored {
             Stored::Good(c) => Some(*c),
             Stored::NoPacket => None,
@@ -911,8 +931,10 @@ fn gather(person: bool, at: Option<&str>) -> Result<Pending, Failure> {
             .as_str()
             .is_some_and(|s| s.starts_with("person:") && s != format!("person:{OWNER}"));
         let depends_on = content.as_ref().and_then(|c| c.depends_on.clone());
+        // Held while the question it depends on is open; one koto answers it
+        // doesn't hold holds nothing.
         let held = match &depends_on {
-            Some(d) => History::read(d).map(|dh| dh.open()).unwrap_or(false),
+            Some(d) => history_if_any(d)?.is_some_and(|dh| dh.open()),
             None => false,
         };
         let waiting = content.as_ref().map_or(0, |c| c.waiting.len());
@@ -960,7 +982,7 @@ fn gather(person: bool, at: Option<&str>) -> Result<Pending, Failure> {
         );
         e.insert(
             "unlinked".into(),
-            json!(origin_unrecorded(&raiser, &mut origins)),
+            json!(origin_unrecorded(&raiser, &mut origins)?),
         );
         e.insert(
             "depends_on".into(),
@@ -1049,7 +1071,7 @@ fn answered(session: &str) -> Result<Vec<Value>, Failure> {
             continue;
         };
         let identity = format!("{sid}/{id}");
-        let Ok(h) = History::read(&identity) else {
+        let Some(h) = history_if_any(&identity)? else {
             continue;
         };
         let Some(ans) = h.answer() else { continue };
@@ -1148,7 +1170,7 @@ fn render_item(identity: &str) -> Result<render::Item, Failure> {
         .with("identity", json!(identity))
         .with("state", json!(state)));
     }
-    match read_stored(identity, h.packet().as_deref()) {
+    match read_stored(identity, h.packet().as_deref())? {
         Stored::Good(c) => {
             let header = koto::prompt_header(&h.raiser(), &h.id())?;
             Ok(render::Item {

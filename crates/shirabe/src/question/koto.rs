@@ -218,6 +218,18 @@ impl Refused {
     pub fn timed_out(&self) -> bool {
         self.code == TIMEOUT_CODE
     }
+
+    /// koto's own answer that the thing asked for is not there:
+    /// `decision_not_found` for a question or its content. koto 0.42.0 gives
+    /// a missing session no code, only `session '<name>' does not exist`, so
+    /// that message is read too. Every other failure, a timeout included, is
+    /// koto not answering, and the command stops on it.
+    pub fn not_found(&self) -> bool {
+        self.code == "decision_not_found"
+            || (self.code == "koto_failed"
+                && self.error.starts_with("session '")
+                && self.error.ends_with("' does not exist"))
+    }
 }
 
 /// The check name in a `prompt_unverified` message: `fails the '<check>' check`.
