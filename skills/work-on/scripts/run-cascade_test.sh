@@ -1502,6 +1502,80 @@ scenario_deletion_open_issue_recovery_wording() {
     cd "$SCRIPT_DIR"
 }
 
+# ── Scenario 12d: handle_roadmap_deletion — an unreadable issue can't hide an open one
+# The ROADMAP names two issues: the first can't be read, the second is open. A
+# scan that stops at the first issue it can't confirm closed records "could not
+# read; if closed, delete by hand", and an operator who checks only that issue
+# deletes a ROADMAP whose other issue is still open. The open issue must win the
+# record, the unreadable one must still be named, and the remedy must cover a
+# run that already pushed.
+scenario_deletion_unreadable_then_open() {
+    local scenario="Scenario 12d: deletion — an unreadable issue does not mask a later open one"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    set_github_origin "test-owner/test-repo"
+    setup_gh_stub "$repo"
+
+    # Issue 44's query fails; issue 45 answers OPEN.
+    cat > "$GH_STUB_DIR/gh" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "issue" ]] && [[ "${2:-}" == "view" ]]; then
+    if [[ "${3:-}" == "44" ]]; then
+        echo "HTTP 502: Bad Gateway" >&2
+        exit 1
+    fi
+    echo "OPEN"
+    exit 0
+fi
+exit 0
+EOF
+    chmod +x "$GH_STUB_DIR/gh"
+
+    write_roadmap_done_single "$repo/docs/roadmaps/ROADMAP-cascade-mask.md" \
+        "PLAN-cascade-mask.md" \
+        "https://github.com/test-owner/test-repo/issues/44 https://github.com/test-owner/test-repo/issues/45"
+    write_design "$repo/docs/designs/DESIGN-cascade-mask.md" \
+        "docs/roadmaps/ROADMAP-cascade-mask.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-mask.md" \
+        "docs/designs/DESIGN-cascade-mask.md"
+
+    commit_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-mask.md")
+
+    local ok=true
+    local step='[.steps[] | select(.action == "delete_roadmap")]'
+
+    assert_json "$scenario" "$output" "$step | length == 1 and .[0].status == \"skipped\"" \
+        "one delete_roadmap step, skipped" || ok=false
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"issues/45 which is still open\")" \
+        "the later open issue wins the record" || ok=false
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"issues/44\")" \
+        "the unreadable issue is still named" || ok=false
+
+    assert_json "$scenario" "$output" "$step | .[0].detail | test(\"push\")" \
+        "the remedy covers a run that already pushed" || ok=false
+
+    if [[ -f "$repo/docs/roadmaps/ROADMAP-cascade-mask.md" ]]; then
+        [[ "$VERBOSE" == "true" ]] && echo "  ✓ ROADMAP file preserved"
+    else
+        fail "$scenario: ROADMAP file was deleted though one of its issues is open"
+        ok=false
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
 # ── Scenario 13: handle_roadmap_deletion — direct re-invocation idempotent ────
 # Calling handle_roadmap_deletion directly on a path that no longer exists
 # returns 0 with no side effects and emits no JSON step. Probes the
@@ -4365,6 +4439,9 @@ scenario_deletion_gh_failure_distinct
 cd "$ORIG_DIR"
 
 scenario_deletion_open_issue_recovery_wording
+cd "$ORIG_DIR"
+
+scenario_deletion_unreadable_then_open
 cd "$ORIG_DIR"
 
 scenario_deletion_idempotent_reinvoke
