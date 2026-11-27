@@ -253,7 +253,7 @@ Everything else leaves the entry under one routing rule:
 - **What's acted on before the first tick, or where no run exists, goes to
   the opener's stderr.** `coordinate-open.sh` prints the block for a family
   when its output line fires: the takeover family on `outcome=continued`
-  (trimmed to the leg-watch command and a few lines), the import family on
+  (trimmed to the command that arms the watch on inherited units, and a few lines), the import family on
   `--import`, `imported=`, `outcome=incomplete` and `tick=moved`, carry and
   `failed=carry`, the directory handover on `refused=bound-elsewhere`, and the
   refusal and `ask=` families. stdout stays `key=value`, and each block prints
