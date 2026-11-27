@@ -417,12 +417,17 @@ before that, and four things can stand in the way:
   wait only on landed steps go on, and a step that waits on the held one does
   not start. The owning session resolves the conflict by rebasing the step
   branch itself, in the step's worktree, and the resolution is reviewed as
-  its own change: `land` then answers `round`.
+  its own change: `land` then answers `round`. It can do that after later
+  groups have started and landed. A conflict it can't resolve ends the
+  invocation with the forced-stop summary, the run resumable and the step
+  still held.
 - **A rebase that changed the step's files.** When the rebase brought in a
   change to a file the step also changed, the step's level check and its
   verification run again at the rebased head, in the step's worktree, against
-  the step's own child, before it counts as landed. A child that deferred
-  verification to hosted CI re-runs the level check alone.
+  the step's own child, before it counts as landed. The level check measures
+  from the step's base, so it counts what the step was rebased onto as well:
+  it can ask for more review than the step had, never less. A child that
+  deferred verification to hosted CI re-runs the level check alone.
 - **The group's combined diff.** `check` runs the level check once over
   everything the group lands together. A floor above the highest level any of
   its steps got means the steps were judged apart at a level their sum does
@@ -432,7 +437,9 @@ before that, and four things can stand in the way:
   `fix-round.sh start --from <child> --fresh` on the shared branch. The
   round's implementation is one `git merge --ff-only <step branch>`, so its
   level check, panels and verification cover exactly what the fast-forward
-  brought in.
+  brought in. That is the whole step as rebased, not the resolution alone: a
+  step that lands this way is reviewed twice, which is the price of a
+  conflict.
 
 `spawn_and_await`'s `steps_landed` gate (`scripts/step-group.sh landed`) keeps
 the run out of `pr_finalization` while a step that was cut has not landed, so a

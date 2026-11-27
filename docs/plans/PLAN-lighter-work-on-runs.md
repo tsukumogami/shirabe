@@ -515,7 +515,8 @@ to a limit (R21).
 - [ ] A step whose rebase changed its files re-runs verification and the
       level check at the rebased head; an owner's conflict resolution is
       reviewed as its own change; the combined diff of a concurrent group
-      gets a level check once all its steps land.
+      gets a level check once all its steps are rebased, before the shared
+      branch moves.
 - [ ] `skills/execute/SKILL.md` ("The lead shape") documents
       `--max-concurrent-steps` and the per-step worktrees.
 

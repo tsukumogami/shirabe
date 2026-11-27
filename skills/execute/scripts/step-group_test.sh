@@ -35,7 +35,9 @@
 #   conflict   a conflicting rebase is aborted and the step held while the
 #              other step lands; the held step keeps the gate closed and a
 #              step that waits on it out of the next group, which the step
-#              that waits on the landed one does join; the owner's own rebase
+#              that waits on the landed one does join; a held step is still
+#              landed, alone, after a later worktrees group was picked, and
+#              keeps its group open while its fix round runs; the owner's own rebase
 #              then answers round, and the step lands only once a fix round
 #              at done brought its head in after the round's base;
 #   re-check   a rebase that brought in a change to one of the step's files
@@ -256,7 +258,7 @@ expect() {
     shift 2
     [ "$RC" -eq "$rc" ] || ok=0
     for line in "$@"; do
-        printf '%s\n' "$OUT" | grep -qxF -- "$line" || ok=0
+        grep -qxF -- "$line" <<<"$OUT" || ok=0
     done
     if [ "$ok" -eq 1 ]; then
         pass "$label"
@@ -266,7 +268,7 @@ expect() {
 }
 
 lacks() {
-    if printf '%s\n' "$OUT" | grep -qF -- "$2"; then
+    if grep -qF -- "$2" <<<"$OUT"; then
         fail "$1: stdout has [$2]: [$(printf '%s' "$OUT" | tr '\n' '|')]"
     else
         pass "$1"
@@ -530,6 +532,58 @@ git -C "$REPO" merge -q --ff-only "$SHARED--step-3"
         | koto context add conflict-b.step-3 fix_rounds.jsonl >/dev/null 2>&1)
 sg land "$SESSION" step-3 "$SHARED"
 expect "conflict: a resolution fast-forwarded before the round's base is not landed by it" 5 "outcome=round"
+
+# A held step is still landed after a later worktrees group was picked.
+LATER='[{"name":"step-1","waits_on":[]},{"name":"step-2","waits_on":["step-1"]},{"name":"step-3","waits_on":["step-1"]},{"name":"step-4","waits_on":["step-2"]},{"name":"step-5","waits_on":["step-2"]}]'
+setup conflict-c "$LATER"
+finish step-1
+sg next "$SESSION" 2 "$TASKS"
+sg cut "$SESSION" step-2 "$SHARED"
+sg cut "$SESSION" step-3 "$SHARED"
+commit_in "$(wt_of step-2)" shared.txt "step two's line" "step 2"
+commit_in "$(wt_of step-3)" shared.txt "step three's line" "step 3"
+finish step-2 "$(wt_of step-2)"
+finish step-3 "$(wt_of step-3)"
+sg land "$SESSION" step-2 "$SHARED"
+sg land "$SESSION" step-3 "$SHARED"
+sg check "$SESSION" "$SHARED"
+sg next "$SESSION" 2 "$TASKS"
+expect "conflict: the next group is picked past the held step" 0 "group=2 mode=worktrees" "step=step-4 child=conflict-c.step-4" "step=step-5 child=conflict-c.step-5" "held=step-3"
+git -C "$(wt_of step-3)" rebase -q "$SHARED" >/dev/null 2>&1
+printf 'resolved\n' > "$(wt_of step-3)/shared.txt"
+git -C "$(wt_of step-3)" add shared.txt
+GIT_EDITOR=true git -C "$(wt_of step-3)" rebase --continue >/dev/null 2>&1
+sg land "$SESSION" step-3 "$SHARED"
+expect "conflict: a held step of an earlier group is still landed after a later group was picked" 5 "outcome=round" "reason=conflict-resolved"
+ROUND_BASE=$(head_of "$SHARED")
+git -C "$REPO" merge -q --ff-only "$SHARED--step-3"
+(cd "$REPO" && koto init conflict-c.step-3-fix-1 --template "$TPL/child.md" >/dev/null 2>&1 \
+    && printf '{"status": "ok"}\n' > "$WORK/ev.json" \
+    && koto next conflict-c.step-3-fix-1 --with-data @"$WORK/ev.json" --no-cleanup >/dev/null 2>&1 \
+    && jq -nc --arg b "$ROUND_BASE" '{round: 1, session: "conflict-c.step-3-fix-1", base: $b}' \
+        | koto context add conflict-c.step-3 fix_rounds.jsonl >/dev/null 2>&1)
+sg land "$SESSION" step-3 "$SHARED"
+expect "conflict: it lands through its round, alone" 0 "outcome=landed" "step=step-3"
+lacks "conflict: landing it records no step of the later group" "step=step-4"
+sg cut "$SESSION" step-4 "$SHARED"
+expect "conflict: the later group is still the one cut and landed" 0 "branch=$SHARED--step-4"
+
+# A held step whose round is under way holds the next group back.
+open_group conflict-d
+commit_in "$(wt_of step-2)" shared.txt "step two's line" "step 2"
+commit_in "$(wt_of step-3)" shared.txt "step three's line" "step 3"
+finish step-2 "$(wt_of step-2)"
+finish step-3 "$(wt_of step-3)"
+sg land "$SESSION" step-2 "$SHARED"
+sg land "$SESSION" step-3 "$SHARED"
+sg check "$SESSION" "$SHARED"
+git -C "$(wt_of step-3)" rebase -q "$SHARED" >/dev/null 2>&1
+printf 'resolved\n' > "$(wt_of step-3)/shared.txt"
+git -C "$(wt_of step-3)" add shared.txt
+GIT_EDITOR=true git -C "$(wt_of step-3)" rebase --continue >/dev/null 2>&1
+sg land "$SESSION" step-3 "$SHARED"
+sg next "$SESSION" 2 "$TASKS"
+expect "conflict: a held step in its fix round keeps its group open" 0 "group=1 mode=open" "step=step-3 child=conflict-d.step-3 state=round"
 
 # --- re-check: the rebase brought in a change to one of the step's files ----------
 

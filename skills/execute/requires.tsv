@@ -141,6 +141,12 @@ koto	context exists	-	always
 koto	status	-	always
 koto	workflows	--children	always
 koto	session cleanup	-	always
+# The lead shape's groups (scripts/step-group.sh): `cut` binds a step's child
+# to the step's own worktree with `koto session rebind --to`, and a landed or
+# stopped step's child is bound back to the checkout the same way. Its other
+# koto calls (status, workflows --children, context exists/get/add) fall under
+# the records above.
+koto	session rebind	--to	always
 shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--pr-body,--pr-title,--writing-style,--visibility	always
 shirabe	finalize-chain	-	always
 shirabe	transition	-	always

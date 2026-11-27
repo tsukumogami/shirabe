@@ -71,8 +71,10 @@
 #             group=none                    nothing is ready
 #             group=<n> mode=checkout       one step, in the checkout as before
 #             group=<n> mode=worktrees      two or more; `cut` each one
-#             group=<n> mode=open           the last group still has a step
-#                                           to land; finish it first
+#             group=<n> mode=open           a group still has a step to
+#                                           land (the last one, or an earlier
+#                                           one whose held step is in a fix
+#                                           round); finish it first
 #             step=<step> child=<session>.<step> [state=<record>]
 #             held=<step>                   a step stopped at a conflict
 #           A step that waits on a held step is not ready.
@@ -87,8 +89,10 @@
 #           branch= and cut=new|reused. The worktree is
 #           <top-level>-step-worktrees/<session>.<step>, next to the checkout
 #           and outside every work tree; the branch is <shared-branch>--<step>.
-#   land    the next move for one step of the group, run in the owning
-#           session's checkout. Prints outcome=<word> and exits:
+#   land    the next move for one step, run in the owning session's
+#           checkout. The step is rebased and ordered within its own group,
+#           so a step held at a conflict can be landed after later groups
+#           were picked. Prints outcome=<word> and exits:
 #             staged     0  rebased onto the tip (and re-checked if it had to
 #                           be); it waits for `check`
 #             landed     0  on the shared branch
@@ -187,7 +191,22 @@ q() { printf '%s' "$LEDGER" | jq -rs "$@"; }
 
 # The last worktrees group's number (0 for none) and its steps in order.
 group_n() { q '[.[] | select(.event == "group")] | (.[-1].group // 0)'; }
-group_steps() { q '[.[] | select(.event == "group")] | (.[-1].steps // []) | .[]'; }
+# group_steps prints the steps of the group in view: the last group, or, once
+# view_group_of has run, the last group that holds the step being landed. A
+# step held at a conflict is landed after later groups were picked, and is
+# still rebased and ordered within its own group.
+VIEW=""
+group_steps() {
+    q --arg v "$VIEW" '[.[] | select(.event == "group") | select($v == "" or (.steps | index($v)))]
+        | (.[-1].steps // []) | .[]'
+}
+view_group_of() { VIEW=$1; }
+# unsettled prints the first step, of any group, whose record is neither
+# landed, held at a conflict nor stopped: a step still on its way in.
+unsettled() {
+    q '[.[] | select(.step != null)] | group_by(.step)
+        | map(select(.[-1].event | IN("landed", "conflict", "stopped") | not) | .[0].step) | (.[0] // "")'
+}
 # state_of <step>: the step's last event, or nothing.
 state_of() { q --arg s "$1" '[.[] | select(.step == $s)] | (.[-1].event // "")'; }
 # field_of <step> <event> <field>: that field of the step's last such event.
@@ -286,12 +305,20 @@ cmd_next() {
     for s in $names; do check_step "$s"; done
     load "$session"
 
-    # The last group, while it still has a step to land, comes first.
+    # A group with a step still to land comes first: the last group, or an
+    # earlier one whose held step is on its way in through a fix round.
     n=$(group_n)
     for s in $(group_steps); do
         st=$(state_of "$s")
         case "$st" in landed|conflict|stopped) ;; *) open=1 ;; esac
     done
+    if [ "$open" -eq 0 ]; then
+        s=$(unsettled)
+        if [ -n "$s" ]; then
+            view_group_of "$s"
+            open=1
+        fi
+    fi
     if [ "$open" -eq 1 ]; then
         echo "group=$n mode=open"
         for s in $(group_steps); do echo "step=$s child=$session.$s state=$(state_of "$s")"; done
@@ -456,7 +483,8 @@ cmd_land() {
     local session=$1 step=$2 shared=$3
     local child="$session.$step" st s es wt branch tip old_head old_base head cs dirty
     load "$session"
-    in_group "$step" || die 1 "step $step is not in the current group"
+    view_group_of "$step"
+    in_group "$step" || die 1 "step $step is in no recorded group"
     was_cut "$step" || die 1 "step $step was never cut"
     on_shared "$shared"
     st=$(state_of "$step")
