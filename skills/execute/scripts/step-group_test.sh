@@ -45,9 +45,16 @@
 #              the step's worktree against the step's child; a pending verdict
 #              is verifying, a pass is staged, a held level or a failed
 #              verdict is round, and a child that deferred verification runs
-#              the level check alone;
+#              the level check alone; a re-check that failed before it
+#              started is run in full by the next land, never skipped;
+#   contract   the two work-on records the script reads still carry the
+#              fields it reads (fix_rounds.jsonl's session and base,
+#              review_facts.json's floor);
 #   stopped    a child at another terminal than done is recorded as stopped
 #              and lands nothing;
+#   usage      an unknown subcommand and a bad session name exit 64; land
+#              refuses a step whose child is still running, and check waits
+#              on a step that is still verifying;
 #   landed     passes with no record and once every cut step has landed, and
 #              fails naming the steps that have not;
 #   the gate   spawn_and_await as execute.md ships it, its block taken from
@@ -92,7 +99,8 @@ cat > "$STUB/review-level.sh" <<'EOF'
 #!/usr/bin/env bash
 echo "review-level $* cwd=$(pwd -P)" >> "$STUB/log"
 case "$1" in
-    facts) jq -nc --arg f "$(cat "$STUB/floor")" '{floor: $f}' | koto context add "$2" review_facts.json >/dev/null ;;
+    facts) [ ! -f "$STUB/facts_fail" ] || exit 1
+           jq -nc --arg f "$(cat "$STUB/floor")" '{floor: $f}' | koto context add "$2" review_facts.json >/dev/null ;;
     check) exit "$(cat "$STUB/check_rc")" ;;
     level) if [ -f "$STUB/level-$2" ]; then cat "$STUB/level-$2"; else echo standard; fi ;;
 esac
@@ -112,7 +120,7 @@ stub_reset() {
     echo standard > "$STUB/floor"
     echo 0 > "$STUB/check_rc"
     echo 0 > "$STUB/verdict_rc"
-    rm -f "$STUB"/level-*
+    rm -f "$STUB"/level-* "$STUB/facts_fail"
 }
 
 # --- the stand-in templates ------------------------------------------------------
@@ -638,6 +646,26 @@ sg land "$SESSION" step-3 "$SHARED"
 expect "re-check: a child that deferred verification is staged on the level check alone" 0 "outcome=staged"
 check "re-check: the deferred child ran the level check and no verification" \
     'grep -q "^review-level check recheck-d.step-3 --ledger" "$STUB/log" && ! grep -q "verification" "$STUB/log"'
+
+# A re-check that failed before it started is still owed in full.
+overlap recheck-e
+: > "$STUB/facts_fail"
+sg land "$SESSION" step-3 "$SHARED"
+expect "re-check: a facts call that fails stops land with exit 2" 2
+rm -f "$STUB/facts_fail"
+: > "$STUB/log"
+sg land "$SESSION" step-3 "$SHARED"
+expect "re-check: the next land runs the whole re-check and then stages the step" 0 "outcome=staged"
+check "re-check: that land ran the level check and started verification" \
+    'grep -q "^review-level check recheck-e.step-3 --ledger" "$STUB/log" && grep -q "^run-verification --start" "$STUB/log"'
+
+# --- the work-on records this script reads ---------------------------------------
+
+WORK_ON_REAL="$SCRIPT_DIR/../../work-on/scripts"
+check "contract: fix-round.sh still writes session and base on each fix_rounds.jsonl line" \
+    'grep -q "{round: \$round, session: \$session, base: \$base, ts: \$ts}" "$WORK_ON_REAL/fix-round.sh"'
+check "contract: review-level.sh still writes floor into review_facts.json" \
+    'grep -q "floor: \$floor, rule:" "$WORK_ON_REAL/review-level.sh"'
 
 # --- stopped ---------------------------------------------------------------------
 

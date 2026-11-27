@@ -17,9 +17,12 @@
 # reviewed and verified there. It has not landed. The owning session lands the
 # group in PLAN order with `land`, one step at a time, by rebasing the step
 # branch onto the tip: the shared head, or the step of the group rebased
-# before it. Nothing reaches the shared branch until `check` has passed.
+# before it. A staged step reaches the shared branch only when `check` has
+# passed; a step that lands through a fix round reaches it in that round.
 #
-#   - A rebase that conflicts is aborted and the step is held. The steps after
+#   - A rebase that conflicts is aborted and the step is held. (A rebase that
+#     fails for another reason is aborted and held the same way: the step did
+#     not get onto the tip, and the owning session looks at it either way.) The steps after
 #     it go on, a step that waits on it does not start, and `landed` keeps the
 #     run out of pr_finalization while it is held. The owning session resolves
 #     the conflict by rebasing the step branch itself, in the step's worktree,
@@ -64,10 +67,12 @@
 #   next    prints the group that starts next. <tasks-file> is
 #           plan-to-tasks.sh's output for the PLAN, whose order is the PLAN's
 #           and whose `waits_on` say what each step waits on. A step is ready
-#           when koto lists its child, the child is not terminal, and every
-#           step it waits on has landed: its child is terminal and it was
-#           either never cut or is recorded as landed. The first <limit> ready
-#           steps are the group. Output, one key=value line each:
+#           when koto lists its child, the child is not terminal, and no step
+#           it waits on is still on its way in: each was never cut, or is
+#           recorded as landed or as stopped. (koto lists a child only once
+#           the children it waits on are terminal, and skips the dependents
+#           of a failed one itself.) The first <limit> ready steps are the
+#           group. Output, one key=value line each:
 #             group=none                    nothing is ready
 #             group=<n> mode=checkout       one step, in the checkout as before
 #             group=<n> mode=worktrees      two or more; `cut` each one
@@ -118,10 +123,10 @@
 #           naming the steps that are not.
 #
 # A step id becomes a directory and a branch name here, so every subcommand
-# refuses one outside ^[a-z0-9][a-z0-9-]{0,62}$ (step-draft.sh's pattern)
-# before it reads or writes anything, a session name outside [A-Za-z0-9._-],
-# and a shared branch with a character outside letters, digits, `.`, `_`, `/`
-# and `-` or with a leading `-`.
+# refuses (exit 1) one outside ^[a-z0-9][a-z0-9-]{0,62}$ (step-draft.sh's
+# pattern) before it reads or writes anything, and a shared branch with a
+# character outside letters, digits, `.`, `_`, `/` and `-` or with a leading
+# `-`. A session name outside [A-Za-z0-9._-] is a usage error (exit 64).
 #
 # Environment (tests only):
 #   STEP_GROUP_WORK_ON_SCRIPTS  the directory holding review-level.sh,
@@ -535,6 +540,16 @@ cmd_land() {
     dirty=$(git -C "$wt" status --porcelain --untracked-files=no) || die 2 "git status failed in $wt"
     [ -z "$dirty" ] || die 1 "the worktree $wt has uncommitted changes or a rebase in progress"
 
+    # A re-check that stopped before it started (a facts or launch call that
+    # failed) left the step at `rebased`. It is owed the whole re-check: the
+    # step is on the tip already, so without this it would read as a rebase
+    # with nothing to do and be staged unchecked.
+    if [ "$st" = rebased ]; then
+        head=$(git -C "$wt" rev-parse HEAD) || die 2 "git rev-parse failed in $wt"
+        [ "$head" = "$(field_of "$step" rebased head)" ] \
+            || die 1 "step $step moved since it was rebased; its worktree is at $head"
+        recheck "$session" "$step" "$shared" "$wt" "$head" 0
+    fi
     if [ "$st" = verifying ]; then
         head=$(git -C "$wt" rev-parse HEAD) || die 2 "git rev-parse failed in $wt"
         [ "$head" = "$(field_of "$step" verifying head)" ] \

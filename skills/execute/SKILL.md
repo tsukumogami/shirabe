@@ -409,8 +409,9 @@ there was built, reviewed and verified on its step branch. It has not landed.
 `scripts/step-group.sh land`, one step at a time: each step branch is rebased
 onto the shared head, or onto the step of the group rebased before it. Then
 `scripts/step-group.sh check` fast-forwards the shared branch to the rebased
-tip and removes the worktrees. Nothing of a group reaches the shared branch
-before that, and four things can stand in the way:
+tip and removes the worktrees. A step reaches the shared branch either
+there or, when it needs a panel, in its own fix round; four things can stand
+in the way:
 
 - **A conflict.** The rebase is aborted and that step is held. It does not
   fail the run or stop the others: the rest of the group lands, steps that

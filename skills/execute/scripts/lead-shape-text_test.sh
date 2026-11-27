@@ -205,7 +205,7 @@ the step's level check and its verification are re-running at the rebased head
 That step is held, and the steps after it go on
 step-group.sh" check {{SESSION_NAME}} {{SETTLED_BRANCH}}
 runs the level check once over the group's combined diff
-Nothing of a group is on the shared branch before `check` answers `landed`
+A staged step is not on the shared branch before `check` answers `landed`
 holds on its `steps_landed` gate while a step that was cut has not landed
 a step that waits on it does not start
 the resolution is reviewed as its own change before it reaches the shared branch
