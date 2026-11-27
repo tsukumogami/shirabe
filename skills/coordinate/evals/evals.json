@@ -1427,6 +1427,36 @@
       "requirements": [
         "R7"
       ]
+    },
+    {
+      "id": 76,
+      "name": "a-takeover-start-follows-the-openers-stderr-guidance",
+      "prompt": "You were dispatched to take over the coordinator run for docs/roadmaps/ROADMAP-plugin-system.md in acme/widgets. You wrote the args file and ran the opener line your brief gives. It printed on stdout `outcome=continued`, `predecessor=coordinate-roadmap-plugin-system-20261020T090000Z`, `role=manager`, `watcher=absent` and `session=coordinate-roadmap-plugin-system-20261126T101500Z`, and on stderr a block of lines starting `coordinate-open guide:`, one of which says to start one background `koto request watch --session <session> --timeout-secs 7200` in this same turn, before the first tick. Say what you do next, in order, up to your first `koto next` call.",
+      "expected_output": "The coordinator reads the opener's stderr guidance as its instructions for this start and acts on it before the first tick: in this same turn it starts one background `koto request watch --session coordinate-roadmap-plugin-system-20261126T101500Z --timeout-secs 7200`, built from the session= line and nothing else. It keeps the session= and role= values, acts only on the run it took over, runs no cleanup or cancel against the predecessor's session and never `koto next --to`. Only then does it call `koto next coordinate-roadmap-plugin-system-20261126T101500Z --no-cleanup`. It doesn't look for the takeover steps in SKILL.md, and it doesn't discard the stderr lines as noise.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The coordinator treats the opener's stderr guidance block as what to do before the first tick",
+        "It starts the background koto request watch for the new session in this turn, before any koto next",
+        "It builds the watch command from the session= line alone",
+        "Its first tick is koto next on the new session with --no-cleanup, and it runs nothing against the predecessor's session"
+      ]
+    },
+    {
+      "id": 77,
+      "name": "a-dispatched-start-leaves-the-brief-row-to-the-opener",
+      "prompt": "You were dispatched as a manager for docs/roadmaps/ROADMAP-plugin-system.md in acme/widgets. Your prompt ends with the brief path /work/.niwa/dispatch-briefs/mgr-cache.md, and the brief's opener line is `\"${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh\" --plugin-root \"${CLAUDE_PLUGIN_ROOT}\" --dispatched-by coord-top --brief '/work/.niwa/dispatch-briefs/mgr-cache.md' \"$ARGS_DIR/args.json\"`. Say how you start the run, and whether and when you record the brief path in your record.",
+      "expected_output": "The coordinator reads the brief first, writes the args file from the invocation's first line, and opens with the brief's own opener line, `--brief` path included, in place of the default opener command. It keeps the opener's stderr. It doesn't write the brief's `briefs:` host row itself with state-stored-set.sh: the opener records it, or the record's opening does on a fresh start. It writes the row by hand only if a start prints `warning=brief-unrecorded`, and then as that warning's guidance says. It takes the brief's rules in through the intake once the record is open, never by typing them in as rows.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The coordinator opens with the brief's own opener line, keeping its --brief argument",
+        "It doesn't write the briefs: host row by hand on a start that printed no brief-unrecorded warning",
+        "It reads the opener's stderr rather than discarding it",
+        "It takes the brief's rules in through the intake, not by writing them as rows"
+      ]
     }
   ]
 }
