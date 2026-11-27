@@ -73,7 +73,8 @@
 #           the children it waits on are terminal, and skips the dependents
 #           of a failed one itself.) The first <limit> ready steps are the
 #           group. Output, one key=value line each:
-#             group=none                    nothing is ready
+#             group=none                    nothing is ready (<n> below numbers
+#                                           the groups; it is not a size)
 #             group=<n> mode=checkout       one step, in the checkout as before
 #             group=<n> mode=worktrees      two or more; `cut` each one
 #             group=<n> mode=open           a group still has a step to
@@ -273,13 +274,13 @@ release() {
 # mark_landed <session> <through-step>: records as landed every step of the
 # group, up to and including <through-step>, that is staged or in a round.
 mark_landed() {
-    local s st head
+    local s st sha
     for s in $(group_steps); do
         st=$(state_of "$s")
         case "$st" in
             staged|round)
-                head=$(field_of "$s" "$st" head)
-                append "$1" "$(jq -nc --arg s "$s" --arg h "$head" --arg at "$(now)" \
+                sha=$(field_of "$s" "$st" head)
+                append "$1" "$(jq -nc --arg s "$s" --arg h "$sha" --arg at "$(now)" \
                     '{event: "landed", step: $s, head: $h, at: $at}')"
                 release "$1" "$s"
                 echo "step=$s"
@@ -451,42 +452,42 @@ to_staged() {
 # recheck <session> <step> <shared> <wt> <head> <started>: the level check and
 # the verification at the rebased head, in the step's worktree.
 recheck() {
-    local session=$1 step=$2 shared=$3 wt=$4 head=$5 started=$6
+    local session=$1 step=$2 shared=$3 wt=$4 sha=$5 started=$6
     local child="$session.$step" rc=0
     if [ "$started" -eq 0 ]; then
         (cd -- "$wt" && "$WORK_ON/review-level.sh" facts "$child" --shared-branch "$shared" --no-check-line) >&2 \
-            || die 2 "review-level.sh facts failed for $child at $head"
+            || die 2 "review-level.sh facts failed for $child at $sha"
         (cd -- "$wt" && "$WORK_ON/review-level.sh" check "$child" --ledger) >&2 || rc=$?
         case "$rc" in
             0) ;;
-            1) to_round "$session" "$step" "$head" level ;;
+            1) to_round "$session" "$step" "$sha" level ;;
             *) die 2 "review-level.sh check failed for $child (exit $rc)" ;;
         esac
         rc=0
         koto context exists "$child" verification_deferral || rc=$?
         case "$rc" in
-            0) to_staged "$session" "$step" "$head" ;;
+            0) to_staged "$session" "$step" "$sha" ;;
             1) ;;
             *) die 2 "koto could not check verification_deferral in $child (exit $rc)" ;;
         esac
         (cd -- "$wt" && "$WORK_ON/run-verification.sh" --start --session "$child") >&2 \
-            || die 2 "run-verification.sh --start failed for $child at $head"
-        append "$session" "$(jq -nc --arg s "$step" --arg h "$head" --arg at "$(now)" \
+            || die 2 "run-verification.sh --start failed for $child at $sha"
+        append "$session" "$(jq -nc --arg s "$step" --arg h "$sha" --arg at "$(now)" \
             '{event: "verifying", step: $s, head: $h, at: $at}')"
     fi
     rc=0
     (cd -- "$wt" && "$WORK_ON/check-verification.sh" --verdict --session "$child" --shared-branch "$shared") >&2 || rc=$?
     case "$rc" in
-        0) to_staged "$session" "$step" "$head" ;;
+        0) to_staged "$session" "$step" "$sha" ;;
         75) echo "outcome=verifying"; exit 4 ;;
-        2) die 2 "check-verification.sh could not read the result for $child at $head" ;;
-        *) to_round "$session" "$step" "$head" "verification:$rc" ;;
+        2) die 2 "check-verification.sh could not read the result for $child at $sha" ;;
+        *) to_round "$session" "$step" "$sha" "verification:$rc" ;;
     esac
 }
 
 cmd_land() {
     local session=$1 step=$2 shared=$3
-    local child="$session.$step" st s es wt branch tip old_head old_base head cs dirty
+    local child="$session.$step" st s es wt branch tip old_sha old_base sha cs dirty
     load "$session"
     view_group_of "$step"
     in_group "$step" || die 1 "step $step is in no recorded group"
@@ -501,8 +502,8 @@ cmd_land() {
         staged) echo "outcome=staged"; exit 0 ;;
         stopped) echo "outcome=stopped"; exit 7 ;;
         round)
-            head=$(field_of "$step" round head)
-            if round_done "$child" "$head"; then
+            sha=$(field_of "$step" round head)
+            if round_done "$child" "$sha"; then
                 echo "outcome=landed"
                 mark_landed "$session" "$step"
                 exit 0
@@ -545,32 +546,32 @@ cmd_land() {
     # step is on the tip already, so without this it would read as a rebase
     # with nothing to do and be staged unchecked.
     if [ "$st" = rebased ]; then
-        head=$(git -C "$wt" rev-parse HEAD) || die 2 "git rev-parse failed in $wt"
-        [ "$head" = "$(field_of "$step" rebased head)" ] \
-            || die 1 "step $step moved since it was rebased; its worktree is at $head"
-        recheck "$session" "$step" "$shared" "$wt" "$head" 0
+        sha=$(git -C "$wt" rev-parse HEAD) || die 2 "git rev-parse failed in $wt"
+        [ "$sha" = "$(field_of "$step" rebased head)" ] \
+            || die 1 "step $step moved since it was rebased; its worktree is at $sha"
+        recheck "$session" "$step" "$shared" "$wt" "$sha" 0
     fi
     if [ "$st" = verifying ]; then
-        head=$(git -C "$wt" rev-parse HEAD) || die 2 "git rev-parse failed in $wt"
-        [ "$head" = "$(field_of "$step" verifying head)" ] \
-            || die 1 "step $step moved since its verification started; its worktree is at $head"
-        recheck "$session" "$step" "$shared" "$wt" "$head" 1
+        sha=$(git -C "$wt" rev-parse HEAD) || die 2 "git rev-parse failed in $wt"
+        [ "$sha" = "$(field_of "$step" verifying head)" ] \
+            || die 1 "step $step moved since its verification started; its worktree is at $sha"
+        recheck "$session" "$step" "$shared" "$wt" "$sha" 1
     fi
 
     tip=$(tip_for "$step" "$shared")
-    old_head=$(git -C "$wt" rev-parse HEAD) || die 2 "git rev-parse failed in $wt"
-    old_base=$(git merge-base "$old_head" "$tip") || die 2 "step $step shares no history with $tip"
+    old_sha=$(git -C "$wt" rev-parse HEAD) || die 2 "git rev-parse failed in $wt"
+    old_base=$(git merge-base "$old_sha" "$tip") || die 2 "step $step shares no history with $tip"
 
     if [ "$old_base" = "$tip" ]; then
         # Nothing to rebase onto. After a conflict this is the owner's own
         # rebase, which is reviewed as a change of its own.
         if had_conflict "$step"; then
-            to_round "$session" "$step" "$old_head" conflict-resolved
+            to_round "$session" "$step" "$old_sha" conflict-resolved
         fi
-        to_staged "$session" "$step" "$old_head"
+        to_staged "$session" "$step" "$old_sha"
     fi
 
-    git diff --name-only "$old_base" "$old_head" | LC_ALL=C sort > "$TMP/mine" \
+    git diff --name-only "$old_base" "$old_sha" | LC_ALL=C sort > "$TMP/mine" \
         || die 2 "git diff failed for step $step"
     git diff --name-only "$old_base" "$tip" | LC_ALL=C sort > "$TMP/theirs" \
         || die 2 "git diff failed for $tip"
@@ -583,17 +584,17 @@ cmd_land() {
         echo "step-group: step $step conflicts with $tip and is held: resolve it by rebasing $branch onto it in $wt, then run land again" >&2
         exit 3
     fi
-    head=$(git -C "$wt" rev-parse HEAD) || die 2 "git rev-parse failed in $wt"
+    sha=$(git -C "$wt" rev-parse HEAD) || die 2 "git rev-parse failed in $wt"
 
     if had_conflict "$step"; then
-        to_round "$session" "$step" "$head" conflict-resolved
+        to_round "$session" "$step" "$sha" conflict-resolved
     fi
     if [ -z "$(LC_ALL=C comm -12 "$TMP/mine" "$TMP/theirs")" ]; then
-        to_staged "$session" "$step" "$head"
+        to_staged "$session" "$step" "$sha"
     fi
-    append "$session" "$(jq -nc --arg s "$step" --arg h "$head" --arg o "$tip" --arg at "$(now)" \
+    append "$session" "$(jq -nc --arg s "$step" --arg h "$sha" --arg o "$tip" --arg at "$(now)" \
         '{event: "rebased", step: $s, head: $h, onto: $o, overlap: true, at: $at}')"
-    recheck "$session" "$step" "$shared" "$wt" "$head" 0
+    recheck "$session" "$step" "$shared" "$wt" "$sha" 0
 }
 
 # --- check ----------------------------------------------------------------------
