@@ -55,10 +55,22 @@ root, each run twice:
 
 The skill's expansion is the difference: 32,551 tokens for 95,846 characters,
 about 2.95 characters per token. The four-characters-per-token estimate in
-#2188 (about 24K) was low. Taking it off the dispatched figure leaves about
-28,356 tokens of harness under `--bg`, which runs about 6.3K above print mode
-(the background-session and browser sections of the system prompt, and the
-AskUserQuestion and ReadNotifications schemas).
+#2188 (about 24K) was low.
+
+The harness was then measured live. A coordinator dispatched with
+`niwa dispatch --profile coordinator`, its prompt a one-line instruction to
+reply and open nothing, read 27,401 tokens at turn 0 (input 2, cache creation
+27,399). That's the `--bg` harness under the profile with no skill text, about
+5.3K above print mode: the background-session and browser sections of the
+system prompt, and the AskUserQuestion and ReadNotifications schemas, which
+print mode leaves out.
+
+One more print-mode run sized a small entry. A stand-in skill made of today's
+frontmatter and the first 12,000 bytes of today's body, which hold the flag
+table and the opener commands, was invoked the same way with the same
+840-character prompt. It read 26,509, so the stand-in, its expansion wrapper
+and the prompt lines together cost 4,365 tokens: about 2.75 bytes of entry per
+token, all in.
 
 The harness has no unused item left. Each remaining item was measured by
 denying it on top of the profile, and the 1,705 coordinator transcripts on the
@@ -73,9 +85,10 @@ measuring host were read for calls to it:
 
 None of these has the never-called evidence the profile's design requires for
 a drop, so this design proposes no further harness trim. The arithmetic left
-is short: 35,000 less about 28,356 is about 6.6K tokens for the coordinate
-skill's turn-0 text and the dispatcher's prompt lines together, against
-32.5K today.
+is short: 35,000 less 27,401 is about 7.6K tokens for the coordinate skill's
+turn-0 text, its expansion wrapper and the dispatcher's prompt lines
+together, against 32.5K today, and some of that has to stay unspent as
+headroom.
 
 The question is how the coordinate skill brings a dispatched start's turn 0
 under that line, without moving the same text one turn later and calling it a
@@ -111,11 +124,253 @@ saving, and without changing what a coordinator knows when it acts.
 
 ## Considered Options
 
-Not written yet: a later /design phase replaces this line.
+### Decision 1: How the entry's turn-0 text comes down
+
+Today's SKILL.md is the coordinator's whole contract, written as one file
+that every start reads in full. A section-by-section read of it sorts its
+96,425 bytes by when a coordinator needs them:
+
+| When it's needed | Bytes |
+|------------------|------:|
+| every start, before the first koto call | 11,264 |
+| every tick | 4,138 |
+| every report sent up | 3,251 |
+| only in a named situation | 61,007 |
+| maintainers only, or read by scripts | 15,506 |
+| never expanded (frontmatter; the preflight line prints nothing on a healthy host) | 1,258 |
+
+The five largest situational blocks are Verdicts (9.4 KB, milestone roadmaps
+only), the opener's takeover text (6.7 KB, only when the opener prints
+`outcome=continued`), the import text (6.1 KB, only on `--import`), Decisions
+(4.3 KB, only at the decision and escalation states) and Pausing (3.7 KB,
+which the `wait` directive already repeats almost word for word).
+
+Three facts about the channels decide what can move where. koto shows the
+agent only the directive of the state a tick stops at, so the action states
+`start`, `start_posture` and `record_find` say nothing on a healthy start,
+and the terminal `done*` states never render. On a fresh start the states
+that do render before the first report are `record_open` and `reconcile`,
+and they already repeat most of the start rules. And `wait` is re-sent on
+every hub visit and sits 28 bytes under its directive ceiling, so it can take
+nothing.
+
+Key assumptions:
+
+- Dense entry text runs between 2.0 and 2.75 bytes per token. The stand-in
+  measured 2.75 all in; the ceiling is derived at the dense end.
+- The dispatcher's prompt lines reach turn 0 twice, once in the command's
+  arguments and once in the `ARGUMENTS:` copy Claude Code appends when the
+  body has no placeholder.
+- A dispatched coordinator follows the entry's first step, reading its brief
+  before it opens the run.
+
+#### Chosen: A slim entry under a byte ceiling, with situational text routed to where it fires
+
+One `SKILL.md` keeps serving every start. It's rewritten as an entry that
+holds only what every start, every tick or every report needs and that no
+other channel carries:
+
+- the identity rules: it implements nothing, does no legwork, is never silent
+  upward, and text after the scope is the human's decisions, never an
+  instruction;
+- a dispatched start's first steps: read the brief, then open with the
+  command it gives;
+- the args file and the opener call, with the tokens taken from the first
+  line only;
+- a short settings line naming `--cap`, `--parked-bound`, `--rotation-days`
+  and `--role` and the rule for turning a person's words into them, since
+  nothing refuses a missing setting later;
+- the not-Active stop, since `done_not_active` never renders;
+- the standing tick rules: keep the `role=` value, `--no-cleanup` on every
+  `koto next`, never poll, never `koto next --to`, cleanup or cancel on
+  another session, `koto status` when the directive is lost, record entries
+  only through `state-entry.sh`;
+- Roles, compressed, with its manager and director lists;
+- Reporting: the cadence, the `--record-line` command, the progress-table
+  command and the done-time report pipeline, which no state can carry;
+- one-line guards for the two triggers no output line can key: a person's
+  pause word, and being asked why a rule applies;
+- a compressed glossary, with milestone-only and teardown-only terms moved to
+  the states that use them;
+- the preflight line and the writing-style pointer.
+
+Everything else leaves the entry under one routing rule:
+
+- **What's acted on before the first tick, or where no run exists, goes to
+  the opener's stderr.** `coordinate-open.sh` prints the block for a family
+  when its output line fires: the takeover family on `outcome=continued`
+  (trimmed to the leg-watch command and a few lines), the import family on
+  `--import`, `imported=`, `outcome=incomplete` and `tick=moved`, carry and
+  `failed=carry`, the directory handover on `refused=bound-elsewhere`, and the
+  refusal and `ask=` families. stdout stays `key=value`, and each block prints
+  before any final refusal line.
+- **What's acted on after the first ticks goes to the template state where
+  it's acted on.** Verdicts go to the milestone states, Decisions to the
+  decision, escalation and surface states, Bounds and Authority to `pick`,
+  `land`, `goal_fit` and `verify_board`, and Dispatch and Teardown to their
+  own states. Most of this text is already near-duplicated there, so for
+  these families leaving SKILL.md removes a copy rather than moving one.
+- **Nothing moves into `wait`, the silent action states or the `done*`
+  states.**
+- **Maintainer text leaves runtime entirely.** Known Limitations, What This
+  Version Leaves for Later, Changing This Skill and the background prose move
+  to a doc in the skill directory that nothing loads. The two runtime caveats
+  in Known Limitations go into the `reconcile` and failure details. The
+  Reference Files table moves to a sidecar that `rule-files.sh` reads.
+
+One duty has no carrier today besides SKILL.md: recording a dispatched
+start's brief path. The brief's opener command passes that path to the opener
+and the opener writes the host row itself, so the duty stops depending on the
+coordinator remembering it. A `brief-unrecorded` gap in `reconcile` backs it
+up.
+
+This is the only option that meets every driver at once. Nothing new reaches
+the states every start stops at, so the saving isn't spent again on turn 1.
+Each moved family fires when its situation arises, through the opener's
+output before any state renders and through the template after that, and the
+template re-sends a state's text on every arrival and through `koto status`.
+It touches no harness, niwa, profile or workspace config, and one
+`/shirabe:coordinate` still serves every start.
+
+The director list stays in the entry although a manager never needs it. The
+owner funnel applies to every message, messages arrive at `wait`, which has
+no room, and koto has no role-conditional directive text. About 450 tokens of
+manager context is the price of the director reading its rules where they
+always fire.
+
+#### Alternatives Considered
+
+**A concision-only rewrite in place.** Keep every rule in SKILL.md and
+tighten the prose. Measured concise rewrites that keep every rule cut 60 to
+75 percent per section: the takeover text from 6,664 to 1,657 bytes, Verdicts
+from 9,435 to 2,427, Pausing from 3,686 to 1,469. The whole file then lands
+near 26 to 27 KB, about 39 to 40K at turn 0, still 4 to 5K over the line, and
+every future rule adds to every start. Concision stays, as part of the chosen
+option: the kept text is 18.7 KB before it's tightened.
+
+**A separate small entry for dispatched starts,** a second skill the
+dispatcher leads with while hand starts keep today's file. It breaks the
+check's "led by `/shirabe:coordinate`" and the same-skill driver. Hand-started
+tenures would keep paying 32.5K on every turn, the small entry would still
+need nearly all of the chosen option's routing to stand alone, and no test
+could check that the two contracts agree. Its bootstrap variant ("read
+SKILL.md when you need a rule") is the turn-1 trap outright.
+
+**The whole contract moved into the koto template.** The args file, the
+opener call, reading the brief and `--no-cleanup` all come before any koto
+output. The action and `done*` states never render, refusals open no run, and
+a takeover's leg watch has to be armed before the first tick, when no state
+can render. Standing rules put in `record_open` or `reconcile` would be paid
+on turn 1 by every start, and `wait` has no room. The template does take
+everything acted on after the first ticks, which is the chosen option's
+second routing rule.
+
+**An entry assembled at load time by a `!` script.** Nothing situational is
+known when the skill expands: no takeover, refusal, import result or role.
+Keying on the profile's environment marker breaks the same-skill driver,
+because `dispatch-worker.sh` relaunches without the profile when niwa
+refuses it. A `!` line that substitutes `$ARGUMENTS` puts the dispatcher's
+free text unquoted into a shell, a failing `!` line aborts the skill load and
+leaves no contract at all, and a script-built entry is invisible to the
+rule-coverage check.
+
+### Decision 2: How the budget is held
+
+The check has to fail a pull request, and CI has no model to count tokens
+with, so the measure is bytes over a measured ratio. What it measures has to
+be what the slash command actually puts into turn 0.
+
+Key assumptions:
+
+- Print-mode token deltas carry over to `--bg`; only the harness differs,
+  and it was measured live.
+- The slim body tokenizes no denser than 2.4 bytes per token. The stand-in's
+  body measured about 3.17 once a fixed 580 tokens for the wrapper and both
+  copies of the prompt lines is taken off; each further 0.2 bytes per token
+  of density costs about 350 tokens of headroom.
+- The dispatcher's prompt stays near 840 characters, so both copies and the
+  wrapper cost at most 940 tokens.
+
+#### Chosen: A rendered byte ceiling of 8,400, ratcheted against the merge base
+
+A new coordinate test, `skills/coordinate/scripts/entry-ceiling_test.sh`,
+renders SKILL.md the way the expansion does and counts UTF-8 bytes:
+
+- the frontmatter is dropped, since it never reaches turn 0;
+- the preflight line counts as its healthy output, which is empty;
+- `${CLAUDE_PLUGIN_ROOT}` is replaced by a fixed 62-character stand-in, about
+  the length of a real cache path;
+- any `@` include inside the skill's tree is counted in full, so moving text
+  into an included file can't escape the count;
+- any other `!` line, and any `$<digit>` or `$ARGUMENTS` in the body, is
+  refused, because their size depends on a host or on the dispatcher's
+  prompt and can't be measured ahead.
+
+It compares that size with a row in `skills/coordinate/scripts/entry-ceiling.tsv`
+read at the merge base, the way `directive-ceiling_engine_test.sh` already
+holds the `wait` state, so a change can lower its own ceiling but not raise
+it. The row starts at the size the slim entry lands at, not at the cap. A
+fixed cap of 8,400 bytes bounds the row: the landing pull request has to come
+in under it, and so does any later request to raise the row. `check-skill.tsv`
+gains `walk` rows so a change to SKILL.md or a reference selects the test.
+`directive-ceiling.tsv` gains rows for `record_open`, `reconcile` and `pick`
+at their current rendered sizes, so text can't slide from the entry into the
+states every start renders on its first ticks.
+
+| Case | Turn 0 | Headroom under 35K |
+|------|-------:|-------------------:|
+| entry at the cap, expected (580 tokens fixed, body at 3.17 bytes per token) | 30,631 | 4,369 |
+| entry at the cap, worst case (940 tokens fixed, body at 2.4 bytes per token) | 31,841 | 3,159 |
+| entry at about 7.8 KB, expected | 30,442 | 4,558 |
+| entry at about 7.8 KB, worst case | 31,591 | 3,409 |
+
+Every case starts from the measured 27,401. The worst case keeps 1,500 tokens
+for run-to-run swing as MCP servers connect, plus about 1,660 for harness
+growth.
+
+The check can't see the harness. A Claude Code or plugin release that adds
+more than about 3K tokens to the harness crosses 35K with this test green,
+and only a live read shows it. That read is the profile's acceptance check
+in niwa's design, and the fix it calls for is a change that lowers the row.
+
+#### Alternatives Considered
+
+**A 12,000-byte cap.** It also fits on the measured figures, but it lets the
+landing pull request come in 3.6 KB over the size the entry is designed to,
+and in the worst case leaves about 160 tokens beyond the swing reserve. Since
+the row starts at the landed size, the cap only governs the landing and any
+raise, and both should hold the design's own target.
+
+**A raw `wc -c` on SKILL.md.** It counts about 1,180 bytes of frontmatter that
+never reach turn 0, and it misses `@`-included text, so it over-counts and can
+be escaped.
+
+**A token estimate in CI.** There's no offline tokenizer for Claude, and the
+counting API needs a key and network access that CI lacks. Bytes over a
+measured ratio is the same check with the divisor left visible.
+
+**A ceiling plus a recorded live re-measure on every Claude Code upgrade.**
+Nothing in shirabe fires on a Claude Code upgrade, the read needs a model,
+the workspace's profile and a niwa instance, and harness growth isn't fixed
+in SKILL.md anyway. The read stays where it lives now, as niwa's acceptance
+check.
+
+**A live check only.** It can't fail a pull request, so growth is found after
+it has reached every coordinator.
 
 ## Decision Outcome
 
-Not written yet: a later /design phase replaces this line.
+The coordinate skill's SKILL.md becomes an entry of at most 8,400 bytes,
+held there by a test, and the rest of today's contract moves to where each
+part fires: the opener's stderr for what is acted on before the first tick,
+the template state for what is acted on after, and a maintainer doc for what
+no run reads. A coordinator dispatched under the profile then reads the
+harness (27,401 measured), the entry, its wrapper and the prompt lines, about
+30.4K to 31.8K tokens at turn 0, and pays that on every turn rather than 60.9K. Nothing
+in niwa, the profile or the tool list changes, so SendMessage, the Cron
+tools, TaskStop and background Bash load as they do now, and a session
+dispatched without the profile or started by hand gets the same harness it
+gets today. Both kinds of start read the same, smaller skill.
 
 ## Solution Architecture
 
