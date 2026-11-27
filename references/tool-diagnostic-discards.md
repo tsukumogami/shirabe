@@ -497,6 +497,7 @@ skills/work-on/scripts/clean-build-output.sh	json=$(git -C "$ROOT" show "$sha:$M
 skills/work-on/scripts/clean-build-output.sh	printf '%s' "$json" | jq -se 'length == 1 and (.[0] | type == "object")' >/dev/null 2>&1 || return 1	1	1,5	Shape predicate over the map committed at the base: false or a parse error is the expected unreadable-map outcome, printed as build-output: base unreadable, removed nothing.	DESIGN-build-output.md (The script's contract)
 skills/work-on/scripts/clean-build-output.sh	out=$(git -C "$ROOT" ls-files -- "$q" 2>/dev/null) || return 0	1	128	A listing git can't make reads as tracked, so the path is kept and reported tracked: the failure fails safe and nothing is removed on it.	DESIGN-build-output.md (The script's contract)
 skills/work-on/scripts/clean-build-output.sh	elif ! GIT_LITERAL_PATHSPECS=0 git -C "$ROOT" check-ignore -q -- "$disk" 2>/dev/null; then	1	1,128	Ignore predicate: exit 1 (not ignored) is the ordinary not-ignored refusal, and a 128 reads the same, so the path is kept.	DESIGN-build-output.md (The script's contract)
+skills/coordinate/scripts/dispatch-worker.sh	by=$(jq -r '.by // "" | strings' <<<"$fence" 2>/dev/null) || return 0	1	5	A fence answer jq can't parse names no successor run, so the caller goes on to its existing exit 8, which names the refused write.	shirabe#1861
 ```
 
 ## Running the scan
