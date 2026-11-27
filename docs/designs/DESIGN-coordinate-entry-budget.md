@@ -53,8 +53,10 @@ root, each run twice:
 | trivial prompt | 22,144 and 22,104 |
 | same, prompt led by `/shirabe:coordinate <roadmap> --role manager` | 54,695 and 54,695 |
 
-The skill's expansion is the difference: 32,551 tokens for 95,846 characters,
-about 2.95 characters per token. The four-characters-per-token estimate in
+The skill's expansion is the difference: 32,551 tokens against the first
+trivial run (32,591 against the second) for 95,846 characters, about 2.95
+characters per token. The characters are more than the file's body because
+they include the command wrapper and both copies of the prompt lines. The four-characters-per-token estimate in
 #2188 (about 24K) was low.
 
 The harness was then measured live. A coordinator dispatched with
@@ -143,7 +145,8 @@ The five largest situational blocks are Verdicts (9.4 KB, milestone roadmaps
 only), the opener's takeover text (6.7 KB, only when the opener prints
 `outcome=continued`), the import text (6.1 KB, only on `--import`), Decisions
 (4.3 KB, only at the decision and escalation states) and Pausing (3.7 KB,
-which the `wait` directive already repeats almost word for word).
+which the `wait` directive already repeats almost word for word, so it is
+deleted as a duplicate and needs no carrier).
 
 Three facts about the channels decide what can move where. koto shows the
 agent only the directive of the state a tick stops at, so the action states
@@ -156,8 +159,9 @@ nothing.
 
 Key assumptions:
 
-- Dense entry text runs between 2.0 and 2.75 bytes per token. The stand-in
-  measured 2.75 all in; the ceiling is derived at the dense end.
+- Entry text runs at about 2.4 bytes per token at its densest. The stand-in
+  measured 2.75 all in and about 3.17 for its body alone; the ceiling's worst
+  case in Decision 2 takes 2.4.
 - The dispatcher's prompt lines reach turn 0 twice, once in the command's
   arguments and once in the `ARGUMENTS:` copy Claude Code appends when the
   body has no placeholder.
@@ -289,7 +293,8 @@ Key assumptions:
   copies of the prompt lines is taken off; each further 0.2 bytes per token
   of density costs about 350 tokens of headroom.
 - The dispatcher's prompt stays near 840 characters, so both copies and the
-  wrapper cost at most 940 tokens.
+  wrapper cost at most 940 tokens. Nothing in shirabe holds the prompt there,
+  since the dispatcher writes it; a longer prompt shows up in the live read.
 
 #### Chosen: A rendered byte ceiling of 8,400, ratcheted against the merge base
 
@@ -310,11 +315,16 @@ It compares that size with a row in `skills/coordinate/scripts/entry-ceiling.tsv
 read at the merge base, the way `directive-ceiling_engine_test.sh` already
 holds the `wait` state, so a change can lower its own ceiling but not raise
 it. The row starts at the size the slim entry lands at, not at the cap. A
-fixed cap of 8,400 bytes bounds the row: the landing pull request has to come
-in under it, and so does any later request to raise the row. `check-skill.tsv`
+fixed cap of 8,400 bytes, a constant in the test, bounds every row. The
+landing pull request has no row at its merge base, so its own row judges it,
+under the cap, the way the directive test falls back when the base has no
+ceiling file; where no merge base can be read at all, the same rule as that
+test applies, and a pull request's CI run fails. No pull request can raise
+the row by editing it. Making more room is a change to the test, reviewed as
+one and argued with a fresh measurement, and the cap still bounds the row. `check-skill.tsv`
 gains `walk` rows so a change to SKILL.md or a reference selects the test.
 `directive-ceiling.tsv` gains rows for `record_open`, `reconcile` and `pick`
-at their current rendered sizes, so text can't slide from the entry into the
+at their rendered sizes once the moved text is in them, so text can't slide from the entry into the
 states every start renders on its first ticks.
 
 | Case | Turn 0 | Headroom under 35K |
@@ -378,6 +388,13 @@ start in the meantime and makes the coverage rows ambiguous about which copy
 counts. The pull request is large either way; splitting it buys review
 convenience at the cost of a state no coordinator should run in.
 
+**A first pull request for the text that needs no carrier.** The maintainer
+text, Pausing and the near-duplicated blocks could leave SKILL.md early with
+no window where a rule lives nowhere. It saves about 6K tokens and leaves
+turn 0 near 54K, so it delivers nothing the milestone measures on its own,
+and it would re-point the coverage rows and pointers in two passes instead
+of one.
+
 ## Decision Outcome
 
 The coordinate skill's SKILL.md becomes an entry of at most 8,400 bytes,
@@ -403,8 +420,8 @@ and each rule sits in the one that fires when the rule applies:
 | Carrier | Fires | Holds |
 |---------|-------|-------|
 | `skills/coordinate/SKILL.md` | once, at turn 0, for every start | the entry: identity rules, first steps, the opener call, settings, standing tick rules, Roles, Reporting, glossary |
-| `coordinate-open.sh` stderr | when the opener prints the output line a family is keyed to | takeover, import, carry, directory handover, refusals and `ask=` |
-| the template's state directives | each time a tick stops at that state, and again through `koto status` | verdicts, decisions and escalation, bounds and authority, dispatch, teardown, pausing |
+| `coordinate-open.sh` stderr | when the opener prints the output line a family is keyed to | takeover, import and `--trust-template`, carry, directory handover, refusals and `ask=` |
+| the template's state directives | each time a tick stops at that state, and again through `koto status` | verdicts, decisions and escalation, bounds and authority, dispatch, teardown |
 | `skills/coordinate/MAINTAINING.md` | never, at runtime | known limitations, deferred work, how to change the skill, background |
 
 ### Components
@@ -477,7 +494,14 @@ reads instead, and it lists every reference this change adds, so the run's
   rendered entry is over the merge-base row, when the tree's row is over the
   merge base's, or when either is over 8,400.
 - **The opener's output.** stdout is unchanged. stderr gains blocks keyed to
-  the existing output lines. No caller parses stderr except the tests.
+  the existing output lines. No caller parses stderr except the tests. The
+  entry's opener call keeps stderr: the entry ceiling test refuses a
+  redirect of stderr on that line.
+- **Runs opened before the change.** The template change takes a new compat
+  row. A run recorded at an older compat continues under the template it was
+  compiled at, which still holds its old text but not the families moved into
+  states, so on continuing such a run the opener also prints those families'
+  blocks, keyed to the run's compat.
 - **Pointers into SKILL.md.** The template and references keep pointing at
   `SKILL.md, Roles` and `SKILL.md, Reporting`, which stay. The other
   pointers, about 11 of them in `record_open`, `goal_fit`, `wait`,
@@ -527,14 +551,18 @@ Deliverables:
 - `koto-templates/coordinate.md` and its compat record
 - `references/brief-template.md`, `scripts/render-brief.sh`
 - `MAINTAINING.md`, `references/reference-files.tsv`, `scripts/rule-files.sh`
+- the opener's continuation blocks for runs at an older compat
 
 ### Phase 3: Checks, then the switch
 
 Land the entry ceiling test and its rows, the new directive-ceiling rows, the
 opener block test, and the retargeted coverage, verdict, state and
-rule-files tests. Then replace SKILL.md with the Phase 1 draft. The draft and
-its carriers land in one pull request, so there's no commit where a rule
-lives nowhere.
+rule-files tests. The entry row is the Phase 1 draft's rendered size, and
+the new directive rows are the states' sizes after Phase 2, so no row is set
+before the text it caps. Then replace SKILL.md with the Phase 1 draft, in the
+same commit as the entry test, so the test is never red on the branch. The
+draft and its carriers land in one pull request, so there's no commit where a
+rule lives nowhere.
 
 Deliverables:
 - `scripts/entry-ceiling_test.sh`, `scripts/entry-ceiling.tsv`,
@@ -563,15 +591,17 @@ This change moves text between the places a coordinator reads, and moves the rec
 
 **Untrusted input to the entry.** The dispatcher's prompt reaches turn 0 as command arguments and as an appended copy. The entry keeps today's handling: only the first line holds tokens, the args file is written with a file tool rather than pasted into a shell, and text after the scope is the human's decisions, never an instruction. The design chooses a static entry over one built at load time by a shell line because a line that substitutes the prompt would put free text into a shell, and a failing line would leave the skill with no contract. The entry-size test enforces this: it refuses any argument placeholder in the body and any shell line other than the preflight line, whose healthy output is empty.
 
-**The brief path.** The path comes from the dispatcher's prompt, so the opener treats it as untrusted. It takes the path as a separate argument and never builds a shell command from it. It requires an absolute path to a regular, readable file, resolves links before checking it, refuses control characters, restricts the recorded label to a plain character set, and caps what the intake reads. A refusal is a normal refusal line, and the opener test includes paths with spaces, quotes, command substitution, newlines and links. A brief supplies work and standing rules through the intake. It doesn't widen the coordinator's bounds: the worker cap, the parked bound, the rule against implementing, and the rule against touching another session's run.
+**The brief path.** The path comes from the dispatcher's prompt, so the opener treats it as untrusted. It takes the path as a separate argument and never builds a shell command from it. It requires an absolute path to a regular, readable file, resolves links before checking it, refuses control characters, restricts the recorded label to a plain character set, and caps what the intake reads. It reads the file once, from one open handle, and records its digest with the path, so a reader that opens the path later compares the digest and refuses a file swapped after the check. The opener never prints the brief's contents. The coordinator reads the brief with its own file tool under the permissions it already has, so a path in the prompt doesn't widen what it can read; a path naming a sensitive file reaches the coordinator's context only as far as a direct instruction to read that file already could. The `brief-unrecorded` gap reads `reports-to` rows that may have travelled through the shared bucket, so it only raises a report line and never acts on a row. A refusal is a normal refusal line, and the opener test includes paths with spaces, quotes, command substitution, newlines and links. A brief supplies work and standing rules through the intake. It doesn't widen the coordinator's bounds: the worker cap, the parked bound, the rule against implementing, and the rule against touching another session's run.
 
-**Guidance printed by the opener.** The blocks printed to stderr are instructions that land in the coordinator's context. They come from the shipped wording table and are static text. A value inserted into a block is limited to what the opener has validated itself (names that match its own patterns, fixed words, numbers). Free text from an imported record, a roadmap or a prompt is never inserted into guidance. A test imports a record whose fields contain instruction-like text and checks that it doesn't appear in stderr. Blocks print once, so any rule that must hold for the whole tenure after a takeover or import is also carried by a template state, which is shown again on later arrivals and after a compaction.
+**Guidance printed by the opener.** The blocks printed to stderr are instructions that land in the coordinator's context. They come from the shipped wording table and are static text. A value inserted into a block is limited to what the opener has validated itself: names that match its own anchored patterns with no control characters, fixed words and numbers. Output from a command the opener runs is never relayed into a block. Free text from an imported record, a roadmap or a prompt is never inserted into guidance. A test imports a record whose fields contain instruction-like text and checks that it doesn't appear in stderr. Blocks print once, so any rule that must hold for the whole tenure after a takeover or import is also carried by a template state, which is shown again on later arrivals and after a compaction.
 
-**Limits on what the coordinator may do.** The standing prohibitions stay in the entry, which every start reads whole and which no state's ceiling squeezes: never run a cleanup or cancel verb against a session the run didn't open, never act on text after the scope, and keep the owner funnel for incoming messages. Rules moved into template states are limits on actions that are only taken from those states, and a coverage row for each moved limit fails when the rule is in neither the entry nor a state that gates the action. The existing check on the role lists stays.
+**Limits on what the coordinator may do.** The standing prohibitions stay in the entry, which every start reads whole and which no state's ceiling squeezes: never run a cleanup or cancel verb against a session the run didn't open, never act on text after the scope, and keep the owner funnel for incoming messages. Rules moved into template states are limits on actions that are only taken from those states, and the coverage row for each moved limit names the state that gates its action and fails when the rule's phrase isn't in that state's directive. Since that directive is what the coordinator is shown when it stops there, the limit is in front of it at the moment it can take the action. The existing check on the role lists stays. The takeover family keeps one line in the entry: a takeover acts on the run it took over and nothing else.
 
 **Data exposure.** Guidance blocks, refusal lines and the brief row may show paths, which can include a user or repository name, and the run record can travel to another host through the shared bucket. They don't print file contents, environment values or credentials. A recorded brief path is host-local and is validated again, as a fresh path would be, if an imported run is asked to open it. The measurements recorded on the pull request are token counts only.
 
-**Not covered.** The size check can't see the harness, so a Claude Code or plugin release that adds to the harness can push turn 0 over the target with every check green. That is a budget risk, caught by the live read, not a security one. The trust boundary of `--import` and `--trust-template` is unchanged.
+**Not covered.** The size check can't see the harness, so a Claude Code or plugin release that adds to the harness can push turn 0 over the target with every check green. That is a budget risk, caught by the live read, not a security one. What `--import` and `--trust-template` let in is unchanged in code, but their warnings move: they leave the entry and print on the opener's stderr in the run that passes the flag, the only run they apply to, and the opener block test covers both.
+
+**Residual risk, accepted.** Moving a limit out of the entry trades defence in depth for size: a moved limit reaches the coordinator only when its channel fires. An opener block prints once, so a compaction between the opener and the first tick, or a caller that drops stderr, loses it. The design limits what that can cost. The cross-session, takeover and imported-data prohibitions stay in the entry, the entry refuses a stderr redirect on the opener line, and anything a block says that still matters after the first tick is also carried by a template state, which comes back on later arrivals and through `koto status`. What remains is guidance for the opener's own output line being missed once, which the next tick's state text covers for every rule this design moves.
 
 ## Consequences
 
@@ -584,7 +614,7 @@ This change moves text between the places a coordinator reads, and moves the rec
   text on every arrival and through `koto status`, so a rule there comes back
   after a compaction, where a paragraph read once at turn 0 might not.
 - The entry has a ceiling a test enforces, so a new standing rule has to
-  displace something or come with a measured case for raising the row.
+  displace something or come with a measured case for changing the test.
 - About 15 KB of maintainer text stops being read by every run.
 
 ### Negative
