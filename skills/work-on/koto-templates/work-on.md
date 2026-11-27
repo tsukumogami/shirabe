@@ -2161,8 +2161,10 @@ states:
     # holds until the agent submits one of four values.
     #   rerun             run the suite again at this head: a self-loop whose
     #                     context assignment writes verification_rerun_request
-    #                     from detail, which the default action reads in the
-    #                     same tick (run-verification.sh --start archives the
+    #                     from detail, which the default action reads: the
+    #                     same tick starts it on re-entry, and as a background
+    #                     action it reads the key just after that tick returns
+    #                     (run-verification.sh --start archives the
     #                     timed-out attempt into verification_attempts and
     #                     starts the next). Taken only while route_reason_given
     #                     finds a reason in detail, and never needs
@@ -2343,7 +2345,8 @@ states:
         context_assignments:
           failure_reason: "verification blocked at the timed-out hold: ${evidence.detail}"
       # A re-run at the hold: back to verification, whose default action
-      # reads the request in the same tick. No verification_route here.
+      # is started by the same tick and reads the request. No
+      # verification_route here.
       - target: verification
         when:
           gates.verification_verdict.exit_code: 5
@@ -4765,7 +4768,10 @@ The first tick after the suite ends reads the verdict:
   every 15 seconds for up to eight minutes of one tick, and the response says when
   to tick again (`poll.retry_after_secs`). Tick again with
   `koto next {{SESSION_NAME}} --no-cleanup`, submitting nothing; the wait lasts up to
-  two hours.
+  two hours. On koto 0.40.0 and later you rarely see this exit: the suite's wait is
+  the `__action__` condition above, and the gate is read only after the suite has
+  ended, when a result is there. It is the wait itself on an older koto, and on any
+  koto when the supervisor ended without leaving a result.
 - **exit 2**: the result could not be read, or the supervisor stopped before every
   command ran (a memory guard or a person killed it, or it could not run). The state
   holds, and nothing is recorded. A stopped supervisor is not a failure of the change,
@@ -4808,9 +4814,10 @@ archived the attempt yourself (see the end of the first item):
 - `verification_status: rerun` with the reason in `detail` runs the suite again at
   this head, when you judge the timeout outside the change (the host was loaded, say,
   and the check usually finishes well inside its limit). The run comes back to
-  `verification`, and in the same tick the launcher archives the timed-out attempt
-  into the `verification_attempts` context key and starts a fresh suite whose logs go
-  in the next attempt folder. An empty or all-space reason is refused. A re-run counts
+  `verification`, and that tick starts the launcher, which archives the timed-out
+  attempt into the `verification_attempts` context key and starts a fresh suite whose
+  logs go in the next attempt folder. The tick answers `__action__` running, as any
+  entry to this state does, so the archive lands a moment after it returns. An empty or all-space reason is refused. A re-run counts
   against the same cap as `implementation_status: verification_rerun`: two archived
   attempts per head and merge-base. Over the cap the launcher drops the request and
   says the cap is spent, the hold comes back, and the gate's message offers only the

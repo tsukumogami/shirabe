@@ -210,7 +210,8 @@ the timeout is judged outside the change, it submits `verification_status: rerun
 the reason in `detail`; the `5 + rerun` edge needs a non-blank reason
 (`route_reason_given`) and never the hosted-of-record route's gate. Either edge writes
 the reason into the `verification_rerun_request` context key. The hold's edge is a
-self-loop, so the launcher reads the key in the same tick. When the agent ran
+self-loop, so the same tick starts the launcher, which reads the key (as a background
+action, just after that tick returns). When the agent ran
 `--archive --reason` by hand at the hold first, the gate reads 75 and the `75 + rerun`
 edge takes the same lap: `--start` finds no result to archive, drops the key and starts
 the next attempt.
