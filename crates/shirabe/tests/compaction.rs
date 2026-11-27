@@ -3,12 +3,14 @@
 //! outputs for a session with no usable entry.
 //!
 //! Every run clears the environment and puts only stand-ins on `PATH`: a koto
-//! stub that answers `context history`, `context list`, `status`,
-//! `session dir` and `session hierarchy` from files under `$KOTO_STUB` (it never touches a koto
-//! store; the session directory it names holds a fixture event log), a `gh` stub that
-//! logs each call, and a `git` wrapper that logs its arguments (and, in a
-//! second log, its `GIT_NO_LAZY_FETCH` and `GIT_ALLOW_PROTOCOL`) and runs the
-//! real git on throwaway repositories.
+//! stub that logs its arguments and answers `context history`, `context
+//! list`, `status` and `session hierarchy` from files under `$KOTO_STUB` (it
+//! never touches a koto store), a `gh` stub that logs each call, and a `git`
+//! wrapper that logs its arguments (and, in a second log, its
+//! `GIT_NO_LAZY_FETCH` and `GIT_ALLOW_PROTOCOL`) and runs the real git on
+//! throwaway repositories. `KOTO_HOME` is the fixture's root, so the binary
+//! reads each run's event log from `sessions/<name>/koto-<name>.state.jsonl`
+//! under it, a fixture log written in koto's own shape.
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -40,7 +42,6 @@ case "$1:${2-}" in
     context:history) f="$KOTO_STUB/history/${4//\//__}" ;;
     context:list) f="$KOTO_STUB/list" ;;
     status:*) f="$KOTO_STUB/status" ;;
-    session:dir) f="$KOTO_STUB/session-dir" ;;
     session:hierarchy) f="$KOTO_STUB/hierarchy" ;;
 esac
 [ -n "$f" ] && [ -f "$f" ] || exit 2
@@ -148,7 +149,6 @@ exec '{}' \"$@\"\n",
         fx.status("work");
         // The run's event log agrees: the note's write, seq 5, is its last
         // event.
-        fx.session_dir(&fx.p("sessions").join(KS).display().to_string());
         fx.events(&[
             ev(1, "workflow_initialized"),
             ev(2, "transitioned"),
@@ -158,11 +158,6 @@ exec '{}' \"$@\"\n",
         ]);
         fx.entry(&good_entry());
         fx
-    }
-
-    /// What the koto stub prints for `koto session dir`.
-    fn session_dir(&self, dir: &str) {
-        fs::write(self.p("stub/session-dir"), dir).unwrap();
     }
 
     fn log_path(&self) -> PathBuf {
@@ -178,8 +173,8 @@ exec '{}' \"$@\"\n",
         self.run_log(KS, Some(&self.p("repo").display().to_string()), lines);
     }
 
-    /// Write the event log of koto session `ks`, in the directory the koto
-    /// stub names for every session: a header with `exec_dir` as its
+    /// Write the event log of koto session `ks`, in its directory under the
+    /// fixture's sessions directory: a header with `exec_dir` as its
     /// `execution_dir` (none when `None`), then one line per event.
     fn run_log(&self, ks: &str, exec_dir: Option<&str>, lines: &[String]) {
         let mut header = serde_json::json!({"schema_version": 1, "workflow": ks,
@@ -192,11 +187,9 @@ exec '{}' \"$@\"\n",
             body.push_str(l);
             body.push('\n');
         }
-        let path = self
-            .p("sessions")
-            .join(KS)
-            .join(format!("koto-{ks}.state.jsonl"));
-        fs::write(path, body).unwrap();
+        let dir = self.p("sessions").join(ks);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(format!("koto-{ks}.state.jsonl")), body).unwrap();
     }
 
     /// Append events to the run's log.
@@ -323,6 +316,7 @@ exec '{}' \"$@\"\n",
             .env("HOME", self.p("home"))
             .env("XDG_STATE_HOME", self.p("state"))
             .env("KOTO_STUB", self.p("stub"))
+            .env("KOTO_HOME", &self.dir)
             .env("GH_LOG", self.p("gh.log"))
             .env("GIT_LOG", self.p("git.log"))
             .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -353,9 +347,34 @@ const FRESH: &str = "The compaction note is fresh";
 /// The re-anchor step that puts the rewrite first.
 const REWRITE: &str = "Rewrite the compaction note before any other work";
 
-/// One event-log line, as koto writes it.
+/// One event-log line, as koto writes it, with the payload `payload_for`
+/// gives its type.
 fn ev(seq: u64, ty: &str) -> String {
-    ev_with(seq, ty, serde_json::json!({}))
+    ev_with(seq, ty, payload_for(ty))
+}
+
+/// A payload koto reads for an event of type `ty`: every field its type
+/// requires, and nothing more. A `context_added` records no writer, so it
+/// counts as work.
+fn payload_for(ty: &str) -> serde_json::Value {
+    match ty {
+        "workflow_initialized" => serde_json::json!({"template_path": "/t/template.json"}),
+        "transitioned" => {
+            serde_json::json!({"from": "work", "to": "work", "condition_type": "auto"})
+        }
+        "context_added" => serde_json::json!({"key": "brief/brief.md", "hash": "00", "size": 1}),
+        "evidence_submitted" => serde_json::json!({"state": "work", "fields": {}}),
+        "decision_recorded" => serde_json::json!({"state": "work", "decision": {}}),
+        "gate_override_recorded" => serde_json::json!({"state": "work", "gate": "g",
+            "rationale": "r", "override_applied": {}, "actual_output": {},
+            "timestamp": "2026-06-01T12:10:00.000Z"}),
+        "session_imported" => serde_json::json!({"from_workspace": "w", "from_session": KS,
+            "from_session_id": "00", "machine_id": "m"}),
+        "context_read" => serde_json::json!({"key": "compaction/note.md", "reader": "cli",
+            "state": "work", "present": true}),
+        "execution_anchor_rebound" => serde_json::json!({"to": "/x"}),
+        other => panic!("no payload for event type {other}"),
+    }
 }
 
 fn ev_with(seq: u64, ty: &str, payload: serde_json::Value) -> String {
@@ -542,23 +561,26 @@ fn an_unreadable_event_log_leaves_freshness_unknown() {
     fs::remove_file(fx.log_path()).unwrap();
     assert_unknown(&fx.pre_compact());
 
-    // koto can't name the session directory.
+    // No store where KOTO_HOME points: the log in the fixture's store is
+    // never looked for anywhere else.
     let fx = Fx::new();
-    fs::remove_file(fx.p("stub/session-dir")).unwrap();
+    let elsewhere = fx.p("plain").display().to_string();
+    let out = fx.run_with(
+        "pre-compact",
+        "repo",
+        &["kbin", "bin", "tools"],
+        &fx.input(),
+        &[("KOTO_HOME", elsewhere.as_str())],
+    );
+    assert_unknown(&out);
+
+    // A store whose layout marker names a layout the reader doesn't read.
+    let fx = Fx::new();
+    fs::write(fx.p("sessions/.koto-store-layout"), "2\n").unwrap();
     assert_unknown(&fx.pre_compact());
 
-    // A directory that isn't absolute, though it names the log from the
-    // hook's working directory, or one that holds a control character.
-    let fx = Fx::new();
-    fx.entry(&entry_with_repo(&fx.p("repo").display().to_string()));
-    let out = fx.run("pre-compact", ".");
-    assert!(!out.contains(STALE) && !out.contains(UNKNOWN), "{out}");
-    fx.session_dir(&format!("sessions/{KS}"));
-    assert_unknown(&fx.run("pre-compact", "."));
-    fx.session_dir(&format!("{}\u{7}", fx.p("sessions").join(KS).display()));
-    assert_unknown(&fx.run("pre-compact", "."));
-
-    // A log that is a link, or not a regular file.
+    // A log that is a link, not a regular file, or a FIFO, which is refused
+    // without waiting on a writer.
     let fx = Fx::new();
     let real = fx.p("plain/log.jsonl");
     fs::rename(fx.log_path(), &real).unwrap();
@@ -567,6 +589,15 @@ fn an_unreadable_event_log_leaves_freshness_unknown() {
     fs::remove_file(fx.log_path()).unwrap();
     fs::create_dir(fx.log_path()).unwrap();
     assert_unknown(&fx.pre_compact());
+    fs::remove_dir(fx.log_path()).unwrap();
+    let made = std::process::Command::new("mkfifo")
+        .arg(fx.log_path())
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let t = Instant::now();
+    assert_unknown(&fx.pre_compact());
+    assert!(t.elapsed().as_secs() < 15, "took {:?}", t.elapsed());
 
     // A log with no event line in it.
     let fx = Fx::new();
@@ -586,8 +617,8 @@ fn a_stale_finding_wins_over_an_unreadable_log() {
     assert!(!out.contains(UNKNOWN), "{out}");
 }
 
-/// A read event padded out, so a few thousand of them pass the log tail the
-/// hooks read.
+/// A read event padded out, so a few thousand of them make a log of over a
+/// mebibyte.
 fn padded_read(seq: u64) -> String {
     ev_with(
         seq,
@@ -598,7 +629,7 @@ fn padded_read(seq: u64) -> String {
 }
 
 #[test]
-fn a_long_log_is_read_from_its_tail() {
+fn a_long_log_is_read_whole() {
     // Over a mebibyte of reads before the note's write and an event after it.
     let fx = Fx::new();
     let mut lines: Vec<String> = (1..=4000).map(padded_read).collect();
@@ -610,7 +641,7 @@ fn a_long_log_is_read_from_its_tail() {
     let out = fx.pre_compact();
     assert_eq!(out.matches(STALE).count(), 1, "{out}");
 
-    // With nothing after the note's write, the tail shows it current.
+    // With nothing after the note's write, the log shows it current.
     let lines: Vec<String> = (1..=4000)
         .map(padded_read)
         .chain([ev(4001, "context_added")])
@@ -621,14 +652,44 @@ fn a_long_log_is_read_from_its_tail() {
     assert!(!out.contains(UNKNOWN), "{out}");
 }
 
-#[test]
-fn a_tail_of_reads_past_the_note_leaves_freshness_unknown() {
-    // The note was written at seq 5, and the tail the hooks read holds only
-    // reads from well after it: what came between can't be seen.
-    let fx = Fx::new();
-    let mut lines = vec![ev(5, "context_added")];
+/// The fixture's log, events 1 to 5 with the note's write last, then reads
+/// from seq 6 to 4000: well over a mebibyte of them.
+fn reads_after_the_note(fx: &Fx) {
+    let mut lines = vec![
+        ev(1, "workflow_initialized"),
+        ev(2, "transitioned"),
+        ev(3, "context_added"),
+        ev(4, "evidence_submitted"),
+        ev(5, "context_added"),
+    ];
     lines.extend((6..=4000).map(padded_read));
     fx.events(&lines);
+}
+
+#[test]
+fn reads_long_after_the_note_leave_it_current() {
+    // The whole log is read, so nothing between the note and the last read
+    // goes unseen.
+    let fx = Fx::new();
+    reads_after_the_note(&fx);
+    assert!(fs::metadata(fx.log_path()).unwrap().len() > 1024 * 1024);
+    let out = fx.pre_compact();
+    assert!(!out.contains(STALE), "{out}");
+    assert!(!out.contains(UNKNOWN), "{out}");
+}
+
+/// One byte over the hooks' log read cap (`koto_store::LOG_READ_CAP`).
+const OVER_LOG_CAP: u64 = 64 * 1024 * 1024 + 1;
+
+#[test]
+fn a_log_over_the_read_cap_leaves_freshness_unknown() {
+    // A sparse file: the size is refused before a byte of it is read.
+    let fx = Fx::new();
+    let log = fs::OpenOptions::new()
+        .write(true)
+        .open(fx.log_path())
+        .unwrap();
+    log.set_len(OVER_LOG_CAP).unwrap();
     assert_unknown(&fx.pre_compact());
 }
 
@@ -644,6 +705,10 @@ fn pre_compact_makes_no_gh_call_and_every_git_call_is_safe() {
             .is_empty(),
         "gh was called"
     );
+    // The event log is read from the store; koto isn't asked where it is.
+    let koto = fs::read_to_string(fx.p("stub/log")).unwrap();
+    assert!(koto.contains("context history"), "{koto}");
+    assert!(!koto.contains("session dir"), "{koto}");
     let log = fs::read_to_string(fx.p("git.log")).unwrap();
     assert!(log.lines().count() >= 2, "{log}");
     for line in log.lines() {
@@ -1645,9 +1710,9 @@ fn a_bad_execution_dir_gives_the_generic_text() {
 
 #[test]
 fn the_latest_rebind_moves_the_execution_dir() {
-    let rebound = |to: &Path| {
+    let rebound = |seq: u64, to: &Path| {
         ev_with(
-            6,
+            seq,
             "execution_anchor_rebound",
             serde_json::json!({"from": "/x", "to": to.display().to_string()}),
         )
@@ -1657,7 +1722,7 @@ fn the_latest_rebind_moves_the_execution_dir() {
     fx.run_log(
         KS,
         Some(&fx.p("plain").display().to_string()),
-        &[ev(5, "context_added"), rebound(&fx.p("repo"))],
+        &[ev(1, "workflow_initialized"), rebound(2, &fx.p("repo"))],
     );
     let pc = fx.run("pre-compact", "other");
     assert!(
@@ -1667,7 +1732,7 @@ fn the_latest_rebind_moves_the_execution_dir() {
     assert!(pc.contains(&format!("- branch: {BRANCH}")), "{pc}");
     // A later rebind away from a work tree wins over the header.
     let fx = no_entry_with(&hierarchy_holding(&[KS]));
-    fx.add_events(&[rebound(&fx.p("plain"))]);
+    fx.add_events(&[rebound(6, &fx.p("plain"))]);
     assert_generic(&fx, &[], "rebound to a plain directory");
 }
 
@@ -1859,9 +1924,11 @@ fn re_anchor_never_calls_an_unreadable_note_fresh() {
     assert_re_anchor_unknown(&context_of(&out));
 
     let fx = Fx::new();
-    let mut lines = vec![ev(5, "context_added")];
-    lines.extend((6..=4000).map(padded_read));
-    fx.events(&lines);
+    let log = fs::OpenOptions::new()
+        .write(true)
+        .open(fx.log_path())
+        .unwrap();
+    log.set_len(OVER_LOG_CAP).unwrap();
     assert_re_anchor_unknown(&re_anchor(&fx));
 }
 

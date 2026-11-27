@@ -6,6 +6,7 @@ shirabe's declarations for `/shirabe:release`, imported by
 ## Release checks
 
 - `scripts/release-eval-check.sh`
+- `scripts/release-koto-reader.sh`
 
 ## Release assets
 
@@ -59,6 +60,23 @@ main" (the scheduled run, or a dispatch with `ref=main`) has finished green or
 red for 36 hours, `macos-floor-watchdog.yml` files an issue titled "CI: the
 macOS floor run is missing" and dispatches one; an open one means the floor's
 state on main is unknown. A release run on a commit doesn't close it.
+
+## The koto session reader
+
+The shirabe binary compiles in koto's read-only session reader,
+`koto-session-reader`, from the koto release tag pinned in
+`crates/shirabe/Cargo.toml`. The `scripts/release-koto-reader.sh` check fails
+unless that pin is a release tag and `Cargo.lock` resolves it to the same
+tag, then prints one line naming that koto release:
+
+```text
+koto session reader: koto v<X.Y.Z> (<commit>)
+```
+
+The release notes carry that line, so a shirabe release says which koto
+release its reader comes from. Moving the pin is a change to
+`crates/shirabe/Cargo.toml` and `Cargo.lock` in a pull request, never a step
+of the release.
 
 ## About the eval check
 

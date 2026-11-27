@@ -26,6 +26,7 @@ use shirabe_validate::{
 use shirabe_validate::{check_pr_writing_style, suppressed_terms};
 
 mod compaction;
+mod koto_store;
 mod migrate;
 mod plan_outlines;
 mod populate;
