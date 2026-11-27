@@ -293,6 +293,18 @@ mod tests {
     }
 
     #[test]
+    fn a_log_with_no_header_reads_as_none() {
+        // A log whose first line is an event, not a header, is one koto
+        // itself refuses (`koto status` calls it corrupted), so the hooks
+        // get no answer from it rather than a guess from its events.
+        let store = Store::new();
+        let log = good_log();
+        let (_header, events) = log.split_once('\n').unwrap();
+        store.write_log(events);
+        assert_eq!(store.read(), None);
+    }
+
+    #[test]
     fn a_store_with_a_newer_layout_reads_as_none() {
         let store = Store::new();
         store.write_log(&good_log());
