@@ -15,13 +15,51 @@
 # that skips (an engine suite without either, an offline one without jq)
 # fails, and so does one whose output says "command not found".
 #
-# Usage: bash skills/coordinate/scripts/run-tests.sh [--engine]
-# Exit codes: 0 every suite passed; 1 a suite failed.
+# With SUITE_SLICE=i/n set (a CI matrix job), only slice i of the selected
+# suites runs, chosen by scripts/lib/suite-slice.sh and balanced by the cost
+# table SUITE_SLICE_COSTS names (a path from the caller's directory; CI runs
+# from the repository root with skills/coordinate/check-skill.tsv); the n
+# slices together run every suite once, and the closing count line names the
+# slice. Unset or empty, every suite runs. --list prints the suites this run
+# would run, one per line, and runs none.
+#
+# Usage: bash skills/coordinate/scripts/run-tests.sh [--engine] [--list]
+# Exit codes: 0 every suite passed; 1 a suite failed, or the suite list is
+# empty; 2 a bad argument, or a SUITE_SLICE or cost table the selector refuses.
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ENGINE=0
-[ "${1-}" = --engine ] && ENGINE=1
+LIST=0
+for arg in "$@"; do
+    case "$arg" in
+        --engine) ENGINE=1 ;;
+        --list) LIST=1 ;;
+        *) echo "run-tests: unknown argument: $arg" >&2; exit 2 ;;
+    esac
+done
+
+# The suites this run selects, in glob order, then this job's slice of them.
+# A function, not a loop written inside $(...): bash 3.2 can't parse a case
+# pattern without its opening parenthesis inside a command substitution.
+list_suites() {
+    local t
+    for t in "$HERE"/*_test.sh; do
+        [ -e "$t" ] || continue
+        case "$t" in
+            *_engine_test.sh) [ "$ENGINE" = 1 ] || continue ;;
+            *) [ "$ENGINE" = 1 ] && continue ;;
+        esac
+        printf '%s\n' "$t"
+    done
+}
+ALL=$(list_suites)
+TOTAL=$(printf '%s\n' "$ALL" | awk 'NF > 0' | wc -l | tr -d ' ')
+SELECTED=$(printf '%s\n' "$ALL" | bash "$HERE/../../../scripts/lib/suite-slice.sh" run-tests.sh) || exit $?
+if [ "$LIST" = 1 ]; then
+    [ -z "$SELECTED" ] || printf '%s\n' "$SELECTED"
+    exit 0
+fi
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-tests.XXXXXX") || { echo "run-tests: no temporary directory" >&2; exit 1; }
 trap 'rm -rf "$T"' EXIT
@@ -56,12 +94,17 @@ done
 
 rc=0
 n=0
-for t in "$HERE"/*_test.sh; do
-    [ -e "$t" ] || continue
-    case "$t" in
-        *_engine_test.sh) [ "$ENGINE" = 1 ] || continue ;;
-        *) [ "$ENGINE" = 1 ] && continue ;;
-    esac
+# One suite path per line; split on newlines only, with globbing off for the
+# split so a path is taken as written. The list is expanded once, when the
+# loop starts, so the body puts IFS and globbing back at once: the commands
+# in it split and glob as usual.
+OLD_IFS=$IFS
+IFS='
+'
+set -f
+for t in $SELECTED; do
+    IFS=$OLD_IFS
+    set +f
     n=$((n + 1))
     echo "== $(basename "$t")"
     env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN \
@@ -83,5 +126,11 @@ for t in "$HERE"/*_test.sh; do
         rc=1
     fi
 done
-echo "run-tests: $n suites"
+IFS=$OLD_IFS
+set +f
+if [ -n "${SUITE_SLICE:-}" ]; then
+    echo "run-tests: $n of $TOTAL suites (slice $SUITE_SLICE)"
+else
+    echo "run-tests: $n suites"
+fi
 exit $rc

@@ -11,7 +11,7 @@
 # `error: name required`. gh is a stand-in that serves the fixture's issues.
 #
 #   the declarations  UNIT_KIND (rebindable, change or fix) and FIX_REPORT;
-#                     review_level_choice goes to fix_determination, which
+#                     the probe's states go to fix_determination, which
 #                     routes on its kind_route gate: exit 0 (a change) to
 #                     implementation, exit 3 (a fix) to reproduce; reproduce
 #                     leaves only on red_recorded; verification's
@@ -33,8 +33,8 @@
 #                     green record, and through pass_counting (by a deferral
 #                     to hosted CI) to finalization with nothing to record
 #   no withdrawal     fix-kind.sh withdraw on the fix exits 1 naming label:bug
-#   a hand rebind     UNIT_KIND rebound to change before the run enters
-#                     fix_determination holds it there, kind_unchanged naming
+#   a hand rebind     UNIT_KIND rebound to change at analysis, before the run
+#                     enters fix_determination, holds it there, kind_unchanged naming
 #                     both; `fix-kind.sh declare` puts it back
 #   a step's report   issue 3 has no label and FIX_REPORT set: a fix from the
 #                     step, whose red is refused for a passage from the issue
@@ -91,7 +91,6 @@ case "$PLUGIN_ROOT" in
 esac
 FK="$PLUGIN_ROOT/skills/work-on/scripts/fix-kind.sh"
 RF="$PLUGIN_ROOT/skills/work-on/scripts/red-first.sh"
-RL="$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh"
 
 # gh: `issue view <n> ... --json ...` prints <issues>/<n>.json. The directory
 # is written into the stand-in, since koto passes a gate or action command only
@@ -124,8 +123,8 @@ q() { jq -r "$1" "$COMPILED" 2>/dev/null; }
 [ "$(q '"\(.variables.UNIT_KIND.rebind)|\(.variables.UNIT_KIND.pattern)"')" = 'true|^(change|fix)?$' ] \
     && pass "UNIT_KIND is rebindable, change or fix" || fail "UNIT_KIND is [$(q '.variables.UNIT_KIND')]"
 [ "$(q '.variables.FIX_REPORT.rebind // false')" = false ] && pass "FIX_REPORT is not rebindable" || fail "FIX_REPORT is rebindable"
-[ "$(q '[.states.review_level_choice.transitions[] | select(.when["vars.REVIEW_LEVEL"].is_set == true) | .target] | join(",")')" = fix_determination ] \
-    && pass "a chosen level goes to fix_determination" || fail "a chosen level goes to [$(q '[.states.review_level_choice.transitions[].target] | join(",")')]"
+[ "$(q '[.states.probe_draw.transitions[], .states.probe_arm_near.transitions[], .states.probe_arm_far.transitions[], .states.probe_arm_far_redeliver.transitions[] | .target | select(startswith("probe_arm_") | not)] | unique | join(",")')" = fix_determination ] \
+    && pass "the probe's states go to fix_determination" || fail "the probe's states go to [$(q '[.states.probe_draw.transitions[].target] | join(",")')]"
 [ "$(q '[.states.fix_determination.transitions[] | select(.target != "done_blocked") | "\(.when | to_entries | map("\(.key)=\(.value)") | join("+"))>\(.target)"] | join(",")')" = "gates.kind_route.exit_code=0>implementation,gates.kind_route.exit_code=3>reproduce" ] \
     && pass "fix_determination: kind_route 0 (a change) to implementation, 3 (a fix) to reproduce" || fail "fix_determination routes [$(q '.states.fix_determination.transitions')]"
 case "$(q '.states.fix_determination.gates.kind_route.command')" in *'fix-kind.sh" kind '*'--exit --current "{{UNIT_KIND}}"'*) pass "kind_route runs fix-kind.sh kind --exit --current UNIT_KIND" ;; *) fail "kind_route is [$(q '.states.fix_determination.gates.kind_route')]" ;; esac
@@ -201,9 +200,9 @@ gate_stdout() {
     printf '%s' "$RESP" | jq -r --arg g "$1" '.blocking_conditions[]? | select(.name == $g) | .failure.captured.stdout // ""'
 }
 
-# walk_to_choice <session> <issue> [<more init vars>...]: a branch off main
-# and a session walked to review_level_choice.
-walk_to_choice() {
+# walk_to_analysis <session> <issue> [<more init vars>...]: a branch off main
+# and a session walked to analysis, its plan stored but not yet submitted.
+walk_to_analysis() {
     local s=$1 n=$2
     shift 2
     git checkout -q main
@@ -216,9 +215,15 @@ walk_to_choice() {
     tick "$s" '{"status":"override"}'
     printf '# Issue %s\n\n## Acceptance Criteria\n\n- [ ] it works\n' "$n" | koto context add "$s" context.md >/dev/null 2>&1
     printf 'plan\n' | koto context add "$s" plan.md >/dev/null 2>&1
-    tick "$s" '{"plan_outcome":"plan_ready"}'
-    [ "$STATE" = review_level_choice ] || { fail "$s: walked to [$STATE], not review_level_choice"; return 1; }
-    "$RL" set "$s" light >/dev/null 2>"$WORKDIR/set.err" || { fail "$s: review-level.sh set failed: $(cat "$WORKDIR/set.err")"; return 1; }
+    [ "$STATE" = analysis ] || { fail "$s: walked to [$STATE], not analysis"; return 1; }
+    return 0
+}
+# walk <session> <issue> [<more init vars>...]: walk_to_analysis, then
+# plan_ready, whose tick runs through fix_determination: the run is at
+# reproduce or implementation after it, with no level submitted.
+walk() {
+    walk_to_analysis "$@" || return 1
+    tick "$1" '{"plan_outcome":"plan_ready"}'
     return 0
 }
 
@@ -235,9 +240,8 @@ settle_verification() {
 echo "--- a fix: label:bug, held at reproduce, red on the base, held at pass_counting until green"
 
 S=rf_fix
-if walk_to_choice "$S" 1 --var ISSUE_TYPE=task; then
-    tick "$S"
-    expect_state "the tick after the level is set routes the fix" reproduce
+if walk "$S" 1 --var ISSUE_TYPE=task; then
+    expect_state "the plan_ready tick routes the fix" reproduce
     [ "$(visits "$S" fix_determination)|$(left "$S" fix_determination reproduce)" = "1|1" ] \
         && pass "fix_determination was entered and left in that tick" \
         || fail "fix_determination visits [$(visits "$S" fix_determination)], left to reproduce [$(left "$S" fix_determination reproduce)]"
@@ -303,9 +307,8 @@ fi
 echo "--- a change: no fix label, straight to implementation, nothing owed"
 
 S=rf_change
-if walk_to_choice "$S" 2 --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI" --var ISSUE_TYPE=task; then
-    tick "$S"
-    expect_state "the tick after the level is set routes the change" implementation
+if walk "$S" 2 --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI" --var ISSUE_TYPE=task; then
+    expect_state "the plan_ready tick routes the change" implementation
     [ "$(koto context get "$S" fix_kind.jsonl 2>/dev/null | jq -r .kind)" = change ] && pass "the unit is recorded as a change" \
         || fail "fix_kind.jsonl is [$(koto context get "$S" fix_kind.jsonl 2>/dev/null)]"
     [ "$(visits "$S" fix_determination)|$(left "$S" fix_determination implementation)" = "1|1" ] \
@@ -325,15 +328,15 @@ fi
 # ==============================================================================
 echo "--- a hand rebind before fix_determination holds the run there"
 
-# The rebind is made while the run is still at review_level_choice, so the
+# The rebind is made while the run is still at analysis, so the plan_ready
 # tick that enters fix_determination starts with UNIT_KIND=change: the action
 # records the label's fix and leaves a non-empty variable alone, and
 # kind_route, given the variable, exits 1 rather than routing.
 S=rf_rebind
-if walk_to_choice "$S" 1; then
+if walk_to_analysis "$S" 1; then
     koto init "$S" --template "$TEMPLATE" --attach-live --var UNIT_KIND=change --var PLUGIN_ROOT="$PLUGIN_ROOT" \
-        --var REVIEW_LEVEL=light >/dev/null 2>"$WORKDIR/attach.err" || fail "the hand rebind failed: $(cat "$WORKDIR/attach.err")"
-    tick "$S"
+        >/dev/null 2>"$WORKDIR/attach.err" || fail "the hand rebind failed: $(cat "$WORKDIR/attach.err")"
+    tick "$S" '{"plan_outcome":"plan_ready"}'
     expect_state "after a hand rebind to change" fix_determination
     case "$(gate_stdout kind_unchanged)" in *"UNIT_KIND is change but the ledger records a fix (source label:bug)"*) pass "kind_unchanged names both" ;; *) fail "kind_unchanged printed [$(gate_stdout kind_unchanged)]" ;; esac
     [ "$(visits "$S" implementation)" = 0 ] && pass "the rebind doesn't reach implementation" || fail "implementation was entered"
@@ -346,8 +349,7 @@ fi
 echo "--- a plan step's Fixes line is the report"
 
 S=rf_step
-if walk_to_choice "$S" 3 --var "FIX_REPORT=$FIXES"; then
-    tick "$S"
+if walk "$S" 3 --var "FIX_REPORT=$FIXES"; then
     expect_state "a FIX_REPORT unit" reproduce
     [ "$(koto context get "$S" fix_kind.jsonl 2>/dev/null | jq -r '"\(.kind)|\(.source)"')" = "fix|step" ] \
         && pass "recorded as a fix with source step" || fail "fix_kind.jsonl is [$(koto context get "$S" fix_kind.jsonl 2>/dev/null)]"
@@ -371,8 +373,7 @@ fi
 echo "--- observations wait for acceptance at pass_counting"
 
 S=rf_obs
-if walk_to_choice "$S" 1 --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI" --var ISSUE_TYPE=task; then
-    tick "$S"
+if walk "$S" 1 --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI" --var ISSUE_TYPE=task; then
     expect_state "a fix" reproduce
     cat > "$WORKDIR/before.md" <<EOF
 ## Produced

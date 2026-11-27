@@ -182,7 +182,8 @@ Give it one or more of `model`, `permission_mode`,
 `haiku`); `permission_mode` is one of `default`, `acceptEdits`, `plan`,
 `auto`, `dontAsk` and `bypassPermissions`; `accept_session_messages` is
 `true` or `false`; `profile` is a niwa dispatch profile name, one of the
-workspace's `[session.dispatch_profiles]`, matching `^[a-z0-9][a-z0-9-]*$`.
+workspace's `[session.dispatch_profiles]`, in niwa's grammar
+`^[a-z0-9][a-z0-9-]*$` with no length cap.
 `render-brief.sh` refuses any other key or value, so nothing you didn't pick
 reaches the launch. Use it to start a worker in the permission mode you run
 in, so it doesn't stall on a prompt nobody answers, and with
@@ -409,6 +410,33 @@ only when `niwa dispatch --help` lists them, for the same reason. So do
 (`--accept-session-messages=false` for `false`), one for each key of the
 input's `launch`; a flag the help doesn't list is left off with a line on
 stderr naming it, and the worker gets niwa's default for it.
+
+A coordinator's dispatch (entry point `coordinate`: a lane, or a successor)
+differs in two ways. It asks for niwa's coordinator dispatch profile,
+`--profile coordinator`, which starts the session without the tools, the
+skill listing and the connectors a coordinator never uses; the input's
+`launch.profile` names another `[session.dispatch_profiles]` entry instead,
+for this dispatch or any worker's. And its prompt starts with the
+invocation, so a session that can't call the Skill tool still loads its
+skill from the leading slash command:
+
+```bash
+niwa dispatch "/shirabe:coordinate <scope> --role <role>
+
+<authority> Work in <owner/repo>. Stop at: <last checkpoint> Read <workspace-root>/.niwa/dispatch-briefs/<topic>.md for your complete task brief, then do it." \
+  --name <topic> --detach --profile coordinator ...
+```
+
+The invocation keeps its first line to itself: the started coordinator takes
+its tokens from that line, and the lines after it are the dispatcher's
+words. `--profile` goes on only when the help lists it; with an older niwa
+it's left off with a line on stderr, and the prompt still starts with the
+invocation. niwa refuses a profile the workspace doesn't declare before it
+provisions anything, so when it refuses the `coordinator` default that way
+the dispatch runs once more without a profile. A profile the input named is
+never dropped: its refusal is the dispatch's failure. A worker's dispatch
+asks for no profile unless its input names one, and its prompt is the one
+above.
 
 Record the holding under the dispatch topic you passed, with
 `state-holding.sh`, before any other action. `scripts/dispatch-worker.sh`

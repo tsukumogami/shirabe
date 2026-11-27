@@ -910,7 +910,7 @@ eq "koto's refusal code" "refused=invalid_var" "$OUT"
 eq "the refusal is recorded on the leg" '"refused"' "$(leg "$REQ" .result_source)"
 eq "no session is left behind" none "$(state_of task_badfloor)"
 
-# The cases below tick into review_level_choice, whose action runs
+# The cases below tick into fix_determination, whose action runs
 # review-level.sh, so PLUGIN_ROOT must reach this checkout. koto admits a
 # value only inside its allowlist, so a checkout path outside it is reached
 # through a symlink.
@@ -918,6 +918,12 @@ REAL_ROOT="$REPO_ROOT"
 case "$REAL_ROOT" in
     *[!a-zA-Z0-9._/:@\ -]*) ln -s "$REPO_ROOT" "$WORK/plugin"; REAL_ROOT="$WORK/plugin" ;;
 esac
+# fix_determination's action reads the issue's labels with gh; the stand-in
+# serves an unlabelled issue, so these runs are changes and go on to
+# implementation. It goes on PATH before the sessions below are created, since
+# koto keeps the PATH a session was created with.
+. "$REPO_ROOT/scripts/lib/gh-issue-testlib.sh"
+gh_issue_stand_in "$WORK/gh-bin"
 RL="$REAL_ROOT/skills/work-on/scripts/review-level.sh"
 ledger_events() { k context get "$1" review_level.jsonl 2>/dev/null | jq -r .event | tr '\n' ' ' | sed 's/ $//'; }
 # session_var <session> <VAR> -- the effective value from the session's log:
@@ -929,15 +935,20 @@ session_var() {
         reduce (.[] | select(.type == "workflow_initialized" or .type == "variables_rebound")) as $e
             ({}; . + ($e.payload.variables // {})) | .[$v] // "<unset>"'
 }
-# to_choice <session> -- from entry to review_level_choice, as an issue-backed
-# run that skips its setup states.
-to_choice() {
+# to_analysis <session> -- from entry to analysis, as an issue-backed run that
+# skips its setup states, with its plan stored but not yet submitted.
+to_analysis() {
     tick "$1" --with-data '{"mode":"issue_backed","issue_number":"42"}'
     tick "$1" --with-data '{"status":"override"}'
     tick "$1" --with-data '{"status":"override"}'
     tick "$1" --with-data '{"staleness_signal":"override"}'
     printf '# Issue\n\n## Acceptance Criteria\n\n- [ ] it works\n' | k context add "$1" context.md >/dev/null 2>&1
     printf 'plan\n' | k context add "$1" plan.md >/dev/null 2>&1
+}
+# to_implementation <session> -- to_analysis, then plan_ready, whose tick runs
+# through fix_determination (which records the bound) to implementation.
+to_implementation() {
+    to_analysis "$1"
     tick "$1" --with-data '{"plan_outcome":"plan_ready"}'
 }
 
@@ -948,28 +959,28 @@ CLAUDE_PLUGIN_ROOT="$REAL_ROOT" run_open issue_42 "[\"42\",\"--review-floor=stan
     --var ISSUE_NUMBER=42 --var ARTIFACT_PREFIX=issue_42
 eq "--review-floor=standard under --koto-leg: exit 0" 0 "$RC"
 eq "the session's REVIEW_FLOOR" standard "$(session_var issue_42 REVIEW_FLOOR)"
-to_choice issue_42
-eq "plan_ready with no level waits at review_level_choice" review_level_choice "$(state_of issue_42)"
-eq "the ledger holds the bound line and no choice yet" bound "$(ledger_events issue_42)"
+to_implementation issue_42
+eq "plan_ready with no level goes on to implementation" implementation "$(state_of issue_42)"
+eq "the ledger holds the bound line and no level yet" bound "$(ledger_events issue_42)"
 eq "the bound line records floor standard" standard \
     "$(k context get issue_42 review_level.jsonl 2>/dev/null | jq -r 'select(.event == "bound") | .floor')"
 (cd "$FIXREPO" && "$RL" set issue_42 light --reason small >/dev/null 2>&1)
-eq "a light choice under the standard floor is refused" 1 "$?"
+eq "a light level under the standard floor is refused" 1 "$?"
 (cd "$FIXREPO" && "$RL" set issue_42 standard >/dev/null 2>&1)
-eq "a standard choice is recorded" 0 "$?"
+eq "a standard level is recorded" 0 "$?"
 eq "the ledger reads bound, then choose" "bound choose" "$(ledger_events issue_42)"
 
-# A resume through this script keeps the chosen level. The session is opened
-# the plain way (this script with no --koto-leg, the bound in the tokens), its
-# level chosen, and a bare attach shows what the script guards against: the
-# attach resets REVIEW_LEVEL, which isn't passed.
+# A resume through this script keeps the level the run set. The session is
+# opened the plain way (this script with no --koto-leg, the bound in the
+# tokens), its level raised, and a bare attach shows what the script guards
+# against: the attach resets REVIEW_LEVEL, which isn't passed.
 CLAUDE_PLUGIN_ROOT="$REAL_ROOT" run_open issue_43 '["43","--review-floor=standard"]' \
     --var ISSUE_NUMBER=43 --var ARTIFACT_PREFIX=issue_43
 eq "the plain open with --review-floor=standard: exit 0" 0 "$RC"
 eq "the plain open records REVIEW_FLOOR=standard" standard "$(session_var issue_43 REVIEW_FLOOR)"
-to_choice issue_43
+to_implementation issue_43
 (cd "$FIXREPO" && "$RL" set issue_43 full >/dev/null 2>&1)
-eq "the level is chosen" full "$(session_var issue_43 REVIEW_LEVEL)"
+eq "the level is raised" full "$(session_var issue_43 REVIEW_LEVEL)"
 eq "review-level.sh level reads it from the ledger" full "$(cd "$FIXREPO" && "$RL" level issue_43 2>/dev/null)"
 k init issue_43 --template "$TEMPLATE" --attach-live --var PLUGIN_ROOT="$REAL_ROOT" >/dev/null 2>&1
 eq "control: a bare attach empties REVIEW_LEVEL" "" "$(session_var issue_43 REVIEW_LEVEL)"
@@ -982,7 +993,7 @@ case "$OUT" in *opened=attached*) pass "the live session is attached" ;; *) fail
 eq "the resume keeps REVIEW_LEVEL at the ledger's level" full "$(session_var issue_43 REVIEW_LEVEL)"
 eq "and the bound it was opened with" standard "$(session_var issue_43 REVIEW_FLOOR)"
 eq "the resumed session is bound to the leg" '"issue_43"' "$(leg "$REQ" .bound_child)"
-eq "and still waits where it was" review_level_choice "$(state_of issue_43)"
+eq "and still waits where it was" implementation "$(state_of issue_43)"
 
 # The bound doesn't move inside a run: REVIEW_FLOOR isn't rebind in
 # work-on.md, so a resume naming a different floor is refused.
@@ -1020,7 +1031,7 @@ eq "a reason that does not start with a letter or digit: koto's refusal code" "2
 FK="$REAL_ROOT/skills/work-on/scripts/fix-kind.sh"
 CLAUDE_PLUGIN_ROOT="$REAL_ROOT" run_open issue_44 '["44"]' --var ISSUE_NUMBER=44 --var ARTIFACT_PREFIX=issue_44
 eq "the plain open of issue_44: exit 0" 0 "$RC"
-to_choice issue_44
+to_analysis issue_44
 (cd "$FIXREPO" && "$FK" declare issue_44 --reason "the report says the behaviour is wrong" >/dev/null 2>&1)
 eq "fix-kind.sh declare makes the unit a fix" 0 "$?"
 eq "UNIT_KIND is fix" fix "$(session_var issue_44 UNIT_KIND)"

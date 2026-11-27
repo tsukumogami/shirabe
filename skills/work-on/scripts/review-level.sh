@@ -1,40 +1,53 @@
 #!/usr/bin/env bash
-# review-level.sh -- for /work-on: choose, raise, lower, check and report a
-# run's review level.
+# review-level.sh -- for /work-on: set a run's review level from the facts of
+# the change, raise or lower it, check it and report it.
 #
 # A run's review level (light, standard or full; references/review-levels.md
 # defines them) lives in the rebindable template variable REVIEW_LEVEL, which
 # koto routes on, and in a per-run ledger, the context key
 # `review_level.jsonl`. This script is the one way the level changes: `set`
-# rebinds the variable and appends to the ledger in the same call, so the two
-# agree after every exit. The facts of the change (its size, the path classes
-# it touched, whether tests or acceptance criteria changed) set a floor the
-# level can't sit below; references/review-level-rules.tsv holds the rules.
+# and `set-from-facts` rebind the variable and append to the ledger in the same
+# call, so the two agree after every exit. The facts of the change (its size,
+# the path classes it touched, whether tests or acceptance criteria changed)
+# set a floor the level can't sit below; references/review-level-rules.tsv
+# holds the rules. Nobody chooses a level up front: the level check's action
+# runs `facts` and then `set-from-facts`, which puts the level at the facts
+# floor, or higher when the agent raised it or the bound's floor says so.
 #
 # Usage:
 #   review-level.sh init   <session> <floor> <ceiling>
 #   review-level.sh set    <session> <level> [--reason <text>] [--cause veto:<criterion>]
-#   review-level.sh facts  <session> [<level>] [--shared-branch <branch>]
-#   review-level.sh check  <session> <level>
+#   review-level.sh set-from-facts <session>
+#   review-level.sh facts  <session> [<level>] [--shared-branch <branch>] [--no-check-line]
+#   review-level.sh check  <session> <level>|--ledger
 #   review-level.sh agree  <session> <level>
-#   review-level.sh slice  <session> <level>
+#   review-level.sh slice  <session> <level>|--ledger
 #   review-level.sh project <facts-file> <level> [<rules-file>]
 #   review-level.sh report [<session>...]
-#   review-level.sh level  <session>
+#   review-level.sh level  <session> [--exit]
 #   review-level.sh classify <path>...
 #
 # <floor>, <ceiling> and the <level> of facts/check/agree/slice may be empty (an
 # unset template variable); <level> for set must be one of the three names.
 #
-#   init    run by the level-choice state's action. Stores the bound in
+#   init    run by analysis's action as the run enters analysis, and again
+#           by fix_determination's, where it is a no-op unless analysis's
+#           failed and was recovered by hand. Stores the bound in
 #           `review_level_bound.json`, the acceptance-criteria text in
 #           `review_level_criteria.txt` and a copy of the rules file in
 #           `review_level_rules.tsv`, then appends one `bound` line. A second
-#           run finds the `bound` line and writes nothing.
-#   set     run by the agent. Decides the event from the ledger's last level,
-#           the bound and the recorded facts:
-#             no level yet  choose; refused outside the bound, or under a bound
-#                           whose floor is above its ceiling
+#           run finds the `bound` line and writes nothing, except the
+#           criteria copy when the first run found no context.md and one
+#           exists now.
+#   set     run by the agent, to raise (or, with a reason, lower) the level.
+#           Refused until init has recorded the bound, which analysis's
+#           action does: a level is set from analysis on. Decides the event from the
+#           ledger's last level, the bound and the recorded facts:
+#             no level yet  choose; refused below the bound's floor, above
+#                           its ceiling without --reason (with one it adds
+#                           `breach`), or under a bound whose floor is above
+#                           its ceiling. A choose before the level check is a
+#                           raise the check keeps
 #             higher        floor_raise when the new level is the facts floor
 #                           and the current level is below it; veto with
 #                           --cause veto:<c>; raise otherwise. Above the
@@ -51,6 +64,22 @@
 #           them: an attach resets every rebind variable it doesn't pass), appends the
 #           ledger lines and reads them back. A failed rebind writes no line; a
 #           failed ledger write rebinds back to the ledger's level.
+#   set-from-facts
+#           the second half of the level check's action, after `facts`. The
+#           level is the highest of the facts floor (review_facts.json), the
+#           ledger's last level (which carries every raise the agent made,
+#           and never drops on its own: only a `set` lower moves it down) and
+#           the bound's floor. When that differs from the ledger's last level
+#           it appends one `from_facts` line (from, to, rule, and source:
+#           `facts` when the facts floor set it, `bound` when the bound's
+#           floor did), plus a `breach` line when the new level is above the
+#           bound's ceiling, which only a facts floor above the ceiling can
+#           cause; when it is the same, no level line. Either way it appends a
+#           `check` line when the head, level or floor differs from the last
+#           one, and rebinds REVIEW_LEVEL as `set` does, so the variable
+#           matches the ledger from the next tick on. Refused (exit 1, nothing
+#           changed) with no bound or no facts recorded, or under a bound
+#           whose floor is above its ceiling.
 #   facts   run by the level-check state's action. Diffs HEAD against two
 #           bases, the stored impl_base and the merge-base with the default
 #           branch (origin/HEAD's branch, else origin/main, else main), and
@@ -78,21 +107,31 @@
 #           survives the run; nothing reads it back), and appends a `check`
 #           line when the head, level or
 #           floor differs from the last one, or an `unset` line when the level
-#           is empty.
-#   check   the level-check gate. Read-only.
+#           is empty. --no-check-line writes neither: the level check's
+#           action passes it, and set-from-facts writes the check line at the
+#           level it settles on.
+#   check   the level-check gate. Read-only. --ledger in place of <level>
+#           judges the ledger's last level instead of a variable's: the level
+#           set-from-facts recorded in the same tick, which the variable shows
+#           only from the next tick. With --ledger a ledger with no level
+#           holds; it never exits 3.
 #   agree   the ledger-agreement gate on the states after the level check
 #           that route on the level (review, light_review). Read-only. Passes
-#           when the variable equals the ledger's last level (both empty is
-#           the unset route, and passes); holds otherwise, naming both, so a
-#           hand rebind made after the level check can't change where the run
-#           goes.
+#           when the variable equals the ledger's last level, and when the
+#           variable is empty; holds otherwise, naming both, so a hand rebind
+#           made after the level check can't change where the run goes. An
+#           empty variable passes because the tick that first records a level
+#           enters light_review or scrutiny before the rebind shows, and
+#           because an empty level takes review's most thorough route (QA),
+#           so it can never skip a panel.
 #   slice   the decider check's command: a typed projection of the facts
 #           (counts, class names, booleans, the floor), the order of the
 #           levels, the level definitions rendered from the stored rules
 #           copy (what the facts call for at each level, and the floor as
 #           the most thorough of them) and a `level:` line. With no facts
 #           recorded, the projection is `{}` and the definitions are left
-#           out. Never a path, a reason or criteria text.
+#           out. Never a path, a reason or criteria text. --ledger in place of
+#           <level> takes the ledger's last level, as for check.
 #   project the same slice for a facts file, for the Jev criteria fixtures
 #           and the slice measurement, with the rules file given (a
 #           session's stored copy) or else the shipped one.
@@ -104,7 +143,11 @@
 #           nothing when the session has no ledger or no level event in it.
 #           Read-only. work-on-open.sh passes it as REVIEW_LEVEL when it
 #           attaches a live session, because an attach resets every rebind
-#           variable it isn't passed.
+#           variable it isn't passed. With --exit it is the level check's
+#           level_route gate and answers in its exit status, so koto routes on
+#           the level set-from-facts recorded in the same tick: 11 light, 12
+#           standard, 13 full (10 plus the level's rank), 4 no level
+#           recorded, 66 a read that failed.
 #   classify  one tab-separated row per path: the path, then the classes the
 #           shipped rules file puts it in, comma-separated, or `-` for none.
 #           Read-only; no session.
@@ -125,13 +168,16 @@
 #   0  -- done: init stored (or already had) the bound; set recorded the
 #         change; facts recorded; check passes; slice, report and level
 #         printed
-#   1  -- set refused (a `refused:` line on stdout names the rule; nothing
-#         changed), or check or agree holds (a `hold:` line names why)
+#   1  -- set or set-from-facts refused (a `refused:` line on stdout names
+#         the rule; nothing changed), or check or agree holds (a `hold:` line
+#         names why)
 #   2  -- report printed every row, but a ledger had a line that isn't JSON
 #         or couldn't be read (koto refused the read, or the get failed)
 #   3  -- check: the level is empty and the ledger records none (the unset
 #         route, a session from an earlier template). An empty level over a
 #         ledger that has one holds (1): the variable was reset
+#   4  -- level --exit: the ledger records no level
+#   11, 12, 13 -- level --exit: light, standard, full
 #   64 -- usage: unknown subcommand, a bad level, session name, flag or rules
 #         file, a --shared-branch that isn't a branch name, or no git base to
 #         diff (on a shared branch, no impl_base)
@@ -140,7 +186,8 @@
 #         refuses to read, such as one bound to another workspace; nothing
 #         is printed on stdout, and koto's reason goes to stderr). A key
 #         koto answers is absent is never a failure. After
-#         set exits 66 neither the variable nor the ledger has changed. (check
+#         set or set-from-facts exits 66 neither the variable nor the ledger
+#         has changed. (check
 #         and agree never exit 66: a read they can't make is a hold)
 #
 # Bash 3.2: no associative arrays, no mapfile.
@@ -184,13 +231,14 @@ usage() {
     die 64 "$1
 usage: review-level.sh init   <session> <floor> <ceiling>
        review-level.sh set    <session> <level> [--reason <text>] [--cause veto:<criterion>]
-       review-level.sh facts  <session> [<level>] [--shared-branch <branch>]
-       review-level.sh check  <session> <level>
+       review-level.sh set-from-facts <session>
+       review-level.sh facts  <session> [<level>] [--shared-branch <branch>] [--no-check-line]
+       review-level.sh check  <session> <level>|--ledger
        review-level.sh agree  <session> <level>
-       review-level.sh slice  <session> <level>
+       review-level.sh slice  <session> <level>|--ledger
        review-level.sh project <facts-file> <level> [<rules-file>]
        review-level.sh report [<session>...]
-       review-level.sh level  <session>
+       review-level.sh level  <session> [--exit]
        review-level.sh classify <path>..."
 }
 
@@ -282,7 +330,7 @@ line() {
 
 # The ledger's level events, read leniently: a line that isn't JSON is skipped
 # here (report is what flags it).
-LEVEL_EVENTS='["choose","raise","lower","floor_raise","veto"]'
+LEVEL_EVENTS='["choose","raise","lower","floor_raise","veto","from_facts"]'
 
 # last_level <ledger-file>: the `to` of the ledger's last level event.
 last_level() {
@@ -402,6 +450,30 @@ session_criteria() {
 
 # ---------------------------------------------------------------- init --------
 
+# store_criteria <session>: stores the acceptance-criteria copy once, from
+# context.md, when no copy is stored yet and context.md exists. With no
+# context.md yet it stores nothing, so a later init (fix_determination's,
+# after analysis's) stores it once context.md is there, rather than a copy of
+# nothing that every later facts call would read as changed criteria.
+store_criteria() {
+    local rc=0
+    ctx_has "$1" "$CRITERIA_KEY" || rc=$?
+    case "$rc" in
+        0) return 0 ;;
+        1) ;;
+        *) die 66 "could not read $CRITERIA_KEY" ;;
+    esac
+    rc=0
+    ctx_has "$1" context.md || rc=$?
+    case "$rc" in
+        0) ;;
+        1) return 0 ;;
+        *) die 66 "could not read context.md" ;;
+    esac
+    session_criteria "$1" "$WORK/criteria" || die 66 "could not read context.md"
+    ctx_put "$1" "$CRITERIA_KEY" "$WORK/criteria" || die 66 "could not write $CRITERIA_KEY"
+}
+
 cmd_init() {
     [ $# -eq 3 ] || usage "init takes <session> <floor> <ceiling>"
     local s="$1" floor="$2" ceiling="$3"
@@ -411,6 +483,7 @@ cmd_init() {
 
     ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"
     if has_event "$WORK/ledger" bound; then
+        store_criteria "$s"
         exit 0
     fi
     load_rules "$RULES_SHIPPED"
@@ -418,9 +491,8 @@ cmd_init() {
     jq -nc --arg f "$floor" --arg c "$ceiling" \
         '{floor: (if $f == "" then null else $f end), ceiling: (if $c == "" then null else $c end)}' \
         > "$WORK/bound"
-    session_criteria "$s" "$WORK/criteria" || die 66 "could not read context.md"
     ctx_put "$s" "$BOUND_KEY" "$WORK/bound" || die 66 "could not write $BOUND_KEY"
-    ctx_put "$s" "$CRITERIA_KEY" "$WORK/criteria" || die 66 "could not write $CRITERIA_KEY"
+    store_criteria "$s"
     ctx_put "$s" "$RULES_KEY" "$RULES_SHIPPED" || die 66 "could not write $RULES_KEY"
 
     # The bound line goes last: its presence is what says init finished.
@@ -508,7 +580,8 @@ cmd_set() {
     fi
 
     ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"
-    has_event "$WORK/ledger" bound || refuse "no bound recorded yet"
+    has_event "$WORK/ledger" bound \
+        || refuse "no bound recorded yet: koto records it as the run enters analysis, so set the level from analysis on (tick into analysis first)"
     ctx_get "$s" "$BOUND_KEY" "$WORK/bound" || die 66 "could not read $BOUND_KEY"
     local bfloor bceil
     bfloor=$(jq -r '.floor // ""' "$WORK/bound")
@@ -536,8 +609,13 @@ cmd_set() {
         if [ -n "$bfloor" ] && [ "$r_new" -lt "$r_bf" ]; then
             refuse "$new is below the bound's floor $bfloor (bound: floor ${bfloor:--}, ceiling ${bceil:--})"
         fi
+        # Before the level check a choose is the agent's raise, which the
+        # check keeps; past the ceiling it needs a reason and adds a breach,
+        # as a raise does.
         if [ -n "$bceil" ] && [ "$r_new" -gt "$r_bc" ]; then
-            refuse "$new is above the bound's ceiling $bceil (bound: floor ${bfloor:--}, ceiling ${bceil:--})"
+            [ -n "$reason" ] \
+                || refuse "$new is above the bound's ceiling $bceil; a level past it needs --reason (bound: floor ${bfloor:--}, ceiling ${bceil:--})"
+            breach=1
         fi
         event=choose
     elif [ "$r_new" -gt "$r_cur" ]; then
@@ -655,19 +733,20 @@ path_classes() {
 }
 
 cmd_facts() {
-    [ $# -ge 1 ] || usage "facts takes <session> [<level>] [--shared-branch <branch>]"
-    local s="$1" level="" shared=""
+    [ $# -ge 1 ] || usage "facts takes <session> [<level>] [--shared-branch <branch>] [--no-check-line]"
+    local s="$1" level="" shared="" check_line_owed=1
     shift
     # <level> is optional and may be empty, so the slot after the session
-    # takes the next word unless that word is the option itself.
+    # takes the next word unless that word is one of the options.
     case "${1:-}" in
-        --shared-branch) ;;
+        --shared-branch|--no-check-line) ;;
         *) [ $# -eq 0 ] || { level="$1"; shift; } ;;
     esac
     while [ $# -gt 0 ]; do
         case "$1" in
             --shared-branch) [ $# -ge 2 ] || usage "--shared-branch needs a value"; shared="$2"; shift 2 ;;
-            *) usage "facts takes <session> [<level>] [--shared-branch <branch>]; unknown argument [$1]" ;;
+            --no-check-line) check_line_owed=0; shift ;;
+            *) usage "facts takes <session> [<level>] [--shared-branch <branch>] [--no-check-line]; unknown argument [$1]" ;;
         esac
     done
     valid_session "$s" || usage "bad session name [$s]"
@@ -880,18 +959,101 @@ cmd_facts() {
     ctx_put "$s" "$FACTS_HISTORY_KEY" "$WORK/facts_history" \
         || die 66 "could not write $FACTS_HISTORY_KEY"
 
+    [ "$check_line_owed" -eq 1 ] || exit 0
     ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"
-    local last
-    last=$(jq -Rr 'fromjson? | select(type == "object" and (.event == "check" or .event == "unset"))
-                   | "\(.head // "")|\(.level // "")|\(.floor // "")"' "$WORK/ledger" | tail -n 1)
-    if [ "$last" != "$head|$level|$floor" ]; then
-        if [ -z "$level" ]; then
-            line unset floor "$floor" rule "$rule" head "$head" > "$WORK/new"
-        else
-            line check level "$level" floor "$floor" rule "$rule" head "$head" > "$WORK/new"
-        fi
+    check_line "$WORK/ledger" "$level" "$floor" "$rule" "$head" > "$WORK/new" \
+        || die 66 "could not build the ledger line"
+    if [ -s "$WORK/new" ]; then
         cat "$WORK/ledger" "$WORK/new" > "$WORK/ledger.next"
         ctx_put "$s" "$LEDGER" "$WORK/ledger.next" || die 66 "could not write $LEDGER"
+    fi
+    exit 0
+}
+
+# check_line <ledger-file> <level> <floor> <rule> <head>: prints the `check`
+# line the ledger owes (an `unset` line for an empty level), or nothing when
+# its last check or unset line already names this head, level and floor.
+check_line() {
+    local last
+    last=$(jq -Rr 'fromjson? | select(type == "object" and (.event == "check" or .event == "unset"))
+                   | "\(.head // "")|\(.level // "")|\(.floor // "")"' "$1" | tail -n 1)
+    [ "$last" != "$5|$2|$3" ] || return 0
+    if [ -z "$2" ]; then
+        line unset floor "$3" rule "$4" head "$5"
+    else
+        line check level "$2" floor "$3" rule "$4" head "$5"
+    fi
+}
+
+# ------------------------------------------------------- set-from-facts -------
+
+# The level check's action runs this after `facts`, so no one has to choose a
+# level before the change exists. The level only moves up here: the ledger's
+# last level already carries every raise (and every lower) the agent made with
+# `set`, and a lap whose diff shrank keeps the level an earlier lap reached.
+cmd_set_from_facts() {
+    [ $# -eq 1 ] || usage "set-from-facts takes <session>"
+    local s="$1"
+    valid_session "$s" || usage "bad session name [$s]"
+
+    ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"
+    has_event "$WORK/ledger" bound \
+        || refuse "no bound recorded yet: analysis's action records it with review-level.sh init"
+    ctx_get "$s" "$BOUND_KEY" "$WORK/bound" || die 66 "could not read $BOUND_KEY"
+    local bfloor bceil
+    bfloor=$(jq -r '.floor // ""' "$WORK/bound")
+    bceil=$(jq -r '.ceiling // ""' "$WORK/bound")
+    if [ -n "$bfloor" ] && [ -n "$bceil" ] && [ "$(rank "$bfloor")" -gt "$(rank "$bceil")" ]; then
+        refuse "the bound's floor $bfloor is above its ceiling $bceil"
+    fi
+    ctx_get "$s" "$FACTS_KEY" "$WORK/facts" || die 66 "could not read $FACTS_KEY"
+    [ -s "$WORK/facts" ] || refuse "no facts recorded yet: run review-level.sh facts first"
+    local ffloor frule fhead
+    ffloor=$(jq -r '.floor // "light"' "$WORK/facts") || die 66 "could not read $FACTS_KEY"
+    frule=$(jq -r '.rule // ""' "$WORK/facts")
+    fhead=$(jq -r '.head // ""' "$WORK/facts")
+    valid_level "$ffloor" || die 64 "the facts floor [$ffloor] is not light, standard or full"
+
+    local cur level source rule
+    cur=$(last_level "$WORK/ledger")
+    level="$ffloor"; source=facts; rule="$frule"
+    if [ -n "$bfloor" ] && [ "$(rank "$bfloor")" -gt "$(rank "$level")" ]; then
+        level="$bfloor"; source=bound; rule=""
+    fi
+    if [ "$(rank "$cur")" -ge "$(rank "$level")" ]; then
+        level="$cur"; source=""
+    fi
+
+    local breach=0
+    : > "$WORK/new"
+    if [ -n "$source" ]; then
+        # A level above the ceiling can only come from the facts floor: the
+        # bound's floor is at or below its ceiling (refused above), and the
+        # ledger's level, which `set` breached the ceiling for, wins nothing
+        # here.
+        [ -n "$bceil" ] && [ "$(rank "$level")" -gt "$(rank "$bceil")" ] && breach=1
+        {
+            line from_facts from "$cur" to "$level" source "$source" rule "$rule"
+            [ "$breach" -eq 0 ] || line breach from "$cur" to "$level" ceiling "$bceil" source "$source" rule "$rule"
+        } > "$WORK/new" || die 66 "could not build the ledger line"
+    fi
+    check_line "$WORK/ledger" "$level" "$ffloor" "$frule" "$fhead" >> "$WORK/new" \
+        || die 66 "could not build the ledger line"
+
+    rebind "$s" "$level" || die 66 "rebind failed, nothing recorded: $REBIND_ERR"
+    if [ -s "$WORK/new" ]; then
+        cat "$WORK/ledger" "$WORK/new" > "$WORK/ledger.next"
+        if ! ctx_put "$s" "$LEDGER" "$WORK/ledger.next"; then
+            koto context add "$s" "$LEDGER" < "$WORK/ledger" >/dev/null || true
+            rebind "$s" "$cur" || echo "review-level: rebinding back to [$cur] also failed: $REBIND_ERR" >&2
+            die 66 "could not write $LEDGER; REVIEW_LEVEL rebound back to [${cur:-unset}]"
+        fi
+    fi
+    if [ -n "$source" ]; then
+        echo "recorded: from_facts ${cur:--} -> $level ($source floor${rule:+, rule $rule})"
+        [ "$breach" -eq 0 ] || echo "recorded: breach of ceiling $bceil"
+    else
+        echo "unchanged: $level (facts floor $ffloor)"
     fi
     exit 0
 }
@@ -904,14 +1066,26 @@ hold() {
 }
 
 cmd_check() {
-    [ $# -eq 2 ] || { echo "hold: check takes <session> <level>"; exit 1; }
-    local s="$1" level="$2"
+    [ $# -eq 2 ] || { echo "hold: check takes <session> <level>|--ledger"; exit 1; }
+    local s="$1" level="$2" from_ledger=0
+    if [ "$level" = --ledger ]; then
+        from_ledger=1
+        level=""
+    fi
     valid_session "$s" || hold "bad session name [$s]"
     [ -z "$level" ] || valid_level "$level" || hold "REVIEW_LEVEL [$level] is not light, standard or full"
 
     ctx_get "$s" "$LEDGER" "$WORK/ledger" || hold "could not read $LEDGER"
     local recorded
     recorded=$(last_level "$WORK/ledger")
+    # --ledger judges the level set-from-facts recorded in this tick, which
+    # the variable won't show until the next one; there is no variable to
+    # compare with the ledger, and no unset route.
+    if [ "$from_ledger" -eq 1 ]; then
+        [ -n "$recorded" ] || hold "no level recorded yet; the level check's action records one with review-level.sh set-from-facts"
+        valid_level "$recorded" || hold "the ledger's last level [$recorded] is not light, standard or full"
+        level="$recorded"
+    fi
     # Empty is the unset route only for a session that never recorded a level
     # (one from an earlier template). With a level in the ledger, an empty
     # variable was reset, most likely by a `koto init --attach-live` that
@@ -968,6 +1142,11 @@ cmd_agree() {
     ctx_get "$s" "$LEDGER" "$WORK/ledger" || hold "could not read $LEDGER"
     recorded=$(last_level "$WORK/ledger")
     [ "$level" = "$recorded" ] && exit 0
+    # An empty variable can't pick a lighter route: review sends it to QA,
+    # and light_review doesn't route on it. It is also what the tick that
+    # records the run's first level carries into light_review or scrutiny,
+    # since a rebind shows only from the next tick.
+    [ -z "$level" ] && exit 0
     if [ -z "$recorded" ]; then
         hold "REVIEW_LEVEL is $level but the ledger records no level; it was set by hand after the level check. Clear it with koto init $s --attach-live without REVIEW_LEVEL"
     fi
@@ -992,15 +1171,22 @@ cmd_classify() {
 # Prints only one of the three names: a ledger line whose `to` is anything else
 # prints nothing, and the level check then holds on the empty variable.
 cmd_level() {
-    [ $# -eq 1 ] || usage "level takes <session>"
-    local s="$1" recorded
+    [ $# -eq 1 ] || [ $# -eq 2 ] || usage "level takes <session> [--exit]"
+    local s="$1" recorded as_exit=0
+    if [ $# -eq 2 ]; then
+        [ "$2" = --exit ] || usage "level: unknown argument [$2]"
+        as_exit=1
+    fi
     valid_session "$s" || usage "bad session name [$s]"
     ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER of $s"
     recorded=$(last_level "$WORK/ledger")
     if valid_level "$recorded"; then
         printf '%s\n' "$recorded"
     fi
-    exit 0
+    [ "$as_exit" -eq 1 ] || exit 0
+    # The level check's level_route gate: 10 plus the level's rank, 4 none.
+    valid_level "$recorded" || exit 4
+    exit $((10 + $(rank "$recorded")))
 }
 
 # ---------------------------------------------------------------- slice -------
@@ -1108,6 +1294,13 @@ project_slice() {
 cmd_slice() {
     local s="${1:-}" level="${2:-}" rules="$RULES_SHIPPED"
     : > "$WORK/facts"
+    if [ "$level" = --ledger ]; then
+        level=""
+        if valid_session "$s"; then
+            ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"
+            level=$(last_level "$WORK/ledger")
+        fi
+    fi
     if valid_session "$s"; then
         ctx_get "$s" "$FACTS_KEY" "$WORK/facts" || die 66 "could not read $FACTS_KEY"
     fi
@@ -1226,6 +1419,7 @@ SUB="${1:-}"
 case "$SUB" in
     init)   cmd_init "$@" ;;
     set)    cmd_set "$@" ;;
+    set-from-facts) cmd_set_from_facts "$@" ;;
     facts)  cmd_facts "$@" ;;
     check)  cmd_check "$@" ;;
     agree)  cmd_agree "$@" ;;

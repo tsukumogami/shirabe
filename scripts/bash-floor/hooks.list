@@ -7,6 +7,11 @@ needs: shirabe
 # repositories, and the hook's own PATH of bash, sh, cat, sed,
 # tr, awk, sleep and git.
 hooks/pre-action-deny_test.sh
+# The plugin's question guard, end to end. Claude Code runs the
+# script before every AskUserQuestion call, under the host's bash.
+# Its suite runs a real shirabe (SHIRABE_BIN or target/release),
+# stand-in ones, and the hook's own PATH of bash, sh, cat and sleep.
+hooks/question-guard_test.sh
 # The setup script niwa runs on every apply, under whatever bash
 # the contributor's host has. Its suite runs the shirabe on PATH
 # (or SHIRABE_BIN) against throwaway git repositories.

@@ -58,6 +58,12 @@ jobs:
       - name: Pre-action hook suite
         run: PATH="$PWD/target/release:$PATH" bash hooks/pre-action-deny_test.sh
 
+      # The question guard, hooks/question-guard.sh, run through the command
+      # hooks/hooks.json declares against the fixtures copied from the
+      # harness's own hook inputs and session records.
+      - name: Question guard suite
+        run: PATH="$PWD/target/release:$PATH" bash hooks/question-guard_test.sh
+
       # The compaction note writer, scripts/handoff-brief.sh note, against a
       # stub koto, and the two `shirabe compaction` hooks reading back what it
       # wrote, against the binary just built; then the brief a run hands

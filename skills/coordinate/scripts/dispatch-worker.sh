@@ -142,12 +142,24 @@
 #      (exit 11), and nothing retries it with another grant. The input's
 #      `launch` field (render-brief.sh holds each value to a fixed set, and a
 #      profile to niwa's profile-name grammar) adds `--model <model>`,
-#      `--permission-mode <mode>`, `--profile <name>` and
+#      `--permission-mode <mode>` and
 #      `--accept-session-messages` (or `--accept-session-messages=false`), each
 #      only when the help lists that flag; one it doesn't is left off with a
-#      stderr line naming it. With no `launch` the launch is as it was. A
-#      profile the workspace doesn't define is niwa's to refuse, before it
-#      launches anything; that's a failed launch here (exit 4).
+#      stderr line naming it. With no `launch` the launch is as it was.
+#      `--profile <name>` goes on when the help lists it: the input's
+#      `launch.profile`, else `coordinator` for an entry point of coordinate
+#      and nothing for any other worker. A coordinator's prompt starts with
+#      its invocation on a line of its own, then `<authority> Work in
+#      <owner/repo>. Stop at: <last checkpoint> Read <brief> for your
+#      complete task brief, then do it.`, since under that profile the
+#      leading slash command is the only way its skill loads. Any other
+#      worker's prompt is `<authority> Run `<invocation>` in <owner/repo>,
+#      and stop at: <last checkpoint> Read <brief> ...`, as before. When
+#      niwa refuses the defaulted `coordinator` as a profile the workspace
+#      doesn't declare, or one its agent can't take (it refuses before
+#      provisioning anything), the launch runs once more without it; a
+#      profile the input named is never dropped that way: niwa refusing it,
+#      as one the workspace doesn't define, is a failed launch here (exit 4).
 #   7. Confirm: on success, rewrite the row `dispatched` and print the session
 #      name niwa reported, which the coordinator uses to message the worker
 #      and never records. A rework Work row on the unit (a milestone a
@@ -293,9 +305,10 @@
 #      exits 8 (no open record, or a directed transition) or 2 (the row as it
 #      stands doesn't allow it, named on stderr).
 #   4. Render the brief and launch `niwa dispatch` as a worker's step 6 does,
-#      with `--skill shirabe:coordinate`; the prompt reads `<authority> Run
-#      `<invocation>` in <owner/repo>. Stop at: <last checkpoint> Read <brief>
-#      for your complete task brief, then do it.`
+#      with `--skill shirabe:coordinate` and a coordinator's profile and
+#      prompt: the invocation on its own line, then `<authority> Work in
+#      <owner/repo>. Stop at: <last checkpoint> Read <brief> for your
+#      complete task brief, then do it.`
 #   5. Confirm as a worker's step 7 does, rewriting the row `dispatched` or
 #      `dispatch-failed` (exit 4, or 11 for niwa's never-wider refusal); a
 #      listing that can't be read leaves it `dispatching` (exit 6).
@@ -667,11 +680,10 @@ launch_flag() {
 # launch_flags: the flags that carry the grant and the parent, from the help:
 # one `--grant <authority>` per authority, and `--parent-from` with the first
 # directory at or above this one holding .niwa/instance.json. Then the input's
-# launch field, which render-brief.sh has already held to its fixed sets and
-# to niwa's profile-name grammar: `--model <model>`, `--permission-mode
-# <mode>`, `--profile <name>`, and `--accept-session-messages` for true or
-# `--accept-session-messages=false` for false, each only when the help lists
-# it.
+# launch field, which render-brief.sh has already held to its fixed sets:
+# `--model <model>`, `--permission-mode <mode>`, and
+# `--accept-session-messages` for true or `--accept-session-messages=false`
+# for false, each only when the help lists it. The profile is launch_profile's.
 LAUNCH_ARGS=()
 launch_flags() {
     local a d v
@@ -701,13 +713,87 @@ EOF
     [ -n "$v" ] && launch_flag --model --model "$v"
     v=$(jq -r '.launch.permission_mode // empty | strings' "$INPUT") || die 2 "jq failed"
     [ -n "$v" ] && launch_flag --permission-mode --permission-mode "$v"
-    v=$(jq -r '.launch.profile // empty | strings' "$INPUT") || die 2 "jq failed"
-    [ -n "$v" ] && launch_flag --profile --profile "$v"
     v=$(jq -r '.launch.accept_session_messages | booleans' "$INPUT") || die 2 "jq failed"
     case "$v" in
         true) launch_flag --accept-session-messages --accept-session-messages ;;
         false) launch_flag --accept-session-messages --accept-session-messages=false ;;
     esac
+    launch_profile
+}
+
+# launch_profile: the --profile the launch asks for, in PROFILE_ARGS. The
+# input's launch.profile names one for any dispatch. With none, a coordinator
+# (entry point coordinate: a lane or a successor) asks for niwa's coordinator
+# profile, which starts it without the tools, skill listing and connectors it
+# never calls, and any other worker asks for none. Either goes on only when
+# the help lists --profile. The coordinator default is the one profile asked
+# for without being named, so it alone is DEFAULT_PROFILE=1: a workspace that
+# declares no coordinator profile, or a harness with no profile support, has
+# niwa refuse it before anything is provisioned, and launch_niwa then
+# launches again without it.
+PROFILE_ARGS=()
+DEFAULT_PROFILE=0
+launch_profile() {
+    local p
+    p=$(jq -r '.launch.profile // empty | strings' "$INPUT") || die 2 "jq failed"
+    if [ -z "$p" ] && [ "$(jq -r '.entry_point // "" | strings' "$INPUT")" = coordinate ]; then
+        p=coordinator
+        DEFAULT_PROFILE=1
+    fi
+    [ -n "$p" ] || return 0
+    if help_lists --profile; then
+        PROFILE_ARGS=(--profile "$p")
+    else
+        DEFAULT_PROFILE=0
+        printf '%s: this niwa dispatch takes no --profile, so the worker is launched without the %s profile\n' "$PROG" "$p" >&2
+    fi
+}
+
+# dispatch_prompt <invocation> <brief>: the worker's prompt. A coordinator's
+# starts with its invocation, on a line of its own: under the coordinator
+# profile it can't call the Skill tool, so the leading slash command is what
+# loads its skill, and the lines after it point at the brief. Any other
+# worker's prompt carries the authority first and the invocation inside it.
+dispatch_prompt() {
+    jq -r --arg inv "$1" --arg brief "$2" '
+        if .entry_point == "coordinate" then
+            $inv + "\n\n" + .authority + " Work in " + .repo + ". Stop at: " + (.checkpoints | last)
+            + " Read " + $brief + " for your complete task brief, then do it."
+        else
+            .authority + " Run `" + $inv + "` in " + .repo + ", and stop at: " + (.checkpoints | last)
+            + " Read " + $brief + " for your complete task brief, then do it."
+        end' "$INPUT"
+}
+
+# launch_niwa <prompt> <topic> <lineage...>: run niwa dispatch from the
+# workspace root under the deadline, its output in LOG and its stderr in
+# $WORK/niwa.err (passed on whole), its exit status in RC. The deadline's TERM
+# reaches niwa alone, not its process group (dc_tree): niwa may start the
+# worker's hand-off in that group, and a TERM to it could stop the worker
+# being launched. The git commands niwa runs can outlive it until niwa stops
+# them on TERM itself (tsukumogami/niwa#391). niwa's stderr is kept to tell
+# its never-wider refusal from any other failure. When niwa refuses the
+# default coordinator profile as undeclared, or as one the harness can't
+# take, the launch runs once more without it, since niwa refuses a profile
+# before it provisions anything.
+LOG=""
+RC=0
+launch_niwa() {
+    local prompt=$1 topic=$2
+    shift 2
+    LOG="$WORK/niwa.out"
+    (cd "$ROOT" && dc_with_deadline "$DEADLINE" "$NIWA" dispatch "$prompt" --name "$topic" --detach \
+        ${1+"$@"} ${GRANT_ARGS[@]+"${GRANT_ARGS[@]}"} ${PARENT_ARGS[@]+"${PARENT_ARGS[@]}"} \
+        ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} ${LAUNCH_ARGS[@]+"${LAUNCH_ARGS[@]}"}) >"$LOG" 2>"$WORK/niwa.err"
+    RC=$?
+    cat "$WORK/niwa.err" >&2
+    if [ "$RC" -ne 0 ] && [ "$DEFAULT_PROFILE" = 1 ] &&
+        grep -Eq 'unknown dispatch profile "coordinator"|--profile does not apply to' "$WORK/niwa.err"; then
+        printf '%s: niwa refused the coordinator profile, so %s is launched without it\n' "$PROG" "$topic" >&2
+        PROFILE_ARGS=()
+        DEFAULT_PROFILE=0
+        launch_niwa "$prompt" "$topic" ${1+"$@"}
+    fi
 }
 
 if [ -n "$IMPORTED" ]; then
@@ -854,20 +940,13 @@ if [ "$SUCCESSOR" = 1 ]; then
         die 2 "rendering the successor's brief failed; the row says dispatch-failed"
     fi
     INVOCATION=$(dc_invocation "$INPUT" message) || die 2 "building the invocation failed"
-    PROMPT=$(jq -r --arg inv "$INVOCATION" --arg brief "$BRIEF" '
-        .authority + " Run `" + $inv + "` in " + .repo + ". Stop at: " + (.checkpoints | last)
-        + " Read " + $brief + " for your complete task brief, then do it."' "$INPUT")
+    PROMPT=$(dispatch_prompt "$INVOCATION" "$BRIEF") || die 2 "building the prompt failed"
     launch_flags
     LINEAGE=()
     case "$HELP" in
         *--brief*) case "$HELP" in *--skill*) LINEAGE=(--brief "$BRIEF" --skill shirabe:coordinate) ;; esac ;;
     esac
-    LOG="$WORK/niwa.out"
-    (cd "$ROOT" && dc_with_deadline "$DEADLINE" "$NIWA" dispatch "$PROMPT" --name "$TOPIC" --detach \
-        ${LINEAGE[@]+"${LINEAGE[@]}"} ${GRANT_ARGS[@]+"${GRANT_ARGS[@]}"} ${PARENT_ARGS[@]+"${PARENT_ARGS[@]}"} \
-        ${LAUNCH_ARGS[@]+"${LAUNCH_ARGS[@]}"}) >"$LOG" 2>"$WORK/niwa.err"
-    RC=$?
-    cat "$WORK/niwa.err" >&2
+    launch_niwa "$PROMPT" "$TOPIC" ${LINEAGE[@]+"${LINEAGE[@]}"}
     if [ "$RC" -eq 0 ]; then
         NAME=$(sed -n 's/^[[:space:]]*session name: //p' "$LOG" | head -1)
         dc_session_matches "$TOPIC" "$NAME" && successor_confirm "$NAME"
@@ -1819,9 +1898,7 @@ case "$?" in
     *) die 2 "rendering the brief failed" ;;
 esac
 INVOCATION=$(dc_invocation "$INPUT" "$RETURN_PATH") || die 2 "building the invocation failed"
-PROMPT=$(jq -r --arg inv "$INVOCATION" --arg brief "$BRIEF" '
-    .authority + " Run `" + $inv + "` in " + .repo + ", and stop at: " + (.checkpoints | last)
-    + " Read " + $brief + " for your complete task brief, then do it."' "$INPUT")
+PROMPT=$(dispatch_prompt "$INVOCATION" "$BRIEF") || die 2 "building the prompt failed"
 
 # Write ahead, unless a resumed run's row is already there.
 if [ "$STATUS" != dispatching ]; then
@@ -1865,18 +1942,8 @@ case "$HELP" in
         ;;
 esac
 
-# Launch. The deadline's TERM reaches niwa alone, not its process group
-# (dc_tree): niwa may start the worker's hand-off in that group, and a TERM
-# to it could stop the worker being launched. The git commands niwa runs can
-# outlive it until niwa stops them on TERM itself (tsukumogami/niwa#391).
-# niwa's stderr is kept to tell its never-wider refusal from any other
-# failure, and passed on whole.
-LOG="$WORK/niwa.out"
-(cd "$ROOT" && dc_with_deadline "$DEADLINE" "$NIWA" dispatch "$PROMPT" --name "$TOPIC" --detach \
-    ${LINEAGE[@]+"${LINEAGE[@]}"} ${GRANT_ARGS[@]+"${GRANT_ARGS[@]}"} ${PARENT_ARGS[@]+"${PARENT_ARGS[@]}"} \
-    ${LAUNCH_ARGS[@]+"${LAUNCH_ARGS[@]}"}) >"$LOG" 2>"$WORK/niwa.err"
-RC=$?
-cat "$WORK/niwa.err" >&2
+# Launch (launch_niwa).
+launch_niwa "$PROMPT" "$TOPIC" ${LINEAGE[@]+"${LINEAGE[@]}"}
 if [ "$RC" -eq 0 ]; then
     NAME=$(sed -n 's/^[[:space:]]*session name: //p' "$LOG" | head -1)
     if dc_session_matches "$TOPIC" "$NAME"; then

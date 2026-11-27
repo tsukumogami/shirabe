@@ -7,8 +7,8 @@ read the records. `docs/designs/current/DESIGN-red-first-fixes.md` has the reaso
 
 ## Which units are fixes
 
-A run decides at `fix_determination`, after the review level is chosen and
-before implementation. `scripts/fix-kind.sh resolve` runs there as the state's
+A run decides at `fix_determination`, right after `analysis` and before
+implementation. `scripts/fix-kind.sh resolve` runs there as the state's
 action and records the unit as a fix when any of these holds:
 
 | Source | Recorded as | Where it comes from |
@@ -135,7 +135,7 @@ A pass that came with an edited test, or a fix that rests on observations, is
 not counted until someone other than the run accepts it. `pass_counting`'s
 `tests_counted` gate (`test-change.sh status`) classifies the test files the
 unit's committed diff touched since `impl_base`, with the `test` class of the
-rules copy `review_level_choice` stored:
+rules copy `review-level.sh init` stored in `analysis`'s action:
 
 | Label | When |
 |-------|------|

@@ -21,7 +21,7 @@ So the canary withholds nothing until the registry marks PB4 eligible and the
 host opts in: until both hold, every run reads the full conformance text.
 
 When its analysis plan is ready, the run passes through `offload_canary` on
-its way to `review_level_choice`. That state draws a group from
+its way to `fix_determination`. That state draws a group from
 `/dev/urandom`, records it in the session directory, and routes the run
 through one of two marker states:
 
