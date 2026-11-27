@@ -129,7 +129,7 @@ eq "an unlisted dispatching row is left alone" \
     "0|ok false unlisted |dispatching succ-one 2026-09-26|dispatching succ-one 2026-09-26|" "$(succ "dispatching succ-one 2026-09-26" no)"
 eq "a listed dispatched row is left alone" \
     "0|ok false listed $SUCC_S|dispatched succ-one 2026-09-26|dispatched succ-one 2026-09-26|" "$(succ "dispatched succ-one 2026-09-26" yes)"
-eq "no row is left alone, reading no listing" "0|ok false  ||||" "$(succ "" fail)"
+eq "no row is left alone, reading no listing" "0|ok false  |||" "$(succ "" fail)"
 eq "a settled row is left alone" \
     "0|ok false  |stranded succ-one 2026-09-26|stranded succ-one 2026-09-26|" "$(succ "stranded succ-one 2026-09-26" no)"
 eq "a listing that can't be read is not verified, with no write" \

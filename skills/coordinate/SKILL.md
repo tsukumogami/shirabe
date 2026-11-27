@@ -508,8 +508,8 @@ configuration, and it's the same for either role. Your record holds your role,
   unreadable). Running the dispatch again with the row's own topic confirms
   it, or launches it again when its launch never showed up, under the same
   row. A `dispatch-failed` or `stranded` row takes a new topic. Reconcile
-  settles a pending row too, by the same rule, so a restart sees it settled
-  before it acts, and while the row still reads `dispatching` or
+  brings a pending row up to date too, by the same rule, so a restart sees
+  it confirmed or stranded before it acts, and while the row still reads `dispatching` or
   `dispatched` the report's `Successor pending:` line, after the Scope
   line, says the same thing exit 12 does, naming the command to run again
   when the launch is unconfirmed.

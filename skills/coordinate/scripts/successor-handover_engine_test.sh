@@ -792,8 +792,16 @@ fi
 # launches once, exits 0 and leaves the row dispatched.
 # rpass: the run's reconcile pass, as the template's action runs it, until it
 # seals (at most three passes); PRC its exit, PLINE its line, REP the report.
+# rpass: a restart's reconcile. The run is rewound into reconcile_pass, a
+# new visit (a visit already sealed would only say its report again), the
+# pass runs with the niwa stand-in, and the run is ticked back to pick, so
+# a dispatch after it runs from where the run was.
 rpass() {
-    local n=0 sd
+    local n=0 sd r=0
+    while [ "$(now_at)" != reconcile_pass ] && [ $r -lt 8 ]; do
+        koto rewind "$S" >/dev/null 2>&1 || break
+        r=$((r + 1))
+    done
     sd=$(koto session dir "$S")
     : > "$T/work/.niwa/workspace.toml"
     while :; do
@@ -803,6 +811,8 @@ rpass() {
     done
     rm -f "$T/work/.niwa/workspace.toml"
     REP=$(cd "$WD" && bash "$PS/reconcile-report-get.sh" --session "$S" --md 2>&1)
+    [ "$(at)" = reconcile ] && [ "$(at --with-data '{"reconciled":"reported"}')" = pick ] \
+        || bad "15: the run goes back to pick after the pass" "$(now_at) $(cat "$T/tick.err")"
 }
 pending_line() { printf '%s\n' "$REP" | sed -n 's/^Successor pending: //p'; }
 ns_reset
