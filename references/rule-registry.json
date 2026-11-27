@@ -1718,6 +1718,36 @@
       "notes": "Registered after the baseline pin, so it has no baseline key. skills/work-on/scripts/panel-scope.sh --record raises a weakens judgment as a blocking finding citing this rule; the panel's verdict gate prints it under this rule at panel/open-finding's stage, so the gate stays panel/open-finding's and this entry is registered as prose."
     },
     {
+      "id": "review/observation-not-shown",
+      "status": "active",
+      "summary": "A review seat judged that a fix's observation pair does not show the fix",
+      "text": {
+        "path": "skills/work-on/references/review-panel-orchestration.md",
+        "first": "A seat judges the observation pair `shown` or `not_shown`.",
+        "last": "seat, under rule `review/observation-not-shown`, with the reason in its summary."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/panel-scope_test.sh"
+      ],
+      "level": "prose",
+      "timing": [
+        "work-on:scrutiny",
+        "work-on:review",
+        "work-on:qa_validation",
+        "work-on:light_review"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Registered after the baseline pin, so it has no baseline key. skills/work-on/scripts/panel-scope.sh --record raises a not_shown judgment of the observation pair as a blocking finding citing this rule; the panel's verdict gate prints it under this rule at panel/open-finding's stage, so the gate stays panel/open-finding's and this entry is registered as prose."
+    },
+    {
       "id": "rs-001",
       "status": "active",
       "summary": "The body or an added line carries an attribution or session trailer",
@@ -3015,7 +3045,7 @@
     {
       "id": "test-change/held",
       "status": "active",
-      "summary": "A pass came with an edited test or an observation that has no live acceptance",
+      "summary": "A pass came with an edited test or an observation pair that a review panel has not judged at its content now, or that carries an open adverse judgment",
       "text": {
         "path": "skills/work-on/references/red-first.md",
         "first": "| `test-change/held` | A pass came with"

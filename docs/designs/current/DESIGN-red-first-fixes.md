@@ -47,6 +47,17 @@ Acceptances, refusals and overrulings live in the run's session ledger only and
 are read back with `test-change.sh record`; the walkthroughs' pull request
 checks become `record` checks. `pr_precheck` still re-runs `status`.
 
+Superseded in part by `docs/prds/PRD-acceptance-write-drift.md`: the
+acceptance seat and its brief, the person path (`## Test Change Acceptance:
+person`, the terminal code and the tag key), the coordinator overrule and the
+interim acceptance rule (`scripts/lib/acceptance-rule.sh`) are retired.
+`test-change.sh status` now counts an edited test or an observation pair from
+the review panels' record: an item is held while it is due for a panel, with
+no judgment of it at its content now, or carries an open `weakens` or
+`not_shown` finding, and the panel's re-verifier judges what a later commit
+made due. Sections below that describe the seat, the person path, the overrule
+or the rule library describe what this replaced.
+
 ## Context and Problem Statement
 
 `/work-on` drives one unit of work (an issue, a free-text task, or a plan

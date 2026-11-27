@@ -141,6 +141,12 @@ koto	context exists	-	always
 koto	status	-	always
 koto	workflows	--children	always
 koto	session cleanup	-	always
+# ci_monitor's ci_fix_tests_judged gate runs ci-fix-tests.sh on every plan:
+# `koto workflows --children` lists the run's children, and
+# `koto context exists`/`get` read each one's counted_head and rules copy, all
+# under the records above. The `-n` the scan finds there is tail's, in the
+# messages that quote koto's stderr.
+#not-a-call-site	skills/execute/scripts/ci-fix-tests.sh	koto	-n	The -n is tail's, in error messages quoting koto's stderr; koto itself is called without it.
 # The lead shape's groups (scripts/step-group.sh): `cut` binds a step's child
 # to the step's own worktree with `koto session rebind --to`, and a landed or
 # stopped step's child is bound back to the checkout the same way. Its other

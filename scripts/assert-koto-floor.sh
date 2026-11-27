@@ -56,6 +56,11 @@
 # which writes a pull request review panel to the run journal as a code review
 # round and one verdict per seat, apart from the document review kinds:
 # skills/coordinate/scripts/review-round.sh sends every round it records there.
+# 0.37.0 is the release whose `koto overrides record` takes a decider
+# (`--by person:<handle>`, with `--surface` and `--link`) and records the
+# decision with the override: /work-on's panel verdict directives have the run
+# record a person's override of a panel gate naming that person, and an older
+# koto refuses the flags.
 # 0.42.0 is the release that records a question as an `escalate` with a typed
 # recipient, a label, a need and a content hash, stores the content once
 # (`koto decisions content`), lists open questions for a person or a position

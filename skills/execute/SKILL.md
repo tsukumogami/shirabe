@@ -356,7 +356,9 @@ the shared branch's commits and its `docs/` visibility pass, and whether the
 body records every verification deferral the run carries and has each
 child's re-run lines (`pr_finalization`), the cascade's verdict (`plan_completion`, from the
 `cascade_result.json` that `run-cascade.sh --session` records), the CI and merge
-state, and whether GitHub reports the PR `MERGED` (`ci_monitor`), and the pause
+state, whether GitHub reports the PR `MERGED`, and whether a CI fix changed a
+test no fix round's panels judged (`ci_monitor`, the last through
+`ci-fix-tests.sh`), and the pause
 (`PAUSE_BEFORE_FINALIZE`). A failing output check holds the run in its state
 with findings naming the rule; fix the output
 and tick again. The evidence a state still takes is the agent's own account:

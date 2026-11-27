@@ -968,6 +968,26 @@ states:
         type: command
         overridable: false
         command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr view {} --json state --jq .state | awk '$0 == \"MERGED\" {m = 1} END {exit m ? 0 : 1}'"
+      # Has a panel judged every test the shared branch changed (shirabe#1730)?
+      # A CI fix pushed from here comes after every child reached `done`, so
+      # no child's panels saw it. ci-fix-tests.sh reads the `counted_head`
+      # each child and fix round recorded when its counting gate passed
+      # (test-change.sh status), or, for a step a concurrent group rebased
+      # as it landed, the head its step_group.jsonl `landed` record names,
+      # takes the newest, and exits 1 when the diff
+      # from it to HEAD touches a test file, 2 when no head can be read or one
+      # isn't an ancestor of HEAD. Only the failing_fixed edge needs it at 0:
+      # a production-only fix passes as it always did, and a fix that edits a
+      # test goes through a fix round of the step's run, whose panels judge
+      # it and whose counting gate records the new head. It only reads the
+      # child sessions and this run's step_group.jsonl. Not overridable: an override would put an unjudged
+      # test on the PR.
+      #   semantics: skills/execute/scripts/ci-fix-tests_test.sh,
+      #              skills/execute/scripts/execute-output-gates-routing_test.sh
+      ci_fix_tests_judged:
+        type: command
+        overridable: false
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/execute/scripts/ci-fix-tests.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/execute/scripts/ci-fix-tests.sh" execute-{{PLAN_SLUG}}'
     accepts:
       ci_outcome:
         type: enum
@@ -1011,13 +1031,16 @@ states:
       # The three evidence edges apply while CI is red on a clean, open PR,
       # which is also what lets koto prove them exclusive of the routed edges.
       # failing_fixed: agent pushed a follow-up commit to fix CI; gate may be
-      # stale. merge_readiness reads the checks on the new head itself.
+      # stale. merge_readiness reads the checks on the new head itself. The
+      # edge also needs ci_fix_tests_judged at 0: a fix that edits a test
+      # holds here until a fix round's panels have judged it.
       - target: merge_readiness
         when:
           gates.monitor_owned_pr.exit_code: 0
           gates.owned_ci_passing.exit_code: 1
           gates.owned_merge_state_clean.exit_code: 0
           gates.owned_pr_merged.exit_code: 1
+          gates.ci_fix_tests_judged.exit_code: 0
           ci_outcome: failing_fixed
       # pending: checks are still running. merge_readiness's verdict waits on
       # them (pending:checks) up to the CI deadline, then ends
@@ -1940,6 +1963,16 @@ If the gate fails because a check failed, read which failed with `{{PLUGIN_ROOT}
 ```bash
 {{PLUGIN_ROOT}}/skills/execute/scripts/push-and-record.sh {{SESSION_NAME}}
 ```
+
+**A fix that edits a test goes through a fix round.** The children's panels judged every test on the branch up to the head each one counted at; a fix you make here comes after them, so no panel saw it. A fix that changes only production files is pushed as above. One that changes a test file (anything the review level's test class matches, such as `**/tests/**` or `**/*_test.*`), adds one or deletes one isn't committed here. Start a fix round of the step's `/work-on` run first, so the fix is committed inside the round and the round's panels judge the test:
+
+```bash
+{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-round.sh start --from <child>
+```
+
+The child is the one whose recorded changed paths include the test (`koto context get <child> changed_paths.txt` for each child `koto workflows --children {{SESSION_NAME}}` lists), else the child that reached `done` last. Drive the round it prints (`session=<child>-fix-<n>`) from `entry` the way its parent was driven, with `{"mode": "plan_backed", "issue_source": "plan_outline"}`, committing the fix in its `implementation` and submitting `pr_status: shared` at its `pr_creation`, until it reaches `done`. Its counting gate records the head it counted at as `counted_head`. Then push with `push-and-record.sh` and submit `ci_outcome: failing_fixed`.
+
+The `ci_fix_tests_judged` gate (`ci-fix-tests.sh`) checks this. It reads the newest `counted_head` any child or fix round recorded (for a step that ran in its own worktree, the head its `landed` record in `step_group.jsonl` names, since the rebase that landed it moved its commits) and holds `failing_fixed` while the commits from there to HEAD touch a test file, naming each one as `untested: <path>`. If it holds on a fix you already committed, revert that commit, start the round, and commit the fix again inside it. It exits 2 when no child recorded a `counted_head` (children run by a plugin older than the record), or a recorded one is malformed or isn't an ancestor of HEAD; a fix round that reaches `done` records one at HEAD, so take the round in that case too. If the round can't reach `done`, submit `ci_outcome: failing_unresolvable` with rationale naming the test.
 
 If failures are unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.
 

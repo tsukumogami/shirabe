@@ -40,12 +40,12 @@ Run the project's validation commands (from CLAUDE.md or language skill):
 
 If tests fail:
 - **Simple fix**: fix and re-run
-- **Test bug**: a test edit holds the unit until someone other than you accepts
+- **Test bug**: a test edit holds the unit until the review panels have judged
   it. Change the code, not the test, unless the test itself is wrong; when it
-  is, edit it, record why (below), and expect the run to stop at
-  `pass_counting` until an acceptance seat, or a person where the repository
-  requires one, accepts the edit. Every review seat also judges it, and the
-  change floors at the `full` review level
+  is, edit it, record why (below), and expect `pass_counting` to hold the run
+  until every panel has judged the edit at its content now. Every review seat
+  judges it `corrects` or `weakens`, and the change floors at the `full`
+  review level
 - **Design issue**: update plan, possibly return to analysis
 - **Unclear**: launch testing agent
 
@@ -62,10 +62,11 @@ If tests fail:
 
 An edited test holds the run at `pass_counting`: a test file whose diff removes a
 line, a deleted test, or a test renamed with a change counts as edited, and the
-pass isn't counted until an acceptance seat other than you accepts the edit
-(`../red-first.md`, "Held test changes"). A test that only gains lines doesn't
-hold. When you edit one, record why as you make the edit, so the seat's brief
-carries your reason:
+pass isn't counted until the review panels have judged the edit at its content
+now (`../red-first.md`, "Held test changes"). A test that only gains lines
+doesn't hold. When you edit one, record why as you make the edit, so every
+panel packet that shows the test, the re-verifier's included, carries your
+reason:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/test-change.sh" note <WF> --file <test path> --reason "<why the test was wrong>"

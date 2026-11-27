@@ -75,6 +75,18 @@ run "$T/koto"
 expect 0 "koto at the script's own floor passes"
 case "$OUT" in *"koto $DEFAULT_FLOOR (b4db451"*) pass "the koto version line is printed" ;; *) fail "no version line: $OUT" ;; esac
 
+# /work-on's panel verdict directives record a person's override with
+# `koto overrides record --by person:<handle> --surface ... --link ...`, which
+# koto 0.37.0 introduced, so the script's own floor refuses every 0.36.x. This
+# holds for any floor from 0.37.0 up, so it doesn't move when the floor does.
+stub "koto 0.36.9 (0000000 2026-11-01T00:00:00Z)"
+run "$T/koto"
+expect 1 "koto 0.36.9 fails the script's own floor (overrides record --by needs 0.37.0)"
+case "$OUT" in *"below the floor $DEFAULT_FLOOR"*) pass "the refusal names the floor" ;; *) fail "the refusal does not name the floor: $OUT" ;; esac
+stub "koto 0.37.0 (0000000 2026-11-11T00:00:00Z)"
+run "$T/koto" 0.37.0
+expect 0 "koto 0.37.0 passes a 0.37.0 floor"
+
 stub "koto 1.4.2 (0000000 2026-10-01T00:00:00Z)"
 run "$T/koto" 1.4.2
 expect 0 "a koto equal to the floor passes"

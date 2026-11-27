@@ -176,6 +176,8 @@ $(stub_gates "$CI_PASS_COUNTING" "${3:-0}" "${4:-0}" "${5:-0}")
     terminal: true
   hosted_record:
     terminal: true
+  implementation:
+    terminal: true
   verification:
     terminal: true
   done:
@@ -196,6 +198,9 @@ Green CI routes on the gates; submit ci_outcome only while CI fails.
 
 ## hosted_record
 Stub terminal for the hosted-of-record read, which a run with no record never reaches.
+
+## implementation
+Stub terminal for ci_pass_counting's test_gap edges, which no case here takes.
 
 ## verification
 Stub terminal for the hosted-twin re-check's way back, which a run with its twins never takes.

@@ -45,6 +45,12 @@
 #                       fail holds it, a plain raise is asked about afresh, an
 #                       unclear lets it on, and the ledger has no veto line;
 #                       the log never holds a decider verdict for an answer
+#   a person override   the four panel verdict directives name the run's
+#                       `koto overrides record --by person:<handle>
+#                       --surface ...` (with --link for relay) and keep an
+#                       unattended run from recording one; on a fixture
+#                       session such an override reads back with person:ada
+#                       and its link, and review-level.sh report counts it
 #   clearing sites      every retry clearing loop that removes the panels'
 #                       results removes light_results.json too, and none
 #                       names review_level.jsonl
@@ -748,6 +754,87 @@ fi
 
 git checkout -q main
 cd "$WORKDIR" || exit 1
+
+# ==============================================================================
+echo "--- engine: a person override"
+
+# The four panel verdict directives give the run the command that records a
+# person's override, naming the person and the surface, and keep an unattended
+# run from recording one.
+for pg in scrutiny:scrutiny_verdict review:review_verdict qa_validation:qa_verdict light_review:light_verdict; do
+    st=${pg%%:*} g=${pg#*:}
+    D=$(jq -r --arg s "$st" '.states[$s].directive // ""' "$COMPILED" 2>/dev/null)
+    case "$D" in
+        *"koto overrides record {{SESSION_NAME}} --gate $g --rationale \"<the person's words>\" --by person:<handle> --surface <terminal|forge|relay>"*) \
+            pass "$st's directive names the person override of $g" ;;
+        *) fail "$st's directive does not name the person override of $g" ;;
+    esac
+    case "$D" in *'`--link <url>`'*'`relay`'*) pass "$st's directive adds --link for relay" ;;
+        *) fail "$st's directive does not add --link for relay" ;; esac
+    case "$D" in *"after the person says so"*) pass "$st's directive runs it after the person says so" ;;
+        *) fail "$st's directive does not wait for the person" ;; esac
+    case "$D" in *"unattended run"*"records no person override"*) pass "$st's directive records none unattended" ;;
+        *) fail "$st's directive does not keep an unattended run from recording one" ;; esac
+done
+
+# A fixture session with an overridable level_floor gate: an override recorded
+# with a person decider reads back with the person and the link, and
+# review-level.sh report still counts it. koto's `overrides list` items carry
+# no decider, so the person and the link are read from the decision koto
+# recorded with the override.
+mkdir -p "$WORKDIR/override-fixture"
+cat > "$WORKDIR/override-fixture/t.md" <<'EOF'
+---
+name: override-fixture
+version: "1.0"
+initial_state: hold
+states:
+  hold:
+    gates:
+      level_floor:
+        type: command
+        command: 'exit 1'
+        override_default:
+          exit_code: 0
+          error: ""
+    transitions:
+      - target: done
+        when:
+          gates.level_floor.exit_code: 0
+  done:
+    terminal: true
+---
+## hold
+
+Hold on level_floor.
+
+## done
+
+Done.
+EOF
+S=person-override
+if koto init "$S" --template "$WORKDIR/override-fixture/t.md" >/dev/null 2>&1; then
+    if koto overrides record "$S" --gate level_floor --rationale "ada: let it through" \
+        --by person:ada --surface relay --link https://example.com/x >/dev/null 2>&1; then
+        pass "an override with --by person:ada --surface relay --link is recorded"
+    else
+        fail "koto refused the person override"
+    fi
+    GOT=$(koto overrides list "$S" 2>/dev/null | jq -r '[.overrides.items[] | "\(.gate)|\(.rationale)"] | join(",")')
+    [ "$GOT" = "level_floor|ada: let it through" ] && pass "koto overrides list lists it" \
+        || fail "koto overrides list has [$GOT]"
+    GOT=$(koto decisions list "$S" --format v1 --decider person 2>/dev/null \
+        | jq -r '[.. | objects | select(.kind? == "gate-pass") | .decider | "\(.kind):\(.handle.value)|\(.surface)|\(.link)"] | unique | join(",")')
+    [ "$GOT" = "person:ada|relay|https://example.com/x" ] && pass "the recorded decision names person:ada, relay and the link" \
+        || fail "the recorded decision has [$GOT]"
+    # The column is found by its header name, `overrides`, not by position.
+    GOT=$(bash "$RL" report "$S" 2>/dev/null \
+        | awk -F'\t' 'NR == 1 { for (i = 1; i <= NF; i++) if ($i == "overrides") c = i } NR == 2 && c { print $c }')
+    [ "$GOT" = 1 ] && pass "review-level.sh report counts the person override" \
+        || fail "review-level.sh report counts [$GOT] overrides"
+else
+    fail "the override fixture session did not open"
+fi
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

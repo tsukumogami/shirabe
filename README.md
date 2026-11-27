@@ -249,7 +249,9 @@ either, and where such a change is announced.
   `tsuku install` never downgrades a newer koto you already have. 0.42.0
   records a question with a typed recipient, stores its content and verifies a
   person's answer against the prompt that asked it, which `shirabe question`
-  calls. 0.33.0
+  calls. 0.37.0 records a gate override with the person who decided it
+  (`koto overrides record --by`), which `/work-on`'s panel directives use.
+  0.33.0
   records a pull request review panel in the run journal (`koto review record
   code-round`), which `review-round.sh` writes. 0.31.0
   records which rule a directive carries (`directive_rules`) and lets a

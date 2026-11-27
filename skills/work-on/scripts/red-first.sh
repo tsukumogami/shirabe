@@ -70,10 +70,14 @@
 #   check-green  pass_counting's fix_green gate. Passes for a unit that isn't
 #                a fix, for a fix whose green ran the red's command at HEAD
 #                and exited 0, and for a fix recorded by an observation pair
-#                that a live acceptance covers (test-change.sh covered). An
-#                observation pair without one is held with a `refused:` line
-#                saying observations wait for acceptance. Every hold prints
-#                finding red-first/no-green.
+#                that test-change.sh covered counts: a pair the review panels
+#                judged at its current digests, with no open not-shown
+#                finding. A pair no panel has judged yet is due, and a pair
+#                not counted is held
+#                with a `refused:` line naming what test-change.sh holds it
+#                on (`observation due for <panel>`, say). Every hold prints
+#                finding red-first/no-green; a covered that can't decide
+#                exits 2.
 #
 # The record (`red_first.json`, schema shirabe-red-first/v1):
 #   red           command (argv), base, head, tests and harness ([{path,
@@ -726,14 +730,22 @@ cmd_check_green() {
     fi
     if jq -e '.observations.before != null' "$TMP/record" >/dev/null; then
         if jq -e '.observations.after != null' "$TMP/record" >/dev/null; then
-            # An observation pair counts once a live acceptance covers both
-            # digests; test-change.sh holds the ledger and asks the rule.
-            if "$HERE/test-change.sh" covered "$s" observation:before observation:after > "$TMP/covered" 2>>"$ERRLOG"; then
-                echo "pass: the observation pair has a live acceptance"
-                exit 0
-            fi
-            echo "refused: observations wait for acceptance; an observation pair counts only once someone other than the run accepts it ($(paste -sd ';' "$TMP/covered" | sed 's/;/; /g'))"
-            gate_hold red-first/no-green "the unit's red and green are observations that no live acceptance covers yet; mint a seat with test-change.sh seat $s"
+            # An observation pair counts once the review panels have judged
+            # it shown at its current digests (test-change.sh covered, which
+            # reads panel-scope.sh --due-items; before any panel has recorded,
+            # the pair is due).
+            local crc=0
+            "$HERE/test-change.sh" covered "$s" observation:before observation:after > "$TMP/covered" 2>>"$ERRLOG" || crc=$?
+            case "$crc" in
+                0)
+                    echo "pass: the observation pair is counted at its current digests"
+                    exit 0
+                    ;;
+                1) ;;
+                *) undecided "test-change.sh covered could not decide the observation pair (exit $crc)" ;;
+            esac
+            echo "refused: the observation pair is not counted at its current digests; it counts only once the review panels have judged it shown as it is now ($(paste -sd ';' "$TMP/covered" | sed 's/;/; /g'))"
+            gate_hold red-first/no-green "the unit's red and green are observations the review panels have not judged shown as they are now; the next panel round judges the pair ($(sed -n 's/^held: //p' "$TMP/covered" | paste -sd ';' - | sed 's/;/; /g'))"
         fi
         gate_hold red-first/no-green "no after-observation is recorded; record one with red-first.sh observe $s --phase after --file <observation.md>"
     fi

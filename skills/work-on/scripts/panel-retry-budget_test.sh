@@ -538,6 +538,36 @@ else
     fail "panel_retries is named outside the panel directives, or not by all three ($DIRECTIVES): $OTHER"
 fi
 
+# --- --remaining: read-only, for the counting gate -------------------------------
+
+# remaining_is <name> <session> <want-line> <want-exit>
+remaining_is() {
+    local out rc=0 before after
+    before=$(record "$2")
+    out=$(raw --remaining "$2" 2>/dev/null) || rc=$?
+    after=$(record "$2")
+    if [ "$rc" = "$4" ] && [ "$out" = "$3" ] && [ "$before" = "$after" ]; then
+        pass "$1"
+    else
+        fail "$1: exit $rc (want $4), [$out] (want [$3]), record changed: $([ "$before" = "$after" ] && echo no || echo yes)"
+    fi
+}
+remaining_is "--remaining: no record is the whole ceiling" rem-none "remaining=3 used=0 ceiling=3" 0
+mkdir -p "$SHIM_STORE/rem-two"
+printf 'scrutiny 4\nreview 2\n' > "$SHIM_STORE/rem-two/panel_retries"
+remaining_is "--remaining: two used leaves one, and writes nothing" rem-two "remaining=1 used=2 ceiling=3" 0
+mkdir -p "$SHIM_STORE/rem-spent"
+printf 'scrutiny 4\nscrutiny 3\nscrutiny 1\n' > "$SHIM_STORE/rem-spent/panel_retries"
+remaining_is "--remaining: the ceiling used is none left" rem-spent "remaining=0 used=3 ceiling=3" 0
+mkdir -p "$SHIM_STORE/rem-bad"
+printf 'scrutiny 4\nforged line here\n' > "$SHIM_STORE/rem-bad/panel_retries"
+rc=0; raw --remaining rem-bad >/dev/null 2>&1 || rc=$?
+[ "$rc" = 64 ] && pass "--remaining: a line the script didn't write is no answer (64)" \
+    || fail "--remaining: a forged record line exited $rc, want 64"
+rc=0; raw --remaining >/dev/null 2>&1 || rc=$?
+[ "$rc" = 67 ] && pass "--remaining: no session is a usage error (67)" \
+    || fail "--remaining without a session exited $rc, want 67"
+
 if ! command -v koto >/dev/null 2>&1; then
     echo "SKIP: koto not on PATH -- the real-session case did not run"
     echo

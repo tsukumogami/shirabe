@@ -150,10 +150,8 @@ skills/work-on/scripts/red-first_test.sh
 skills/work-on/scripts/issue-type-route_test.sh
 # The red-first states driven through a real koto; skips cleanly without it.
 skills/work-on/scripts/red-first-routes_test.sh
-# The interim acceptance rule, called directly, and test-change.sh (the
-# ledger, the seat, accept and decline, the status gate) through a koto
-# stand-in on git fixtures. No engine.
-scripts/lib/acceptance-rule_test.sh
+# test-change.sh (the ledger, the notes, the status gate read from the
+# panels' record) through a koto stand-in on git fixtures. No engine.
 skills/work-on/scripts/test-change_test.sh
 # An edited test held at pass_counting through a real koto; skips cleanly
 # without it.
@@ -207,7 +205,6 @@ cost: skills/work-on/scripts/fix-kind_test.sh 4
 cost: skills/work-on/scripts/ci-cancel-after-merge_test.sh 3
 cost: skills/work-on/scripts/check-staleness_test.sh 3
 cost: skills/work-on/scripts/verification-deferral_test.sh 2
-cost: scripts/lib/acceptance-rule_test.sh 2
 cost: skills/work-on/scripts/work-on-requires_test.sh 1
 cost: skills/work-on/scripts/setup-plan-backed-baseline_test.sh 1
 cost: skills/work-on/scripts/settled-policy_test.sh 1
