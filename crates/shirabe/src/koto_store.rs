@@ -20,7 +20,9 @@ use std::time::Duration;
 use koto_session_reader::engine::types::{Event, EventPayload, StateFileHeader};
 use koto_session_reader::session::state_file_name;
 use koto_session_reader::session::validate::validate_session_id;
-use koto_session_reader::source::{read_session_events, sessions_dir, LocalDirSource, SessionSource};
+use koto_session_reader::source::{
+    read_session_events, sessions_dir, LocalDirSource, SessionSource,
+};
 
 /// The largest log the hooks read. A log larger than this isn't read at all,
 /// so a hook's read stays bounded in memory and in time.
@@ -329,6 +331,9 @@ mod tests {
         assert_eq!(dir(Some(BackendKind::Cloud), Some("/base"), root), want);
         // With KOTO_HOME unset the root is ~/.koto.
         let home = resolve_koto_root(None, Some("/h".into()), None);
-        assert_eq!(dir(None, None, home), Some(PathBuf::from("/h/.koto/sessions")));
+        assert_eq!(
+            dir(None, None, home),
+            Some(PathBuf::from("/h/.koto/sessions"))
+        );
     }
 }
