@@ -1,22 +1,48 @@
 ---
 schema: design/v1
-status: Draft
+status: Proposed
 problem: |
   A coordinator dispatched under niwa's coordinator profile still starts at
   about 61K tokens of context, against a target below 35K. The profile took
-  the harness down to about 28K. The rest is the coordinate skill's own
+  the harness down to about 27.4K. The rest is the coordinate skill's own
   SKILL.md, which a leading `/shirabe:coordinate` invocation expands in full
   into the first turn: 32.5K tokens, every word of it, whatever the
   coordinator is about to do. No harness item the profile still keeps is
   unused by coordinators, so the gap can only close in what the skill puts
   into turn 0.
+decision: |
+  Replace SKILL.md with a slim entry of at most 8,400 rendered bytes that
+  holds only what every start needs: the identity rules, the first steps and
+  opener call, the standing tick rules, Roles, Reporting and the glossary.
+  Each situational family moves to the channel that fires when it applies:
+  the opener's stderr for takeover, import, carry, handover and refusals,
+  which are acted on before the first tick, and the template's state
+  directives for verdicts, decisions, bounds, dispatch and teardown.
+  Maintainer text moves to a MAINTAINING.md no run reads. A new test renders
+  the entry the way the expansion does and holds it under a row ratcheted
+  against the merge base, with new directive ceilings on the states every
+  start renders first. Everything lands in one pull request, so no rule is
+  ever uncarried.
+rationale: |
+  The harness was measured at 27,401 tokens under the profile, and every item
+  it keeps is one coordinators call, so the skill has about 7.6K tokens to
+  spend. A prototype entry of 12 KB cost 4,365 tokens, which puts an 8,400
+  byte entry at about 30.4K to 31.8K, with room left for run-to-run swing and
+  some harness growth. Rewriting the whole file more tightly still left it
+  near 60 KB, and putting the contract in the template or in a load-time
+  script either loses rules on paths that never render or puts the
+  dispatcher's free text into a shell. A byte ratchet is the only budget a CI
+  run can enforce without a model, and the live read after release checks
+  what bytes can't see. Sessions without the profile, and interactive ones,
+  read the same smaller entry and start as they do today or lighter.
+decision_provenance: inline-resolved
 ---
 
 # DESIGN: Coordinate entry budget
 
 ## Status
 
-Draft
+Proposed
 
 ## Context and Problem Statement
 
@@ -128,7 +154,7 @@ saving, and without changing what a coordinator knows when it acts.
 
 ### Decision 1: How the entry's turn-0 text comes down
 
-Today's SKILL.md is the coordinator's whole contract, written as one file
+Delegated to /decision. Today's SKILL.md is the coordinator's whole contract, written as one file
 that every start reads in full. A section-by-section read of it sorts its
 96,425 bytes by when a coordinator needs them:
 
@@ -280,7 +306,7 @@ rule-coverage check.
 
 ### Decision 2: How the budget is held
 
-The check has to fail a pull request, and CI has no model to count tokens
+Delegated to /decision. The check has to fail a pull request, and CI has no model to count tokens
 with, so the measure is bytes over a measured ratio. What it measures has to
 be what the slash command actually puts into turn 0.
 
@@ -370,7 +396,7 @@ it has reached every coordinator.
 
 ### Decision 3: How the change lands
 
-Resolved inline, from the architecture. The entry and the carriers its moved
+Resolved inline. It follows from the architecture. The entry and the carriers its moved
 text needs could land together or in steps.
 
 #### Chosen: The new entry and every carrier in one pull request
