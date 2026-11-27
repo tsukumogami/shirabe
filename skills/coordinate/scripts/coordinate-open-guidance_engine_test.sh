@@ -152,8 +152,9 @@ grep -v -E '^[[:space:]]*#' "$OPENER" | grep -o -E '(^|[^A-Za-z0-9_./-])guide [a
 awk -F'\t' '$1 ~ /^guide\./ { sub(/^guide\./, "", $1); print $1 }' "$WORDING" | sort -u > "$T/rowed"
 if [ "$(grep -c . "$T/called")" -ge 20 ]; then pass "the opener's guide calls read: $(grep -c . "$T/called") families"
 else fail "the opener's guide calls read" "$(cat "$T/called")"; fi
-eq "every guide <family> call names a family with guide.<family> rows" "" "$(comm -23 "$T/called" "$T/rowed" | tr '\n' ' ')"
-eq "every family with guide.<family> rows has a guide call in the opener" "" "$(comm -13 "$T/called" "$T/rowed" | tr '\n' ' ')"
+# Set differences with grep -vxF -f, not comm, which the floor's PATH lacks.
+eq "every guide <family> call names a family with guide.<family> rows" "" "$(grep -vxF -f "$T/rowed" "$T/called" | tr '\n' ' ')"
+eq "every family with guide.<family> rows has a guide call in the opener" "" "$(grep -vxF -f "$T/called" "$T/rowed" | tr '\n' ' ')"
 
 echo "== the asks =="
 B0=$(sessions)
@@ -209,8 +210,10 @@ done
 # 2100 two-byte characters: 4201 bytes, 2101 characters. The limit counts
 # bytes, so it refuses the path for its length whatever the locale; under a
 # UTF-8 locale a character count would let it through to a later check.
-LONG=/$(printf "\\303\\251%.0s" $(seq 2100))
-UL=$(locale -a 2>/dev/null | grep -i -m1 -E '^(c|en_us)\.utf-?8$')
+LONG=/
+for ((i = 0; i < 2100; i++)); do LONG+=$'\303\251'; done
+UL=
+command -v locale > /dev/null 2>&1 && UL=$(locale -a 2>/dev/null | grep -i -m1 -E '^(c|en_us)\.utf-?8$')
 B0=$(sessions)
 LC_ALL=${UL:-C} op "$T/plugin" "$RA" --brief "$LONG"
 eq "--brief naming a path over 4096 bytes and under 4096 characters is refused=brief, exit 2 (locale ${UL:-C})" "2 refused=brief" "$RC $OUT"
