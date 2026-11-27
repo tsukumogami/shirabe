@@ -24,11 +24,18 @@
 # suites. For every suite, the steps that apply to it must equal its own
 # setup, in order; the env macos-floor.yml's floor step sees (its own, the
 # job's and the workflow's) must hold every variable the suite's own floor
-# step sees; and the two floor steps must set the same shell,
+# step sees, except SUITE_SLICE, SUITE_SLICE_COSTS and SKILL_GATE_PART, which
+# divide a suite's run across its own workflow's jobs (a matrix of slices, or
+# the skill gate's suites and checks jobs) while macos-floor.yml runs it
+# whole; and the two floor steps must set the same shell,
 # working-directory and timeout. macos-floor.yml checks out the commit it
 # resolved, with full history for every suite, which covers a suite whose own
 # checkout asks for it, so a checkout's ref and fetch-depth are left out and
 # its other inputs must match.
+#
+# A suite may run in more than one job (the skill-gate suite runs in both of
+# the skill gate's jobs) when the jobs' setups match, their env compared
+# without those three variables.
 #
 # A floor call that names its suite at run time is allowed only in
 # macos-floor.yml, the one workflow whose suites this checks;
@@ -173,6 +180,15 @@ def checkout_with(step):
     return {k: v for k, v in (step.get("with") or {}).items() if k not in CHECKOUT_IGNORED}
 
 
+# The variables that divide one suite's run across its own workflow's jobs
+# (see the header); macos-floor.yml runs each suite whole and sets none.
+SPLIT_VARS = ("SUITE_SLICE", "SUITE_SLICE_COSTS", "SKILL_GATE_PART")
+
+
+def whole_env(env):
+    return {k: v for k, v in env.items() if k not in SPLIT_VARS}
+
+
 def env_of(wf, job, step):
     """The env the floor step sees: the workflow's, the job's and its own."""
     env = dict(wf.get("env") or {})
@@ -214,7 +230,7 @@ for wf_name, wf in workflows.items():
                 if suite == "all":
                     continue
                 entry = {"where": f"{wf_name} job {job_name}", "setup": list(setup),
-                         "env": env_of(wf, job, step), "floor": floor_extras(step),
+                         "env": whole_env(env_of(wf, job, step)), "floor": floor_extras(step),
                          "checkout": checkout}
                 key = ("setup", "env", "floor", "checkout")
                 prior = suites.get(suite)
@@ -292,6 +308,7 @@ for suite in sorted(suites):
                          f"      fix: make the floor job's steps whose `if` names '{suite}' "
                          "(and those with no `if`) match the own list, in the same order; "
                          "names and conditions aren't compared"))
+    # own["env"] already leaves out SPLIT_VARS.
     for key, value in sorted(own["env"].items()):
         if net_env.get(key) != value:
             problems.append((suite, f"{own['where']} sets env {key}={value!r}; "

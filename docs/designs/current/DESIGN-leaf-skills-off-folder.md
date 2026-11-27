@@ -412,7 +412,8 @@ otherwise.
   `branch_wip_clean` gate in `work-on.md` and `settled_wip_clean` in
   `execute.md` go with their routing and directive prose; the instruction in
   `execute-coordinated.md` goes; the affected tests
-  (`check-branch-output_test.sh`, `check-rule-registry_test.sh`,
+  (`check-branch-output_test.sh`, the rule-registry check's suite, now
+  `check-rule-registry_1_test.sh` to `_4_test.sh`,
   `execute-output-gates-routing_test.sh`, the template-structure tests) change
   with them.
 - `skills/scope/scripts/publish-scoping-pr.sh` loses the untrack commit, the
