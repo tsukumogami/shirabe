@@ -570,6 +570,66 @@ got=$(facts '[]' | jq -c '.chain = {start: "2026-09-26T08:00:00Z", back_to: null
 grep -q '2026-09-26T08:00:00Z' <<< "$got" \
   && bad "the chain is not rendered" || ok "the chain is not rendered"
 
+echo "== the Run successor row =="
+# succ_facts <read row> <fact-json|null> [pending-json]
+succ_facts() {
+    facts '[]' | jq -c --arg r "$1" --argjson f "$2" --argjson p "${3:-null}" '.successor = {row: $r, fact: $f, pending: $p}'
+}
+SFACT() { jq -nc --arg st "$1" --arg b "$2" --arg n "$3" --argjson s "$4" --arg ss "${5:-}" --arg l "${6:-}" --arg r "${7:-}" \
+    '{kind: "successor", status: $st, before: $b, now: $n, settled: $s, session: $ss, listing: $l, reason: $r, read_at: "2026-09-27T09:59:30Z"}'; }
+SPEND() { jq -nc --arg r "$1" --arg ss "${2:-}" --arg m "$3" '{row: $r, status: ($r | split(" ")[0]), topic: ($r | split(" ")[1]), session: $ss, sentence: $m}'; }
+BASE=$(facts '[]' | report)
+eq_s() { [ "$2" = "$3" ] && ok "$1" || bad "$1" "want: $2
+got:  $3"; }
+eq_s "facts with no successor give the report they gave before" "$BASE" "$(facts '[]' | jq -c 'del(.successor)' | report)"
+eq_s "  ... and no successor key" null "$(facts '[]' | report | jq -c '.successor')"
+
+# pmsg <run> <row> <listing> [<session>]: the sentence dispatch-worker.sh's
+# exit 12 prints, from dispatch-common.sh itself.
+pmsg() { bash -c '. "$1" && shift && dc_successor_pending_msg "$@"' _ "$HERE/dispatch-common.sh" "$@"; }
+MSG=$(pmsg coord "dispatched succ-one 2026-09-26" listed succ-one-1a2b)
+DMSG=$(pmsg coord "dispatching succ-one 2026-09-26" unlisted)
+UMSG=$(pmsg coord "dispatched succ-one 2026-09-26" unread)
+eq_s "the listed sentence names the listed session" 1 "$(printf '%s' "$MSG" | grep -cF 'session `succ-one-1a2b` listed')"
+eq_s "the unconfirmed sentence names the --successor command and the topic" 1 \
+    "$(printf '%s' "$DMSG" | grep -cF 'run `dispatch-worker.sh --session coord --successor` again with successor_input.json naming `succ-one`')"
+eq_s "the unread sentence says the listing couldn't be read, never dispatch-failed or stranded" "1 0" \
+    "$(printf '%s' "$UMSG" | grep -c "the listing couldn't be read, so whether its session is live isn't known") $(printf '%s' "$UMSG" | grep -c 'dispatch-failed or stranded')"
+got=$(succ_facts "dispatching succ-one 2026-09-26" "$(SFACT ok "dispatching succ-one 2026-09-26" "dispatched succ-one 2026-09-26" true succ-one-1a2b listed)" \
+    "$(SPEND "dispatched succ-one 2026-09-26" succ-one-1a2b "$MSG")" | report)
+eq_s "a settled row is a change, recorded then live" \
+    '{"topic":"succ-one","what":"successor row","recorded":"dispatching succ-one 2026-09-26","live":"dispatched succ-one 2026-09-26","grade":"measured"}' \
+    "$(printf '%s' "$got" | jq -c '.changes[] | select(.what == "successor row") | del(.written)')"
+eq_s "a row still pending gets the successor key" \
+    "{\"row\":\"dispatched succ-one 2026-09-26\",\"status\":\"dispatched\",\"topic\":\"succ-one\",\"session\":\"succ-one-1a2b\",\"line\":\"Successor pending: $MSG\"}" \
+    "$(printf '%s' "$got" | jq -c '.successor')"
+md=$(printf '%s' "$got" | render)
+eq_s "the text prints the line right after the Scope line" "Successor pending: $MSG" \
+    "$(printf '%s\n' "$md" | grep -A1 '^Scope: ' | sed -n 2p)"
+eq_s "  ... and the change under Changed since then" 1 \
+    "$(printf '%s\n' "$md" | grep -c 'the Run successor row settled: record said `dispatching succ-one 2026-09-26`, now `dispatched succ-one 2026-09-26`')"
+
+got=$(succ_facts "dispatching succ-one 2026-09-26" "$(SFACT ok "dispatching succ-one 2026-09-26" "dispatching succ-one 2026-09-26" false "" unlisted)" \
+    "$(SPEND "dispatching succ-one 2026-09-26" "" "$DMSG")" | report)
+eq_s "an unconfirmed dispatching row names the command to run again" "Successor pending: $DMSG" "$(printf '%s' "$got" | jq -r '.successor.line')"
+eq_s "  ... and a row left as it was is no change" 0 "$(printf '%s' "$got" | jq '[.changes[] | select(.what == "successor row")] | length')"
+
+got=$(succ_facts "dispatched succ-one 2026-09-26" "$(SFACT ok "dispatched succ-one 2026-09-26" "stranded succ-one 2026-11-25" true "" unlisted)" | report)
+eq_s "a row settled stranded is a change and no pending line" "1 null" \
+    "$(printf '%s' "$got" | jq -c '"\([.changes[] | select(.what == "successor row")] | length) \(.successor)"' -r)"
+eq_s "  ... and the text has no Successor pending line" 0 "$(printf '%s' "$got" | render | grep -c '^Successor pending:')"
+
+got=$(succ_facts "dispatched succ-one 2026-09-26" "$(SFACT not_verified "dispatched succ-one 2026-09-26" "dispatched succ-one 2026-09-26" false "" unread "the listing couldn't be read (niwa list); nothing written")" \
+    "$(SPEND "dispatched succ-one 2026-09-26" "" "$UMSG")" | report)
+eq_s "a settle that failed is not verified, with its reason" \
+    '{"what":"the Run successor row'"'"'s settle","reason":"the listing couldn'"'"'t be read (niwa list); nothing written","raw":null}' \
+    "$(printf '%s' "$got" | jq -c '.not_verified[] | select(.what | startswith("the Run successor"))')"
+eq_s "  ... and the row still gets its pending line" "Successor pending: $UMSG" "$(printf '%s' "$got" | jq -r '.successor.line')"
+eq_s "  ... and it does not block the pass" "$(facts '[]' | report | jq -c '.waiting')" "$(printf '%s' "$got" | jq -c '.waiting')"
+got=$(succ_facts "dispatched succ-one 2026-09-26" null "$(SPEND "dispatched succ-one 2026-09-26" "" "$UMSG")" | report)
+eq_s "a settle that never ran is no change and no not-verified entry" "0 0" \
+    "$(printf '%s' "$got" | jq -r '"\([.changes[] | select(.what == "successor row")] | length) \([.not_verified[] | select(.what | startswith("the Run successor"))] | length)"')"
+
 echo "== purity =="
 EMPTYBIN=$(mktemp -d) || exit 1
 ln -s "$(command -v jq)" "$EMPTYBIN/jq"

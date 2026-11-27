@@ -25,6 +25,8 @@
 #   review-level.sh project <facts-file> <level> [<rules-file>]
 #   review-level.sh report [<session>...]
 #   review-level.sh level  <session> [--exit]
+#   review-level.sh raise  <session> <level> --reason <why>
+#   review-level.sh audit  <session>
 #   review-level.sh classify <path>...
 #
 # <floor>, <ceiling> and the <level> of facts/check/agree/slice may be empty (an
@@ -68,11 +70,12 @@
 #           the second half of the level check's action, after `facts`. The
 #           level is the highest of the facts floor (review_facts.json), the
 #           ledger's last level (which carries every raise the agent made,
-#           and never drops on its own: only a `set` lower moves it down) and
-#           the bound's floor. When that differs from the ledger's last level
-#           it appends one `from_facts` line (from, to, rule, and source:
-#           `facts` when the facts floor set it, `bound` when the bound's
-#           floor did), plus a `breach` line when the new level is above the
+#           and never drops on its own: only a `set` lower moves it down),
+#           every level `raise` recorded, and the bound's floor. When that
+#           differs from the ledger's last level it appends one `from_facts`
+#           line (from, to, rule, and source: `facts` when the facts floor
+#           set it, `bound` when the bound's floor did, `raise` when a kept
+#           raise did), plus a `breach` line when the new level is above the
 #           bound's ceiling, which only a facts floor above the ceiling can
 #           cause; when it is the same, no level line. Either way it appends a
 #           `check` line when the head, level or floor differs from the last
@@ -96,13 +99,19 @@
 #           count, and `bases.merged_default` names the folded-in commit
 #           (null otherwise; a merge that conflicts keeps impl_base).
 #           Classifies every path (both sides of a rename)
-#           with the stored rules copy, records `tests_edited` when a `test`
+#           with the stored rules copy; a binary file, a rename or copy, a
+#           mode or type change and a submodule bump count as `unclassified`
+#           (and in `unsized`), since their line counts say nothing about
+#           their size. Records `red_test_edited` when a fix's reproducing
+#           test or harness file (named in `red_first.json`) changed after the
+#           red, and `tests_edited` when a `test`
 #           path was edited rather than only added to (scripts/lib/
 #           test-classify.sh's test_classify_unit over the winning base, with
 #           the red's `red_first.json` for a fix; a classification that fails
 #           counts every changed test as edited), writes `review_facts.json`
 #           (`base_source` names the base that won, `shared_branch` the
-#           branch or ""), appends the same object as one line to
+#           branch or "", `cap` the rules file's first cap row and whether it
+#           lowered the floor, null with no cap row), appends the same object as one line to
 #           `review_facts.jsonl` (every gather, so the size at each visit
 #           survives the run; nothing reads it back), and appends a `check`
 #           line when the head, level or
@@ -148,6 +157,15 @@
 #           the level set-from-facts recorded in the same tick: 11 light, 12
 #           standard, 13 full (10 plus the level's rank), 4 no level
 #           recorded, 66 a read that failed.
+#   raise   `set` for a move up the run keeps, with a reason: the light seat's
+#           escalate (`raise <s> standard --reason escalate`). It records a
+#           `raise` line with source `raise` (past the ceiling, a `breach`
+#           line too, as `set` does). set-from-facts never settles below the
+#           highest such raise and `set` never lowers below it. A level at or
+#           below the current one changes nothing (exit 0).
+#   audit   exit 0 when the session's name is audited (its SHA-256, read as a
+#           number, is 0 mod 10), 1 when it isn't. Read-only, and the same
+#           answer on every call. light_review's `audited` gate runs it.
 #   classify  one tab-separated row per path: the path, then the classes the
 #           shipped rules file puts it in, comma-separated, or `-` for none.
 #           Read-only; no session.
@@ -165,12 +183,13 @@
 #                          ../references/review-level-rules.tsv.
 #
 # Exit codes:
-#   0  -- done: init stored (or already had) the bound; set recorded the
-#         change; facts recorded; check passes; slice, report and level
-#         printed
-#   1  -- set or set-from-facts refused (a `refused:` line on stdout names
-#         the rule; nothing changed), or check or agree holds (a `hold:` line
-#         names why)
+#   0  -- done: init stored (or already had) the bound; set or raise recorded
+#         the change (or raise found the level already there); facts
+#         recorded; check passes; slice, report and level printed; audit:
+#         the session is audited
+#   1  -- set, raise or set-from-facts refused (a `refused:` line on stdout
+#         names the rule; nothing changed), check or agree holds (a `hold:`
+#         line names why), or audit: the session is not audited
 #   2  -- report printed every row, but a ledger had a line that isn't JSON
 #         or couldn't be read (koto refused the read, or the get failed)
 #   3  -- check: the level is empty and the ledger records none (the unset
@@ -239,6 +258,8 @@ usage: review-level.sh init   <session> <floor> <ceiling>
        review-level.sh project <facts-file> <level> [<rules-file>]
        review-level.sh report [<session>...]
        review-level.sh level  <session> [--exit]
+       review-level.sh raise  <session> <level> --reason <why>
+       review-level.sh audit  <session>
        review-level.sh classify <path>..."
 }
 
@@ -352,14 +373,67 @@ has_event() {
 
 NCLASS=0
 NRULE=0
-# CLASS_NAME[i] CLASS_GLOB[i]; RULE_LEVEL[i] RULE_FACT[i].
+NCAP=0
+# CLASS_NAME[i] CLASS_GLOB[i]; RULE_LEVEL[i] RULE_FACT[i]; CAP_LEVEL[i]
+# CAP_LINES[i] CAP_FILES[i] CAP_CLASSES[i] (space-separated) CAP_SPEC[i] (the
+# row's terms, normalized to "lines<=N files<=M classes=a,b").
+
+# class_defined <name>: 0 when a loaded `class` line defines it.
+class_defined() {
+    local j=0
+    while [ "$j" -lt "$NCLASS" ]; do
+        [ "${CLASS_NAME[$j]}" = "$1" ] && return 0
+        j=$((j + 1))
+    done
+    return 1
+}
+
+# load_cap <line-number> <level> <terms>: one `cap` row. The terms are
+# lines<=N, files<=M and classes=a,b, each exactly once, separated by tabs or
+# spaces. A cap lowers a `standard` floor, so its level is `light`; `manifest`
+# is never one of its classes, so a dependency change keeps `standard`.
+load_cap() {
+    local n="$1" level="$2" terms="$3" t lines="" files="" classes=""
+    [ "$level" = light ] || die 64 "rules line $n: a cap lowers a standard floor to light, not to [$level]"
+    terms=$(printf '%s' "$terms" | tr '\t' ' ')
+    for t in $terms; do
+        case "$t" in
+            lines\<=*)
+                [ -z "$lines" ] || die 64 "rules line $n: cap names lines<= twice"
+                lines="${t#lines<=}"
+                case "$lines" in ""|*[!0-9]*) die 64 "rules line $n: bad bound in [$t]" ;; esac
+                ;;
+            files\<=*)
+                [ -z "$files" ] || die 64 "rules line $n: cap names files<= twice"
+                files="${t#files<=}"
+                case "$files" in ""|*[!0-9]*) die 64 "rules line $n: bad bound in [$t]" ;; esac
+                ;;
+            classes=*)
+                [ -z "$classes" ] || die 64 "rules line $n: cap names classes= twice"
+                classes="${t#classes=}"
+                case "$classes" in ""|,*|*,|*,,*|*[!a-z0-9_,]*) die 64 "rules line $n: bad class list in [$t]" ;; esac
+                ;;
+            *) die 64 "rules line $n: unknown cap term [$t]" ;;
+        esac
+    done
+    [ -n "$lines" ] && [ -n "$files" ] && [ -n "$classes" ] \
+        || die 64 "rules line $n: a cap needs lines<=N, files<=M and classes=a,b"
+    case ",$classes," in *,manifest,*) die 64 "rules line $n: a cap can't list manifest: a dependency change keeps standard" ;; esac
+    CAP_LEVEL[$NCAP]="$level"
+    CAP_LINES[$NCAP]="$lines"
+    CAP_FILES[$NCAP]="$files"
+    CAP_CLASSES[$NCAP]=$(printf '%s' "$classes" | tr ',' ' ')
+    CAP_SPEC[$NCAP]="lines<=$lines files<=$files classes=$classes"
+    NCAP=$((NCAP + 1))
+}
 
 # load_rules <file>: parses and validates; dies 64 on anything it doesn't know.
 load_rules() {
-    local file="$1" n=0 type a b rest i j found name
+    local file="$1" n=0 type a b rest i j found name c
     [ -f "$file" ] || die 64 "rules file [$file] is not a file"
     NCLASS=0
     NRULE=0
+    NCAP=0
     while IFS=$'\t' read -r type a b rest || [ -n "$type" ]; do
         n=$((n + 1))
         case "$type" in
@@ -378,16 +452,26 @@ load_rules() {
                     lines\>*|files\>*)
                         case "${b#*>}" in ""|*[!0-9]*) die 64 "rules line $n: bad threshold in [$b]" ;; esac
                         ;;
-                    tests_changed|tests_edited|criteria_changed|unclassified) ;;
+                    tests_changed|tests_edited|red_test_edited|criteria_changed|unclassified) ;;
                     *) die 64 "rules line $n: unknown fact [$b]" ;;
                 esac
                 RULE_LEVEL[$NRULE]="$a"
                 RULE_FACT[$NRULE]="$b"
                 NRULE=$((NRULE + 1))
                 ;;
+            cap)
+                load_cap "$n" "$a" "$b${rest:+ $rest}"
+                ;;
             *) die 64 "rules line $n: unknown record type [$type]" ;;
         esac
     done < "$file"
+    i=0
+    while [ "$i" -lt "$NCAP" ]; do
+        for c in ${CAP_CLASSES[$i]}; do
+            class_defined "$c" || die 64 "rules: cap [${CAP_SPEC[$i]}] names class [$c], which no class line defines"
+        done
+        i=$((i + 1))
+    done
     i=0
     while [ "$i" -lt "$NRULE" ]; do
         case "${RULE_FACT[$i]}" in
@@ -551,6 +635,22 @@ refuse() {
     exit 1
 }
 
+# kept_raise <ledger-file>: the highest level a `raise` subcommand recorded
+# (a `raise` line, or a `choose` before any level, with source "raise"), or
+# nothing. set-from-facts never
+# settles below it and `set` never lowers below it, so an escalated run stays
+# at the raised level for the rest of the run.
+kept_raise() {
+    jq -Rr 'fromjson? | select(type == "object" and (.event == "raise" or .event == "choose") and .source == "raise") | .to // ""
+            | if . == "full" then 3 elif . == "standard" then 2 elif . == "light" then 1 else empty end' "$1" \
+        | sort -n | tail -n 1 \
+        | awk '$1 == 3 { print "full" } $1 == 2 { print "standard" } $1 == 1 { print "light" }'
+}
+
+# 1 while `raise` runs cmd_set: it records every move up as a `raise` line
+# with source "raise", and a level at or below the current one as no change.
+RAISE_MODE=0
+
 cmd_set() {
     [ $# -ge 2 ] || usage "set takes <session> <level>"
     local s="$1" new="$2" reason="" cause="" has_reason=0
@@ -592,12 +692,19 @@ cmd_set() {
         ffloor=$(jq -r '.floor // ""' "$WORK/facts")
         frule=$(jq -r '.rule // ""' "$WORK/facts")
     fi
-    local cur
+    local cur kept src=""
     cur=$(last_level "$WORK/ledger")
+    kept=$(kept_raise "$WORK/ledger")
+    [ "$RAISE_MODE" -eq 0 ] || src=raise
 
     local r_new r_cur r_bf r_bc r_ff
     r_new=$(rank "$new"); r_cur=$(rank "$cur"); r_bf=$(rank "$bfloor")
     r_bc=$(rank "$bceil"); r_ff=$(rank "$ffloor")
+
+    if [ "$RAISE_MODE" -eq 1 ] && [ -n "$cur" ] && [ "$r_new" -le "$r_cur" ]; then
+        echo "unchanged: the level is $cur, at or above $new; nothing to raise"
+        exit 0
+    fi
 
     if [ -n "$bfloor" ] && [ -n "$bceil" ] && [ "$r_bf" -gt "$r_bc" ]; then
         refuse "the bound's floor $bfloor is above its ceiling $bceil"
@@ -619,7 +726,9 @@ cmd_set() {
         fi
         event=choose
     elif [ "$r_new" -gt "$r_cur" ]; then
-        if [ -n "$ffloor" ] && [ "$new" = "$ffloor" ] && [ "$r_cur" -lt "$r_ff" ]; then
+        if [ "$RAISE_MODE" -eq 1 ]; then
+            event=raise
+        elif [ -n "$ffloor" ] && [ "$new" = "$ffloor" ] && [ "$r_cur" -lt "$r_ff" ]; then
             event=floor_raise
             rule="$frule"
         elif [ -n "$cause" ]; then
@@ -643,6 +752,9 @@ cmd_set() {
         if [ -n "$bfloor" ] && [ "$r_new" -lt "$r_bf" ]; then
             refuse "$new is below the bound's floor $bfloor"
         fi
+        if [ -n "$kept" ] && [ "$r_new" -lt "$(rank "$kept")" ]; then
+            refuse "$new is below the level review-level.sh raise recorded, $kept; a raise is kept for the rest of the run"
+        fi
         event=lower
     else
         [ -z "$cause" ] || usage "--cause applies to a raise"
@@ -654,7 +766,7 @@ cmd_set() {
     rebind "$s" "$new" || die 66 "rebind failed, nothing recorded: $REBIND_ERR"
 
     {
-        line "$event" from "$cur" to "$new" reason "$reason" rule "$rule"
+        line "$event" from "$cur" to "$new" reason "$reason" rule "$rule" source "$src"
         [ "$breach" -eq 0 ] || line breach from "$cur" to "$new" ceiling "$bceil" reason "$reason" rule "$rule"
     } > "$WORK/new" || {
         rebind "$s" "$cur" || echo "review-level: rebinding back to [$cur] also failed: $REBIND_ERR" >&2
@@ -686,19 +798,50 @@ stored_base() {
 # sides of a rename) NUL-separated to $WORK/paths.<tag>, and sets M_LINES and
 # M_FILES. numstat -z: "<add>\t<del>\t<path>\0", or for a rename
 # "<add>\t<del>\t\0<old>\0<new>\0". Binary files count "-" as 0 lines.
+#
+# M_UNSIZED counts the changes whose line count says nothing about their size:
+# a binary file (numstat's "-"), and from `git diff --raw` a rename or copy, a
+# type change, a mode change on a file that exists on both sides, and a
+# submodule (mode 160000 on either side). facts counts any of them as
+# `unclassified`, so they keep `standard` and never reach a cap.
 M_LINES=0
 M_FILES=0
+M_UNSIZED=0
 measure() {
-    local rec add del p p2
+    local rec add del p p2 omode nmode st
     M_LINES=0
     M_FILES=0
+    M_UNSIZED=0
     git diff -z --numstat -M "$1" HEAD > "$WORK/numstat.$2" || return 1
+    git diff -z --raw -M "$1" HEAD > "$WORK/raw.$2" || return 1
+    # --raw -z: ":<old mode> <new mode> <old sha> <new sha> <status>\0<path>\0",
+    # or for a rename or copy a second path after the first.
+    while IFS= read -r -d '' rec; do
+        case "$rec" in :*) ;; *) continue ;; esac
+        rec="${rec#:}"
+        omode="${rec%% *}"; rec="${rec#* }"
+        nmode="${rec%% *}"; rec="${rec#* }"
+        rec="${rec#* }"; rec="${rec#* }"
+        st="$rec"
+        IFS= read -r -d '' p || break
+        case "$st" in R*|C*) IFS= read -r -d '' p2 || break ;; esac
+        case "$st" in
+            R*|C*|T*) M_UNSIZED=$((M_UNSIZED + 1)); continue ;;
+        esac
+        if [ "$omode" = 160000 ] || [ "$nmode" = 160000 ]; then
+            M_UNSIZED=$((M_UNSIZED + 1))
+        elif [ "$omode" != 000000 ] && [ "$nmode" != 000000 ] && [ "$omode" != "$nmode" ]; then
+            M_UNSIZED=$((M_UNSIZED + 1))
+        fi
+    done < "$WORK/raw.$2"
     : > "$WORK/paths.$2"
     while IFS= read -r -d '' rec; do
         add="${rec%%$'\t'*}"
         rec="${rec#*$'\t'}"
         del="${rec%%$'\t'*}"
         p="${rec#*$'\t'}"
+        # A binary file's counts are "-": it counts 0 lines, and as unsized.
+        if [ "$add" = - ] || [ "$del" = - ]; then M_UNSIZED=$((M_UNSIZED + 1)); fi
         case "$add" in ""|*[!0-9]*) add=0 ;; esac
         case "$del" in ""|*[!0-9]*) del=0 ;; esac
         M_LINES=$((M_LINES + add + del))
@@ -789,7 +932,7 @@ cmd_facts() {
     # step's change: the impl_base candidate is measured from
     # fold_default_merge's base (scripts/lib/default-merge.sh), which folds
     # what the merge brought in into the base.
-    local ibase="" mbase="" dbase="" base="" source="" lines=0 files=0
+    local ibase="" mbase="" dbase="" base="" source="" lines=0 files=0 unsized=0
     ctx_get "$s" impl_base "$WORK/impl_base" || die 66 "could not read impl_base"
     ibase=$(stored_base "$WORK/impl_base") || ibase=""
     dbase=$(default_merge_base) || dbase=""
@@ -803,20 +946,23 @@ cmd_facts() {
     if [ -n "$ibase" ]; then
         fold_default_merge "$ibase"
         measure "$FOLDED_BASE" impl || die 64 "git diff $FOLDED_BASE HEAD failed"
-        base="$FOLDED_BASE"; source=impl_base; lines="$M_LINES"; files="$M_FILES"
+        base="$FOLDED_BASE"; source=impl_base; lines="$M_LINES"; files="$M_FILES"; unsized="$M_UNSIZED"
         cp "$WORK/paths.impl" "$WORK/paths"
     fi
     if [ -n "$mbase" ] && [ "$mbase" != "$ibase" ]; then
         measure "$mbase" merge || die 64 "git diff $mbase HEAD failed"
         if [ -z "$base" ] || [ "$M_LINES" -gt "$lines" ] \
             || { [ "$M_LINES" -eq "$lines" ] && [ "$M_FILES" -gt "$files" ]; }; then
-            base="$mbase"; source=merge_base; lines="$M_LINES"; files="$M_FILES"
+            base="$mbase"; source=merge_base; lines="$M_LINES"; files="$M_FILES"; unsized="$M_UNSIZED"
             cp "$WORK/paths.merge" "$WORK/paths"
         fi
     fi
 
-    # Every path's classes. A path in no class at all is `unclassified`.
+    # Every path's classes. A path in no class at all is `unclassified`, and
+    # so is a change measure() couldn't size (a binary file, a rename, a mode
+    # change, a submodule): its line count says nothing about its size.
     local p unclassified=false
+    [ "$unsized" -eq 0 ] || unclassified=true
     : > "$WORK/pathclasses"
     while IFS= read -r -d '' p; do
         path_classes "$p" > "$WORK/one"
@@ -840,8 +986,23 @@ cmd_facts() {
         i=$((i + 1))
     done
 
-    local tests_changed=false tests_edited=false criteria_changed=false
+    local tests_changed=false tests_edited=false red_test_edited=false criteria_changed=false
     case " $hit " in *" test "*) tests_changed=true ;; esac
+    # A fix's reproducing test (or harness file) rewritten after its red: the
+    # red's record (red_first.json) names each one with the blob it was red
+    # at, and one whose blob at HEAD differs is `red_test_edited`, whatever
+    # class its path is in and whether it only gained lines. This is the
+    # classifier's own fix-red comparison (test_classify_red_changed), so the
+    # floor, the hold and the packet agree on it. A record that doesn't parse
+    # counts as edited, so a failure can raise the floor and never lower it.
+    ctx_get "$s" "$RED_KEY" "$WORK/red" || die 66 "could not read $RED_KEY"
+    if [ -s "$WORK/red" ]; then
+        if test_classify_red_changed "$head" "$WORK/red" > "$WORK/redrows"; then
+            [ -s "$WORK/redrows" ] && red_test_edited=true
+        else
+            red_test_edited=true
+        fi
+    fi
     # An edited test, as opposed to one only added to: the shared classifier
     # over the same base, the same rules copy and, for a fix, the red's record,
     # so the floor, the hold and the review packet agree on which test was
@@ -850,7 +1011,6 @@ cmd_facts() {
     if [ "$tests_changed" = true ]; then
         local rules_used="$WORK/rules"
         [ -s "$rules_used" ] || rules_used="$RULES_SHIPPED"
-        ctx_get "$s" "$RED_KEY" "$WORK/red" || die 66 "could not read $RED_KEY"
         if test_classify_unit "$base" "$head" "$rules_used" "$WORK/red" > "$WORK/testrows" 2>/dev/null; then
             awk -F '\t' '$1 == "edited" { f = 1 } END { exit !f }' "$WORK/testrows" && tests_edited=true
         else
@@ -885,6 +1045,7 @@ cmd_facts() {
             files\>*) n="${fact#*>}"; [ "$files" -gt "$n" ] && fired=1 ;;
             tests_changed) [ "$tests_changed" = true ] && fired=1 ;;
             tests_edited) [ "$tests_edited" = true ] && fired=1 ;;
+            red_test_edited) [ "$red_test_edited" = true ] && fired=1 ;;
             criteria_changed) [ "$criteria_changed" = true ] && fired=1 ;;
             unclassified) [ "$unclassified" = true ] && fired=1 ;;
         esac
@@ -899,6 +1060,47 @@ cmd_facts() {
         fi
         i=$((i + 1))
     done
+
+    # The caps, after the floor rules and before the fix round's parent floor
+    # (which can only raise). A cap lowers a `standard` floor to its level,
+    # `light`, when no `full` rule fired (the floor would be full), neither
+    # criteria_changed nor unclassified holds, the lines and files are within
+    # its bounds, and every class a path is in is one of its classes. The
+    # union of the classes hit is the same test as each path's, path by path.
+    # A path in a class the cap doesn't list (manifest, which load_rules keeps
+    # out of every cap, or executable, instruction and the rest) keeps
+    # `standard`. The first cap that applies is the one recorded.
+    local c cap_i=-1 cap_applied=false ok
+    if [ "$NCAP" -gt 0 ]; then cap_i=0; fi
+    i=0
+    while [ "$i" -lt "$NCAP" ]; do
+        ok=0
+        if [ "$floor" = standard ] && [ "$criteria_changed" = false ] && [ "$unclassified" = false ] \
+            && [ "$lines" -le "${CAP_LINES[$i]}" ] && [ "$files" -le "${CAP_FILES[$i]}" ]; then
+            ok=1
+            for c in $hit; do
+                case " ${CAP_CLASSES[$i]} " in *" $c "*) ;; *) ok=0 ;; esac
+            done
+        fi
+        if [ "$ok" -eq 1 ]; then
+            cap_i="$i"
+            cap_applied=true
+            floor="${CAP_LEVEL[$i]}"
+            frank=$(rank "$floor")
+            rule="cap:${CAP_SPEC[$i]}"
+            echo "$floor:$rule" >> "$WORK/fired"
+            break
+        fi
+        i=$((i + 1))
+    done
+    local cap_json=null
+    if [ "$cap_i" -ge 0 ]; then
+        cap_json=$(jq -nc --arg level "${CAP_LEVEL[$cap_i]}" --arg spec "${CAP_SPEC[$cap_i]}" \
+            --argjson lines "${CAP_LINES[$cap_i]}" --argjson files "${CAP_FILES[$cap_i]}" \
+            --arg classes "${CAP_CLASSES[$cap_i]}" --argjson applied "$cap_applied" \
+            '{level: $level, rule: $spec, lines: $lines, files: $files,
+              classes: ($classes | split(" ")), applied: $applied}') || die 66 "could not build the cap record"
+    fi
 
     # A fix round (fix-round.sh records fix_round.json) never sits below the
     # floor of the run it fixes. Off a shared branch the merge-base diff
@@ -928,8 +1130,10 @@ cmd_facts() {
     jq -n \
         --argjson lines "$lines" --argjson files "$files" \
         --argjson tests_changed "$tests_changed" --argjson tests_edited "$tests_edited" \
+        --argjson red_test_edited "$red_test_edited" \
         --argjson criteria_changed "$criteria_changed" \
-        --argjson unclassified "$unclassified" \
+        --argjson unclassified "$unclassified" --argjson unsized "$unsized" \
+        --argjson cap "$cap_json" \
         --arg floor "$floor" --arg rule "$rule" --arg head "$head" --arg base "$base" \
         --arg base_source "$source" --arg impl_base "$ibase" --arg merge_base "$mbase" \
         --arg shared_branch "$shared" --arg merged_default "$FOLDED_DEFAULT" \
@@ -937,8 +1141,10 @@ cmd_facts() {
         {lines: $lines, files: $files,
          classes: ($classes | split("\n") | map(select(length > 0))),
          tests_changed: $tests_changed, tests_edited: $tests_edited,
+         red_test_edited: $red_test_edited,
          criteria_changed: $criteria_changed,
-         unclassified: $unclassified,
+         unclassified: $unclassified, unsized: $unsized,
+         cap: $cap,
          floor: $floor, rule: (if $rule == "" then null else $rule end),
          rules_fired: ($fired | split("\n") | map(select(length > 0))),
          head: $head, base: $base, base_source: $base_source,
@@ -1014,11 +1220,17 @@ cmd_set_from_facts() {
     fhead=$(jq -r '.head // ""' "$WORK/facts")
     valid_level "$ffloor" || die 64 "the facts floor [$ffloor] is not light, standard or full"
 
-    local cur level source rule
+    local cur level source rule kept
     cur=$(last_level "$WORK/ledger")
+    kept=$(kept_raise "$WORK/ledger")
     level="$ffloor"; source=facts; rule="$frule"
     if [ -n "$bfloor" ] && [ "$(rank "$bfloor")" -gt "$(rank "$level")" ]; then
         level="$bfloor"; source=bound; rule=""
+    fi
+    # A raise is kept: the cap lowers only the facts floor, never a level
+    # review-level.sh raise recorded (the light seat's escalate is one).
+    if [ -n "$kept" ] && [ "$(rank "$kept")" -gt "$(rank "$level")" ]; then
+        level="$kept"; source=raise; rule=""
     fi
     if [ "$(rank "$cur")" -ge "$(rank "$level")" ]; then
         level="$cur"; source=""
@@ -1056,6 +1268,69 @@ cmd_set_from_facts() {
         echo "unchanged: $level (facts floor $ffloor)"
     fi
     exit 0
+}
+
+# ---------------------------------------------------------------- raise -------
+
+# raise <session> <level> --reason <why>: `set` for a move up that the run
+# keeps. The light seat's escalate runs it (--reason escalate) before
+# light_review routes back to the level check. It records a `raise` line with
+# source "raise" and the reason, past the ceiling with a `breach` line as a
+# raise through `set` does; a level at or below the current one changes
+# nothing and exits 0. set-from-facts never settles below the highest such
+# raise and `set` refuses to lower below it.
+cmd_raise() {
+    [ $# -ge 2 ] || usage "raise takes <session> <level> --reason <why>"
+    local s="$1" new="$2" reason="" has_reason=0
+    shift 2
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --reason) [ $# -ge 2 ] || usage "--reason needs a value"; reason="$2"; has_reason=1; shift 2 ;;
+            --reason=*) reason="${1#--reason=}"; has_reason=1; shift ;;
+            *) usage "raise: unknown argument [$1]" ;;
+        esac
+    done
+    valid_session "$s" || usage "bad session name [$s]"
+    valid_level "$new" || usage "level [$new] is not light, standard or full"
+    [ "$has_reason" -eq 1 ] || usage "raise needs --reason <why>"
+    case "$reason" in *[![:space:]]*) ;; *) usage "raise needs a --reason that isn't blank" ;; esac
+    RAISE_MODE=1
+    cmd_set "$s" "$new" --reason "$reason"
+}
+
+# ---------------------------------------------------------------- audit -------
+
+# sha256_hex: the hex SHA-256 of stdin, with whichever tool the host has.
+sha256_hex() {
+    local out
+    if command -v sha256sum >/dev/null; then
+        out=$(sha256sum) || return 1
+    elif command -v shasum >/dev/null; then
+        out=$(shasum -a 256) || return 1
+    else
+        echo "review-level: neither sha256sum nor shasum is installed" >&2
+        return 1
+    fi
+    printf '%s\n' "${out%% *}"
+}
+
+# audit <session>: whether this run is one of the light runs the full panel
+# checks. Exit 0 when the SHA-256 of the session name, read as a number, is 0
+# mod 10, 1 otherwise: about a tenth of names, and always the same answer for
+# the same name, with no state read or written. light_review's `audited` gate
+# runs it; an audited run's passed light panel goes on to scrutiny, review and
+# qa_validation as a full run would.
+cmd_audit() {
+    [ $# -eq 1 ] || usage "audit takes <session>"
+    valid_session "$1" || usage "bad session name [$1]"
+    local hex
+    hex=$(printf '%s' "$1" | sha256_hex) || die 66 "could not hash the session name"
+    case "$hex" in ""|*[!0-9a-f]*) die 66 "the session name's hash [$hex] is not hex" ;; esac
+    printf '%s\n' "$hex" | awk '{
+        r = 0
+        for (i = 1; i <= length($0); i++) r = (r * 16 + index("0123456789abcdef", substr($0, i, 1)) - 1) % 10
+        exit (r == 0 ? 0 : 1)
+    }'
 }
 
 # ---------------------------------------------------------------- check -------
@@ -1214,7 +1489,8 @@ join_or() {
 # file's order. Every word comes from load_rules, which admits only level
 # names, [a-z0-9_] class names, digit thresholds and the fixed fact names, so
 # no path or free text reaches the slice. A `light` rule never raises the
-# floor and isn't printed.
+# floor and isn't printed. Each `cap` row follows the standard line, as the
+# exception it is: what lowers `standard` to `light`, in the same words.
 #
 # "Call for" is the phrase the criterion's pass and fail texts use; the
 # decider answered far more full-facts fixtures under it than under "the
@@ -1240,6 +1516,12 @@ render_rules() {
         # shellcheck disable=SC2086
         [ -z "$classes" ] || parts="; or classes has $(join_or $classes)$parts"
         [ -z "$parts" ] || echo "the facts call for $lvl when ${parts#; or }"
+    done
+    i=0
+    while [ "$i" -lt "$NCAP" ]; do
+        # shellcheck disable=SC2086
+        echo "the facts call for ${CAP_LEVEL[$i]} instead of standard when nothing calls for full, criteria_changed and unclassified are false, lines <= ${CAP_LINES[$i]}, files <= ${CAP_FILES[$i]} and every class is $(join_or ${CAP_CLASSES[$i]})"
+        i=$((i + 1))
     done
     echo "the facts call for light otherwise"
 }
@@ -1269,6 +1551,7 @@ project_slice() {
                {lines: (.lines | count), files: (.files | count),
                 classes: ([.classes[]? | strings | select(test("^[a-z0-9_]+$"))] | .[:16]),
                 tests_changed: (.tests_changed == true), tests_edited: (.tests_edited == true),
+                red_test_edited: (.red_test_edited == true),
                 criteria_changed: (.criteria_changed == true),
                 unclassified: (.unclassified == true),
                 floor: (.floor | if . == "light" or . == "standard" or . == "full" then . else "unknown" end)}' \
@@ -1428,6 +1711,8 @@ case "$SUB" in
     project) cmd_project "$@" ;;
     report) cmd_report "$@" ;;
     level)  cmd_level "$@" ;;
+    raise)  cmd_raise "$@" ;;
+    audit)  cmd_audit "$@" ;;
     "")     usage "missing subcommand" ;;
     *)      usage "unknown subcommand [$SUB]" ;;
 esac

@@ -97,12 +97,16 @@ stateDiagram-v2
     issue_type_routing --> verification : gates.code_route.exit_code: 1, issue_type: task, vars.VERIFICATION: local
     issue_type_routing --> verification_deferred : gates.code_route.exit_code: 1, issue_type: task, vars.VERIFICATION: hosted-ci
     issue_type_routing --> verification_plan : gates.code_route.exit_code: 1, issue_type: task, vars.VERIFICATION: auto
-    light_review --> verification : gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, vars.VERIFICATION: local
-    light_review --> verification_deferred : gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, vars.VERIFICATION: hosted-ci
-    light_review --> verification_plan : gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, vars.VERIFICATION: auto
-    light_review --> verification : gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0, vars.VERIFICATION: local
-    light_review --> verification_deferred : gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0, vars.VERIFICATION: hosted-ci
-    light_review --> verification_plan : gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0, vars.VERIFICATION: auto
+    light_review --> verification : gates.audited.exit_code: 1, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, gates.light_escalate.exit_code: 1, gates.light_level.exit_code: 11, vars.VERIFICATION: local
+    light_review --> verification_deferred : gates.audited.exit_code: 1, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, gates.light_escalate.exit_code: 1, gates.light_level.exit_code: 11, vars.VERIFICATION: hosted-ci
+    light_review --> verification_plan : gates.audited.exit_code: 1, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, gates.light_escalate.exit_code: 1, gates.light_level.exit_code: 11, vars.VERIFICATION: auto
+    light_review --> verification : gates.audited.exit_code: 1, gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_escalate.exit_code: 1, gates.light_level.exit_code: 11, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0, vars.VERIFICATION: local
+    light_review --> verification_deferred : gates.audited.exit_code: 1, gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_escalate.exit_code: 1, gates.light_level.exit_code: 11, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0, vars.VERIFICATION: hosted-ci
+    light_review --> verification_plan : gates.audited.exit_code: 1, gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_escalate.exit_code: 1, gates.light_level.exit_code: 11, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0, vars.VERIFICATION: auto
+    light_review --> scrutiny : gates.audited.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, gates.light_escalate.exit_code: 1, gates.light_level.exit_code: 11
+    light_review --> scrutiny : gates.audited.exit_code: 0, gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_escalate.exit_code: 1, gates.light_level.exit_code: 11, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0
+    light_review --> review_level_check : gates.light_level.exit_code: 12, light_outcome: escalate
+    light_review --> review_level_check : gates.light_level.exit_code: 13, light_outcome: escalate
     light_review --> implementation : gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 1, light_outcome: blocking_retry
     light_review --> done_blocked : gates.light_carried.exit_code: 1, gates.light_verdict.exit_code: 1, light_outcome: blocking_escalate
     light_review --> done_blocked : gates.light_carried.exit_code: 1, gates.light_verdict.exit_code: 2, light_outcome: blocking_escalate
@@ -171,11 +175,13 @@ stateDiagram-v2
     review --> verification_deferred : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: standard, vars.VERIFICATION: hosted-ci
     review --> verification_plan : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: standard, vars.VERIFICATION: auto
     review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: full
+    review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: light
     review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: {"is_set":false}
     review --> verification : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: standard, vars.VERIFICATION: local
     review --> verification_deferred : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: standard, vars.VERIFICATION: hosted-ci
     review --> verification_plan : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: standard, vars.VERIFICATION: auto
     review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: full
+    review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: light
     review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: {"is_set":false}
     review --> implementation : gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 1, review_outcome: blocking_retry
     review --> done_blocked : gates.review_carried.exit_code: 1, gates.review_verdict.exit_code: 1, review_outcome: blocking_escalate
@@ -333,6 +339,9 @@ stateDiagram-v2
         gate: has_commits
     end note
     note left of light_review
+        gate: audited
+    end note
+    note left of light_review
         gate: has_commits
     end note
     note left of light_review
@@ -340,6 +349,12 @@ stateDiagram-v2
     end note
     note left of light_review
         gate: light_carried
+    end note
+    note left of light_review
+        gate: light_escalate
+    end note
+    note left of light_review
+        gate: light_level
     end note
     note left of light_review
         gate: light_recorded

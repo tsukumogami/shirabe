@@ -1115,8 +1115,54 @@ expect_rc "--record with one good finding and one null severity" 65
 printf '%s\n' '[{"seat":"intent","findings":"blocking"}]' > "$WORKDIR/round.json"
 run --record scrutiny "$SESSION" "$WORKDIR/round.json"
 expect_rc "--record with findings that are not a list" 65
+printf '%s\n' '[{"seat":"intent","findings":[{"severity":"blocking","summary":"x","category":"style"}]}]' > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+expect_rc "--record with a category other than security, correctness or other" 65
 cmp -s "$WORKDIR/ledger.before" "$SHIM_STORE/$SESSION/verdict_ledger.json" \
     && pass "a refused round leaves the ledger untouched" || fail "a refused round changed the ledger"
+# A finding's category, which the light-cap audit names a miss by, is kept.
+fixture category
+record scrutiny '[{"seat":"intent","findings":[{"severity":"blocking","summary":"categorized","category":"security"}]}]'
+GOT=$(jq -r '[.findings[] | select(.summary == "categorized") | .category] | join(",")' "$SHIM_STORE/$SESSION/verdict_ledger.json")
+[ "$GOT" = security ] && pass "--record keeps a finding's category" || fail "the categorized finding's category is [$GOT]"
+
+# The light seat's escalate: kept on its entry and the round, read by
+# --escalated (light_review's light_escalate gate).
+fixture escalate
+run --escalated light "$SESSION"
+expect_rc "--escalated with no ledger" 1
+run --plan light "$SESSION"
+printf '%s\n' '[{"seat":"reviewer","findings":[],"escalate":"yes"}]' > "$WORKDIR/round.json"
+run --record light "$SESSION" "$WORKDIR/round.json"
+expect_rc "--record with an escalate that isn't a boolean" 65
+record light '[{"seat":"reviewer","findings":[]}]'
+run --escalated light "$SESSION"
+expect_rc "--escalated after a round with no escalate" 1
+fixture escalate-yes
+run --plan light "$SESSION"
+record light '[{"seat":"reviewer","findings":[],"escalate":true}]'
+run --escalated light "$SESSION"
+expect_rc "--escalated after the seat returned escalate" 0
+GOT=$(jq -c '[.seats["light/reviewer"].escalate, ([.history[] | select(.panel == "light")] | last | .escalate)]' "$SHIM_STORE/$SESSION/verdict_ledger.json")
+[ "$GOT" = '[true,true]' ] && pass "--record keeps escalate on the seat's entry and its round" || fail "seat and round escalate are $GOT"
+run --escalated scrutiny "$SESSION"
+expect_rc "--escalated on a panel other than light" 2
+fixture escalate-other
+run --plan scrutiny "$SESSION"
+printf '%s\n' '[{"seat":"intent","findings":[],"escalate":true}]' > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+expect_rc "--record with escalate from a seat other than the light reviewer" 65
+printf 'not json' > "$SHIM_STORE/$SESSION/verdict_ledger.json"
+run --escalated light "$SESSION"
+expect_rc "--escalated with an unreadable ledger" 2
+# A koto read that fails holds the run: it never reads as "no escalate".
+fixture escalate-readfail
+run --plan light "$SESSION"
+record light '[{"seat":"reviewer","findings":[],"escalate":true}]'
+chmod 000 "$SHIM_STORE/$SESSION/verdict_ledger.json"
+run --escalated light "$SESSION"
+expect_rc "--escalated when koto can't read the ledger" 2
+chmod 644 "$SHIM_STORE/$SESSION/verdict_ledger.json"
 
 echo "--- script: --verdict, the panel's pass"
 

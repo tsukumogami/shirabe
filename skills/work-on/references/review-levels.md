@@ -26,7 +26,9 @@ In increasing order:
   criteria, the design context, the changed paths and the diff from
   `impl_base`), judges the change against the acceptance criteria, and returns
   the same verdict shape and the same definition of a blocking finding as a
-  review-panel seat. No scrutiny, review or QA panel runs.
+  review-panel seat. No scrutiny, review or QA panel runs, except on an
+  audited run (see "The audit" below). The seat can also return `escalate`
+  (see "Escalate").
 - **`standard`** runs scrutiny, then review. No QA.
 - **`full`** runs scrutiny, review, then QA.
 
@@ -45,7 +47,9 @@ the level to the highest of:
 
 - the facts floor (below);
 - the ledger's last level, which carries every raise the agent made, so a
-  raise is kept; and
+  raise is kept;
+- every level `review-level.sh raise` recorded (the light seat's escalate is
+  one), which nothing lowers; and
 - the bound's floor.
 
 When that differs from the ledger's level it writes one `from_facts` line;
@@ -93,6 +97,13 @@ from `analysis` on, before anything is implemented.
   with or without a reason.
 - **Same level.** No ledger line. The variable is rebound to it, which clears
   a hand rebind (below).
+
+`review-level.sh raise <session> <level> --reason <why>` is a raise the run
+keeps: it records a `raise` line with `source: "raise"` and the reason, past
+the ceiling with a `breach` line, as a raise through `set` would be.
+`set-from-facts` never settles below the highest such raise, and a `set`
+lower below it is refused. A level at or below the current one changes
+nothing. The light seat's escalate uses it.
 
 A `--reason` has control characters replaced by spaces and is cut to 200
 characters before it's stored.
@@ -156,7 +167,19 @@ the workflow reads that history back.
   is a binary file that changed, or, for a fix, a reproducing test changed
   after its red. `scripts/lib/test-classify.sh` decides it, the same
   classifier the hold at `pass_counting` and the review packet's
-  `## Test changes` section use, over the same base the facts chose;
+  `## Test changes` section use, over the same base the facts chose. It is a
+  fact the panels and the acceptance hold read, and floors no higher than
+  `class:test` does;
+- whether a fix's own reproducing test was rewritten (`red_test_edited`): a
+  test or harness file `red_first.json` names has a different blob at HEAD
+  than the one the red recorded, whatever its class and whether it only
+  gained lines. Rewriting one's own red test is where a test is most likely
+  weakened to pass, so this one floors at `full`. The classifier's
+  `test_classify_red_changed` decides it;
+- whether a change has no meaningful line count (`unsized`): a binary file, a
+  rename or copy, a mode or type change, or a submodule bump. Any of them
+  sets `unclassified`, so the change floors at `standard` and never reaches
+  the light cap;
 - whether the acceptance criteria changed: a path under `docs/plans/` or
   `docs/prds/` changed, or the acceptance-criteria section of `context.md`
   differs from the copy `init` stored.
@@ -174,27 +197,31 @@ shipped classes:
 |-------|-------|-------|
 | `ci` | `.github/workflows/**`, `.github/actions/**` | `full` |
 | `security` | `install.sh`, the rules file, `**/hooks/**`, `.claude/**`, `**/settings*.json`, any path containing `credential`, `secret`, `token` or `password`, `.env`, `.env.*`, `*.pem` | `full` |
-| `template` | `**/koto-templates/**`, which hold the gates and the routing | `full` |
+| `template` | `**/koto-templates/*.md` and `*.jsonl`: the templates, which hold the gates and the routing, their diagrams and decider fixtures | `full` |
 | `engine` | every script a koto template names in a gate's or a `default_action`'s command, listed path by path, plus every `*-open.sh` | `full` |
 | `instruction` | `SKILL.md`, any path under a `references` directory, `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md` | `standard` |
 | `executable` | `**/scripts/**`, `scripts/**`, `crates/**` | `standard` |
-| `test` | `test/**`, `tests/**`, `spec/**` (at any depth), `*.spec.*`, `*_test.*`, `test_*.*`, `**/evals/**` | `standard` |
-| `manifest` | `package.json`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Cargo.toml`, `Cargo.lock`, `go.mod`, `go.sum`, `requirements*.txt`, `pyproject.toml`, `poetry.lock`, `Gemfile`, `Gemfile.lock` | `standard` |
+| `test` | `test/**`, `tests/**`, `spec/**` (at any depth), `*.spec.*`, `*_test.*`, `test_*.*`, `**/evals/**` | `standard`, `light` under the cap |
+| `manifest` | `package.json`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Cargo.toml`, `Cargo.lock`, `go.mod`, `go.sum`, `requirements*.txt`, `pyproject.toml`, `poetry.lock`, `Gemfile`, `Gemfile.lock`, and a template's compatibility file, `**/koto-templates/*.compat.json` | `standard`, never lowered by a cap |
 | `docs` | `*.md`, `docs/**`, `*.txt`, `LICENSE` | none |
 
 The rules:
 
 - `full` when a path is in the `ci`, `security`, `template` or `engine`
-  class, or changed lines exceed 400, or changed files exceed 12, or a test
-  file was edited (`tests_edited`), so the QA seat reviews the edit as well;
+  class, or changed lines exceed 400, or changed files exceed 12, or a fix's
+  reproducing test changed after its red (`red_test_edited`);
 - `standard` when a path is in the `instruction`, `executable`, `test` or
-  `manifest` class, or a path is in no class at all (`unclassified`), or the
-  acceptance criteria changed, or changed lines exceed 40. A change whose
-  only test change is a new test file or lines added to one floors here;
+  `manifest` class, or a path is in no class at all or a change has no
+  meaningful line count (`unclassified`), or the acceptance criteria changed,
+  or changed lines exceed 40;
+- the light cap lowers `standard` to `light` when nothing calls for `full`,
+  the criteria didn't change, nothing is `unclassified`, changed lines are at
+  most 200 and files at most 5, and every class a changed path is in is
+  `docs` or `test`;
 - `light` otherwise.
 
-So `light` is reachable only when every changed path is documentation or in a
-class no rule names. `docs` exists to keep a path out of `unclassified`: a
+So `light` is reachable when every changed path is documentation or in a
+class no rule names, or when the light cap applies. `docs` exists to keep a path out of `unclassified`: a
 `README.md` alone stays `light`, a `SKILL.md` is `instruction` too and floors
 at `standard`, `requirements.txt` is `manifest` too and floors at `standard`,
 and a `.sh`, `.py` or `.rs` file in no class floors at `standard`. A test in
@@ -246,6 +273,96 @@ through. An agent `fail` is acted on with a plain raise, not
 the decider asked for. koto keeps the answer as the agent's: it is never
 written as a decider verdict, so nothing that measures the decider reads it.
 
+## The light cap
+
+A `cap` row in the rules file lowers a `standard` floor to `light` for a
+small change outside the risky classes, so it takes one seat instead of six.
+It is evaluated after the floor rules, and only lowers: it applies when no
+`full` rule fired, neither `criteria_changed` nor `unclassified` holds, the
+changed lines and files are within its bounds, and every class a changed path
+is in is one the row lists. It never lowers `full`, and `manifest` can't be
+listed (the script refuses a rules file that tries), so a dependency change
+keeps `standard`. A binary file, a rename, a mode change or a submodule bump
+is `unclassified`, since its line count says nothing about its size. A fix
+round's parent floor (`fix_round_parent`) is applied after the cap and can
+raise the level back. `review_facts.json` records the cap row under `cap`,
+with `applied` saying whether it lowered the floor, and the floor's `rule`
+names it (`cap:lines<=200 files<=5 classes=docs,test`) when it did.
+
+The cap ships in two steps:
+
+- **First step** (shipped): `cap light lines<=200 files<=5 classes=docs,test`.
+  A small change to documentation and tests takes the light seat. A change
+  that touches a script, an instruction file or anything else outside those
+  two classes keeps `standard`.
+- **Second step**: the classes widen to `docs,test,executable,instruction`.
+  It lands only after a seat analysis of past runs within the cap, read from
+  the review records `review-round.sh` sends to koto, shows that fewer than
+  10% of their blocking findings came from seats the light panel lacks
+  (completeness, justification, intent, pragmatic, architect, tester).
+  shirabe ships its scripts and instruction files to other people's agents,
+  so one seat that doesn't run code is a thinner gate there than for docs and
+  tests.
+
+A run classifies with the copy of the rules `init` stored, never the
+branch's, so a branch that widens the cap is judged by the copy it started
+from, and the rules file is in the `security` class, so that branch floors at
+`full`. The decider check's slice renders the cap row with the other rules,
+from the same stored copy.
+
+## Escalate
+
+The light seat can return `escalate` when it judges the change riskier than
+one seat should pass (`references/phases/phase-4d-light.md`). The agent then
+runs `review-level.sh raise <session> standard --reason escalate` and submits
+`light_outcome: escalate`. `light_review`'s `light_level` gate
+(`review-level.sh level --exit`) holds that route until the ledger is at
+`standard` or above, and it goes back to `review_level_check`, where
+`set-from-facts` keeps the raise: the next panel is scrutiny, and the run is
+`standard` for the rest of its life. The cap lowers only the facts floor,
+never a raise.
+
+## The audit
+
+`review-level.sh audit <session>` exits 0 when the SHA-256 of the session's
+name, read as a number, is 0 mod 10, and 1 otherwise. work-on's session name
+comes from the issue reference, or for a free-form task from the slug
+`work-on-open.sh` builds from the task text, so the same run is audited on
+every evaluation and about one in ten is. `light_review`'s `audited` gate
+runs it: an audited run's passed light panel goes on to `scrutiny`, then
+`review` and `qa_validation` as a `full` run would, then verification. Its
+level stays `light`, and review sends a light run to QA.
+
+A **miss** is an audited run whose full panel raised a finding at blocking
+severity at a head the light seat passed. Nobody reports it. Each time
+`panel-scope.sh --record` records a scrutiny, review or QA round, it runs
+`review-round.sh audit` (`skills/coordinate/scripts/`), which reads the
+verdict ledger and records a koto decision, `--kind verdict --by
+check:light-audit`: outcome `fail` with subject
+`what=light-audit/miss/<category>` for a miss (koto's verdict outcomes are
+pass, fail and inconclusive), or outcome `pass` with
+`what=light-audit/no-miss` once QA passes with none. The category is the
+most severe of the missed findings' `category` (`security`, `correctness`,
+`other`), which every full-panel seat gives each blocking finding
+(`phases/phase-4a-scrutiny.md`, "Evidence Format"), or `uncategorized` for
+one recorded without it.
+The decisions reach the signals as `koto.decision_recorded`. An escalated
+run isn't an audit: it reaches the full panels at `standard`.
+
+**The reversal rule.** More than 3 misses in the last 30 audited runs, or any
+one miss in the `security` or `correctness` category, lowers the cap to 40
+lines and 3 files, through a maintainer's pull request to the rules file,
+read from those decisions. At about a tenth of light runs, 30 audited runs
+take a few hundred light runs, which is why the wider classes wait for the
+retrospective seat analysis and the single-miss trip exists.
+
+## Opting out
+
+`REVIEW_FLOOR=standard` (`--review-floor=standard` on `/work-on`, `/execute`
+or `/deliver`, the existing bound) keeps every code change at `standard` or
+above: the cap lowers only the facts floor, and the bound's floor is taken
+after it.
+
 ## A step's level under the lead shape
 
 When `/execute` runs a plan in the lead shape, every step's `/work-on` child
@@ -276,7 +393,9 @@ variable, and its action rebinds it to the ledger's level on every lap, so a
 hand rebind made before the check changes nothing.
 
 The level check runs once per lap, and two later states route on the level
-again: `review` (whether QA runs) and `light_review`. Each carries a
+again: `review` (whether QA runs) and `light_review`. `light_review` also
+reads the ledger's level directly through its `light_level` gate, so its
+passed routes need the ledger at `light`. Each carries a
 `level_unchanged` gate, `review-level.sh agree`, on every route that depends
 on the level, its carried route included. It passes when the variable equals
 the ledger's last level, and when the variable is empty, and holds otherwise,
@@ -302,9 +421,9 @@ ISO-8601) and `event`, plus the fields the event needs from `from`, `to`,
 | Event | Written by | Means |
 |-------|------------|-------|
 | `bound` | `init` | the bound in force (`floor`, `ceiling`, null when absent) |
-| `from_facts` | `set-from-facts` | the level the check set, naming its `source` (`facts` or `bound`) and the facts `rule` |
+| `from_facts` | `set-from-facts` | the level the check set, naming its `source` (`facts`, `bound`, or `raise` for a kept raise) and the facts `rule` |
 | `choose` | `set` | the first level, set before any check |
-| `raise` | `set` | a higher level |
+| `raise` | `set`, `raise` | a higher level; from `raise`, with `source: "raise"` and its `reason`, kept for the rest of the run |
 | `lower` | `set` | a lower level, with its `reason` |
 | `floor_raise` | `set` | a raise to the facts floor, naming the `rule` |
 | `veto` | `set` | a raise the decider check asked for, naming the criterion in `rule` |
