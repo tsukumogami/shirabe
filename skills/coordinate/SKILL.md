@@ -116,6 +116,11 @@ holds your role; read its list and the shared one.
   --session <run> --successor`, from `wait`, `roadmap_close_step` or
   `rotation_end`. A hand-written brief files its rules under
   `## Standing rules`.
+  The successor's brief names its role only on its invocation line, so the
+  text you write in its input names no role: `manager` or `director` in any
+  of its fields is refused (exit 1, naming the field). The dispatch waits
+  while a decision arrival is unrecorded: it stops with exit 13, naming the
+  rule and the write to make first, and goes on once that write is made.
 
 **Manager**
 

@@ -285,7 +285,8 @@
 #      or host that fails its variable's pattern or starts with `-`, an input
 #      entry point other than coordinate, an input `entry_args` or `repo` that
 #      differs from the derived one token for token, an input `role_change`,
-#      a record with no `coordinator` address, and a record with no Run
+#      a role word in the coordinator's own text, a record with no
+#      `coordinator` address, and a record with no Run
 #      `role` row (the message names `state-stored-set.sh --session <run>
 #      --run role`) each exit 1 with nothing written. The input then gets the
 #      derived `entry_args` (`[<ROADMAP>]`, or `["--discipline",
@@ -294,6 +295,17 @@
 #      (resolved as above), `unit` naming the scope, `phase: executing`, an
 #      empty run mode, `reports_to` and `dispatcher_session`, over anything
 #      it gave.
+#      The role word is `managers?` or `directors?` as a whole word in any
+#      case (what `grep -iw` calls a word: letters, digits and underscores),
+#      so `co-director` is one and `directory` or `task_manager` isn't. The
+#      nine fields the coordinator writes are read in this order:
+#      `authority`, `goal`, `checkpoints`, `acceptance`, `decisions` (each
+#      `decision` and `by`), `read_first`, `out_of_scope`, `standing_rules`
+#      and `surfaces` (each `surface` and `coordinator`), and the first
+#      string holding one names its field and the string, cut at 80
+#      characters. A successor brief names its role only on its invocation
+#      line, which this script builds from the record's role row; the topic
+#      isn't read.
 #   2. Under the run's lock ($BRIEFS/.successor.<run>.lock), settle the Run
 #      `successor` row (dc_successor_settle): a `dispatching` row whose
 #      session niwa lists is written `dispatched`, and a `dispatched` row
@@ -318,9 +330,21 @@
 #      an unlisted `dispatching` row is launched again under the same row,
 #      with no second `dispatching` write. A `dispatch-failed` or `stranded`
 #      row of this topic exits 3 (a new attempt takes a new topic), and one
-#      of another topic lets a new topic through. A live session using the
-#      topic exits 5. The brief input is checked (render-brief.sh --stdout,
-#      no --units): a refusal exits 1 with nothing written.
+#      of another topic lets a new topic through. Only a dispatch that would
+#      launch gets past this, a new topic or an unlisted `dispatching` row
+#      of this one, and it then runs `decision-next.sh --session <run>
+#      --owed dispatch`, which seals and writes nothing. When that prints
+#      `unrecorded-open`, `unrecorded-answer`, `unrecorded-evidence` or
+#      `unrecorded-raise`, a decision arrival the record hasn't taken yet,
+#      the mode stops with code 13, naming the rule and the write that
+#      records it, with nothing written beyond the settle; any other line
+#      (`none`, or a rule from `withdraw` on) lets it go on, so a parked
+#      decision, a proposed entry or an owed verdict still doesn't stop a
+#      successor. A `decision-next.sh` that exits non-zero exits 2 naming
+#      that exit, also with nothing written beyond the settle. A live
+#      session using the topic exits 5. The brief input is checked
+#      (render-brief.sh --stdout, no --units): a refusal exits 1 with
+#      nothing written.
 #   4. Write ahead: the Run `successor` row reads `dispatching <topic>
 #      <date>`, set by this run (state-stored-set.sh --successor), whose entry
 #      names the topic, the brief's path and the role. A refusal of the write
@@ -360,7 +384,8 @@
 #      replaced (--releg), or an execution sent
 #   1  brief refused, a role_change refused, a successor brief whose run
 #      records no role, a --successor input refused or whose run's facts
-#      can't be read, a send_execution brief input that isn't the
+#      can't be read, a --successor input whose coordinator's text names
+#      manager or director (names the field), a send_execution brief input that isn't the
 #      execution's, a /shirabe:deliver or /shirabe:scope brief for a unit
 #      whose scoping landed (pick's follow_up), or a new dispatch whose
 #      `continues` names no stranded holding of its unit; nothing written
@@ -397,6 +422,8 @@
 #      successor row reads dispatching or dispatched under another topic;
 #      nothing written. stderr is `a successor is pending: ` and
 #      dc_successor_pending_msg's sentence
+#   13 a decision arrival is unrecorded (names the rule and the write that
+#      records it); nothing written
 #
 # Environment: KOTO, NIWA (the binaries), DC_RECORD_HOLDING (the record's
 # script), DISPATCH_DEADLINE_SECS. bash 3.2; needs jq.
@@ -572,6 +599,27 @@ RE_HOST='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 # patterns, DISCIPLINE's without its empty alternative.
 RE_DISCIPLINE='^[a-z0-9][a-z0-9-]*$'
 successor_refuse() { printf '%s: refused: %s\n' "$PROG" "$1" >&2; exit 1; }
+# successor_role_words: the nine fields the coordinator writes, in the
+# header's order, name no role; the first string that does is refused (the
+# header's step 1). Oniguruma's \b is grep -w's word edge: letters, digits
+# and underscores are word characters.
+successor_role_words() {
+    local hit
+    hit=$(jq -r '
+        def strs($f; v): (v | strings | [$f, .]), (v | arrays | .[] | strings | [$f, .]);
+        def pairs($f; ks): (.[$f] // [] | arrays | .[] | objects | . as $o | ks[] | $o[.] | strings | [$f, .]);
+        [ strs("authority"; .authority), strs("goal"; .goal),
+          strs("checkpoints"; .checkpoints), strs("acceptance"; .acceptance),
+          pairs("decisions"; ["decision", "by"]),
+          strs("read_first"; .read_first), strs("out_of_scope"; .out_of_scope),
+          strs("standing_rules"; .standing_rules),
+          pairs("surfaces"; ["surface", "coordinator"]) ]
+        | map(select(.[1] | test("\\b(managers?|directors?)\\b"; "i")))
+        | first // empty
+        | "\(.[0]): a successor brief names its role only on its invocation line, and this text names manager or director: [\(.[1][0:80])]"' "$INPUT") ||
+        die 2 "cannot read successor_input.json's fields"
+    [ -z "$hit" ] || successor_refuse "$hit"
+}
 successor_inputs() {
     local ep facts vars scope name host roadmap args role rc
     INPUT="$WORK/successor_input.json"
@@ -584,6 +632,7 @@ successor_inputs() {
     if jq -e 'has("role_change")' "$INPUT" >/dev/null; then
         successor_refuse "role_change: a successor takes the role this run's record holds, and a predecessor isn't above its successor"
     fi
+    successor_role_words
     facts=$(bash "$DC_COORD_LOG" run-facts --session "$SESSION" 2>"$WORK/facts.err")
     rc=$?
     [ "$rc" = 0 ] || successor_refuse "this run's facts can't be read (coord-log.sh run-facts exit $rc: $(head -1 "$WORK/facts.err")), so its successor's scope can't be built"
@@ -1007,6 +1056,20 @@ if [ "$SUCCESSOR" = 1 ]; then
         dispatch-failed | stranded)
             [ "$STOPIC" != "$TOPIC" ] || die 3 "the successor $TOPIC is $SSTATUS; dispatch the successor under a new topic" ;;
     esac
+    # Only a dispatch that would launch is here. A decision arrival the record
+    # hasn't taken yet holds it (the header's step 3); --owed seals and
+    # writes nothing.
+    OWED=$(bash "$HERE/decision-next.sh" --session "$SESSION" --owed dispatch 2>"$WORK/owed.err")
+    ORC=$?
+    [ "$ORC" = 0 ] || die 2 "decision-next.sh --owed dispatch exited $ORC ($(head -1 "$WORK/owed.err")), so whether a decision arrival is unrecorded isn't known; the successor $TOPIC isn't dispatched"
+    case "$OWED" in
+        unrecorded-open) OWRITE="state-decision.sh --session $SESSION --open-from-report --text-file <file> at decision_open" ;;
+        unrecorded-answer) OWRITE="state-decision.sh --session $SESSION --answer --outcome <outcome> at decision_answer" ;;
+        unrecorded-evidence) OWRITE="state-decision.sh --session $SESSION --evidence --source <source> --text <text> at decision_evidence" ;;
+        unrecorded-raise) OWRITE="state-decision.sh --session $SESSION --open --question <question> --option <option> at decision_raise, or for a unit parked from pick state-stored-set.sh --session $SESSION --work \"<unit>\" --kind decision --who \"decision <n>\"" ;;
+        *) OWRITE="" ;;
+    esac
+    [ -z "$OWRITE" ] || die 13 "a decision arrival is unrecorded ($OWED): record it with $OWRITE, then run the dispatch again"
     NAME=$(find_session)
     case "$?" in
         0) die 5 "a live session already uses $TOPIC: $NAME" ;;

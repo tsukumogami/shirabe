@@ -110,6 +110,19 @@ cp "$HERE"/*.sh "$HERE"/*.jq "$DW/skills/coordinate/scripts/" || exit 1
 cp -R "$HERE/../references" "$HERE/../koto-templates" "$DW/skills/coordinate/" || exit 1
 S="$DW/skills/coordinate/scripts/dispatch-worker.sh"
 G="$DW/skills/coordinate/scripts/holding-recorded.sh"
+# The copied skill's decision-next.sh is a stand-in: it logs its arguments to
+# $ST/decision-next.log and prints DN_LINE (`none` unless a case sets one),
+# exiting DN_RC (0 unless a case sets one, with DN_ERR on stderr).
+cat >"$DW/skills/coordinate/scripts/decision-next.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$ST/decision-next.log"
+if [ "${DN_RC:-0}" != 0 ]; then
+    printf '%s\n' "${DN_ERR:-decision-next: a read failed}" >&2
+    exit "$DN_RC"
+fi
+printf '%s\n' "${DN_LINE:-none}"
+EOF
+chmod +x "$DW/skills/coordinate/scripts/decision-next.sh"
 
 PASS=0
 FAIL=0
@@ -2491,7 +2504,7 @@ sreset() {
     rm -f "$ST/ctx/brief_input.json" "$ST/ctx/dispatch_topic" "$ST/ctx/coord/pick.json"
     printf '%s' "${1:-$SUCC_INPUT}" >"$ST/ctx/successor_input.json"
     export NIWA_NAME=$SUCC_S RECORD_ROLE=manager
-    unset CL_FACTS_RC CL_SCOPE CL_ROADMAP CL_NAME CL_REPO CL_FENCE_BY SUCC_ROW SUCC_WRITE_RC SUCC_WRITE_ON
+    unset CL_FACTS_RC CL_SCOPE CL_ROADMAP CL_NAME CL_REPO CL_FENCE_BY SUCC_ROW SUCC_WRITE_RC SUCC_WRITE_ON DN_LINE DN_RC DN_ERR
 }
 srun() { (cd "$W/inst" && DC_COORD_LOG="$T/coord-log-succ.sh" DC_RECORD_STATE="$T/state-stored-set-succ.sh" bash "$S" --session coord --successor "$@"); }
 nothing_written() { # nothing_written <label>: no row write, launch, leg or brief
@@ -2770,6 +2783,128 @@ taken_over=coord-next" "$OUT"
 sreset; export SUCC_WRITE_RC=10 SUCC_WRITE_ON=dispatched
 srun >/dev/null 2>"$T/err"; eq "fenced: the same refusal with no fence exits 8" 8 "$?"
 has "fenced: ... the fence was asked" "$(calls)" "coord-log fence --session coord"
+
+# --- a successor brief names its role only on its invocation line -------------------------
+#
+# The nine fields the coordinator writes are read for manager or director as
+# a whole word in any case, before the lock and the settle; the first string
+# holding one exits 1 naming its field, with nothing written.
+run_section() { jq -c '[(.run // [])[] | {key, value}]' <<<"$(DC_COORD_LOG="$T/coord-log-succ.sh" bash "$T/state-stored-set-succ.sh" --list)"; }
+role_refused() { # role_refused <label> <field> <string>: exit 1 naming the field, nothing written
+    local rc=$1 label=$2 field=$3 str=$4
+    eq  "$label: exits 1" 1 "$rc"
+    has "$label: ... stderr names the field" "$(head -1 "$T/err")" "dispatch-worker: refused: $field: "
+    has "$label: ... and holds the string" "$(cat "$T/err")" "$str"
+    nothing_written "$label"
+    eq  "$label: ... no decision-next.sh read" "" "$(cat "$ST/decision-next.log" 2>/dev/null)"
+}
+for c in 'authority:.authority = "You are working for the director on acme/widgets."' \
+         'goal:.goal = "Continue this roadmap, as the director asked."' \
+         'checkpoints:.checkpoints = ["The run is taken over.", "The director hears of it."]' \
+         'acceptance:.acceptance = ["The first report names this run.", "The director reads it."]' \
+         'decisions:.decisions = [{"decision": "Hand over at wait.", "by": "the director"}]' \
+         'read_first:.read_first = ["docs/director/notes.md"]' \
+         'out_of_scope:.out_of_scope = ["What the director keeps."]' \
+         'standing_rules:.standing_rules = ["Ask the director before a release."]' \
+         'surfaces:.surfaces = [{"surface": "ci", "coordinator": "director-ci"}]'; do
+    field=${c%%:*} expr=${c#*:}
+    IN=$(jq -c "$expr" <<<"$SUCC_INPUT")
+    STR=$(jq -r --arg f "$field" '.[$f] | if type == "string" then . elif (.[0] | type) == "object" then (.[0] | to_entries | map(.value) | last) else last end' <<<"$IN")
+    sreset "$IN"; BEFORE=$(run_section)
+    srun >/dev/null 2>"$T/err"; RC=$?
+    role_refused "$RC" "role words: director in $field" "$field" "$STR"
+    eq "role words: director in $field: ... the Run section as before" "$BEFORE" "$(run_section)"
+done
+# The string is cut at 80 characters.
+LONGG="The successor reports to the director once the run is taken over and its first reconcile is out."
+sreset "$(jq -c --arg g "$LONGG" '.goal = $g' <<<"$SUCC_INPUT")"
+srun >/dev/null 2>"$T/err"; eq "role words: a long goal exits 1" 1 "$?"
+eq  "role words: ... the string cut at 80 characters" "dispatch-worker: refused: goal: a successor brief names its role only on its invocation line, and this text names manager or director: [${LONGG:0:80}]" "$(head -1 "$T/err")"
+# Whole words in any case; a word that only contains one passes.
+for w in Manager DIRECTOR Managers directors co-director; do
+    sreset "$(jq -c --arg w "$w" '.goal = "Continue this roadmap; the \($w) is told."' <<<"$SUCC_INPUT")"
+    srun >/dev/null 2>"$T/err"; RC=$?
+    role_refused "$RC" "role words: $w in the goal" goal "$w"
+done
+for w in directory managerial management task_manager; do
+    sreset "$(jq -c --arg w "$w" '.goal = "Continue this roadmap; the \($w) is told."' <<<"$SUCC_INPUT")"
+    OUT=$(srun 2>"$T/err"); eq "role words: $w in the goal is no role word" "0 session=$SUCC_S" "$? $OUT"
+done
+# Before the lock and the settle: a listed dispatching row isn't settled, and
+# a held lock isn't reached.
+sreset "$(jq -c '.goal = "Continue this roadmap; the director is told."' <<<"$SUCC_INPUT")"
+export SUCC_ROW="dispatching plugin-system-successor-1 2026-09-26"; list_s1
+srun >/dev/null 2>"$T/err"; eq "role words: before the settle, a listed dispatching row exits 1" 1 "$?"
+eq  "role words: ... the row still dispatching" "dispatching plugin-system-successor-1 2026-09-26" "$(succ_row)"
+sreset "$(jq -c '.goal = "Continue this roadmap; the director is told."' <<<"$SUCC_INPUT")"
+mkdir -p "$W/.niwa/dispatch-briefs"; printf '%s\n' "$$" >"$W/.niwa/dispatch-briefs/.successor.coord.lock"
+srun >/dev/null 2>"$T/err"; eq "role words: before the lock, a held lock exits 1, not 7" 1 "$?"
+eq  "role words: ... the lock file unchanged" "$$" "$(cat "$W/.niwa/dispatch-briefs/.successor.coord.lock")"
+rm -f "$W/.niwa/dispatch-briefs/.successor.coord.lock"
+# At each scope a brief with no role word in its input has one line naming
+# a role, its invocation line; `ask the director first` in the goal is refused.
+for scope in roadmap discipline; do
+    if [ "$scope" = roadmap ]; then sreset; else dreset; fi
+    OUT=$(srun 2>"$T/err"); eq "role words: $scope scope with none exits 0" "0 session=$SUCC_S" "$? $OUT"
+    eq  "role words: ... the brief has one line naming a role" 1 "$(grep -ciwE 'managers?|directors?' "$SBRIEF")"
+    has "role words: ... its invocation line" "$(grep -iwE 'managers?|directors?' "$SBRIEF")" 'Run `/shirabe:coordinate '
+    IN=$(jq -c '.goal += " ask the director first"' <<<"$SUCC_INPUT")
+    if [ "$scope" = roadmap ]; then sreset "$IN"; else dreset "$IN"; fi
+    srun >/dev/null 2>"$T/err"; RC=$?
+    role_refused "$RC" "role words: $scope scope with ask the director first" goal "ask the director first"
+done
+# The worker path reads no role word: a worker's goal and a lane's goal naming
+# both render them in their briefs.
+RGOAL="The manager and the director both read the plugin API's report."
+reset "$(jq -c --arg g "$RGOAL" '.goal = $g' <<<"$INPUT_DELIVER")"
+OUT=$(run 2>"$T/err"); eq "role words: a worker goal naming both exits 0" "0 session=$PA_S" "$? $OUT"
+has "role words: ... its brief renders them" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "$RGOAL"
+reset "$(jq -c --arg g "$RGOAL" '.entry_point = "coordinate" | .entry_args = ["docs/roadmaps/ROADMAP-sub.md"] | .run_mode = "" | .goal = $g' <<<"$INPUT_DELIVER")"; export RECORD_ROLE=manager
+OUT=$(run 2>"$T/err"); eq "role words: a lane goal naming both exits 0" "0 session=$PA_S" "$? $OUT"
+has "role words: ... its brief renders them" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "$RGOAL"
+
+# --- a handover waits while a decision arrival is unrecorded -------------------------------
+#
+# After the settled row decides, decision-next.sh --owed dispatch is read:
+# an unrecorded-* rule exits 13 naming the write that records it, with
+# nothing written; every other line lets the dispatch go on.
+for c in 'unrecorded-open:--open-from-report' 'unrecorded-answer:--answer' 'unrecorded-evidence:--evidence' 'unrecorded-raise:--open --question'; do
+    rule=${c%%:*} want=${c#*:}
+    sreset; export DN_LINE=$rule; BEFORE=$(run_section)
+    srun >/dev/null 2>"$T/err"; eq "arrival: $rule exits 13" 13 "$?"
+    has "arrival: ... stderr names the rule" "$(cat "$T/err")" "dispatch-worker: a decision arrival is unrecorded ($rule): "
+    has "arrival: ... and its write" "$(cat "$T/err")" "$want"
+    [ "$rule" != unrecorded-raise ] || has "arrival: ... and the park" "$(cat "$T/err")" "--kind decision"
+    nothing_written "arrival: $rule"
+    eq "arrival: $rule: ... the Run section as before" "$BEFORE" "$(run_section)"
+done
+for line in none "withdraw 1" "reply 1" "redirect 1 3" "escalate 1" "take 1" "verdict 1"; do
+    sreset; export DN_LINE=$line
+    OUT=$(srun 2>"$T/err"); eq "arrival: [$line] lets it through" "0 session=$SUCC_S" "$? $OUT"
+    eq  "arrival: ... one launch" 1 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+    eq  "arrival: ... the row dispatched" "dispatched plugin-system-successor-1 $SDAY" "$(succ_row)"
+    eq  "arrival: ... decision-next.sh read once, --owed dispatch" "--session coord --owed dispatch" "$(cat "$ST/decision-next.log")"
+done
+# The order: the settled row decides first.
+s2reset "dispatched plugin-system-successor-1 2026-09-26"; list_s1; export DN_LINE=unrecorded-answer
+srun >/dev/null 2>"$T/err"; eq "arrival order: a pending successor of another topic exits 12, not 13" 12 "$?"
+sreset; export SUCC_ROW="dispatched plugin-system-successor-1 2026-09-26" DN_LINE=unrecorded-answer; list_s1
+OUT=$(srun 2>"$T/err"); eq "arrival order: a same-topic confirm exits 0" "0 session=$SUCC_S" "$? $OUT"
+eq  "arrival order: ... no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+sreset; export SUCC_ROW="stranded plugin-system-successor-1 2026-09-26" DN_LINE=unrecorded-answer
+srun >/dev/null 2>"$T/err"; eq "arrival order: a stranded row of this topic exits 3" 3 "$?"
+sreset; export RECORD_ROLE= DN_LINE=unrecorded-answer
+srun >/dev/null 2>"$T/err"; eq "arrival order: no role row exits 1" 1 "$?"
+sreset; export SUCC_ROW="dispatching plugin-system-successor-1 2026-09-26" DN_LINE=unrecorded-answer
+srun >/dev/null 2>"$T/err"; eq "arrival order: an unlisted dispatching re-run exits 13" 13 "$?"
+eq  "arrival order: ... the row still dispatching" "dispatching plugin-system-successor-1 2026-09-26" "$(succ_row)"
+eq  "arrival order: ... no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+# A decision-next.sh that fails: exit 2, nothing written.
+sreset; export DN_RC=2 DN_ERR="decision-next: cannot read the Decisions section"
+srun >/dev/null 2>"$T/err"; eq "arrival: decision-next.sh exiting 2 exits 2" 2 "$?"
+has "arrival: ... naming decision-next.sh and the exit" "$(cat "$T/err")" "decision-next.sh --owed dispatch exited 2"
+has "arrival: ... and its first stderr line" "$(cat "$T/err")" "cannot read the Decisions section"
+nothing_written "arrival: decision-next.sh exiting 2"
 
 # --successor goes alone.
 for other in --rebrief --releg "--releg-imported plugin-api"; do
