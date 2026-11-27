@@ -14,10 +14,15 @@
 # context, and no state file. The CI deadline for a pending check is measured
 # from that check's `startedAt` in the check read, so a re-run, or the checks a
 # ready event starts on an old head, gets the full deadline. A pending check
-# with no usable start time, a required check not yet reported, the no-checks
-# grace window and the UNKNOWN merge-state deadline are measured from the head
-# commit's `committedDate` in the same PR snapshot. Either way a resumed run
-# measures the same deadline with no bookkeeping.
+# with no usable start time, a required check not yet reported and the
+# no-checks grace window are measured from the later of the head commit's
+# `committedDate` in the same PR snapshot and the PR's latest ready_for_review
+# event, since a PR marked ready after its head commit registers its checks
+# only after that event. The ready time is read only when the head commit alone
+# would say the window or the deadline has passed, and a PR with no ready event
+# or an unreadable one keeps the head commit. The UNKNOWN merge-state deadline
+# is measured from the head commit. Either way a resumed run measures the same
+# deadline with no bookkeeping.
 #
 # Usage:
 #   merge-verdict.sh --repo <owner/repo> --pr <n> --merge <true|false>
@@ -71,13 +76,13 @@
 #      skipping, fail, cancel, unreadable), a check  error:execute:ci-timeout
 #      the base's rules require not yet reported     once a pending check
 #      (read only with --merge true), or zero        started longer ago than the
-#      checks within 120 s of the head commit        deadline (the head commit's
-#                                                    age for a check with no
-#                                                    start time, an unreported
+#      checks within 120 s of the anchor (the        deadline (the anchor's
+#      later of the head commit and the latest       age for a check with no
+#      ready_for_review event)                       start time, an unreported
 #                                                    one, or zero checks)
 #   7  --merge false                                 awaiting:merge-not-requested
 #   8  expected head `none` or not headRefOid        awaiting:head-moved
-#   9  zero checks after the grace window            awaiting:no-checks
+#   9  zero checks over 120 s after the anchor       awaiting:no-checks
 #   10 mergeStateStatus UNKNOWN                      pending:merge-state, or
 #                                                    awaiting:merge-state:UNKNOWN
 #                                                    past the deadline
@@ -118,6 +123,8 @@
 # Exact gh invocations (stdin is always /dev/null). Reads that fail are retried,
 # at most 3 attempts per read with 1 s and then 2 s of backoff (3 s in total),
 # so one run fits inside a 30-second default-action limit on a normal network.
+# A failed ready read produces no verdict of its own: the head commit stays the
+# anchor.
 #
 #   Snapshot (every run without --confirm):
 #     gh pr view <pr> --repo <repo> --json state,isDraft,mergeStateStatus,reviewDecision,headRefOid,baseRefName,changedFiles,commits
@@ -134,6 +141,9 @@
 #   Base protection, only with --merge true (after row 5):
 #     gh api repos/<repo>/branches/<baseRefName>
 #     gh api repos/<repo>/rules/branches/<baseRefName> --paginate
+#   Ready time (row 6), only when zero checks are past 120 s of the head commit
+#   or a pending or unreported check is past the deadline measured from it:
+#     gh api graphql -f query=<the timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT], last: 1) query> -f owner=<owner> -f name=<name> -F pr=<pr>
 #   Changed files, only when row 14 can fire (reviewDecision not APPROVED); the
 #   complete list, never the snapshot's first 100 files:
 #     gh api repos/<repo>/pulls/<pr>/files --paginate
@@ -312,6 +322,33 @@ gh_read() {
     done
 }
 
+# ready_age — seconds since the PR's latest ready_for_review event, from one
+# GraphQL read (the last READY_FOR_REVIEW_EVENT of the timeline, so no
+# pagination), retried like every other read. Prints the age, 0 for a time in
+# the future, and returns 0. Returns 1 when the PR has no such event, or the
+# read fails or returns anything else, and the caller keeps the head commit's
+# anchor: an unreadable ready time never changes a verdict on its own.
+READY_QUERY='query($owner: String!, $name: String!, $pr: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $pr) { timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT], last: 1) { nodes { ... on ReadyForReviewEvent { createdAt } } } } } }'
+ready_age() {
+    local ready age
+    if ! gh_read api graphql -f query="$READY_QUERY" \
+        -f owner="${REPO%%/*}" -f name="${REPO#*/}" -F pr="$PR"; then
+        echo "$PROG: the ready event could not be read; measuring from the head commit" >&2
+        return 1
+    fi
+    ready=$(jq -r '.data.repository.pullRequest.timelineItems.nodes[-1].createdAt // ""
+        | if type == "string" then . else "" end' <<<"$READ_OUT" 2>/dev/null) || ready=""
+    [ -n "$ready" ] || return 1
+    age=$(jq -n --arg d "$ready" \
+        '(now - ($d | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)) | floor | if . < 0 then 0 else . end' \
+        2>/dev/null) || age=""
+    if ! [[ $age =~ $RE_UINT ]]; then
+        echo "$PROG: unexpected ready event time [$ready]; measuring from the head commit" >&2
+        return 1
+    fi
+    printf '%s\n' "$age"
+}
+
 # is_json_array <text> — true when the text parses as one JSON array.
 is_json_array() {
     [ -n "$1" ] || return 1
@@ -475,26 +512,47 @@ UNREPORTED=$(jq -n --argjson req "$REQUIRED_CHECKS" --argjson checks "$CHECKS" \
 # not timed out by the commit's age. A pending check with no usable start time
 # (missing, empty, unparseable, or gh's 0001-01-01 zero time for a check not
 # yet started), a required check not yet reported, and zero checks fall back to
-# the head commit's age. A start time in the future counts as just started.
-CI_AGE=$(jq -n --argjson checks "$CHECKS" --argjson age "$AGE" \
-        --argjson unreported "$UNREPORTED" '
-    def start_age:
-        (.startedAt // "") as $s
-        | if ($s | type) != "string" or $s == "" then null
-          else (try ($s | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch null)
-               | if . == null or . <= 0 then null
-                 else ((now - .) | floor) | if . < 0 then 0 else . end end
-          end;
-    [ $checks[]
-      | select((.bucket // "") as $b
-               | ["pass", "skipping", "fail", "cancel", "unreadable"] | index($b) | not)
-      | (start_age // $age) ]
-    + (if $unreported > 0 or ($checks | length) == 0 then [$age] else [] end)
-    | max // $age') || CI_AGE=$AGE
-[[ $CI_AGE =~ $RE_UINT ]] || CI_AGE=$AGE
+# the anchor's age, given as the argument. A start time in the future counts as
+# just started.
+ci_age() {
+    local out
+    out=$(jq -n --argjson checks "$CHECKS" --argjson age "$1" \
+            --argjson unreported "$UNREPORTED" '
+        def start_age:
+            (.startedAt // "") as $s
+            | if ($s | type) != "string" or $s == "" then null
+              else (try ($s | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch null)
+                   | if . == null or . <= 0 then null
+                     else ((now - .) | floor) | if . < 0 then 0 else . end end
+              end;
+        [ $checks[]
+          | select((.bucket // "") as $b
+                   | ["pass", "skipping", "fail", "cancel", "unreadable"] | index($b) | not)
+          | (start_age // $age) ]
+        + (if $unreported > 0 or ($checks | length) == 0 then [$age] else [] end)
+        | max // $age') || out=$1
+    [[ $out =~ $RE_UINT ]] || out=$1
+    printf '%s\n' "$out"
+}
+
+# The anchor (#2173): a PR marked ready after its head commit registers its
+# checks after the ready event, so the zero-checks grace window and the
+# fallbacks above run from the later of the head commit and the latest
+# ready_for_review event. The ready time is read only when the head commit's
+# anchor says the window or the deadline has passed; a PR with no ready event,
+# or one whose ready time can't be read, keeps the head commit.
+ANCHOR_AGE=$AGE
+CI_AGE=$(ci_age "$AGE")
+if { [ "$CHECK_COUNT" -eq 0 ] && [ "$AGE" -gt "$GRACE_SECS" ]; } \
+    || { { [ "$CHECK_PENDING" -gt 0 ] || [ "$UNREPORTED" -gt 0 ]; } && [ "$CI_AGE" -gt "$LIMIT" ]; }; then
+    if READY_AGE=$(ready_age); then
+        [ "$READY_AGE" -lt "$AGE" ] && ANCHOR_AGE=$READY_AGE
+        CI_AGE=$(ci_age "$ANCHOR_AGE")
+    fi
+fi
 
 if [ "$CHECK_PENDING" -gt 0 ] || [ "$UNREPORTED" -gt 0 ] \
-    || { [ "$CHECK_COUNT" -eq 0 ] && [ "$AGE" -le "$GRACE_SECS" ]; }; then
+    || { [ "$CHECK_COUNT" -eq 0 ] && [ "$ANCHOR_AGE" -le "$GRACE_SECS" ]; }; then
     [ "$CI_AGE" -gt "$LIMIT" ] && verdict "error:execute:ci-timeout"
     verdict "pending:checks"
 fi

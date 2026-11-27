@@ -423,14 +423,22 @@ they become a key, a worktree directory or a branch name. Second, `/execute` gai
 every step whose `waits_on` have all landed, up to N. In `single-pr` mode
 each concurrent step works in its own worktree on a step branch and lands
 on the shared branch by rebase in PLAN order; a rebase conflict stops that
-step at `validation_exit` for the owner, and other steps go on. A step whose
+step for the owner, held unlanded in the owning session's record, and other
+steps go on. The step's child stays at `done` on its step branch: a built
+child can't reach `validation_exit`, which work-on reaches only from
+`plan_validation`, and a success terminal there would let the run finalize
+without the step. A gate on `spawn_and_await` holds the run instead until
+every step that worked in a worktree has landed. A step whose
 rebase changed any of its files re-runs its verification and its review
 level check at the rebased head before it counts as landed. An owner's
 conflict resolution is committed as its own change and goes through a
-work-on review like any step. Once every step of a concurrent group has
-landed, the owner runs the review level check over the group's combined
-diff; a floor above what each step got runs that panel on the combined
-head, so two steps that are fine apart are still judged together.
+work-on review like any step: the owner rebases the step branch itself, and
+the result lands through a fix round whose implementation fast-forwards the
+shared branch to it. Once every step of a concurrent group has been rebased,
+and before the shared branch moves, the owner runs the review level check
+over the group's combined diff; a floor above what each step got lands the
+group through a fix round, whose panels judge the combined head, so two
+steps that are fine apart are still judged together.
 
 Alternative for plan steps: return to plan/v1 as the default. Rejected: v2's
 just-in-time detailing exists so later steps see what earlier ones landed,
