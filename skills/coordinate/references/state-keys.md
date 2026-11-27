@@ -1,7 +1,7 @@
 # The State: Keys and Procedures
 
-What the record holds, and where it lives for each scope, are in
-`skills/coordinate/SKILL.md`. This file holds every key of the record's
+What the record holds, and where it lives for each scope, are below and in
+the template's `record_find` state. This file holds every key of the record's
 state, its JSON shape and its one writer, and the steps that open, update and
 close it. Load it when you open or update the record.
 
@@ -592,6 +592,17 @@ exits 2 with nothing written. The rows, the ended rows and the `briefs` or
 row, one end entry per ended row, and `Run briefs <label> sha256:<digest> set
 by <who>.` or `Run briefs-read <label> sha256:<digest> c/n set by <who>.`
 
+A successor brief you write by hand carries a `## Standing rules` heading,
+spelled exactly so, even when nothing new goes under it; with that line the
+intake reads only the sentences under it, `## Decisions already made`,
+`## Out of scope` and `## Workspace rules`. Every rule the successor must
+keep goes under it, one to a sentence or bullet; decisions, out-of-scope
+lines and workspace rules may sit under the renderer's own headings instead,
+and those count too. A warning that holds for the rest of the run is a rule;
+a warning about how things stand now isn't. Restate a rule the record
+already holds in its exact words: it costs no room. Holdings, takeover
+steps, positions and history go anywhere else, under any headings or none.
+
 `scripts/state-handover.sh` reads the stored set back, with the holds, and
 names its gaps: no arguments, cap or address; a live holding (dispatched, and
 not merged and waiting for its teardown, which takes a Verified head with a
@@ -859,8 +870,9 @@ stamp, while each judgment is still made against every call; `holds` and
 
 ## Where State Lives
 
-Every script reads the record's state through `scripts/state-read.sh`, from
-the run's session: its `rs_record` assembles the state from the keys and
+Every script reads the record's state through one reader,
+`scripts/state-read.sh`, from the run's session, and a test holds every
+script to it: there is no body to parse. Its `rs_record` assembles the state from the keys and
 checks it;
 `rs_record_api` is the land check's and the merge's read under their deadline;
 `rs_facts` gives one holding's repository, pull request, branch, verified head,
@@ -1266,3 +1278,16 @@ entries and the next decision number, into its own session, naming this one
 as its predecessor in `record/rotation`. Its reconcile reads this reasoning,
 attributed to this rotation and not re-checked, and its open deferrals are its
 own to dispose of before its first dispatch.
+
+## The Closing Lines
+
+At `"action": "done"` the run prints its closing lines with
+`coordinate-report.sh`, which prints `outcome=` first, then `scope=`,
+`host=`, `record=` and, with `--session`, the run's event count.
+
+| Outcome | Meaning |
+|---------|---------|
+| `closed` | The roadmap is done and the close step ended the run, or the rotation ended with its reasoning written at `rotation_end`. |
+| `handed-over` | The last finishing step (the roadmap's close, or a merge) is handed over: to the coordinator that dispatched this one when its session is bound, and to a person only for a root coordinator. |
+| `stopped` | The human stopped the run, or the scope ended without a close-out. |
+| `not-active` | The roadmap is missing or not Active; nothing was dispatched. |

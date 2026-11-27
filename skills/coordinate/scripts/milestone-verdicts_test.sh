@@ -488,9 +488,15 @@ FORMAT="$HERE/../../roadmap/references/roadmap-format.md"
 grep -nE 'unenforced|updates it as downstream plans land|can decline to run the merge-driven' "$FORMAT" > "$T/stale.txt"
 [ -f "$FORMAT" ] && [ ! -s "$T/stale.txt" ] && ok "the roadmap format reference has no sentence calling the Done rule unenforced" \
     || bad "the roadmap format reference has no sentence calling the Done rule unenforced" "$(cat "$T/stale.txt")"
-awk '/^## Verdicts$/ { on = 1; next } on && /^## / { exit } on' "$HERE/../SKILL.md" > "$T/verdicts.md"
-for want in milestone_verdict milestone-verdict goal-fit milestone-failure milestone_reopen 'roadmap-status.sh --reopen'; do
-    grep -qF -- "$want" "$T/verdicts.md" && ok "SKILL.md's Verdicts section names $want" || bad "SKILL.md's Verdicts section names $want" "$(head -3 "$T/verdicts.md")"
+# The verdict rules live in the template states that act on them
+# (docs/designs/DESIGN-coordinate-entry-budget.md), so each state's own
+# section must name its entry kind and its step.
+state_text() { awk -v h="## $1" '$0 == h { on = 1; next } on && /^## / { exit } on' "$HERE/../koto-templates/coordinate.md"; }
+for want in 'milestone_verdict:milestone-verdict' 'milestone_verdict:roadmap-status.sh --verdict' 'goal_fit:goal-fit' \
+    'milestone_reopen:milestone-failure' 'milestone_reopen:roadmap-status.sh --reopen'; do
+    st=${want%%:*} phrase=${want#*:}
+    state_text "$st" > "$T/state.md"
+    grep -qF -- "$phrase" "$T/state.md" && ok "the template's $st state names $phrase" || bad "the template's $st state names $phrase" "$(head -3 "$T/state.md")"
 done
 
 done_tests milestone-verdicts
