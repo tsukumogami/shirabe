@@ -790,28 +790,25 @@ fi
 # run whose launch was left dispatching with no session listed gets a line
 # naming the command to run again; that command with the topic it names
 # launches once, exits 0 and leaves the row dispatched.
-# rpass: the run's reconcile pass, as the template's action runs it, until it
-# seals (at most three passes); PRC its exit, PLINE its line, REP the report.
-# rpass: a restart's reconcile. The run is rewound into reconcile_pass, a
-# new visit (a visit already sealed would only say its report again), the
-# pass runs with the niwa stand-in, and the run is ticked back to pick, so
-# a dispatch after it runs from where the run was.
+# rpass: a restart's reconcile, through the template's own path. From pick
+# the run ticks to wait, and the moved tick takes it into reconcile_pass, a
+# new visit (a visit already sealed would only say its report again), whose
+# action runs the pass with the niwa stand-in, at most three times until it
+# seals. The pass is run once more for its line, which a sealed visit says
+# again: PRC its exit, PLINE its line, REP the report. The run is then ticked
+# back to pick, so a dispatch after it runs from where the run was.
 rpass() {
-    local n=0 sd r=0
-    while [ "$(now_at)" != reconcile_pass ] && [ $r -lt 8 ]; do
-        koto rewind "$S" >/dev/null 2>&1 || break
-        r=$((r + 1))
-    done
-    sd=$(koto session dir "$S")
+    local n=0 sd st
     : > "$T/work/.niwa/workspace.toml"
-    while :; do
-        PLINE=$(cd "$WD" && NIWA="$NS/niwa" bash "$PS/reconcile-pass.sh" --session "$S" --session-dir "$sd" 2> "$T/rp.err"); PRC=$?
-        n=$((n + 1))
-        case "$PLINE" in pending:*) [ $n -lt 3 ] || break ;; *) break ;; esac
-    done
+    [ "$(now_at)" = wait ] || at > /dev/null
+    st=$(NIWA="$NS/niwa" at --with-data '{"event":"moved"}')
+    while [ "$st" = reconcile_pass ] && [ $n -lt 3 ]; do st=$(NIWA="$NS/niwa" at); n=$((n + 1)); done
+    [ "$st" = reconcile ] || bad "15: the moved tick takes the run through a reconcile" "$st $(cat "$T/tick.err")"
+    sd=$(koto session dir "$S")
+    PLINE=$(cd "$WD" && NIWA="$NS/niwa" bash "$PS/reconcile-pass.sh" --session "$S" --session-dir "$sd" 2> "$T/rp.err"); PRC=$?
     rm -f "$T/work/.niwa/workspace.toml"
     REP=$(cd "$WD" && bash "$PS/reconcile-report-get.sh" --session "$S" --md 2>&1)
-    [ "$(at)" = reconcile ] && [ "$(at --with-data '{"reconciled":"reported"}')" = pick ] \
+    [ "$(at --with-data '{"reconciled":"reported"}')" = pick ] \
         || bad "15: the run goes back to pick after the pass" "$(now_at) $(cat "$T/tick.err")"
 }
 pending_line() { printf '%s\n' "$REP" | sed -n 's/^Successor pending: //p'; }
