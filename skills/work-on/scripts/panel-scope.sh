@@ -629,8 +629,17 @@ gate_ledger() {
 # takes it back to the level check.
 if [ "$MODE" = "--escalated" ]; then
     [ "$PANEL" = light ] || refuse 2 "--escalated reads the light panel only, not [$PANEL]"
-    ledger=$(ctx_get "$LEDGER")
-    [ -n "$ledger" ] || exit 1
+    # Fail closed: only a ledger that doesn't exist reads as "no escalate". A
+    # koto read that fails holds the run (2) rather than opening the passed
+    # routes.
+    koto context exists "$SESSION" "$LEDGER"
+    rc=$?
+    case "$rc" in
+        0) ledger=$(koto context get "$SESSION" "$LEDGER") || refuse 2 "$LEDGER could not be read" ;;
+        1) exit 1 ;;
+        *) refuse 2 "koto context exists $LEDGER exited $rc" ;;
+    esac
+    [ -n "$ledger" ] || refuse 2 "$LEDGER is empty"
     v=$(printf '%s' "$ledger" | jq -r 'if type == "object" then ((.seats // {})["light/reviewer"].escalate // false) | tostring else error("not an object") end') \
         || refuse 2 "$LEDGER is unreadable"
     [ "$v" = true ] && exit 0

@@ -1155,6 +1155,14 @@ expect_rc "--record with escalate from a seat other than the light reviewer" 65
 printf 'not json' > "$SHIM_STORE/$SESSION/verdict_ledger.json"
 run --escalated light "$SESSION"
 expect_rc "--escalated with an unreadable ledger" 2
+# A koto read that fails holds the run: it never reads as "no escalate".
+fixture escalate-readfail
+run --plan light "$SESSION"
+record light '[{"seat":"reviewer","findings":[],"escalate":true}]'
+chmod 000 "$SHIM_STORE/$SESSION/verdict_ledger.json"
+run --escalated light "$SESSION"
+expect_rc "--escalated when koto can't read the ledger" 2
+chmod 644 "$SHIM_STORE/$SESSION/verdict_ledger.json"
 
 echo "--- script: --verdict, the panel's pass"
 
