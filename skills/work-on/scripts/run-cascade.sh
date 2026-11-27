@@ -955,7 +955,7 @@ handle_roadmap_deletion() {
     local no_rerun="Re-running the cascade is not the recovery: this run goes on to delete the PLAN, and a second run stops at 'PLAN doc not found'."
     # -f because a run without --push stages its edits (the ROADMAP's among
     # them) and commits nothing, and a plain `git rm` refuses a file with a
-    # staged change. After a run that pushed, -f is harmless.
+    # staged change. The flag does no harm when the run committed and pushed.
     local manual_delete="delete the ROADMAP by hand: git rm -f $path, commit, and push if the run pushed."
     if [[ -n "$blocking_issue_url" ]]; then
         local also_unreadable=""
