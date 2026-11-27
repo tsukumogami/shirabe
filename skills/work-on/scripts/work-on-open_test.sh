@@ -350,6 +350,10 @@ pairs_of '["7","--verification=local","--koto-leg=r1:work-on"]'
 eq "--verification=local needs no reason" \
     '[["VERIFICATION","local"]]' \
     "$(jq -c 'map(select(.[0] | startswith("VERIFICATION")))' "$WORK/vars.json" 2>/dev/null)"
+pairs_of '["7","--ci-wait=all","--koto-leg=r1:work-on"]'
+eq "--ci-wait=all: the CI_WAIT pair, the opt-out from the relevant set" \
+    '[["CI_WAIT","all"]]' \
+    "$(jq -c 'map(select(.[0] == "CI_WAIT"))' "$WORK/vars.json" 2>/dev/null)"
 pairs_of '["7","--delivery=partial","--delivery-reason=step 1 of 2: validator side","--koto-leg=r1:work-on"]'
 eq "--delivery=partial with a reason: the delivery pairs, the reason one value" \
     '[["DELIVERY","partial"],["DELIVERY_REASON","step 1 of 2: validator side"]]' \

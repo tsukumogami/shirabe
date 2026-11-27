@@ -172,6 +172,31 @@
 #       branch. Exit 1, naming each check on stderr, when one has none (or the
 #       map is gone or isn't a map), which sends the run back to local
 #       verification. Exit 2 when koto, the fetch or git can't answer.
+#   --relevant --session <s> [--ci-wait <all|>] [--base-ref <ref>]
+#       ci_monitor's relevant set: the checks the run waits on before its
+#       green edge (ci-relevant.sh runs this on every read of ci_passing).
+#       Prints `off`, writes nothing and exits 0, so the run waits on every
+#       check as before, when --ci-wait is `all` (CI_WAIT=all; without the
+#       flag the CI_WAIT environment variable is read), when the merge-base
+#       has no map, or one that is not one JSON value, has no
+#       `always_required` key, an `always_required` that is not an array of
+#       {workflow, job} objects (workflow a file under .github/workflows/,
+#       job the check's name), or a map --start's selection refuses, and when
+#       the set comes out empty; each but CI_WAIT=all is named on stderr. An
+#       empty `always_required` array counts as present. Otherwise the set is
+#       the union of two reads, each the `hosted` twins of the commands
+#       --start's selection (SELECT_JQ, over `git diff --name-only
+#       <merge-base>..HEAD`) picks plus the map's `always_required`: one of
+#       the merge-base's map, and one of the current default branch's,
+#       fetched first when it is a remote-tracking ref, as --twins does. A
+#       current map that is absent or doesn't parse adds nothing, and says
+#       so; the union never drops a merge-base entry. Each check of the set is
+#       one line per display name its workflow file has at HEAD, the
+#       merge-base or the default branch (`name:`, or the file's path when it
+#       has none, which is what GitHub shows): `<workflow file>\t<job>\t
+#       <display name>`, sorted, the format pr-checks.sh --relevant reads.
+#       The lines go to the koto key `relevant_checks.txt` and to stdout.
+#       Exit 2: usage, koto, the fetch or git failing.
 #   --await-removals
 #       Check once whether a build-output removal is still running in this
 #       work tree, and exit: 0 when none is (no records directory, no records,
@@ -353,6 +378,8 @@ PLAN_KEY=verification_plan
 PLAN_SCHEMA=shirabe-verification-plan/v1
 GONE_KEY=verification_twin_gone
 HOSTED_REASON="hosted twins cover every selected command"
+# ci_monitor's relevant set (--relevant).
+REL_KEY=relevant_checks.txt
 PLAN_RISKY_CLASSES="ci security template engine"
 # The top-level directory a hosted twin's job runs from the branch itself: the
 # skill gate plans and runs its suites with scripts/skill-gate.sh,
@@ -373,6 +400,7 @@ Usage: run-verification.sh --start --session <s> [--base-ref <ref>]
        run-verification.sh --plan --session <s> [--shared-branch <branch>] [--base-ref <ref>]
        run-verification.sh --resolved --session <s> [--base-ref <ref>]
        run-verification.sh --twins --session <s> [--base-ref <ref>]
+       run-verification.sh --relevant --session <s> [--ci-wait <all|>] [--base-ref <ref>]
        run-verification.sh --await-removals
 EOF
 }
@@ -1323,7 +1351,7 @@ case "$MODE" in
     --await-removals)
         [ $# -eq 0 ] || { usage; exit 2; }
         await_removals_once ;;
-    --start|--hold|--locate|--archive|--plan|--resolved|--twins) ;;
+    --start|--hold|--locate|--archive|--plan|--resolved|--twins|--relevant) ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
 esac
@@ -1335,6 +1363,8 @@ REASON_SET=0
 SHARED_BRANCH=""
 SHARED_SET=0
 AT_MOST=""
+CI_WAIT_ARG=${CI_WAIT:-}
+CI_WAIT_SET=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --session)
@@ -1355,6 +1385,10 @@ while [ $# -gt 0 ]; do
             # Empty is allowed: the gate passes an unset SHARED_BRANCH as "".
             [ "$MODE" = --plan ] && [ $# -ge 2 ] && [ "$SHARED_SET" -eq 0 ] || { usage; exit 2; }
             SHARED_BRANCH=$2; SHARED_SET=1; shift 2 ;;
+        --ci-wait)
+            # Empty is allowed: the gate passes an unset CI_WAIT as "".
+            [ "$MODE" = --relevant ] && [ $# -ge 2 ] && [ "$CI_WAIT_SET" -eq 0 ] || { usage; exit 2; }
+            CI_WAIT_ARG=$2; CI_WAIT_SET=1; shift 2 ;;
         *) usage; exit 2 ;;
     esac
 done
@@ -1366,6 +1400,17 @@ if [ -n "$BASE_REF" ]; then
     grep -Eq '^[A-Za-z0-9._][A-Za-z0-9._/-]*$' <<<"$BASE_REF" \
         && ! grep -q '\.\.' <<<"$BASE_REF" \
         || die "--base-ref [$BASE_REF] is not a ref name"
+fi
+
+if [ "$MODE" = --relevant ]; then
+    case "$CI_WAIT_ARG" in
+        ''|all) ;;
+        *) die "--ci-wait [$CI_WAIT_ARG] is neither all nor empty" ;;
+    esac
+    if [ "$CI_WAIT_ARG" = all ]; then
+        echo off
+        exit 0
+    fi
 fi
 
 resolve
@@ -1779,6 +1824,152 @@ EOF
         echo "run-verification: twins: the default branch ($BASE_RESOLVED) no longer has a hosted twin this run resolved with for: $GONE; the run goes back to local verification" >&2
         exit 1
     fi
+    exit 0
+fi
+
+# --- --relevant -------------------------------------------------------------------------
+#
+# ci_monitor's relevant set (see the header). Never a selection of its own:
+# the twins come from SELECT_JQ, as --start's and --plan's do.
+
+# rel_off <reason>: the filter is off for this read, and ci_monitor waits on
+# every check.
+rel_off() {
+    echo "run-verification: relevant: $1, so ci_monitor waits on every check" >&2
+    echo off
+    exit 0
+}
+
+# The map's always_required, checked entry by entry: {workflow, job} each, or
+# an error naming what is wrong.
+REL_ALWAYS_JQ='
+    if (.always_required | type) != "array" then error("always_required is not an array")
+    else .always_required[]
+      | if type != "object" or (.workflow | type) != "string" or (.job | type) != "string"
+           or .workflow == "" or .job == ""
+          then error("an always_required entry is not an object with non-empty string workflow and job")
+        elif (.workflow | startswith(".github/workflows/") and (split("/") | all(. != ".." and . != "." and . != ""))) | not
+          then error("always_required names a workflow outside .github/workflows/: \(.workflow)")
+        elif (.workflow + .job) | test("[\\t\\n\\r]")
+          then error("an always_required entry carries a tab or a line break")
+        else {workflow, job} end
+    end'
+
+# rel_set <map json> <1 when always_required must be there, else 0>: sets
+# REL_SET, a JSON array of {workflow, job}: the twins of the commands the
+# selection picks for CHANGED, plus always_required. Returns 1, the reason in
+# REL_WHY, when the map can't give one.
+rel_set() {
+    local sel err always twins
+    REL_SET="[]"
+    REL_WHY=""
+    if ! printf '%s' "$1" | jq -se 'length == 1' >/dev/null; then
+        REL_WHY="it is not one valid JSON value"
+        return 1
+    fi
+    if ! printf '%s' "$1" | jq -e 'type == "object" and has("always_required")' >/dev/null; then
+        if [ "$2" -eq 1 ]; then
+            REL_WHY="it has no always_required"
+            return 1
+        fi
+        always="[]"
+    else
+        always=$(printf '%s' "$1" | jq -c "[$REL_ALWAYS_JQ]") || { REL_WHY="its always_required is malformed"; return 1; }
+    fi
+    sel=$(printf '%s' "$1" | jq -c --argjson changed "$CHANGED" "$SELECT_JQ") \
+        || { REL_WHY="the selection program failed"; return 1; }
+    err=$(printf '%s' "$sel" | jq -r '.error // empty')
+    if [ -n "$err" ]; then
+        REL_WHY="it does not parse: $err"
+        return 1
+    fi
+    twins=$(printf '%s' "$sel" | jq -c '[.invocations[].hosted[] | {workflow, job}
+        | select((.workflow + .job) | test("[\\t\\n\\r]") | not)]') \
+        || { REL_WHY="its twins could not be read"; return 1; }
+    REL_SET=$(jq -cn --argjson a "$always" --argjson t "$twins" '$a + $t | unique') \
+        || { REL_WHY="the set could not be built"; return 1; }
+}
+
+# wf_display <ref> <workflow file>: the workflow's display name at <ref>, the
+# name gh reports a check's workflow by: its top-level `name:`, unquoted, or
+# its path when it has none. Returns 1 when the file isn't at <ref>, or its
+# name holds a tab.
+wf_display() {
+    local entry body name
+    entry=$(git -C "$ROOT" ls-tree "$1" -- "$2") || return 1
+    [ -n "$entry" ] || return 1
+    body=$(git -C "$ROOT" show "$1:$2") || return 1
+    name=$(awk -v q="'" '
+        /^name:/ {
+            v = $0; sub(/^name:[ \t]*/, "", v); c = substr(v, 1, 1)
+            if (c == "\"" || c == q) { v = substr(v, 2); i = index(v, c); if (i) v = substr(v, 1, i - 1) }
+            else { sub(/[ \t]+#.*$/, "", v); sub(/[ \t]+$/, "", v) }
+            print v; exit
+        }' <<<"$body")
+    [ -n "$name" ] || name=$2
+    case "$name" in *"	"*) return 1 ;; esac
+    printf '%s\n' "$name"
+}
+
+if [ "$MODE" = --relevant ]; then
+    command -v koto >/dev/null || die "koto is not on PATH, so the relevant set can't be recorded"
+    MB_ENTRY=$(git -C "$ROOT" ls-tree "$MB" -- "$MAP_PATH") || die "could not list $MAP_PATH at $MB"
+    [ -n "$MB_ENTRY" ] || rel_off "no $MAP_PATH at the merge-base $MB"
+    MB_MAP=$(git -C "$ROOT" show "$MB:$MAP_PATH") || die "could not read $MAP_PATH at $MB"
+    CHANGED=$(git -C "$ROOT" diff --name-only -z "$MB..HEAD" | jq -Rs 'split("\u0000") | map(select(length > 0))') \
+        || die "could not list the changed paths"
+    rel_set "$MB_MAP" 1 || rel_off "$MAP_PATH at the merge-base $MB: $REL_WHY"
+    MB_SET=$REL_SET
+
+    # The current default branch, fetched first as --twins does, so an entry
+    # added there since the run began is waited on too.
+    case "$BASE_RESOLVED" in
+        origin/*)
+            git -C "$ROOT" fetch --quiet origin "${BASE_RESOLVED#origin/}" \
+                || die "could not fetch ${BASE_RESOLVED#origin/} from origin"
+            ;;
+    esac
+    CUR_SET="[]"
+    CUR_ENTRY=$(git -C "$ROOT" ls-tree "$BASE_RESOLVED" -- "$MAP_PATH") \
+        || die "could not list $MAP_PATH at $BASE_RESOLVED"
+    if [ -z "$CUR_ENTRY" ]; then
+        echo "run-verification: relevant: $BASE_RESOLVED has no $MAP_PATH, so the merge-base's set stands alone" >&2
+    else
+        CUR_MAP=$(git -C "$ROOT" show "$BASE_RESOLVED:$MAP_PATH") || die "could not read $MAP_PATH at $BASE_RESOLVED"
+        if rel_set "$CUR_MAP" 0; then
+            CUR_SET=$REL_SET
+        else
+            echo "run-verification: relevant: $MAP_PATH at $BASE_RESOLVED: $REL_WHY, so it adds nothing to the merge-base's set" >&2
+        fi
+    fi
+    UNION=$(jq -cn --argjson a "$MB_SET" --argjson b "$CUR_SET" '$a + $b | unique') \
+        || die "could not join the two reads"
+    [ "$(jq 'length' <<<"$UNION")" -gt 0 ] \
+        || rel_off "the relevant set is empty: no selected command has a hosted twin, and always_required is empty"
+
+    REL_TMP=$(mktemp "${TMPDIR:-/tmp}/run-verification-relevant.XXXXXX") || die "could not create a temporary file"
+    trap 'rm -f "$REL_TMP" "$REL_TMP.lines"' EXIT
+    : > "$REL_TMP.lines"
+    while IFS=$'\t' read -r wf job; do
+        [ -n "$wf" ] || continue
+        found=0
+        for ref in HEAD "$MB" "$BASE_RESOLVED"; do
+            if name=$(wf_display "$ref" "$wf"); then
+                printf '%s\t%s\t%s\n' "$wf" "$job" "$name" >> "$REL_TMP.lines"
+                found=1
+            fi
+        done
+        if [ "$found" -eq 0 ]; then
+            echo "run-verification: relevant: $wf is at none of HEAD, the merge-base and $BASE_RESOLVED; its check is matched by its path" >&2
+            printf '%s\t%s\t%s\n' "$wf" "$job" "$wf" >> "$REL_TMP.lines"
+        fi
+    done <<EOF
+$(jq -r '.[] | [.workflow, .job] | @tsv' <<<"$UNION")
+EOF
+    LC_ALL=C sort -u "$REL_TMP.lines" > "$REL_TMP" || die "could not sort the relevant set"
+    koto context add "$SESSION" "$REL_KEY" --from-file "$REL_TMP" >/dev/null \
+        || die "could not write $REL_KEY for session $SESSION"
+    cat "$REL_TMP"
     exit 0
 fi
 
