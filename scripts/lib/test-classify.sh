@@ -69,6 +69,16 @@
 # unit's revert of an earlier edit to main's content, since main didn't
 # change that file. A unit edit identical to main's own is dropped with it.
 #
+# The comparison with the red's record is a function of its own:
+#
+#   test_classify_red_changed <head> <red-record-file>
+#
+# prints `<path>\t<blob at head, or deleted>` for each reproducing test and
+# harness file whose blob at <head> differs from the one the red recorded.
+# Nothing for an empty or absent record. Returns 0, or 2 when the record
+# doesn't parse. review-level.sh reads it as the `red_test_edited` fact: a
+# fix's own reproducing test rewritten after its red.
+#
 # Callers: skills/work-on/scripts/red-first.sh, for the tests a red copies onto
 # the base; skills/work-on/scripts/test-change.sh (the hold),
 # skills/work-on/scripts/review-level.sh (the `tests_edited` floor),
@@ -270,8 +280,30 @@ test_classify_base() {
     return 0
 }
 
+test_classify_red_changed() {
+    local head="$1" record="$2" tab p b cur list
+    tab=$(printf '\t')
+    [ -s "$record" ] || return 0
+    list=$(mktemp "${TMPDIR:-/tmp}/test-classify.XXXXXX") || { echo "test-classify: could not create a temporary file" >&2; return 2; }
+    if ! jq -r 'if type != "object" then error("not an object") else . end
+                | (.red // {}) | ((.tests // []) + (.harness // []))[] | "\(.path)\t\(.blob)"' \
+            "$record" > "$list" 2>/dev/null; then
+        rm -f "$list"
+        echo "test-classify: the red record does not parse" >&2
+        return 2
+    fi
+    while IFS="$tab" read -r p b; do
+        [ -n "$p" ] || continue
+        cur=$(git rev-parse -q --verify "$head:$p" 2>/dev/null) || cur=deleted
+        [ "$cur" != "$b" ] || continue
+        printf '%s\t%s\n' "$p" "$cur"
+    done < "$list"
+    rm -f "$list"
+    return 0
+}
+
 test_classify_unit() {
-    local base="$1" head="$2" rules="$3" record="${4:-}" w tab p b cur rc
+    local base="$1" head="$2" rules="$3" record="${4:-}" w tab p cur rc
     tab=$(printf '\t')
     git cat-file -e "$base^{commit}" 2>/dev/null && base=$(test_classify_base "$base" "$head")
     w=$(mktemp -d "${TMPDIR:-/tmp}/test-classify.XXXXXX") || { echo "test-classify: could not create a temporary directory" >&2; return 2; }
@@ -283,17 +315,12 @@ test_classify_unit() {
     fi
     _tc_main_only "$base" "$head" "$w/rows"
     if [ -n "$record" ] && [ -s "$record" ]; then
-        if ! jq -r 'if type != "object" then error("not an object") else . end
-                    | (.red // {}) | ((.tests // []) + (.harness // []))[] | "\(.path)\t\(.blob)"' \
-                "$record" > "$w/red" 2>/dev/null; then
+        if ! test_classify_red_changed "$head" "$record" > "$w/red"; then
             rm -rf "$w"
-            echo "test-classify: the red record does not parse" >&2
             return 2
         fi
-        while IFS="$tab" read -r p b; do
+        while IFS="$tab" read -r p cur; do
             [ -n "$p" ] || continue
-            cur=$(git rev-parse -q --verify "$head:$p" 2>/dev/null) || cur=deleted
-            [ "$cur" != "$b" ] || continue
             if awk -F '\t' -v p="$p" '$2 == p { f = 1 } END { exit !f }' "$w/rows"; then
                 awk -F '\t' -v OFS='\t' -v p="$p" '$2 == p { $1 = "edited" } { print }' "$w/rows" > "$w/rows.next"
                 mv "$w/rows.next" "$w/rows"

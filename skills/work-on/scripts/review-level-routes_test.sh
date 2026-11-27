@@ -625,7 +625,7 @@ if new_case "$S" 'mkdir -p scripts && seq 1 5 > scripts/tool.sh' && choose_and_i
 fi
 
 # ==============================================================================
-echo "--- engine: a light retry, then a fix past 40 lines"
+echo "--- engine: a light retry, then a fix past the light cap"
 
 LIGHT_BLOCK=$(awk '
     /^```bash$/  { inblk = 1; buf = ""; next }
@@ -652,11 +652,12 @@ if new_case "$S" "$SMALL" && choose_and_implement "$S" - code; then
     [ "$GOT" = blocking ] && pass "the light seat's blocking verdict is in the verdict ledger" || fail "light/reviewer is [$GOT]"
     koto context exists "$S" review_level.jsonl 2>/dev/null && pass "the retry left the level ledger alone" \
         || fail "the retry removed review_level.jsonl"
-    seq 1 50 >> docs/notes.md
+    # Past the light cap's 200 lines: 40 would still be capped to light.
+    seq 1 200 >> docs/notes.md
     git commit -q -am "fix: a bigger change"
     tick "$S" '{"implementation_status":"complete"}'
     tick "$S" '{"issue_type":"code"}'
-    expect_state "the light run whose fix passed 40 lines" scrutiny
+    expect_state "the light run whose fix passed the cap's 200 lines" scrutiny
     expect_visits "$S" light_review 1
     GOT=$(ledger "$S" | jq -r 'select(.event == "from_facts") | "\(.to)|\(.rule)"' | tail -n 1)
     [ "$GOT" = "standard|lines>40" ] && pass "the second lap's check raised the level on the lines rule" \
