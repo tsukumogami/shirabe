@@ -183,8 +183,7 @@ coord_valid_repo_list "$CC_REPOS" || usage_error "--repos [$CC_REPOS] is not a c
 coord_valid_repo "$CC_HOME" || usage_error "--home-repo [$CC_HOME] is not a single owner/repo"
 coord_valid_branch "$CC_CB" || usage_error "--coord-branch [$CC_CB] is not an allowed branch name"
 [ -n "$CC_PLAN" ] || usage_error "--plan is empty"
-case "/$CC_PLAN/" in */../*) usage_error "--plan [$CC_PLAN] has a .. segment" ;; esac
-case "$CC_PLAN" in *[!A-Za-z0-9._/-]*) usage_error "--plan [$CC_PLAN] holds a character outside [A-Za-z0-9._/-]" ;; esac
+plan_problem=$(coord_plan_problem "$CC_PLAN") || usage_error "--plan [$CC_PLAN] $plan_problem"
 if [ -n "$CC_ATTEMPTS" ] && ! [[ $CC_ATTEMPTS =~ $RE_COORD_ATTEMPTS ]]; then
     usage_error "--attempts [$CC_ATTEMPTS] is outside <node|node/follow-up-n|coordination>:<merge-not-observed|merge-call-failed|merge-refused|body-stale|body-full>,..."
 fi

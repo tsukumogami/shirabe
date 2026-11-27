@@ -2,4 +2,7 @@ workflow: .github/workflows/check-skill-gate.yml
 # The pull request gate itself, run with no arguments: it reads its base from
 # SKILL_GATE_BASE and runs check-skill.sh on each changed skill, and every
 # script case when a shared path changes.
+# The skill-gate-suites job's slices hand SUITE_SLICE through to the gate,
+# whose check-skill.sh slices each skill's suites itself.
+slice: pass
 scripts/skill-gate.sh

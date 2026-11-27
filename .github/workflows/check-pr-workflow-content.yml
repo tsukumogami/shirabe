@@ -5,6 +5,14 @@ name: Check PR workflow content switch
 # request text carries workflow records. Its suite writes throwaway CLAUDE.md
 # files and needs only bash, awk, tr and git: the Linux leg runs it under
 # bash 5, the macOS leg on the bash 3.2 floor.
+#
+# It also runs scripts/check-suite-slices.sh, which holds every sliced CI job
+# to running all of its slices, on any change to a workflow, and the tests of
+# that check and of the selector the sliced runners share
+# (scripts/lib/suite-slice.sh). That job is Linux only. The workflows path
+# it needs also re-runs the suite above, macOS leg included once the pull
+# request is ready, on any workflow edit; the suite is short, and one paths
+# list keeps the workflow's trigger in one place.
 
 on:
   pull_request:
@@ -18,6 +26,12 @@ on:
       # has to re-run this suite.
       - 'scripts/check-bash-floor.sh'
       - 'scripts/bash-floor/pr-workflow-content.list'
+      # check-suite-slices reads every workflow.
+      - '.github/workflows/**'
+      - 'scripts/check-suite-slices.sh'
+      - 'scripts/check-suite-slices_test.sh'
+      - 'scripts/lib/suite-slice.sh'
+      - 'scripts/lib/suite-slice_test.sh'
 
 permissions:
   contents: read
@@ -50,3 +64,39 @@ jobs:
       - name: Run the suite on the bash 3.2 floor (macOS, system bash)
         if: runner.os == 'macOS'
         run: scripts/check-bash-floor.sh --backend system pr-workflow-content
+
+  # A sliced job runs every suite of its list only when all its slices run:
+  # the matrix check pins each sliced job's slice set and fail-fast, and the
+  # selector's suite proves any list splits into slices that hold every suite
+  # once. yq is pinned as in check-macos-floor-legs.yml.
+  check-suite-slices:
+    runs-on: ubuntu-latest
+    env:
+      YQ_VERSION: v4.47.1
+      YQ_SHA256: 0fb28c6680193c41b364193d0c0fc4a03177aecde51cfc04d506b1517158c2fb
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned mikefarah yq
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/yq-bin"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/yq" "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  $dir/yq" | sha256sum -c -
+          chmod +x "$dir/yq"
+          out=$("$dir/yq" --version)
+          case "$out" in
+            *mikefarah/yq*" version ${YQ_VERSION}") ;;
+            *) echo "unexpected yq version: $out" >&2; exit 1 ;;
+          esac
+          echo "$dir" >> "$GITHUB_PATH"
+
+      - name: Run the suite selector's tests
+        run: bash scripts/lib/suite-slice_test.sh
+
+      - name: Run check-suite-slices tests
+        run: bash scripts/check-suite-slices_test.sh
+
+      - name: Check every sliced job runs all its slices
+        run: bash scripts/check-suite-slices.sh

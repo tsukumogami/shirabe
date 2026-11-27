@@ -31,6 +31,26 @@ worker window would reach coordinators before step 8 switches them on. niwa
 (tsukumogami/niwa#579), the window stays in the named profile. This narrows
 which sessions get a window and changes nothing else in the step.
 
+Amended on 2026-11-25, for step 8: the gate step 8 states has changed, and
+its text stays as the record of the original plan. The superseding decision
+it waits on exists. A measured trial of one lane coordinator then ran the
+mechanism this plan already ships, with nothing added: the compaction note
+written into the run before each cut, the re-anchor hook's re-read steps and
+the post-compaction size report, at a 280K window with a 350K hard stop. It
+took eight automatic cuts, each at about 247K to 251K, and each landed at 92K
+to 98K, with no work lost and every worker's state matching the coordinator's
+record after each cut. At four of the eight cuts the note was behind the run
+and neither hook said so (#2135, fixed by #2146). So coordinate's own
+re-anchor (R19) is no longer a gate; it follows as an improvement. The one
+gate left is the stale-note flag step 4 promises, as #2146 fixes it, released
+and installed. After that, coordinators switch on one at a time, each taking
+the 280K window at dispatch from a named coordinator profile, never from a
+default. The 350K stop is what the trial ran, and this amendment sets no new
+stop rule. A switched-on coordinator that acts against its record after a
+cut, misses something that arrived during one, lands above 180K after one, or
+thrashes sends coordinators back to handing over to a successor until
+coordinate's re-anchor after a compaction lands.
+
 ## Scope Summary
 
 shirabe ships the pieces that let a session compact in place and still find

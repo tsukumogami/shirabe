@@ -6,34 +6,38 @@
 # review-level_test.sh pins review-level.sh on its own, against a stand-in and
 # a scratch template. This suite drives the template that ships: real koto
 # sessions of skills/work-on/koto-templates/work-on.md, walked from entry
-# through analysis, the level choice, the fix determination (a gh stand-in
-# serves unlabelled issues, so every run is a change), implementation and the
-# level check to
-# the panels the level names. Each case is one of the routing promises the
-# level makes:
+# through analysis, the fix determination (which records the bound; a gh
+# stand-in serves unlabelled issues, so every run is a change),
+# implementation and the level check to the panels the level names. Each case
+# is one of the routing promises the level makes:
 #
 #   the declarations    the three variables, their pattern, the rebind flag,
 #                       the level check's gates and the one veto criterion no
-#                       route reads; the pattern is enforced at init
-#   the choice          plan_ready with no level waits at review_level_choice
-#                       and never reaches implementation; after `set` it does
+#                       route reads, and no review_level_choice state; the
+#                       pattern is enforced at init
+#   no level submitted  plan_ready goes straight to implementation with the
+#                       bound recorded, and the run reaches its first panel at
+#                       the level the facts set, with nothing submitted and
+#                       no stop at the level check
+#   a raise at analysis `set full --reason` at analysis is accepted (analysis's
+#                       action recorded the bound), survives to the level
+#                       check over a light floor, and the run takes QA
 #   light               light_review, then verification; never scrutiny,
 #                       review or qa_validation
 #   standard            scrutiny, review, verification; never qa_validation,
 #                       also for a change of only .md files under skills/
 #   full                scrutiny, review, qa_validation, verification
-#   docs and task       record a level and reach verification as before
-#   the floor           a light run below a standard floor holds before any
-#                       panel, naming the rule; a raise lets it into scrutiny,
-#                       and the ledger has floor_raise, then a standard check
+#   docs and task       skip the level check and reach verification as before
+#   the floor           a light choice below a standard floor is lifted by the
+#                       check, naming the rule, and the run enters scrutiny
 #   a retry             a blocking light round returns to implementation with
 #                       its seat in the verdict ledger; a fix past 40 changed
-#                       lines then holds the light run until it is raised
-#   a hand rebind       holds the check, naming both levels; made later, in
-#                       review or light_review, it holds that state's passed
-#                       routes until `set` puts the ledger's level back
-#   unset               a session with no level at the check takes all three
-#                       panels and its ledger has an `unset` line
+#                       lines then takes the next lap to scrutiny
+#   a hand rebind       made before the check, it can't steer the route: the
+#                       check routes on the ledger and rebinds the variable;
+#                       made later, in review or light_review, it holds that
+#                       state's passed routes until `set` puts the ledger's
+#                       level back
 #   the fallback        an opted-in user whose decider can't answer: in
 #                       shadow the check waits on level_fits_facts, its finding
 #                       and the directive give `koto decider answer`, and the
@@ -174,7 +178,7 @@ GOT=$(jq -r '[.variables.REVIEW_LEVEL.rebind, .variables.REVIEW_FLOOR.rebind, .v
 [ "$GOT" = "true,false,false" ] && pass "only REVIEW_LEVEL is rebindable" || fail "rebind flags are [$GOT]"
 # plan_ready passes through the live offload canary's states and then the
 # rule-distance probe's, none of which take evidence, on its way to
-# review_level_choice.
+# fix_determination.
 GOT=$(jq -r '.states.analysis.transitions[] | select(.when.plan_outcome == "plan_ready") | .target' "$COMPILED" 2>/dev/null)
 [ "$GOT" = offload_canary ] && pass "plan_ready targets offload_canary" || fail "plan_ready targets [$GOT]"
 GOT=$(jq -r '[.states.offload_canary.transitions[].target, .states.offload_arm_withheld.transitions[].target,
@@ -186,13 +190,28 @@ GOT=$(jq -r '[.states.offload_canary.transitions[].target, .states.offload_arm_w
 GOT=$(jq -r '[.states.probe_draw.transitions[].target, .states.probe_arm_near.transitions[].target,
               .states.probe_arm_far.transitions[].target, .states.probe_arm_far_redeliver.transitions[].target]
              | map(select(startswith("probe_arm_") | not)) | unique | join(",")' "$COMPILED" 2>/dev/null)
-[ "$GOT" = review_level_choice ] && pass "every route out of the probe's states reaches review_level_choice" \
+[ "$GOT" = fix_determination ] && pass "every route out of the probe's states reaches fix_determination" \
     || fail "the probe's states route to [$GOT]"
+GOT=$(jq -r '[(.states | has("review_level_choice")), any(.states[].transitions[]?; .target == "review_level_choice")] | map(tostring) | join(",")' "$COMPILED" 2>/dev/null)
+[ "$GOT" = "false,false" ] && pass "there is no review_level_choice state and no edge into one" \
+    || fail "review_level_choice: [state, edge] is [$GOT]"
 GOT=$(jq -r '.states.issue_type_routing.transitions[] | select(.when.issue_type == "code") | .target' "$COMPILED" 2>/dev/null)
 [ "$GOT" = review_level_check ] && pass "the code route targets review_level_check" || fail "the code route targets [$GOT]"
-GOT=$(jq -r '.states.review_level_check.gates | [.level_floor.type, .level_fits_facts.type] | join(",")' "$COMPILED" 2>/dev/null)
-[ "$GOT" = "command,decider-check" ] && pass "review_level_check has the level_floor command gate and the decider check" \
+GOT=$(jq -r '.states.review_level_check.gates | [.level_route.type, .level_floor.type, .level_fits_facts.type] | join(",")' "$COMPILED" 2>/dev/null)
+[ "$GOT" = "command,command,decider-check" ] && pass "review_level_check has the level_route and level_floor command gates and the decider check" \
     || fail "review_level_check's gates are [$GOT]"
+GOT=$(jq -r '.states.review_level_check.gates | [.level_route.command, .level_floor.command] | join("|")' "$COMPILED" 2>/dev/null)
+case "$GOT" in
+    *"level "*"--exit|"*"check "*"--ledger") pass "level_route reads the ledger's level and level_floor judges it" ;;
+    *) fail "level_route|level_floor commands are [$GOT]" ;;
+esac
+GOT=$(jq -r '[.states.review_level_check.transitions[] | select(.target != "done_blocked")
+              | "\(.target):\(.when["gates.level_route.exit_code"]):\(.when["gates.level_floor.exit_code"])"] | join(",")' "$COMPILED" 2>/dev/null)
+[ "$GOT" = "light_review:11:0,scrutiny:12:0,scrutiny:13:0" ] \
+    && pass "the level check routes 11 to light_review and 12 and 13 to scrutiny, each behind level_floor" \
+    || fail "the level check's routes are [$GOT]"
+GOT=$(jq -r '[.states.review_level_check.transitions[].when // {} | keys[] | select(startswith("vars."))] | length' "$COMPILED" 2>/dev/null)
+[ "$GOT" = 0 ] && pass "no route out of the level check reads a variable" || fail "$GOT when clauses there read a variable"
 GOT=$(jq -r '.states.review_level_check.gates.level_fits_facts.decider_check
              | "\(.max_bytes)|\([.criteria[] | "\(.rule_id):\(.mode)"] | join(","))"' "$COMPILED" 2>/dev/null)
 [ "$GOT" = "2048|level_fits_facts:veto" ] && pass "the decider check has one criterion, in veto, under a 2048-byte budget" \
@@ -200,9 +219,17 @@ GOT=$(jq -r '.states.review_level_check.gates.level_fits_facts.decider_check
 GOT=$(jq -r '[.states[].transitions[]?.when // {} | keys[] | select(startswith("gates.level_fits_facts"))] | length' "$COMPILED" 2>/dev/null)
 [ "$GOT" = 0 ] && pass "no route reads the decider check" || fail "$GOT when clauses read level_fits_facts"
 GOT=$(jq -r '.states.review_level_check.default_action.command // ""' "$COMPILED" 2>/dev/null)
-case "$GOT" in *"review-level.sh facts"*) pass "the level check's action gathers the facts" ;; *) fail "the level check's action is [$GOT]" ;; esac
-GOT=$(jq -r '.states.review_level_choice.default_action.command // ""' "$COMPILED" 2>/dev/null)
-case "$GOT" in *"review-level.sh init"*) pass "the level choice's action records the bound" ;; *) fail "the level choice's action is [$GOT]" ;; esac
+case "$GOT" in *"review-level.sh\" facts"*"--no-check-line && "*"review-level.sh\" set-from-facts"*)
+    pass "the level check's action gathers the facts, then sets the level from them" ;;
+    *) fail "the level check's action is [$GOT]" ;; esac
+GOT=$(jq -r '.states.analysis.default_action.command // ""' "$COMPILED" 2>/dev/null)
+case "$GOT" in *"record-changed-paths.sh --base "*"&& "*"review-level.sh\" init "*'"{{REVIEW_FLOOR}}" "{{REVIEW_CEILING}}"')
+    pass "analysis's action records impl_base, then the review-level bound" ;;
+    *) fail "analysis's action is [$GOT]" ;; esac
+GOT=$(jq -r '.states.fix_determination.default_action.command // ""' "$COMPILED" 2>/dev/null)
+case "$GOT" in *"review-level.sh\" init "*"&& "*"test-change.sh\" init "*)
+    pass "fix_determination's action runs init again, as a safety net, before the test-change header" ;;
+    *) fail "fix_determination's action is [$GOT]" ;; esac
 
 # --- the repository the gates and actions read ---------------------------------
 
@@ -233,14 +260,6 @@ tick() {
     fi
     NEXT_STATE=$(koto status "$1" 2>/dev/null | jq -r '.current_state // empty')
 }
-# tick_past_choice <session>: the tick after the level is set enters
-# fix_determination, whose action records the kind and whose kind_route gate
-# routes on it in the same tick, to implementation.
-tick_past_choice() {
-    tick "$1"
-    return 0
-}
-
 visits() {
     # $1 session, $2 state: transitions into the state in koto's own log
     jq -s --arg st "$2" '[.[] | select(.type == "transitioned" and .payload.to == $st)] | length' \
@@ -283,8 +302,9 @@ expect_visits() {
 }
 
 # new_case <session> <change> [<type hint>]: a branch off main carrying one
-# commit made by <change>, and a session walked to review_level_choice with
-# impl_base at main. The hint is ISSUE_TYPE (code when omitted): a run that
+# commit made by <change>, and a session walked through fix_determination to
+# implementation with impl_base at main. The hint is ISSUE_TYPE (code when
+# omitted): a run that
 # answers docs or task starts with that hint, since a code hint over a diff
 # with anything but documentation in it takes the code route on entry.
 new_case() {
@@ -302,18 +322,24 @@ new_case() {
     tick "$s" '{"status":"override"}'
     printf '# Issue\n\n## Acceptance Criteria\n\n- [ ] it works\n' | koto context add "$s" context.md >/dev/null 2>&1
     printf 'plan\n' | koto context add "$s" plan.md >/dev/null 2>&1
-    tick "$s" '{"plan_outcome":"plan_ready"}'
+    # Before plan_ready: fix_determination runs in that tick and reads it.
     printf '%s\n' "$MAIN" | koto context add "$s" impl_base >/dev/null 2>&1
+    [ "$NEXT_STATE" = analysis ] || { fail "$s: walked to [$NEXT_STATE], not analysis"; return 1; }
+    # AT_ANALYSIS, when set, is a command run while the run sits at analysis.
+    if [ -n "${AT_ANALYSIS:-}" ]; then
+        eval "$AT_ANALYSIS" || { fail "$s: [$AT_ANALYSIS] failed at analysis"; return 1; }
+    fi
+    tick "$s" '{"plan_outcome":"plan_ready"}'
+    [ "$NEXT_STATE" = implementation ] || { fail "$s: plan_ready stopped at [$NEXT_STATE], not implementation"; return 1; }
     return 0
 }
 
-# choose_and_implement <session> <level> <type>: chooses the level, finishes
-# implementation and answers the type question. A code run whose diff the
-# code_route gate decides is not asked, and goes on as a code answer would.
+# choose_and_implement <session> <level> <type>: raises the level at
+# implementation (`-` leaves it to the facts), finishes implementation and
+# answers the type question. A code run whose diff the code_route gate
+# decides is not asked, and goes on as a code answer would.
 choose_and_implement() {
-    setlevel "$1" "$2"
-    tick_past_choice "$1"
-    [ "$NEXT_STATE" = implementation ] || { fail "$1: after set, at [$NEXT_STATE], not implementation"; return 1; }
+    [ "$2" = - ] || setlevel "$1" "$2"
     tick "$1" '{"implementation_status":"complete"}'
     if [ "$NEXT_STATE" = issue_type_routing ]; then
         tick "$1" "{\"issue_type\":\"$3\"}"
@@ -364,28 +390,59 @@ OUT=$(koto init bad-floor --template "$TEMPLATE" --var ARTIFACT_PREFIX=issue_42 
 case "$OUT" in *invalid_var*|*pattern*) pass "REVIEW_FLOOR=medium is refused at init" ;; *) fail "init with REVIEW_FLOOR=medium said [$OUT]" ;; esac
 
 # ==============================================================================
-echo "--- engine: no level, no implementation"
+echo "--- engine: no level submitted"
 
-S=choice
+S=no-level
 if new_case "$S" "$SMALL"; then
-    expect_state "plan_ready with no level" review_level_choice
-    tick "$S"
-    expect_state "a tick with no level" review_level_choice
-    expect_visits "$S" implementation 0
-    [ "$(events "$S")" = bound ] && pass "the choice state recorded the bound and nothing else" \
+    expect_state "plan_ready" implementation
+    [ "$(events "$S")" = bound ] && pass "fix_determination recorded the bound and no level" \
         || fail "ledger events are [$(events "$S")]"
-    setlevel "$S" light --reason x
-    tick_past_choice "$S"
-    expect_state "the tick after set light --reason x" implementation
-    [ "$(ledger "$S" | jq -r 'select(.event == "choose") | "\(.to)|\(.reason)"')" = "light|x" ] \
-        && pass "the ledger records the choice and its reason" || fail "ledger is [$(ledger "$S")]"
+    tick "$S" '{"implementation_status":"complete"}'
+    [ "$NEXT_STATE" = issue_type_routing ] && tick "$S" '{"issue_type":"code"}'
+    expect_state "a code run that never submitted a level, in the tick that answers its type" light_review
+    expect_visits "$S" review_level_check 1
+    [ "$(events "$S")" = "bound from_facts check" ] && pass "the check set the level from the facts" \
+        || fail "ledger events are [$(events "$S")]"
+    [ "$(ledger "$S" | jq -r 'select(.event == "from_facts") | "\(.to)|\(.source)"')" = "light|facts" ] \
+        && pass "the from_facts line names light, from the facts" || fail "ledger is [$(ledger "$S")]"
+fi
+
+# A raise made at analysis, before anything is implemented, survives to the
+# level check, which keeps it over a lighter facts floor: the run takes the
+# full panel set.
+S=raise-at-analysis
+if AT_ANALYSIS='"$RL" set "$s" full --reason "the plan touches the release path" >"$WORKDIR/set.out" 2>&1' \
+    new_case "$S" "$SMALL"; then
+    [ "$(ledger "$S" | jq -r 'select(.event == "choose") | "\(.to)|\(.reason)"')" = "full|the plan touches the release path" ] \
+        && pass "set at analysis is accepted and recorded with its reason" || fail "ledger is [$(ledger "$S")]: $(cat "$WORKDIR/set.out")"
+    expect_state "plan_ready after a raise at analysis" implementation
+    tick "$S" '{"implementation_status":"complete"}'
+    [ "$NEXT_STATE" = issue_type_routing ] && tick "$S" '{"issue_type":"code"}'
+    expect_state "a docs-sized change raised to full at analysis" scrutiny
+    [ "$(events "$S")" = "bound choose check" ] && pass "the check kept the raise: no from_facts line" \
+        || fail "ledger events are [$(events "$S")]"
+    [ "$(ledger "$S" | tail -n 1 | jq -r '"\(.level)|\(.floor)"')" = "full|light" ] \
+        && pass "the check line is at full over a light facts floor" || fail "last line: $(ledger "$S" | tail -n 1)"
+    pass_scrutiny "$S"
+    pass_review "$S"
+    expect_state "its passed review at full" qa_validation
+fi
+
+S=no-level-standard
+if new_case "$S" 'mkdir -p scripts && seq 1 5 > scripts/tool.sh'; then
+    tick "$S" '{"implementation_status":"complete"}'
+    expect_state "a script change with no level submitted, decided by code_route" scrutiny
+    expect_visits "$S" review_level_check 1
+    expect_visits "$S" issue_type_routing 1
+    GOT=$(ledger "$S" | jq -r 'select(.event == "from_facts") | "\(.to)|\(.rule)"')
+    [ "$GOT" = "standard|class:executable" ] && pass "the check set standard, naming the rule" || fail "from_facts is [$GOT]"
 fi
 
 # ==============================================================================
 echo "--- engine: light"
 
 S=light
-if new_case "$S" "$SMALL" && choose_and_implement "$S" light code; then
+if new_case "$S" "$SMALL" && choose_and_implement "$S" - code; then
     expect_state "a light code run under every threshold" light_review
     GOT=$(koto context get "$S" light_scope.json 2>/dev/null | jq -r '[.decisions[] | "\(.seat):\(.decision)"] | join(",")')
     [ "$GOT" = "reviewer:full" ] && pass "the light panel plans its one seat" || fail "light_scope.json decisions are [$GOT]"
@@ -393,7 +450,7 @@ if new_case "$S" "$SMALL" && choose_and_implement "$S" light code; then
     expect_state "a passed light round" verification
     for st in scrutiny review qa_validation; do expect_visits "$S" "$st" 0; done
     expect_visits "$S" light_review 1
-    [ "$(events "$S")" = "bound choose check" ] && pass "the ledger reads bound, choose, check" \
+    [ "$(events "$S")" = "bound from_facts check" ] && pass "the ledger reads bound, from_facts, check" \
         || fail "ledger events are [$(events "$S")]"
 fi
 
@@ -412,7 +469,7 @@ if new_case "$S" "$SMALL" && choose_and_implement "$S" standard code; then
 fi
 
 S=standard-md
-if new_case "$S" 'printf "more\n" >> skills/demo/SKILL.md' && choose_and_implement "$S" standard code; then
+if new_case "$S" 'printf "more\n" >> skills/demo/SKILL.md' && choose_and_implement "$S" - code; then
     expect_state "a standard run changing only .md under skills/" scrutiny
     pass_scrutiny "$S"
     pass_review "$S"
@@ -439,17 +496,17 @@ fi
 echo "--- engine: docs and task"
 
 S=docs
-if new_case "$S" "$SMALL" docs && choose_and_implement "$S" light docs; then
+if new_case "$S" "$SMALL" docs && choose_and_implement "$S" - docs; then
     expect_state "a docs run" verification
     expect_visits "$S" review_level_check 0
-    [ "$(ledger "$S" | jq -r 'select(.event == "choose") | .to')" = light ] && pass "the docs run recorded its level" \
+    [ "$(events "$S")" = bound ] && pass "the docs run recorded the bound and no level" \
         || fail "docs ledger is [$(ledger "$S")]"
 fi
 S=task
 if new_case "$S" "$SMALL" task && choose_and_implement "$S" standard task; then
     expect_state "a task run" verification
     expect_visits "$S" review_level_check 0
-    [ "$(ledger "$S" | jq -r 'select(.event == "choose") | .to')" = standard ] && pass "the task run recorded its level" \
+    [ "$(ledger "$S" | jq -r 'select(.event == "choose") | .to')" = standard ] && pass "the task run kept the level it set" \
         || fail "task ledger is [$(ledger "$S")]"
 fi
 
@@ -558,23 +615,13 @@ echo "--- engine: a light run below a standard floor"
 
 S=floor
 if new_case "$S" 'mkdir -p scripts && seq 1 5 > scripts/tool.sh' && choose_and_implement "$S" light code; then
-    expect_state "a light run that touched an executable path" review_level_check
-    for st in light_review scrutiny review qa_validation; do expect_visits "$S" "$st" 0; done
-    case "$NEXT_RESPONSE" in
-        *"hold: level light is below the facts floor standard (rule class:executable)"*)
-            pass "the hold names the floor and the rule" ;;
-        *) fail "the held response doesn't name the rule: $(printf '%s' "$NEXT_RESPONSE" | cut -c1-400)" ;;
-    esac
-    tick "$S"
-    expect_state "a second tick without a raise" review_level_check
-    setlevel "$S" standard
-    tick "$S"
-    expect_state "the tick after the raise" scrutiny
-    GOT=$(ledger "$S" | jq -r 'select(.event == "floor_raise" or .event == "check") | "\(.event):\(.to // .level)"' | tr '\n' ' ' | sed 's/ $//')
-    case "$GOT" in
-        *"floor_raise:standard check:standard") pass "the ledger holds floor_raise, then a check at standard" ;;
-        *) fail "level events are [$GOT]" ;;
-    esac
+    expect_state "a light choice that touched an executable path" scrutiny
+    expect_visits "$S" light_review 0
+    GOT=$(ledger "$S" | jq -r 'select(.event == "from_facts") | "\(.from)|\(.to)|\(.rule)"')
+    [ "$GOT" = "light|standard|class:executable" ] && pass "the check lifted light to the standard floor, naming the rule" \
+        || fail "from_facts is [$GOT]"
+    [ "$(events "$S")" = "bound choose from_facts check" ] && pass "the ledger reads bound, choose, from_facts, check" \
+        || fail "ledger events are [$(events "$S")]"
 fi
 
 # ==============================================================================
@@ -588,7 +635,7 @@ LIGHT_BLOCK=$(awk '
 [ -n "$LIGHT_BLOCK" ] || fail "could not extract the retry block from phase-4d-light.md"
 
 S=retry
-if new_case "$S" "$SMALL" && choose_and_implement "$S" light code; then
+if new_case "$S" "$SMALL" && choose_and_implement "$S" - code; then
     expect_state "the first light round" light_review
     record_round "$S" light '[{"seat":"reviewer","findings":[{"severity":"blocking","summary":"missing case","path":"docs/notes.md"}]}]'
     seed "$S" light_results.json
@@ -609,57 +656,42 @@ if new_case "$S" "$SMALL" && choose_and_implement "$S" light code; then
     git commit -q -am "fix: a bigger change"
     tick "$S" '{"implementation_status":"complete"}'
     tick "$S" '{"issue_type":"code"}'
-    expect_state "the light run whose fix passed 40 lines" review_level_check
-    case "$NEXT_RESPONSE" in
-        *"below the facts floor standard (rule lines>40)"*) pass "the hold names the lines rule" ;;
-        *) fail "the held response doesn't name lines>40: $(printf '%s' "$NEXT_RESPONSE" | cut -c1-400)" ;;
-    esac
+    expect_state "the light run whose fix passed 40 lines" scrutiny
     expect_visits "$S" light_review 1
-    setlevel "$S" standard
-    tick "$S"
-    expect_state "the raised run" scrutiny
+    GOT=$(ledger "$S" | jq -r 'select(.event == "from_facts") | "\(.to)|\(.rule)"' | tail -n 1)
+    [ "$GOT" = "standard|lines>40" ] && pass "the second lap's check raised the level on the lines rule" \
+        || fail "the last from_facts is [$GOT]"
 fi
 
 # ==============================================================================
 echo "--- engine: a hand rebind"
 
+# A hand rebind made before the check can't steer it: the check routes on the
+# ledger, in the tick that enters it, and its action rebinds the variable.
 S=rebind
 if new_case "$S" "$SMALL"; then
     setlevel "$S" standard
-    tick_past_choice "$S"
     tick "$S" '{"implementation_status":"complete"}'
     koto init "$S" --template "$TEMPLATE" --attach-live --var PLUGIN_ROOT="$PLUGIN_ROOT" \
-        --var REVIEW_LEVEL=full >/dev/null 2>&1 || fail "$S: the hand rebind was refused"
+        --var REVIEW_LEVEL=light >/dev/null 2>&1 || fail "$S: the hand rebind was refused"
     tick "$S" '{"issue_type":"code"}'
-    expect_state "a hand rebind to full over a ledger at standard" review_level_check
-    case "$NEXT_RESPONSE" in
-        *"REVIEW_LEVEL is full but the ledger's last level is standard"*) pass "the hold names both levels" ;;
-        *) fail "the held response doesn't name both levels: $(printf '%s' "$NEXT_RESPONSE" | cut -c1-400)" ;;
-    esac
-    expect_visits "$S" scrutiny 0
-    setlevel "$S" standard
-    tick "$S"
-    expect_state "after set puts the level back" scrutiny
+    expect_state "a hand rebind to light over a ledger at standard" scrutiny
+    expect_visits "$S" light_review 0
+    GOT=$(jq -rs '[.[] | select(.type == "variables_rebound") | .payload.variables.REVIEW_LEVEL // empty] | last // ""' \
+        "$HOME/.koto/sessions/$S/koto-$S.state.jsonl" 2>/dev/null)
+    [ "$GOT" = standard ] && pass "the check rebound REVIEW_LEVEL to the ledger's level" || fail "REVIEW_LEVEL was last rebound to [$GOT]"
 fi
 
-# An attach that doesn't pass REVIEW_LEVEL (a resume, say) resets it to empty.
-# With a level in the ledger that is not the unset route: the check holds.
+# An attach that doesn't pass REVIEW_LEVEL (a resume, say) resets it to empty;
+# the check routes on the ledger all the same.
 S=reset
 if new_case "$S" "$SMALL"; then
     setlevel "$S" standard
-    tick_past_choice "$S"
     tick "$S" '{"implementation_status":"complete"}'
     koto init "$S" --template "$TEMPLATE" --attach-live --var PLUGIN_ROOT="$PLUGIN_ROOT" >/dev/null 2>&1 \
         || fail "$S: the attach was refused"
     tick "$S" '{"issue_type":"code"}'
-    expect_state "an emptied level over a ledger at standard" review_level_check
-    case "$NEXT_RESPONSE" in
-        *"REVIEW_LEVEL is empty but the ledger's last level is standard"*) pass "the hold names the ledger's level" ;;
-        *) fail "the held response doesn't name the ledger's level: $(printf '%s' "$NEXT_RESPONSE" | cut -c1-400)" ;;
-    esac
-    setlevel "$S" standard
-    tick "$S"
-    expect_state "after set rebinds it" scrutiny
+    expect_state "an emptied level over a ledger at standard" scrutiny
 fi
 
 # ==============================================================================
@@ -699,7 +731,7 @@ if new_case "$S" "$SMALL" && choose_and_implement "$S" full code; then
 fi
 
 S=rebind-light
-if new_case "$S" "$SMALL" && choose_and_implement "$S" light code; then
+if new_case "$S" "$SMALL" && choose_and_implement "$S" - code; then
     expect_state "a light code run" light_review
     hand_rebind "$S" standard
     pass_light "$S"
@@ -712,32 +744,6 @@ if new_case "$S" "$SMALL" && choose_and_implement "$S" light code; then
     setlevel "$S" light
     tick "$S"
     expect_state "after set puts the ledger's level back" verification
-fi
-
-# ==============================================================================
-echo "--- engine: the level unset at the check"
-
-S=unset
-if new_case "$S" "$SMALL"; then
-    setlevel "$S" light
-    tick_past_choice "$S"
-    tick "$S" '{"implementation_status":"complete"}'
-    # The state a session from an earlier template is in: no level, and no
-    # level ledger. An attach that omits an optional rebind variable resets
-    # it, which is how the variable is emptied here.
-    koto init "$S" --template "$TEMPLATE" --attach-live --var PLUGIN_ROOT="$PLUGIN_ROOT" >/dev/null 2>&1 \
-        || fail "$S: clearing the level was refused"
-    koto context remove "$S" review_level.jsonl >/dev/null 2>&1
-    tick "$S" '{"issue_type":"code"}'
-    expect_state "a code run with no level" scrutiny
-    pass_scrutiny "$S"
-    pass_review "$S"
-    expect_state "its passed review" qa_validation
-    pass_qa "$S"
-    expect_state "its passed QA round" verification
-    expect_visits "$S" light_review 0
-    ledger "$S" | jq -e 'select(.event == "unset")' >/dev/null 2>&1 && pass "the ledger has an unset line" \
-        || fail "no unset line: $(events "$S")"
 fi
 
 git checkout -q main

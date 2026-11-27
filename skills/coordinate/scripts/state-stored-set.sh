@@ -25,6 +25,7 @@
 #   state-stored-set.sh --session S --intake LABEL --by WHO
 #   state-stored-set.sh --session S --work ITEM --kind holding|local-agent|decision|follow-up --who W --next TEXT
 #   state-stored-set.sh --session S --done ITEM [--kind K]
+#   state-stored-set.sh --session S --done ITEM --kind holding --who W
 #   state-stored-set.sh --session S --list
 #   state-stored-set.sh --session S --rules [--id s<n>]...
 #   state-stored-set.sh --session S --rules --counts
@@ -358,8 +359,13 @@
 # kind. Such a row keeps the unit's later work in the record until a holding
 # takes it: a holding's --work for ITEM removes ITEM's decision and follow-up
 # rows, unless that holding is at Phase scoping (the one whose merge wrote the
-# follow-up). An ITEM has at most one row per kind. --done removes ITEM's rows, or
-# only its --kind K row. Every write also drops a holding row whose holding
+# follow-up). An ITEM has at most one row per kind, except holding rows,
+# which are one per ITEM and worker: a unit can hold two live topics at once,
+# and each holding's --work writes and replaces only its own row
+# (shirabe#1588). --done removes ITEM's rows, or only its --kind K rows; with
+# --kind holding, --who W removes only W's holding row of ITEM (--who goes
+# with --done only beside --kind holding, 64 otherwise), and refuses when W
+# has none. Every write also drops a holding row whose holding
 # is gone, so a teardown leaves no orphan. A verdict-owed row (a milestone
 # whose verdict is owed, docs/designs/DESIGN-milestone-verdicts.md) is listed
 # and kept by every write here, but only roadmap-status.sh writes or removes
@@ -495,7 +501,8 @@ case "$MODE" in
             [[ $ILABEL =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] \
                 || { echo "$PROG: --intake takes a brief's label: letters, digits, \`.\`, \`_\` and \`-\`, starting with a letter or a digit" >&2; exit 64; } ;;
     work) [ -n "$KIND" ] && [ -n "$WHO" ] && [ -n "$NEXT" ] && [ -z "$BY$WHAT$OWNER$RELAYED$ON$UNTIL" ] || usage ;;
-    done) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$ON$UNTIL" ] || usage ;;
+    done) [ -z "$BY$WHAT$OWNER$RELAYED$NEXT$ON$UNTIL" ] || usage
+          [ -z "$WHO" ] || [ "$KIND" = holding ] || usage ;;
     list) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     rules) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage
            while IFS= read -r RID; do
@@ -1367,12 +1374,14 @@ work)
     # A holding's first Work row is written at its dispatch, whose brief named
     # this coordinator's address, so it records the worker as told; a later
     # update records nothing of the kind, since after an address change the
-    # worker has been told nothing until --told says so.
+    # worker has been told nothing until --told says so. Both this and the
+    # Wakes count read the holding's own row, ITEM and W: another holding's
+    # row on the same unit is not this one's.
     FIRST=true
-    jq -e --arg i "$ITEM" 'any((.work // [])[]; .item == $i and .kind == "holding")' "$P" > /dev/null && FIRST=false
+    jq -e --arg i "$ITEM" --arg w "$WHO" 'any((.work // [])[]; .item == $i and .kind == "holding" and .who == $w)' "$P" > /dev/null && FIRST=false
     WAKES=0
     if [ "$KIND" = holding ]; then
-        PREV=$(jq -c --arg i "$ITEM" '[(.work // [])[] | select(.item == $i and .kind == "holding")][0] // {}' "$P")
+        PREV=$(jq -c --arg i "$ITEM" --arg w "$WHO" '[(.work // [])[] | select(.item == $i and .kind == "holding" and .who == $w)][0] // {}' "$P")
         RP=$(jq -r --arg u "$ITEM" --arg w "$WHO" '[.holdings[] | select(.unit == $u and .worker == $w) | .return_path][0] // ""' "$P")
         PREV_UPD=$(printf '%s' "$PREV" | jq -r '.updated // ""') || lib_die2 "jq failed"
         ADD=$(wakes_since "$WHO" "$RP" "$PREV_UPD")
@@ -1384,12 +1393,13 @@ work)
     TAKES=false
     [ "$KIND" = holding ] && ! jq -e --arg u "$ITEM" --arg w "$WHO" 'any(.holdings[]; .unit == $u and .worker == $w and .phase == "scoping")' "$P" > /dev/null && TAKES=true
     jq --arg i "$ITEM" --arg k "$KIND" --arg w "$WHO" --arg n "$NEXT" --arg t "$NOW" --arg c "$WAKES" --arg h "$REPO" --argjson first "$FIRST" --argjson takes "$TAKES" '
-        # The row ITEM has under this kind is replaced, and the ones a
-        # holding takes over: its unit by tag, a Unit cell `<tag>: <title>`
-        # read as its tag, an issue as `#<n>` or `<host>#<n>`.
+        # The row ITEM has under this kind is replaced (for a holding, the
+        # row of ITEM and this worker only), and the ones a holding takes
+        # over: its unit by tag, a Unit cell `<tag>: <title>` read as its
+        # tag, an issue as `#<n>` or `<host>#<n>`.
         ($i | split(": ")[0]) as $tag
         | def same_unit: . == $tag or ($h + .) == $tag or . == ($h + $tag);
-        .work = ([(.work // [])[] | select((.item == $i and .kind == $k)
+        .work = ([(.work // [])[] | select((.item == $i and .kind == $k and ($k != "holding" or .who == $w))
                     or ($takes and (.kind == "decision" or .kind == "follow-up") and (.item | same_unit)) | not)]
                  + [{item: $i, kind: $k, who: $w, next: $n, wakes: $c, updated: $t}])
         | if $k == "holding" and $first and any((.run // [])[]; .key == "coordinator") and (any((.run // [])[]; .key == "told" and .value == $w) | not)
@@ -1403,10 +1413,11 @@ done)
     # A verdict-owed row leaves only when its verdict's roadmap edit is
     # confirmed (roadmap-status.sh --confirm), never by hand.
     [ "$KIND" != verdict-owed ] || refuse "a verdict-owed row leaves Work only through roadmap-status.sh --confirm, once its verdict's roadmap edit is on the default branch"
-    jq -e --arg i "$ITEM" --arg k "$KIND" 'any((.work // [])[]; .item == $i and .kind != "verdict-owed" and ($k == "" or .kind == $k))' "$P" > /dev/null \
-        || refuse "no Work row for $ITEM${KIND:+ of kind $KIND}"
-    jq --arg i "$ITEM" --arg k "$KIND" '.work = [(.work // [])[] | select(.item != $i or .kind == "verdict-owed" or ($k != "" and .kind != $k))]' "$P" > "$WD/next.json" || lib_die2 "jq failed"
-    EKIND=work ETEXT="$ITEM${KIND:+ ($KIND)} is done and leaves Work."
+    # --who (only beside --kind holding) narrows it to that worker's row.
+    jq -e --arg i "$ITEM" --arg k "$KIND" --arg w "$WHO" 'any((.work // [])[]; .item == $i and .kind != "verdict-owed" and ($k == "" or .kind == $k) and ($w == "" or .who == $w))' "$P" > /dev/null \
+        || refuse "no Work row for $ITEM${KIND:+ of kind $KIND}${WHO:+ and worker $WHO}"
+    jq --arg i "$ITEM" --arg k "$KIND" --arg w "$WHO" '.work = [(.work // [])[] | select(.item != $i or .kind == "verdict-owed" or ($k != "" and .kind != $k) or ($w != "" and .who != $w))]' "$P" > "$WD/next.json" || lib_die2 "jq failed"
+    EKIND=work ETEXT="$ITEM${KIND:+ ($KIND${WHO:+, $WHO})} is done and leaves Work."
     ;;
 esac
 
@@ -1416,8 +1427,10 @@ P_NEXT="$WD/next.json"
 jq -c '([.holdings[] | "\(.unit)\u0000\(.worker)"]) as $h
     | [(.work // [])[] | select(.kind == "holding" and (("\(.item)\u0000\(.who)" as $k | $h | index($k)) | not))]' "$P_NEXT" > "$WD/leaving.json" || lib_die2 "jq failed"
 if [ "$MODE" = done ]; then
-    jq -c --arg i "$ITEM" --arg k "$KIND" '[(.work // [])[] | select(.item == $i and .kind == "holding" and ($k == "" or $k == "holding"))]' "$P" > "$WD/done.json" || lib_die2 "jq failed"
-    jq -sc 'add | unique_by(.item)' "$WD/leaving.json" "$WD/done.json" > "$WD/leaving2.json" && mv "$WD/leaving2.json" "$WD/leaving.json"
+    jq -c --arg i "$ITEM" --arg k "$KIND" --arg w "$WHO" '[(.work // [])[] | select(.item == $i and .kind == "holding" and ($k == "" or $k == "holding") and ($w == "" or .who == $w))]' "$P" > "$WD/done.json" || lib_die2 "jq failed"
+    # One entry per holding row, keyed by item and worker: two holdings on
+    # one unit each get their line.
+    jq -sc 'add | unique_by([.item, .who])' "$WD/leaving.json" "$WD/done.json" > "$WD/leaving2.json" && mv "$WD/leaving2.json" "$WD/leaving.json"
 fi
 : > "$WD/leaving.txt"
 n=$(jq length "$WD/leaving.json")

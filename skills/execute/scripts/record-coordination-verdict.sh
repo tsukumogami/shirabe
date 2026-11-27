@@ -88,7 +88,7 @@ RE_SLUG='^[a-z0-9-]+$'
 RE_URL='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$'
 RE_VERDICT='^(merged|ready|paused|dirty|error)$'
 RE_WAITING_ENTRY='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*:(human|predecessor)$'
-RE_RESUME='^/execute [A-Za-z0-9._/-]+\.md( --merge)?$'
+RE_RESUME='^/execute [A-Za-z0-9._/+-]+\.md( --merge)?$'
 RE_REASON='^(merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|merge-refused|merge-refused:(body-stale|body-full|squash-message)|predecessor-unmerged|gate-unverified|follow-up-closed:https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)$'
 # The same step set as coordination-verdict.sh's RE_STEP_SET: add a step to both.
 RE_STEP='^execute:(pr-closed|ready|ci|ci-timeout|status-read|pr-adopt|write-set|dispatch|push|cascade|merge-gate|visibility|coord-loop|deferral-record|rerun-record)$'
@@ -215,6 +215,7 @@ if [ -n "$WAITING" ]; then
     done
 fi
 [ -z "$RESUME" ] || [[ $RESUME =~ $RE_RESUME ]] || bad "resume [$RESUME] is not an /execute command"
+case "/${RESUME#/execute } " in */../*) bad "resume [$RESUME] has a .. segment" ;; esac
 [ -z "$REASON" ] || [[ $REASON =~ $RE_REASON ]] || bad "reason [$REASON] is outside the closed condition set"
 [ -z "$STEP" ] || [[ $STEP =~ $RE_STEP ]] || bad "step [$STEP] is outside the closed step set"
 if [ "$V" = error ] && [ -z "$STEP" ]; then bad "an error verdict carries no step"; fi

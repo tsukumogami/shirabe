@@ -3381,8 +3381,8 @@
         },
         "fixtures": "scripts/jev-criteria/fixtures/work-on-review-level-fits-facts.jsonl",
         "declared": {
-          "sha256": "b20868a8c8a5acc2163612136b18297e355910376a8b7e1c8fbf087817183dd8",
-          "since": "2026-10-20"
+          "sha256": "dc17f8427da843021979d4bc7b7fd5782ab847a2ba6741aad373546723c9a726",
+          "since": "2026-11-25"
         },
         "false_passes": []
       }
@@ -5406,7 +5406,8 @@
       ],
       "level": "gate",
       "timing": [
-        "work-on:review_level_choice",
+        "work-on:reproduce",
+        "work-on:implementation",
         "work-on:pr_creation"
       ],
       "guards": [

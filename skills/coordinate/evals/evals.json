@@ -882,14 +882,14 @@
       "id": 46,
       "name": "a-director-dispatches-a-lane-as-a-manager",
       "prompt": "You are the director for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets; your run is recorded director. Feature 4 is its own roadmap, docs/roadmaps/ROADMAP-plugin-registry.md, and pick chose to dispatch it under the topic plugin-registry to a coordinator that runs that roadmap's units. Walk through the brief input you write and what the rendered brief's invocation line and the dispatch prompt carry.",
-      "expected_output": "The coordinator writes a brief input with entry point coordinate and the lane's roadmap path as its one positional, and leaves the role out: dispatch-worker.sh writes it, and for a roadmap other than this run's own it writes manager on every new dispatch, whatever the input says or the dispatching run's own role. The Goal names the concrete scope (the registry roadmap and its units) and doesn't say what a manager owes or call the recipient by any role; it may name this director as the reviewer the manager reports to. The rendered Goal's invocation line reads Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-registry.md --role manager` in acme/widgets., the brief's one role line, and the niwa dispatch prompt carries the same invocation. No --role goes to niwa dispatch as a flag of its own.",
+      "expected_output": "The coordinator writes a brief input with entry point coordinate and the lane's roadmap path as its one positional, and leaves the role out: dispatch-worker.sh writes it, and for a roadmap other than this run's own it writes manager on every new dispatch, whatever the input says or the dispatching run's own role. The Goal names the concrete scope (the registry roadmap and its units) and doesn't say what a manager owes or call the recipient by any role; it may name this director as the reviewer the manager reports to. The rendered Goal's invocation line reads Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-registry.md --role manager` in acme/widgets., the brief's one role line, and the niwa dispatch prompt starts with the same invocation, on a line of its own, ahead of the authority and the brief's path, with --profile coordinator on the launch when niwa dispatch --help lists it. No --role goes to niwa dispatch as a flag of its own.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
       "expectations": [
         "The brief input has entry point coordinate, the lane's roadmap path as its positional, and no role field written by hand",
         "The rendered invocation line is `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-registry.md --role manager`, the brief's one role line",
-        "The dispatch prompt carries the same invocation, and no --role is passed to niwa dispatch as its own flag",
+        "The dispatch prompt starts with the same invocation on a line of its own, the launch asks for --profile coordinator when niwa lists the flag, and no --role is passed to niwa dispatch as its own flag",
         "The Goal names the registry roadmap's scope and work, makes no general statement of a role's duties, and names no role for the coordinator it starts"
       ],
       "requirements": [
@@ -1408,6 +1408,24 @@
       ],
       "requirements": [
         "R22"
+      ]
+    },
+    {
+      "id": 75,
+      "name": "coordinator-dispatch-asks-for-the-coordinator-profile",
+      "prompt": "You are coordinating docs/roadmaps/ROADMAP-plugin-system.md in acme/widgets. Pick chose to dispatch feature 4, its own roadmap docs/roadmaps/ROADMAP-plugin-registry.md, to a lane under the topic plugin-registry, and feature 5 to a /work-on worker under the topic plugin-api. The installed niwa lists --profile in niwa dispatch --help, and the workspace declares a coordinator dispatch profile. Say what each dispatch passes to niwa dispatch and how each prompt starts, and what changes for the lane when the workspace declares no coordinator profile or the niwa is older and has no --profile.",
+      "expected_output": "Both go through dispatch-worker.sh. The lane is a coordinator, so its launch carries --profile coordinator and its prompt starts with /shirabe:coordinate docs/roadmaps/ROADMAP-plugin-registry.md --role manager on a line of its own, then the authority, where it works, the last checkpoint and the brief to read: under that profile the session can't call the Skill tool, and the leading slash command is how its skill loads. The worker gets no --profile and keeps its prompt, the authority followed by Run `/shirabe:work-on ...` in acme/widgets. If the workspace declares no coordinator profile, niwa refuses the name before provisioning anything and dispatch-worker.sh launches the lane once more without it. An older niwa without --profile gets no flag, a stderr line names it, and the lane's prompt still starts with the invocation. A brief input's launch.profile would name a different profile instead, and that one is never dropped on a refusal.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The lane's launch carries --profile coordinator and the worker's carries no --profile",
+        "The lane's prompt starts with its /shirabe:coordinate invocation on a line of its own, and the worker's prompt is unchanged",
+        "A workspace with no coordinator profile gets the lane relaunched once without it, and an older niwa gets no --profile with the prompt still starting with the invocation",
+        "launch.profile in the brief input names another profile, which a refusal never drops"
+      ],
+      "requirements": [
+        "R7"
       ]
     }
   ]

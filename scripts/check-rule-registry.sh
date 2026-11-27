@@ -152,7 +152,7 @@ RULE_IDS_LINE='^RULE_IDS="([a-z0-9/-]+( [a-z0-9/-]+)*)"$'
 COMMENT_LINE='^[[:space:]]*#'
 # The guards vocabulary less `none`: the actions a guard, a backstop or a
 # deny can name. rule-registry.sh keeps the same list for its run-time stage
-# safety rule; check-rule-registry_test.sh fails when the two differ.
+# safety rule; check-rule-registry_3_test.sh fails when the two differ.
 PROTECTED='["pr-create","push","force-push","merge","close-issue","release","delete-branch","publish","destroy-record"]'
 # A script entry's stage, in rising order of what a finding does; retired
 # prints nothing.
@@ -681,7 +681,7 @@ done
 while IFS= read -r f; do
     rel=${f#"$ROOT"/}
     case "$rel" in
-        scripts/check-rule-registry.sh|scripts/check-rule-registry-adoption.sh|scripts/check-rule-registry_test.sh) ;;
+        scripts/check-rule-registry.sh|scripts/check-rule-registry-adoption.sh|scripts/check-rule-registry_[1-4]_test.sh) ;;
         *) problem "$rel names $OLD_TABLE, which the registry replaced" ;;
     esac
 done < "$TMP/old-table"

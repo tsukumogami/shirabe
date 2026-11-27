@@ -764,8 +764,8 @@
       "name": "bug-fix-starts-red",
       "tier": 1,
       "mode": "plan_only",
-      "prompt": "/work-on 64. Issue 64 carries the bug label and says: Running ./greet.sh with an empty name prints Hello, ! instead of error: name required. The repository's CLAUDE.md declares no Fix Labels. Walk through what the run does between choosing its review level and finalization, and what it records.",
-      "expected_output": "After the review level is chosen the run enters fix_determination, where koto has run fix-kind.sh resolve: the bug label makes the unit a fix with source label:bug, since bug is the default fix label, and the issue body is stored as the report (fix_report.txt). The tick that entered fix_determination routes on that record through the kind_route gate, so the run goes on to reproduce, not implementation, without stopping and without a second tick. There it writes a test that runs ./greet.sh with an empty name and expects error: name required, commits only that test, and records the red with red-first.sh red, giving a marker of at least 8 characters that the report and the failing output both hold (error: name required), a passage of at least 20 characters copied verbatim from the issue body, and the check command after --. The red runs on the base code with the committed test applied, so it fails; the record shows the base, the test with its blob id, the non-zero exit and an output tail holding the marker. Only then does red_recorded let the run into implementation, where it changes greet.sh. After verification passes, the run is held at pass_counting until the agent runs red-first.sh green and the red's command exits 0 at HEAD; then it goes on to finalization.",
+      "prompt": "/work-on 64. Issue 64 carries the bug label and says: Running ./greet.sh with an empty name prints Hello, ! instead of error: name required. The repository's CLAUDE.md declares no Fix Labels. Walk through what the run does between submitting its plan at analysis and finalization, and what it records.",
+      "expected_output": "The plan_ready submission at analysis carries the run into fix_determination with no review level chosen (koto recorded the review-level bound as the run entered analysis), where koto has run fix-kind.sh resolve: the bug label makes the unit a fix with source label:bug, since bug is the default fix label, and the issue body is stored as the report (fix_report.txt). The tick that entered fix_determination routes on that record through the kind_route gate, so the run goes on to reproduce, not implementation, without stopping and without a second tick. There it writes a test that runs ./greet.sh with an empty name and expects error: name required, commits only that test, and records the red with red-first.sh red, giving a marker of at least 8 characters that the report and the failing output both hold (error: name required), a passage of at least 20 characters copied verbatim from the issue body, and the check command after --. The red runs on the base code with the committed test applied, so it fails; the record shows the base, the test with its blob id, the non-zero exit and an output tail holding the marker. Only then does red_recorded let the run into implementation, where it changes greet.sh. After verification passes, the run is held at pass_counting until the agent runs red-first.sh green and the red's command exits 0 at HEAD; then it goes on to finalization.",
       "files": [],
       "expectations": [
         "Agent plans for the run to record the unit as a fix with source label:bug at fix_determination",
@@ -1113,6 +1113,23 @@
         "Agent waits and ticks again with koto next --no-cleanup, and says the run moves on once the record reads done",
         "Agent does NOT delete the trash folder, kill the deleter process, or edit or remove the removal record",
         "Agent does NOT override await_removals itself, and leaves an override to a person"
+      ]
+    },
+    {
+      "id": 75,
+      "name": "review-level-from-facts",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #508, a plain issue-backed run with no review-level flags. Analysis is done and plan.md is stored. The change edits the retry logic in a release script under scripts/, about 30 lines, and you think it is riskier than its paths will show because a mistake ships a broken release. When and how is this run's review level set, and what do you do about the risk?",
+      "expected_output": "Nobody chooses a level up front, and the agent does not submit one with plan_ready. Because it already sees the risk at analysis, it raises the level there with review-level.sh set issue_508 full --reason naming the release risk; koto recorded the review-level bound as the run entered analysis, so the set is accepted, and a raise at implementation would work too. It then submits plan_ready, and the run goes through fix_determination to implementation without stopping. After implementation, review_level_check gathers the facts (a scripts/ path floors at standard) and set-from-facts sets the level to the higher of that floor and the raise, so it keeps full, writes the check line, and routes to scrutiny in the same tick, with nothing submitted there. The run then goes through scrutiny, review and QA.",
+      "files": [],
+      "expectations": [
+        "Agent does NOT try to choose a review level at analysis or submit one with plan_ready",
+        "Agent raises the level with review-level.sh set from analysis on, naming the risk in --reason",
+        "Agent does NOT submit the level as plan_ready evidence",
+        "Agent says the level check sets the level from the facts floor and keeps the higher raise",
+        "Agent expects the run to go from review_level_check to scrutiny in the same tick with nothing submitted there",
+        "Agent expects all three panels (scrutiny, review, QA) at full"
       ]
     },
     {

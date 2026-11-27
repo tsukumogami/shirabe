@@ -954,7 +954,7 @@ states:
         description: What was fixed or why CI failures are unresolvable
     transitions:
       # Every way on goes through merge_readiness, which re-reads the PR and
-      # owns the per-head-commit CI deadline. A PR that has already merged
+      # owns the CI deadline. A PR that has already merged
       # routes with no evidence, whatever the CI and merge-state gates say;
       # merge_readiness's verdict reads it as `merged`. Every edge below that
       # needs the lookup at 0 also needs owned_pr_merged at 1, which is what
@@ -993,7 +993,7 @@ states:
           gates.owned_pr_merged.exit_code: 1
           ci_outcome: failing_fixed
       # pending: checks are still running. merge_readiness's verdict waits on
-      # them (pending:checks) up to the per-head-commit deadline, then ends
+      # them (pending:checks) up to the CI deadline, then ends
       # the run at execute:ci-timeout, so waiting is bounded there.
       - target: merge_readiness
         when:
@@ -1904,7 +1904,7 @@ If failures are unresolvable, submit `ci_outcome: failing_unresolvable` with rat
 
 **CI repair is capped at 3 fix pushes, all within this one visit to `ci_monitor`.** Nothing routes back here: `failing_fixed` goes to `merge_readiness`, which waits on the new head's checks and records a failed one as the `error:execute:ci` verdict, so a head that is red after the run leaves `ci_monitor` ends the run at `done_blocked` (`execute:ci`). More than one fix push happens only when you read a fix's checks here before submitting. Once a third fix push has failed, submit `ci_outcome: failing_unresolvable` with rationale, which ends the run at `done_blocked` (`execute:ci`). Never stop to ask the user in an unattended run. The cap is set by `docs/decisions/DECISION-contradiction-retry-caps-2026-09-28.md`, and is stated here only until koto enforces retry caps from its own attempt counts; the number stays 3 when it does, and this paragraph goes.
 
-**Waiting on CI is bounded, and not here.** If checks are still pending, don't loop in this state: submit `ci_outcome: pending`. `merge_readiness` reads the checks itself and waits on them against a per-head-commit deadline (1800 s from the head commit's date, `EXECUTE_CI_WAIT_LIMIT_SECS`), after which the run ends at `step=execute:ci-timeout`. Green CI (on the gates), `failing_fixed`, and `pending` all go to `merge_readiness`; nothing here ends the run as green on your word.
+**Waiting on CI is bounded, and not here.** If checks are still pending, don't loop in this state: submit `ci_outcome: pending`. `merge_readiness` reads the checks itself and waits on them against a CI deadline (1800 s from each pending check's start, or from the head commit's date for a check that reports no start, `EXECUTE_CI_WAIT_LIMIT_SECS`), after which the run ends at `step=execute:ci-timeout`. Green CI (on the gates), `failing_fixed`, and `pending` all go to `merge_readiness`; nothing here ends the run as green on your word.
 
 A `DIRTY` PR needs nothing from you: koto routes it to `escalate_dirty_merge_state` → `done_blocked` with the DIRTY-specific failure reason. The operator's recovery is to merge the default branch into the shared branch and resolve the conflicts before re-running CI, never a rebase or a force push; the koto state machine does not retry automatically because the resolution takes judgment about what preserves the PLAN's intent.
 
@@ -2016,7 +2016,7 @@ Evidence schema (optional; the passing path submits neither):
 
 The merge verdict is recorded, and it says to wait.
 
-Read it with `koto context get {{SESSION_NAME}} merge_verdict`. Wait a minute or two, then submit `recheck: waited`; `merge_readiness` recomputes the verdict. You don't need to track the time yourself: the verdict measures the CI deadline from the head commit's date, so a check still pending past it comes back as `error:execute:ci-timeout` and ends the run. Don't write `merge_verdict` yourself; a value outside the verdict grammar ends the run at `step=execute:status-read`.
+Read it with `koto context get {{SESSION_NAME}} merge_verdict`. Wait a minute or two, then submit `recheck: waited`; `merge_readiness` recomputes the verdict. You don't need to track the time yourself: the verdict measures the CI deadline from each pending check's start (the head commit's date for a check that reports none), so a check still pending past it comes back as `error:execute:ci-timeout` and ends the run. Don't write `merge_verdict` yourself; a value outside the verdict grammar ends the run at `step=execute:status-read`.
 
 Evidence schema:
 - `recheck`: `waited`

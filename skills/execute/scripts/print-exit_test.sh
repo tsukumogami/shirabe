@@ -176,6 +176,24 @@ repos=o/r,o/s
 pr=$URL2 waiting=predecessor
 resume=/execute docs/plans/PLAN-topic.md"
 
+# A niwa instance directory is named <workspace>+<instance>, so the resume
+# command for a PLAN under one holds a `+`.
+check "coordinated: a resume whose PLAN path holds a +" \
+    "$(result success '{outcome: "paused-awaiting-merges", repos: "o/r,o/s", resume: "/execute /w/ws+inst/docs/plans/PLAN-topic.md", waiting: "https://github.com/o/s/pull/9:predecessor"}')" \
+"outcome=paused-awaiting-merges
+repos=o/r,o/s
+pr=$URL2 waiting=predecessor
+resume=/execute /w/ws+inst/docs/plans/PLAN-topic.md"
+
+for bad in '/execute /w/ws+inst/PLAN-topic.md;x.md' '/execute /w/$(x)/PLAN-topic.md' \
+    '/execute /w/`x`/PLAN-topic.md' '/execute docs/../PLAN-topic.md'; do
+    check "coordinated: a resume [$bad] is dropped" \
+        "$(result success "{outcome: \"paused-awaiting-merges\", repos: \"o/r,o/s\", resume: \"$bad\", waiting: \"https://github.com/o/s/pull/9:predecessor\"}")" \
+"outcome=paused-awaiting-merges
+repos=o/r,o/s
+pr=$URL2 waiting=predecessor"
+done
+
 check "coordinated: a pause naming its condition, resumed with --merge" \
     "$(result success '{outcome: "paused-awaiting-merges", repos: "o/r", reason: "merge-not-observed", resume: "/execute docs/plans/PLAN-topic.md --merge", waiting: "https://github.com/o/r/pull/7:human,https://github.com/o/s/pull/9:predecessor", pr: "https://github.com/o/s/pull/9"}')" \
 "outcome=paused-awaiting-merges

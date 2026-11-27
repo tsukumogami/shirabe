@@ -969,3 +969,19 @@ None of these blocks the PRD's acceptance criteria.
   The refusal compares the input's topic with the pending row's, so the
   input has to be read first, and an input error still exits 1 ahead of
   exit 12.
+- 2026-11-26: Phase 4 is the reconcile settle and the report line only.
+  The clear in `finish_takeover` and in `state-open.sh --carry` shipped
+  with steps 1 and 3 of the PLAN, so `coordinate-open.sh`, `state-open.sh`
+  and their takeover and carry cases aren't part of it. The pass finds a
+  pending row through the record read, which takes the Run section beside
+  its four, so `reconcile-read.sh` joins Phase 4's deliverables, and
+  `reconcile-settle.sh --successor` takes the run's successor lock before
+  it settles, writing nothing when another process holds it. The exit-12
+  refusal and the report's line share one sentence from a new
+  `dc_successor_pending_msg` in `dispatch-common.sh`. When the listing
+  couldn't be read, it says so and says whether the session is live isn't
+  known, rather than reading as a live successor; for an unlisted
+  `dispatching` row it names the `--successor` command to run again. The
+  template's compat is 3, raised by a change outside this design, so each
+  phase re-records `gate_scripts` at compat 3 where the sections above
+  say 2.

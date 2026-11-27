@@ -11,9 +11,13 @@
 #
 # Everything it decides on arrives as an argument or from GitHub. It reads no
 # stdin (every gh call runs with stdin from /dev/null), no workflow session
-# context, and no state file. The CI deadline and the no-checks grace window
-# are measured from the head commit's `committedDate` in the same PR snapshot,
-# so a resumed run measures the same deadline with no bookkeeping.
+# context, and no state file. The CI deadline for a pending check is measured
+# from that check's `startedAt` in the check read, so a re-run, or the checks a
+# ready event starts on an old head, gets the full deadline. A pending check
+# with no usable start time, a required check not yet reported, the no-checks
+# grace window and the UNKNOWN merge-state deadline are measured from the head
+# commit's `committedDate` in the same PR snapshot. Either way a resumed run
+# measures the same deadline with no bookkeeping.
 #
 # Usage:
 #   merge-verdict.sh --repo <owner/repo> --pr <n> --merge <true|false>
@@ -34,7 +38,7 @@
 # row. --merge and --expected-head are still required and still validated.
 #
 # Environment:
-#   EXECUTE_CI_WAIT_LIMIT_SECS  the per-head-commit CI deadline in seconds.
+#   EXECUTE_CI_WAIT_LIMIT_SECS  the CI deadline in seconds, per pending check.
 #                               Honored only when it matches ^[0-9]+$ and lies
 #                               in 1..86400; anything else means 1800.
 #   MERGE_CONFIRM_WAIT_SECS     the --confirm window. Honored only in 0..20, so
@@ -65,9 +69,12 @@
 #      bucket
 #   6  a check pending (any bucket but pass,         pending:checks, or
 #      skipping, fail, cancel, unreadable), a check  error:execute:ci-timeout
-#      the base's rules require not yet reported     once the head commit is
-#      (read only with --merge true), or zero        older than the deadline
-#      checks within 120 s of the head commit
+#      the base's rules require not yet reported     once a pending check
+#      (read only with --merge true), or zero        started longer ago than the
+#      checks within 120 s of the head commit        deadline (the head commit's
+#                                                    age for a check with no
+#                                                    start time, an unreported
+#                                                    one, or zero checks)
 #   7  --merge false                                 awaiting:merge-not-requested
 #   8  expected head `none` or not headRefOid        awaiting:head-moved
 #   9  zero checks after the grace window            awaiting:no-checks
@@ -123,7 +130,7 @@
 #   only where GitHub refuses the check read lists the Actions jobs and the
 #   commit's statuses instead (its header has the reads), with a required
 #   check neither answers in the bucket `unreadable`, counted pending here:
-#     gh pr checks <pr> --repo <repo> --json name,bucket
+#     gh pr checks <pr> --repo <repo> --json name,bucket,startedAt
 #   Base protection, only with --merge true (after row 5):
 #     gh api repos/<repo>/branches/<baseRefName>
 #     gh api repos/<repo>/rules/branches/<baseRefName> --paginate
@@ -399,7 +406,7 @@ AGE=$(jq -n --arg d "$HEAD_DATE" '(now - ($d | fromdateiso8601)) | floor') \
 CHECKS=""
 ATTEMPT=1
 while :; do
-    CHECKS_OUT=$("$PR_CHECKS" "$PR" --repo "$REPO" --json name,bucket </dev/null 2>"$TMPD/err")
+    CHECKS_OUT=$("$PR_CHECKS" "$PR" --repo "$REPO" --json name,bucket,startedAt </dev/null 2>"$TMPD/err")
     RC=$?
     if is_json_array "$CHECKS_OUT"; then
         jq -e 'all(type == "object")' >/dev/null <<<"$CHECKS_OUT" \
@@ -463,9 +470,32 @@ fi
 UNREPORTED=$(jq -n --argjson req "$REQUIRED_CHECKS" --argjson checks "$CHECKS" \
     '$req - [$checks[] | .name] | length')
 
+# How long CI has been running (#717): each pending check counts from its own
+# startedAt, so a re-run or the checks a ready event starts on an old head are
+# not timed out by the commit's age. A pending check with no usable start time
+# (missing, empty, unparseable, or gh's 0001-01-01 zero time for a check not
+# yet started), a required check not yet reported, and zero checks fall back to
+# the head commit's age. A start time in the future counts as just started.
+CI_AGE=$(jq -n --argjson checks "$CHECKS" --argjson age "$AGE" \
+        --argjson unreported "$UNREPORTED" '
+    def start_age:
+        (.startedAt // "") as $s
+        | if ($s | type) != "string" or $s == "" then null
+          else (try ($s | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch null)
+               | if . == null or . <= 0 then null
+                 else ((now - .) | floor) | if . < 0 then 0 else . end end
+          end;
+    [ $checks[]
+      | select((.bucket // "") as $b
+               | ["pass", "skipping", "fail", "cancel", "unreadable"] | index($b) | not)
+      | (start_age // $age) ]
+    + (if $unreported > 0 or ($checks | length) == 0 then [$age] else [] end)
+    | max // $age') || CI_AGE=$AGE
+[[ $CI_AGE =~ $RE_UINT ]] || CI_AGE=$AGE
+
 if [ "$CHECK_PENDING" -gt 0 ] || [ "$UNREPORTED" -gt 0 ] \
     || { [ "$CHECK_COUNT" -eq 0 ] && [ "$AGE" -le "$GRACE_SECS" ]; }; then
-    [ "$AGE" -gt "$LIMIT" ] && verdict "error:execute:ci-timeout"
+    [ "$CI_AGE" -gt "$LIMIT" ] && verdict "error:execute:ci-timeout"
     verdict "pending:checks"
 fi
 
