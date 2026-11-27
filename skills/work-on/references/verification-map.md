@@ -49,7 +49,7 @@ before producing a result, or a change the map selects nothing for all fail clos
 
 ## The file
 
-The map is one JSON object with five top-level fields:
+The map is one JSON object with six top-level fields:
 
 | Field | Type | Required | Meaning |
 |-------|------|----------|---------|
@@ -58,6 +58,7 @@ The map is one JSON object with five top-level fields:
 | `entries` | array | yes (may be empty) | Each entry binds path-globs to command ids. |
 | `default` | array of ids | no | The command ids run when a changed path matches no entry. |
 | `build_output` | array of paths | no | The repository's build output, as literal repo-relative paths. Verification never reads it; see [`build_output`](#build_output). |
+| `always_required` | array of objects | no | The hosted checks `ci_monitor` waits on whatever a change touches, beside the selected commands' `hosted` twins. Its presence turns on the relevant-checks wait; see [Waiting only on relevant checks](#waiting-only-on-relevant-checks). Selection never reads it. |
 
 ### `entries`
 
@@ -535,6 +536,48 @@ the current default branch's map at `ci_monitor`, before its green edge
 there, or whose workflow file is, sends the run back to local verification, and the run
 stays local from then on (`verification_twin_gone`). A twin that runs and fails is a failing
 check like any other.
+
+## Waiting only on relevant checks
+
+`ci_monitor` waits on every check of the pull request unless the map at the merge-base
+carries `always_required`. With it, the run waits only on the checks the change can reach:
+the `hosted` twins of the commands the change selects, plus the `always_required` list.
+An empty `always_required` array counts as present, so the run then waits on the twins alone.
+A map without the key waits on every check, as before the key existed, so a repository whose
+code scanning or secret scanning isn't on any list keeps waiting on it.
+
+Each `always_required` entry is an object with two non-empty strings, the same identity a
+`hosted` entry carries: `workflow`, the workflow file, a path under `.github/workflows/`, and
+`job`, the job's name as GitHub reports it, matrix leg included. Name only checks that report
+on every pull request: a workflow with a `paths:` filter reports nothing on a change outside
+its paths, and the run would wait for a check that never comes. shirabe's map lists its
+public-content, status-words and rustfmt checks. An `always_required` that isn't such an
+array turns the wait off, and the run waits on every check.
+
+The set is read twice, and the run keeps the union: once from the merge-base's map, and once
+from the current default branch's, fetched first, so a check added to either list since the
+run began is waited on too. `skills/work-on/scripts/run-verification.sh --relevant` reads it
+on every read of `ci_passing` and records it as `relevant_checks.txt` in the run's context,
+one line per check: the workflow file, the job, and the workflow's display name (its `name:`,
+which is how GitHub reports a check's workflow). `pr-checks.sh --relevant <file>` keeps only
+the checks whose workflow and job both match a line, never a bare check name: a job of the
+same name in another workflow isn't relevant, and a sliced job (`skill-gate-suites
+(ubuntu-latest, 2)`) isn't its twin (`skill-gate (ubuntu-latest)`).
+
+Every relevant check must pass. A skipped one isn't passed: a twin that `needs:` its slices
+is skipped when a slice fails, so a skipped twin can hide a failure. A relevant check not
+reported yet is pending, and an empty filtered list is never green. When nothing is relevant
+at all (no selected command has a twin and `always_required` is empty), the run waits on every
+check.
+
+A check outside the set doesn't hold the run's green edge. When one has failed by the time the
+relevant set is green, the run posts one pull request comment carrying only its name and
+link, both neutralised so they mention, reference and link nothing, once per check per head,
+and records it in `ci_outside_failures.txt`; the run's final report names it. Merging is
+unchanged: `/execute`'s merge readiness reads every check and still needs every one green.
+
+**`CI_WAIT=all`** turns the filter off for one run: set at init with `--var CI_WAIT=all`, or
+`--ci-wait=all` through `work-on-open.sh`, it waits on every check whatever the map says.
 
 ## Illustrative example (not a real project's map)
 

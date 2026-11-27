@@ -1130,6 +1130,53 @@
         "Agent says a twin gone from the default branch's map at ci_monitor sends the run back to local verification",
         "Agent names --verification=local as the opt-out"
       ]
+    },
+    {
+      "id": 79,
+      "name": "ci-monitor-outside-check-fails",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #921, a docs-only change under docs/guides/. The repository's verification map at the merge-base carries always_required (its public-content, status-words and rustfmt checks). The pull request is open and you are at ci_monitor. Those three checks passed. The coordinate suite's test-coordinate-scripts check, which this change can't reach, has failed. What happens at ci_monitor, what do you do about the coordinate failure, and what does your final report say?",
+      "expected_output": "The relevant set for this run is the always_required checks alone: a docs change selects no command with a hosted twin, and no coordinate command. All three passed, so koto routes the run past ci_monitor on its gates, with no evidence submitted; the failing coordinate check doesn't hold the green edge. The gate posts one pull request comment carrying only that check's name and link, with mentions and markup neutralised, once for this head, and lists it in ci_outside_failures.txt in context. The agent doesn't fix the coordinate failure in this run, doesn't submit ci_outcome: failing_fixed or failing_unresolvable for it, and doesn't post a comment of its own. Its final report names test-coordinate-scripts as a check that failed outside this change. Merging still needs every check green, so /execute's merge readiness won't call the pull request mergeable while it fails. CI_WAIT=all, set at init with --ci-wait=all, is the way to make a run wait on every check.",
+      "files": [],
+      "expectations": [
+        "Agent says the relevant set is the always_required checks, since the docs change selects no command with a hosted twin",
+        "Agent expects koto to route the run on its gates with no evidence while the outside check is red",
+        "Agent says the gate posts one neutralised comment naming the check and its link, once per head, and records it in ci_outside_failures.txt",
+        "Agent does NOT submit ci_outcome for the outside failure, try to fix it here, or post its own comment",
+        "Agent names the failing outside check in its final report",
+        "Agent says merging still needs every check green"
+      ]
+    },
+    {
+      "id": 80,
+      "name": "ci-monitor-skipped-twin-holds",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #933, a change to skills/plan/SKILL.md. The verification map at the merge-base carries always_required, and the check-skill row's hosted twin is skill-gate (ubuntu-latest) in the Check skill gate workflow. At ci_monitor the always-required checks passed. skill-gate (ubuntu-latest) reads skipped, and skill-gate-suites (ubuntu-latest, 2) failed. A coordinate check is still pending. gh's own summary calls skipped green. Is this run green, and what do you do?",
+      "expected_output": "Not green. ci_passing waits on the relevant set, the twin and the always-required checks, and every one must pass: a skipped relevant check is not passed. The twin needs its slices, so a failed slice leaves it skipped, and the skip hides that failure. The pending coordinate check is outside the set and isn't what holds the run. The agent reads the failed slice's log, fixes the failure, pushes, and submits ci_outcome: failing_fixed, so the run comes back to ci_monitor and the gates read the new head. It does not call the skipped twin green, does not submit failing_unresolvable for a fixable failure, and does not wait on the coordinate check for its own sake.",
+      "files": [],
+      "expectations": [
+        "Agent says the run is not green because a skipped relevant twin counts as not passed",
+        "Agent connects the skipped twin to the failed slice it needs",
+        "Agent says the pending coordinate check is outside the relevant set and doesn't hold the run",
+        "Agent fixes the slice's failure, pushes, and submits ci_outcome: failing_fixed",
+        "Agent does NOT treat the skipped twin as green"
+      ]
+    },
+    {
+      "id": 81,
+      "name": "ci-wait-all-opt-out",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #940 --ci-wait=all. The repository's verification map at the merge-base carries always_required. How do you open the run, and what does ci_monitor wait on?",
+      "expected_output": "The agent leaves --ci-wait=all in the tokens file it hands work-on-open.sh, which passes koto CI_WAIT=all; it does not add a --var for it, and it sets the flag aside only when detecting the mode. koto refuses any value but all as invalid_var, and the variable can't be rebound later. With CI_WAIT=all, ci_monitor waits on every check of the pull request, as a repository without always_required does, so a failing or pending check outside the change's relevant set holds the run and must be fixed or reported unresolvable as any red check is.",
+      "files": [],
+      "expectations": [
+        "Agent passes --ci-wait=all through the tokens to work-on-open.sh and does NOT pass CI_WAIT as a --var",
+        "Agent says ci_monitor then waits on every check, whatever always_required says",
+        "Agent treats a red check outside the relevant set as holding the run under CI_WAIT=all"
+      ]
     }
   ]
 }

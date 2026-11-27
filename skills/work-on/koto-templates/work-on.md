@@ -225,6 +225,19 @@ variables:
       measurement window until 02:40Z". Not rebindable, like VERIFICATION.
     required: false
     pattern: ^([a-zA-Z0-9].*)?$
+  CI_WAIT:
+    description: >-
+      Which checks ci_monitor waits on before its green edge. Empty (the
+      default) waits on the relevant set when the merge-base's verification
+      map carries `always_required`: the selected commands' hosted twins and
+      that list, read from the merge-base's map and the current default
+      branch's (ci-relevant.sh, run-verification.sh --relevant). A map with
+      no `always_required` waits on every check, as before. `all` waits on
+      every check whatever the map says: the opt-out, set at init with
+      `--var CI_WAIT=all` or `--ci-wait=all` through work-on-open.sh. Not
+      rebindable: a run never changes what it waits on partway through.
+    required: false
+    pattern: ^(all)?$
   DELIVERY:
     description: >-
       Whether this run's pull request closes its issue. `closes` (the default)
@@ -3369,9 +3382,24 @@ states:
       # fallback script's own). 180 s covers three at about twice that.
       # owned_ci_passing in execute.md carries the same limit.
       #   test: skills/work-on/scripts/ci-passing-timeout_test.sh
+      #
+      # The relevant set comes first. ci-relevant.sh
+      # reads it with run-verification.sh --relevant, from the merge-base's
+      # map and again from the current default branch's on every read, and
+      # answers 0 when every relevant check passed, 1 when one hasn't (a
+      # skipped twin among them: a twin that `needs:` its slices is skipped
+      # when one fails), and 3 when the filter is off (no always_required at
+      # the merge-base, CI_WAIT=all, nothing relevant). Off, or any other
+      # answer, falls to the bucket filter over every check, as before the set
+      # existed. A failing check outside the set doesn't hold this gate:
+      # ci-relevant.sh comments on it once per head and records it as
+      # ci_outside_failures.txt. Not green either way goes on to the two
+      # fallbacks. The gate's own --jq stays last, so the expression tests
+      # still read it.
+      #   test: skills/work-on/scripts/ci-relevant_test.sh
       ci_passing:
         type: command
-        command: "\"{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh\" $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq 'length > 0 and ([.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0)' | grep -q true || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" \"{{SESSION_NAME}}\" || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-none-declared.sh\" \"{{SESSION_NAME}}\" || exit 1"
+        command: "\"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-relevant.sh\" --session \"{{SESSION_NAME}}\" --ci-wait \"{{CI_WAIT}}\" $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty'); case $? in 0) exit 0 ;; 1) ;; *) \"{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh\" $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq 'length > 0 and ([.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0)' | grep -q true && exit 0 ;; esac; \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" \"{{SESSION_NAME}}\" || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-none-declared.sh\" \"{{SESSION_NAME}}\" || exit 1"
         timeout: 180
       # A DIRTY pull request has merge conflicts, and GitHub creates no new
       # check-runs for one, so its CI gate says nothing about the change: it
@@ -5291,6 +5319,19 @@ lists. The run then routes as green, and `ci_cancelled_after_merge.txt` in
 context names those checks: mention them in your final report. A cancel on an
 open pull request, a failed or pending check, and a cancel outside those
 workflows still fail the gate.
+
+When the merge-base's verification map carries `always_required`, `ci_passing`
+waits only on the checks this change can reach: the hosted twins of the
+commands the change selects and the map's `always_required` checks, read from
+the merge-base's map and again from the current default branch's on every
+read (`relevant_checks.txt` in context lists them). Every one of those must
+pass; a skipped one is not passed, and one not reported yet is pending. A
+check outside that set doesn't hold the run. When one fails, the gate posts
+one pull request comment naming it and its link, once per head, and lists it
+in `ci_outside_failures.txt` in context: name every check that key lists in
+your final report, as failing outside this change, and don't fix it or wait
+for it here. Merging still needs every check green. `CI_WAIT=all` (set at
+init) waits on every check, as does a map with no `always_required`.
 
 A pull request with no checks at all is not green. Just after a push, before
 GitHub creates the check suites, `gh pr checks` answers `no checks reported`:
