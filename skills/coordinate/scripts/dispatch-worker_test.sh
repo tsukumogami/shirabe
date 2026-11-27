@@ -2689,13 +2689,18 @@ s2_nothing() { # s2_nothing <label>: no write, launch or brief for topic 2
 s2reset "dispatched plugin-system-successor-1 2026-09-26"; list_s1
 srun >/dev/null 2>"$T/err"; eq "pending: a listed dispatched row refuses another topic with exit 12" 12 "$?"
 has "pending: ... naming its status" "$(cat "$T/err")" "dispatched plugin-system-successor-1"
+eq  "pending: ... in dc_successor_pending_msg's listed sentence" \
+    "dispatch-worker: a successor is pending: the Run successor row reads \`dispatched plugin-system-successor-1 2026-09-26\`, session \`$SUCC_S\` listed; a new successor can be dispatched once the row reads dispatch-failed or stranded" \
+    "$(grep 'a successor is pending' "$T/err")"
 eq  "pending: ... the row as before" "dispatched plugin-system-successor-1 2026-09-26" "$(succ_row)"
 s2_nothing "pending: a listed dispatched row"
 # A dispatching row nothing lists: exit 12, saying to run again with its topic.
 s2reset "dispatching plugin-system-successor-1 2026-09-26"
 srun >/dev/null 2>"$T/err"; eq "pending: an unlisted dispatching row refuses another topic with exit 12" 12 "$?"
 has "pending: ... naming its status and topic" "$(cat "$T/err")" "dispatching plugin-system-successor-1"
-has "pending: ... and to run again with that topic" "$(cat "$T/err")" "run the dispatch again with plugin-system-successor-1"
+eq  "pending: ... naming the --successor command and the topic to run again" \
+    "dispatch-worker: a successor is pending: the Run successor row reads \`dispatching plugin-system-successor-1 2026-09-26\`, its launch unconfirmed; to finish it, run \`dispatch-worker.sh --session coord --successor\` again with successor_input.json naming \`plugin-system-successor-1\`" \
+    "$(grep 'a successor is pending' "$T/err")"
 eq  "pending: ... the row as before" "dispatching plugin-system-successor-1 2026-09-26" "$(succ_row)"
 s2_nothing "pending: an unlisted dispatching row"
 
@@ -2740,8 +2745,17 @@ eq  "stranded: ... no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 # A listing that can't be read writes nothing.
 s2reset "dispatched plugin-system-successor-1 2026-09-26"; export NIWA_LIST_FAIL=1
 srun >/dev/null 2>"$T/err"; eq "unread listing: another topic still exits 12" 12 "$?"
+eq  "unread listing: ... saying the listing couldn't be read, not that a successor is live" \
+    "dispatch-worker: a successor is pending: the Run successor row reads \`dispatched plugin-system-successor-1 2026-09-26\`, but the listing couldn't be read, so whether its session is live isn't known; dispatch again once the listing reads, and the row settles first" \
+    "$(grep 'a successor is pending' "$T/err")"
+eq  "unread listing: ... never naming dispatch-failed or stranded" 0 "$(grep -c 'dispatch-failed or stranded' "$T/err")"
 eq  "unread listing: ... the row as before" "dispatched plugin-system-successor-1 2026-09-26" "$(succ_row)"
 s2_nothing "unread listing: another topic"
+sreset "$S2_INPUT"; export SUCC_ROW="dispatching plugin-system-successor-1 2026-09-26" NIWA_NAME=$S2_S NIWA_LIST_FAIL=1
+srun >/dev/null 2>"$T/err"; eq "unread listing: a dispatching row exits 12 with the same unread sentence" \
+    "12 dispatch-worker: a successor is pending: the Run successor row reads \`dispatching plugin-system-successor-1 2026-09-26\`, but the listing couldn't be read, so whether its session is live isn't known; dispatch again once the listing reads, and the row settles first" \
+    "$? $(grep 'a successor is pending' "$T/err")"
+s2_nothing "unread listing: a dispatching row"
 sreset; export SUCC_ROW="dispatched plugin-system-successor-1 2026-09-26" NIWA_LIST_FAIL=1
 srun >/dev/null 2>"$T/err"; eq "unread listing: the same topic exits 6" 6 "$?"
 eq  "unread listing: ... the row as before, never stranded" "dispatched plugin-system-successor-1 2026-09-26" "$(succ_row)"
