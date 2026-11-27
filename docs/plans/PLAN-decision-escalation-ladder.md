@@ -1248,7 +1248,37 @@ Local builds: turn incremental compilation and debug info off (`CARGO_INCREMENTA
 
 ### Step 14: The dogfooding run shows the five events on released versions
 
-In the tsukumogami organization, on real work: one chain with a worker under a manager and a director plus a solo unattended worker, with the record of each event attached and every finding fixed or filed.
+**Goal**: On the released koto and shirabe that carry steps 1 to 13, real work in the tsukumogami organization is run through one reporting chain (a worker under a manager under a director) and one unattended worker with no coordinator, and the decision record shows the five events R34 names. Every finding from the run is fixed or filed before the work is closed.
+
+This step changes no behaviour. It lands in the shirabe repository as the run's record: the findings list and the record output for each event, attached to the pull request that closes the work. Three of the five events need the workspace's owner to answer a question through the question prompt, in a session of their choosing; nothing in the run may stand in for that answer.
+
+**Acceptance Criteria**:
+
+The run's setup
+
+- [ ] The versions in use are released ones: `koto --version` and the installed shirabe plugin version on every host in the run are at or above the releases that carry steps 1 to 6 and steps 7 to 13, and the record states both versions.
+- [ ] The chain is three sessions deep on real work: `koto session origin` for the worker names the manager, and for the manager names the director, and the work each does is a unit the organization would have run anyway, named in the record by its pull request or issue.
+- [ ] The solo worker is unattended and has no coordinator: `koto session origin` for it reports none, and it was started by a brief and not by a typed prompt.
+
+The five events, each shown from the record and not from a session's account of it
+
+- [ ] A question settled below the person: `koto decisions show` for a question raised by the worker shows it answered or settled by the manager or the director, `counted` and `governs` true, with the answering session's recorded attempt, and `koto decisions open --person owner` never listed it.
+- [ ] A question the person answered in a worker: the worker's question, passed up at least once, is answered by the owner through the question prompt in the worker's own session; the answer reads `verified` there with decider `person:owner`; and `koto decisions open --at <director>` and `--at <manager>` no longer list it, with no second prompt for it in any session.
+- [ ] That answer reaches the top as knowledge: the director's listing of answers it has not marked seen shows it, and a second worker's question with the same label is settled from it through the precedent read with no new prompt.
+- [ ] A question the person answered at the top coordinator: `/shirabe:pending` typed in the director's session presents the open questions four at most per prompt, ordered by waiting work items; the owner's answer reads `verified`; and the raising worker's next `koto next` reports it in `questions` and the run resumes from the state it left.
+- [ ] A waiting question restored after a loss of context: with a question open, the session holding it is compacted or replaced by a successor; `shirabe question render` for that question prints bytes identical to those printed before the loss; and the question is answered afterwards without being re-raised (one identity before and after).
+- [ ] A question raised by the solo worker and answered when the person returned: the unattended worker ends waiting on a question addressed to `person:owner` with no prompt opened in any turn of its record; its session is still in the store afterwards; the owner later types `/shirabe:pending` there or in any session on the host, answers it, and the worker's successor resumes with the answer.
+- [ ] No prompt was opened in a turn no person typed anywhere in the run: the prompt guard's denials, if any, are listed, and each denied turn was one a person did not start.
+
+Findings
+
+- [ ] A findings list exists in the issue that tracks the run, with one entry for each thing that went wrong, surprised the observer, needed a workaround or cost the owner an avoidable action, and each entry carries a commit that fixes it or an issue filed for it.
+- [ ] The requirements' criteria marked (observed) are each given a verdict in that list, with the record line or transcript reference that supports it.
+- [ ] The run's cost to the owner is stated from the record: how many prompts the owner answered, how many questions were settled without them, and how many of the owner's answers were reused for a later question.
+
+**Check**: For each event, run the read the criterion names against the hosts' stores and paste its output into the record: `koto decisions show`, `koto decisions open --person owner`, `koto decisions open --at <session>`, the history read for the question, `shirabe question pending`, and `shirabe question render` before and after the induced loss with `cmp` on the two outputs printing nothing. Then read the findings list top to bottom and confirm every entry has a commit or an issue against it. The walkthrough is done when all five events show in the record and the list has no open entry.
+
+**Dependencies**: Step 13
 
 ## Implementation Sequence
 
