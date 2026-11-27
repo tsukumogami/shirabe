@@ -303,9 +303,15 @@
 #      write the record refuses exits 8 (no open record, or a directed
 #      transition) or 2.
 #   3. Then the row as settled decides. A `dispatching` or `dispatched` row
-#      under another topic is a successor still pending: exit 12, naming its
-#      status and topic (for `dispatching`, run the dispatch again with that
-#      topic to finish it), nothing written. A re-run with the row's own
+#      under another topic is a successor still pending: exit 12, nothing
+#      written, printing `a successor is pending: ` and
+#      dc_successor_pending_msg's sentence for the row and what the listing
+#      showed. A listed row names its session; an unlisted `dispatching` row
+#      names the --successor command and the topic that finish it; and when
+#      the listing can't be read the sentence says whether the session is
+#      live isn't known, so an unread listing never reads as a live
+#      successor. The reconcile report's `Successor pending:` line ends in
+#      the same sentence. A re-run with the row's own
 #      topic resumes that dispatch: a listing that can't be read exits 6 with
 #      the row unchanged; a `dispatched` row (confirmed before, or settled
 #      just now) prints `session=<name>` and exits 0 with no write or launch;
@@ -389,7 +395,8 @@
 #      don't dispatch the unit again asking for more
 #   12 a successor is pending (names its status and topic): the Run
 #      successor row reads dispatching or dispatched under another topic;
-#      nothing written
+#      nothing written. stderr is `a successor is pending: ` and
+#      dc_successor_pending_msg's sentence
 #
 # Environment: KOTO, NIWA (the binaries), DC_RECORD_HOLDING (the record's
 # script), DISPATCH_DEADLINE_SECS. bash 3.2; needs jq.
@@ -913,13 +920,14 @@ TODAY=$(date -u +%Y-%m-%d)
 
 # --- --successor -------------------------------------------------------------------------------
 
-# successor_write <status>: the Run `successor` row for this topic, set by
-# this run; maps the writer's refusals to this script's exit codes.
+# successor_write <status> [<name>]: the Run `successor` row for this topic,
+# set by this run; maps the writer's refusals to this script's exit codes.
+# <name> is the launched session, which a fenced `dispatched` write prints.
 successor_write() {
     bash "$DC_RECORD_STATE" --session "$SESSION" --successor "$1" "$TOPIC" --by "$SESSION" >/dev/null 2>"$WORK/succ.err"
     case "$?" in
         0) return 0 ;;
-        10) [ "$1" != dispatched ] || successor_fenced
+        10) [ "$1" != dispatched ] || successor_fenced "${2-}"
             die 8 "the record refused the successor row for $TOPIC (no open record, or a directed transition in the run log)" ;;
         # The row landed and only its entry didn't: the dispatch goes on, since
         # the row is what a restart reads, and the warning says what's missing.
@@ -929,24 +937,22 @@ successor_write() {
     esac
 }
 
-# successor_fenced: the `dispatched` confirm write was refused (10). When
-# the run is fenced, a successor took it over (koto init --supersede), so the
-# launch did what it was for: print the session and the run that took over,
-# and exit 0. Otherwise return, and the refusal stands.
+# successor_fenced <name>: the `dispatched` confirm write was refused (10).
+# When the run is fenced, a successor took it over (koto init --supersede),
+# so the launch did what it was for: print the session <name> and the run
+# that took over, and exit 0. Otherwise return, and the refusal stands.
 successor_fenced() {
     local fence by
     fence=$(bash "$DC_COORD_LOG" fence --session "$SESSION" 2>/dev/null) || return 0
     by=$(jq -r '.by // "" | strings' <<<"$fence" 2>/dev/null) || return 0
     [[ $by =~ $DC_RE_SESSION ]] || return 0
-    printf 'session=%s\ntaken_over=%s\n' "$CONFIRM_NAME" "$by"
+    printf 'session=%s\ntaken_over=%s\n' "$1" "$by"
     exit 0
 }
 
 # successor_confirm <name>: the launch confirmed.
-CONFIRM_NAME=""
 successor_confirm() {
-    CONFIRM_NAME=$1
-    successor_write dispatched
+    successor_write dispatched "$1"
     printf 'session=%s\n' "$1"
     exit 0
 }
@@ -969,8 +975,7 @@ if [ "$SUCCESSOR" = 1 ]; then
         10)
             # The settle's write was this topic's confirm: treated as one.
             if [ "$SSTATUS:$STOPIC" = "dispatching:$TOPIC" ] && [ -n "$SLISTED" ]; then
-                CONFIRM_NAME=$SLISTED
-                successor_fenced
+                successor_fenced "$SLISTED"
             fi
             die 8 "the record refused settling the successor row $SROW (no open record, or a directed transition in the run log)" ;;
         2) die 2 "cannot read the record's Run section to settle the successor row" ;;
@@ -980,10 +985,15 @@ if [ "$SUCCESSOR" = 1 ]; then
     case "$SSTATUS" in
         dispatching | dispatched)
             if [ "$STOPIC" != "$TOPIC" ]; then
-                if [ "$SSTATUS" = dispatching ]; then
-                    die 12 "a successor is pending: the Run successor row reads $SROW, its launch unconfirmed; run the dispatch again with $STOPIC to finish it"
-                fi
-                die 12 "a successor is pending: the Run successor row reads $SROW; another is dispatched only once it is dispatch-failed or stranded"
+                # The one sentence the reconcile report's Successor pending:
+                # line ends in, so an unreadable listing never reads as a
+                # live successor here either.
+                if [ "$SRC" = 3 ]; then SLISTING=unread
+                elif [ -n "$SLISTED" ]; then SLISTING=listed
+                else SLISTING=unlisted; fi
+                SMSG=$(dc_successor_pending_msg "$SESSION" "$SROW" "$SLISTING" "$SLISTED") ||
+                    SMSG="the Run successor row reads \`$SROW\`"
+                die 12 "a successor is pending: $SMSG"
             fi
             [ "$SRC" = 0 ] || die 6 "niwa list can't be read to settle the successor $TOPIC; the row stays $SSTATUS"
             if [ "$SSTATUS" = dispatched ]; then

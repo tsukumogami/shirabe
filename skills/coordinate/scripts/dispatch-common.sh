@@ -114,6 +114,20 @@
 #       nothing written; 2 the row can't be read, printing nothing; and the
 #       writer's own code when it refuses a write, the row printed as read.
 #
+#   dc_successor_pending_msg <run> <row> <listed|unlisted|unread> [<session>]
+#       Prints the one sentence that says what a pending Run `successor` row
+#       means and what to run: dispatch-worker.sh --successor's exit 12
+#       prints it after `a successor is pending: `, and the reconcile
+#       report's `Successor pending: ` line ends in it, so the two can't
+#       disagree. <row> is the row's value (`<status> <topic> <date>`), and
+#       the listing state says what niwa's listing showed: its session
+#       listed (named by <session>), not listed, or not read. An unread
+#       listing never reads as a live successor: for either status the
+#       sentence says whether its session is live isn't known. Reads
+#       nothing. Returns 1, printing nothing, for a row that isn't
+#       `dispatching` or `dispatched` (no successor is pending), an unknown
+#       listing state, or `listed` with no session.
+#
 #   dc_scope_slug <session>
 #       Prints the scope slug a coordinator run's session name carries
 #       (`coordinate-<scope slug>-<UTC stamp>`), or nothing, returning 1,
@@ -583,6 +597,28 @@ dc_successor_settle() {
             [ -n "$state" ] && row=$state || row="$to $topic $(date -u +%Y-%m-%d)"
     fi
     printf '%s\t%s\n' "$row" "$name"
+}
+
+dc_successor_pending_msg() {
+    local run=$1 row=$2 listing=$3 session=${4-} status topic
+    status=${row%% *}
+    topic=${row#* }
+    topic=${topic%% *}
+    case "$status" in dispatching | dispatched) ;; *) return 1 ;; esac
+    case "$listing:$status" in
+        unread:*)
+            printf 'the Run successor row reads `%s`, but the listing couldn'"'"'t be read, so whether its session is live isn'"'"'t known; dispatch again once the listing reads, and the row settles first\n' "$row" ;;
+        listed:*)
+            [ -n "$session" ] || return 1
+            printf 'the Run successor row reads `%s`, session `%s` listed; a new successor can be dispatched once the row reads dispatch-failed or stranded\n' "$row" "$session" ;;
+        unlisted:dispatching)
+            printf 'the Run successor row reads `%s`, its launch unconfirmed; to finish it, run `dispatch-worker.sh --session %s --successor` again with successor_input.json naming `%s`\n' "$row" "$run" "$topic" ;;
+        unlisted:dispatched)
+            # Settling it stranded was refused or never ran: the listing
+            # read shows no session behind the row.
+            printf 'the Run successor row reads `%s`, but its session isn'"'"'t listed; it settles to stranded once the record takes the write\n' "$row" ;;
+        *) return 1 ;;
+    esac
 }
 
 dc_scope_slug() {

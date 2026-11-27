@@ -43,7 +43,7 @@ mkdir -p "$T/tmp" && export TMPDIR="$T/tmp"
 
 SC="$T/tree/skills/coordinate/scripts"
 mkdir -p "$SC" "$T/tree/skills/execute/scripts" "$T/bin"
-for f in reconcile-pass.sh reconcile-deps.sh state-read.sh reconcile-report.sh reconcile-report-get.sh; do cp "$HERE/$f" "$SC/"; done
+for f in reconcile-pass.sh reconcile-deps.sh state-read.sh reconcile-report.sh reconcile-report-get.sh dispatch-common.sh; do cp "$HERE/$f" "$SC/"; done
 cp "$HERE/../../execute/scripts/coord-common.sh" "$T/tree/skills/execute/scripts/"
 P="$SC/reconcile-pass.sh"
 G="$SC/reconcile-report-get.sh"
@@ -317,9 +317,15 @@ case " $* " in *" rev-parse --show-toplevel "*) [ -f "$STUB_DIR/top" ] && { cat 
 exit 99
 STUB
 # The settle, the pass's one write: logs its arguments to <case>/settles and
-# prints <case>/settle.out, else a settled fact.
+# prints <case>/settle.out, else a settled fact. --successor logs to
+# <case>/succs and prints <case>/succ.out, else the row left as it was.
 cat > "$SC/reconcile-settle.sh" <<'STUB'
 #!/usr/bin/env bash
+if [ "$1" = --successor ]; then
+    echo "$*" >> "$STUB_DIR/succs"
+    cat "$STUB_DIR/succ.out" 2>/dev/null || echo '{"kind":"successor","status":"ok","before":"","now":"","settled":false,"session":"","listing":"","reason":"","read_at":"t"}'
+    exit 0
+fi
 echo "$*" >> "$STUB_DIR/settles"
 cat "$STUB_DIR/settle.out" 2>/dev/null || echo '{"kind":"settle","status":"ok","settled":true,"reason":"","read_at":"t"}'
 STUB
@@ -671,6 +677,66 @@ nv=$(ctx reconcile/report.md | sed -n '/^## Not verified/,$p')
 grep -q 'the record refused the write' <<<"$nv"; check "a refused settle is listed as not verified" $? "$(ctx reconcile/report.md)"
 chg=$(ctx reconcile/report.md | sed -n '/^## Changed since then/,/^## /p')
 grep -q 'settled' <<<"$chg" && bad "and not reported as changed" || ok "and not reported as changed"
+
+echo "== a pending Run successor row =="
+# The record read's successor (the Run successor row) is settled by
+# reconcile-settle.sh --successor when it reads dispatching or dispatched, and
+# a row still pending after it gets the report's Successor pending: line.
+succ_row() { jq -c --arg r "$1" '.successor = $r' "$CASE/read.out" > "$CASE/read.tmp" && mv "$CASE/read.tmp" "$CASE/read.out"; }
+succ_out() { jq -nc --arg st "$1" --arg b "$2" --arg n "$3" --argjson s "$4" --arg ss "$5" --arg l "$6" --arg r "${7:-}" \
+    '{kind: "successor", status: $st, before: $b, now: $n, settled: $s, session: $ss, listing: $l, reason: $r, read_at: "t"}' > "$CASE/succ.out"; }
+new_case succ-none
+record "[]"
+pass
+[ ! -s "$CASE/succs" ]; check "no successor row is never settled" $? "$(cat "$CASE/succs" 2>/dev/null)"
+grep -q '^Successor pending:' <<<"$(ctx reconcile/report.md)" && bad "  ... and the report has no Successor pending line" "$(ctx reconcile/report.md)" \
+    || ok "  ... and the report has no Successor pending line"
+[ "$(ctx reconcile/report.json | jq -c 'has("successor")')" = false ]; check "  ... nor a successor key in the report" $? "$(ctx reconcile/report.json)"
+new_case succ-settled-row
+record "[]"; succ_row "stranded succ-one 2026-09-26"
+pass
+[ ! -s "$CASE/succs" ]; check "a stranded row is never settled" $? "$(cat "$CASE/succs" 2>/dev/null)"
+grep -q '^Successor pending:' <<<"$(ctx reconcile/report.md)" && bad "  ... and gets no Successor pending line" || ok "  ... and gets no Successor pending line"
+new_case succ-confirm
+record "[]"; succ_row "dispatching succ-one 2026-09-26"
+succ_out ok "dispatching succ-one 2026-09-26" "dispatched succ-one 2026-11-25" true succ-one-1a2b listed
+pass
+case "$LINE" in "reconciled "*) ok "a pending successor row is reconciled in one pass" ;; *) bad "a pending successor row is reconciled in one pass" "$LINE $(cat "$CASE/stderr")" ;; esac
+[ "$(cat "$CASE/succs" 2>/dev/null)" = "--successor --session $SESSION" ]; check "the pass settles it, naming the session" $? "$(cat "$CASE/succs" 2>/dev/null)"
+rep=$(ctx reconcile/report.md)
+grep -q '`succ-one`: the Run successor row settled: record said `dispatching succ-one 2026-09-26`, now `dispatched succ-one 2026-11-25`' <<<"$rep"
+check "the settle is reported under Changed since then" $? "$rep"
+[ "$(grep -A1 '^Scope: ' <<<"$rep" | sed -n 2p)" = 'Successor pending: the Run successor row reads `dispatched succ-one 2026-11-25`, session `succ-one-1a2b` listed; a new successor can be dispatched once the row reads dispatch-failed or stranded' ]
+check "a row still pending is named after the Scope line, with its listed session" $? "$rep"
+new_case succ-unconfirmed
+record "[]"; succ_row "dispatching succ-one 2026-09-26"
+succ_out ok "dispatching succ-one 2026-09-26" "dispatching succ-one 2026-09-26" false "" unlisted
+pass
+grep -qF "Successor pending: the Run successor row reads \`dispatching succ-one 2026-09-26\`, its launch unconfirmed; to finish it, run \`dispatch-worker.sh --session $SESSION --successor\` again with successor_input.json naming \`succ-one\`" <<<"$(ctx reconcile/report.md)"
+check "an unconfirmed launch names the command to run again" $? "$(ctx reconcile/report.md)"
+new_case succ-stranded
+record "[]"; succ_row "dispatched succ-one 2026-09-26"
+succ_out ok "dispatched succ-one 2026-09-26" "stranded succ-one 2026-11-25" true "" unlisted
+pass
+rep=$(ctx reconcile/report.md)
+grep -q 'now `stranded succ-one 2026-11-25`' <<<"$rep"; check "an unlisted dispatched row settled stranded is a change" $? "$rep"
+grep -q '^Successor pending:' <<<"$rep" && bad "  ... with no Successor pending line: the slot is free" "$rep" || ok "  ... with no Successor pending line: the slot is free"
+new_case succ-unread
+record "[]"; succ_row "dispatched succ-one 2026-09-26"
+succ_out not_verified "dispatched succ-one 2026-09-26" "dispatched succ-one 2026-09-26" false "" unread "the listing couldn't be read (niwa list); nothing written"
+pass
+case "$LINE" in "reconciled "*) ok "a settle that couldn't read the listing does not block the pass" ;; *) bad "a settle that couldn't read the listing does not block the pass" "$LINE" ;; esac
+rep=$(ctx reconcile/report.md)
+sed -n '/^## Not verified/,$p' <<<"$rep" | grep -q "the listing couldn't be read (niwa list)"; check "  ... it is listed as not verified" $? "$rep"
+grep -q "^Successor pending: the Run successor row reads \`dispatched succ-one 2026-09-26\`, but the listing couldn't be read" <<<"$rep"
+check "  ... and the row is still named pending" $? "$rep"
+new_case succ-held
+record "[]"; succ_row "dispatched succ-one 2026-09-26"
+succ_out not_verified "" "" false "" "" "another process holds the run's successor lock (L); nothing written"
+pass
+rep=$(ctx reconcile/report.md)
+sed -n '/^## Not verified/,$p' <<<"$rep" | grep -q "holds the run's successor lock"; check "a held lock is listed as not verified" $? "$rep"
+grep -q '^Successor pending: the Run successor row reads `dispatched succ-one 2026-09-26`' <<<"$rep"; check "  ... and the row as read is named pending" $? "$rep"
 
 echo "== the owed verdicts of Completed milestones =="
 # Once per visit, before the record read, the pass owes the verdict of every
