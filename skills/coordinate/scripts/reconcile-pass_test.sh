@@ -1301,7 +1301,7 @@ eq "the same line and koto calls with 3 entries and with 300 (${FEW##* } calls)"
 eq "  ... the visit sealed" reconciled "${MANY% *}"
 eq "  ... reading no entry and never listing record/" "0 0" \
     "$(grep -c '^koto context get [^ ]* record/entries/' "$T/kc.calls") $(grep -c '^koto context list [^ ]* --prefix record/$' "$T/kc.calls")"
-eq "  ... the four sections of the view, each got once" "decisions deferrals holdings side-effects" \
+eq "  ... the five sections of the view, each got once" "decisions deferrals holdings run side-effects" \
     "$(sed -n "s|^koto context get $SESSION record/\([a-z-]*\)\$|\1|p" "$T/kc.calls" | grep -vx meta | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 
 echo
