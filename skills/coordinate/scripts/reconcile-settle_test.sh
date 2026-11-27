@@ -144,7 +144,11 @@ eq "a held lock is never taken over: not verified, no listing read, no write" \
     "0|not_verified false  ||dispatched succ-one 2026-09-26|" "$(succ "dispatched succ-one 2026-09-26" no)"
 eq "  ... and the held lock is left as it was" 4242 "$(cat "$LOCK")"
 OUT=$(cd "$SS/root" && DC_RECORD_STATE="$SS/state.sh" NIWA="$SS/niwa" bash "$ST" --successor --session coord 2>/dev/null)
-eq "  ... its reason names the lock" yes "$(printf '%s' "$OUT" | jq -r --arg l "$LOCK" 'if (.reason | contains($l)) then "yes" else "no" end')"
+# The reason names the lock under the workspace root as the settle resolves
+# it, the physical path: on macOS the scratch tree is under /var, a link to
+# /private/var.
+LOCK_P="$(cd "$SS/root" && pwd -P)/.niwa/dispatch-briefs/.successor.coord.lock"
+eq "  ... its reason names the lock" yes "$(printf '%s' "$OUT" | jq -r --arg l "$LOCK_P" 'if (.reason | contains($l)) then "yes" else "no" end')"
 rm -f "$LOCK"
 OUT=$(cd "$SS/root" && DC_RECORD_STATE=/bin/false NIWA="$SS/niwa" bash "$ST" --successor --session coord 2>/dev/null); rc=$?
 eq "a row that can't be read is not verified, exit 0" "0 not_verified successor" "$rc $(printf '%s' "$OUT" | jq -r '"\(.status) \(.kind)"')"
