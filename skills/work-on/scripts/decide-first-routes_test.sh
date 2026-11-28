@@ -55,8 +55,11 @@
 #                   leave
 #   deferral        approved and rejected are held by answer_cited until an
 #                   answer is cited; needs_answer goes to decide_first
-#   stale approval  an answer cited for one deferral approves nothing once the
-#                   run comes back to finalization and defers again
+#   stale approval  every finalization edge to deferral_approval clears
+#                   decide_arrival and decide_question, and a deferral arrives
+#                   with both cleared and approved held (koto rewind can't
+#                   walk back across the decide_first cycle; the gate suite
+#                   drives the clear itself)
 #   open question   a deciding attempt beside the arrival's open question is
 #                   held; withdrawing the question lets it go on
 #   lap cap         the fourth arrival from one state cannot resume; it stops
@@ -869,34 +872,27 @@ fi
 # ==============================================================================
 echo "--- stale approval"
 
-# An answer cited for one deferral, then the run back at finalization (as
-# pr_precheck's recount brings it, through pass_counting; koto rewind stands
-# for that walk here) deferring again: the earlier answer approves nothing.
+# An answer cited for one deferral approves nothing once the run defers
+# again. The run comes back to finalization only through pr_precheck's
+# recount, which needs a committed test edit no one has accepted, and
+# `koto rewind` can't stand in for that walk: once the run has gone
+# deferral_approval -> decide_first -> deferral_approval, each rewind steps
+# back only one transition, so repeated rewinds alternate between those two
+# states and never reach finalization. So this checks the edge that does the
+# clearing, and decide-first-gate_test.sh drives a clear (its `clear` step)
+# and the gate's refusal after it, including an agent writing the old
+# arrival back.
 S=stl
+[ "$(q '[.states.finalization.transitions[] | select(.target == "deferral_approval") | .context_assignments | "\(.decide_arrival)|\(.decide_question)"] | unique | join(",")')" = "none|none" ] \
+    && pass "stale: every finalization edge to deferral_approval clears decide_arrival and decide_question" \
+    || fail "stale: finalization's deferral edges assign [$(q '[.states.finalization.transitions[] | select(.target == "deferral_approval") | .context_assignments]')]"
 if reach "$S" deferral_approval; then
-    tick "$S" '{"approval_decision":"needs_answer"}'
-    attempt "$S" --result undecided --state deferral_approval:1
-    raise "$S" --attempt "$A" --state deferral_approval:1
-    manager_answers "$S" "$Q"
-    attempt "$S" --result decided --chosen "defer the criterion" --state deferral_approval:1 --basis "$ANS"
-    tick "$S" '{"decide_outcome":"decided","decided_next":"resume"}'
-    expect_state "stale: the cited answer resumes the first deferral" deferral_approval
-    n=0
-    while [ "$STATE" != finalization ] && [ "$n" -lt 12 ]; do
-        koto rewind "$S" --rationale "the run comes back to finalization" > "$WORKDIR/rewind.out" 2>"$WORKDIR/rewind.err" \
-            || { fail "koto rewind $S: $(cat "$WORKDIR/rewind.out" "$WORKDIR/rewind.err")"; break; }
-        STATE=$(koto status "$S" 2>"$WORKDIR/status.err" | jq -r '.current_state // empty')
-        n=$((n + 1))
-    done
-    expect_state "stale: back at finalization" finalization
-    tick "$S" '{"finalization_status":"deferral_requested"}'
-    expect_state "stale: a second deferral" deferral_approval
     [ "$(ctx "$S" decide_arrival)|$(ctx "$S" decide_question)" = "none|none" ] \
-        && pass "stale: the second deferral cleared decide_arrival and decide_question" \
+        && pass "stale: a deferral reaches deferral_approval with decide_arrival and decide_question cleared" \
         || fail "stale: decide_arrival [$(ctx "$S" decide_arrival)], decide_question [$(ctx "$S" decide_question)]"
     tick "$S" '{"approval_decision":"approved","cleanup_done":"none_found","design_diagram":"not_applicable"}'
-    expect_state "stale: the first deferral's answer does not approve the second" deferral_approval
-    case "$(gate_stdout answer_cited)" in *needs_answer*) pass "stale: answer_cited asks for needs_answer again" ;;
+    expect_state "stale: approved with no answer cited for this deferral is held" deferral_approval
+    case "$(gate_stdout answer_cited)" in *needs_answer*) pass "stale: answer_cited asks for needs_answer" ;;
         *) fail "stale: answer_cited printed [$(gate_stdout answer_cited)]" ;; esac
 fi
 

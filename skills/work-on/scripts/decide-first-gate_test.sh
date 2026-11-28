@@ -287,9 +287,10 @@ answers() {
 manager_answers() { answers manager "$1" "$2"; }
 # settle <raiser> <identity> <basis> -> the settle's id in $SET
 settle() {
-    SET=$(koto decisions answer --in="$1" --outcome settled --basis "$3" --text "settled on the earlier answer" -- "$1" "${2##*/}" 2>"$T/set.err" \
-        | jq -r '.decision.id // .id // empty')
-    [ -n "$SET" ] || fail "$1 could not settle $2 on $3: $(cat "$T/set.err")"
+    koto decisions answer --in="$1" --outcome settled --basis "$3" --text "settled on the earlier answer" -- "$1" "${2##*/}" \
+        > "$T/set.out" 2>"$T/set.err"
+    SET=$(jq -r '.decision.id // .id // empty' "$T/set.out")
+    [ -n "$SET" ] || fail "$1 could not settle $2 on $3: $(cat "$T/set.out" "$T/set.err")"
 }
 
 open manager
@@ -616,7 +617,10 @@ expect "--approval with no attempt" 1
 attempt worker3 --result decided --chosen "defer it" --state deferral_approval:1
 gate --approval worker3
 expect "--approval with a deciding attempt that cites no answer" 1
-at worker3 deferral_approval deferral_approval:2
+arrive worker3 deferral_approval
+gate --arrive worker3
+[ "$RC:$G" = "0:deferral_approval:2" ] && pass "a second deferral arrival is deferral_approval:2" \
+    || fail "--arrive worker3 second printed [$G], exit $RC: $(cat "$T/gate.err")"
 attempt worker3 --result undecided --state deferral_approval:2
 raise worker3 --content "$T/q.json" --attempt "$A" --state deferral_approval:2
 manager_answers worker3 "$Q"
@@ -703,22 +707,26 @@ attempt we --result decided --chosen "defer it" --basis "manager:$ANS" --state d
 gate --approval we
 expect "--approval in a successor linked to the same dispatcher" 0
 
-# A settle approves only on a person's answer in its basis.
-open solo10
-at solo10 deferral_approval deferral_approval:1
-attempt solo10 --result undecided --state deferral_approval:1
-raise solo10 --content "$T/q.json" --attempt "$A" --state deferral_approval:1
-settle solo10 "$Q" "$WORKER3_ANS"
-attempt solo10 --result decided --chosen "defer it" --basis "solo10:$SET" --state deferral_approval:1
-gate --approval solo10
+# A settle approves only on a person's answer in its basis. koto refuses
+# --basis on a question waiting on a person, and takes as basis only an
+# answer to another question with the same label, so the settling runs are
+# dispatched (their questions wait on session:manager) and both bases answer
+# a question raised from the same content.
+open set1 --dispatched-by manager
+at set1 deferral_approval deferral_approval:1
+attempt set1 --result undecided --state deferral_approval:1
+raise set1 --content "$T/q.json" --attempt "$A" --state deferral_approval:1
+settle set1 "$Q" "$WORKER3_ANS"
+attempt set1 --result decided --chosen "defer it" --basis "set1:$SET" --state deferral_approval:1
+gate --approval set1
 expect "--approval citing a settle whose basis is a session's answer" 1
-open solo11
-at solo11 deferral_approval deferral_approval:1
-attempt solo11 --result undecided --state deferral_approval:1
-raise solo11 --content "$T/q.json" --attempt "$A" --state deferral_approval:1
-settle solo11 "$Q" "$OWNER9"
-attempt solo11 --result decided --chosen "defer it" --basis "solo11:$SET" --state deferral_approval:1
-gate --approval solo11
+open set2 --dispatched-by manager
+at set2 deferral_approval deferral_approval:1
+attempt set2 --result undecided --state deferral_approval:1
+raise set2 --content "$T/q.json" --attempt "$A" --state deferral_approval:1
+settle set2 "$Q" "$OWNER9"
+attempt set2 --result decided --chosen "defer it" --basis "set2:$SET" --state deferral_approval:1
+gate --approval set2
 expect "--approval citing a settle whose basis is the owner's verified answer" 0
 
 # koto's own refusals: the run answering itself, and a person's answer with
