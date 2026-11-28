@@ -24,6 +24,18 @@ code as **[code]**. This file stays the normative spec: the probe's
 header, its `_test.sh` (one fixture per row), and the routing table
 in `skills/scope/koto-templates/scope.md` follow it.
 
+A run waiting on its question never reaches the ladder. A session at
+`done_waiting` is continued in place by `scope-open.sh`, not replaced:
+while the question its result names is open, the open prints
+`waiting=<identity>` and stops (exit 3) with nothing opened; once the
+question is answered or withdrawn, `koto rewind` takes the session back
+to `decide_first`, the arrival it waited from, and the open attaches to
+it. The run then stands at `decide_first` until an attempt citing the
+answer is recorded, and goes back to the hop or `full_run_blocked` it
+left, or takes the exit it was about to take, as that decision says.
+Nothing the run wrote is re-read, since nothing was written for an
+exit.
+
 The meta-ladder head and tail (rows 1-4 and 8-9 of the template) map
 to these codes:
 

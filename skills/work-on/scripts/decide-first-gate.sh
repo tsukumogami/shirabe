@@ -129,6 +129,12 @@ code_of() {
         deferral_approval) echo 16 ;;
         # /execute's covered exit.
         worktree_discipline_check) echo 20 ;;
+        # /scope's covered exits: a hop's bail, and full_run_blocked's abandon.
+        hop_brief) echo 30 ;;
+        hop_prd) echo 31 ;;
+        hop_design) echo 32 ;;
+        hop_plan) echo 33 ;;
+        full_run_blocked) echo 34 ;;
         *) return 1 ;;
     esac
 }

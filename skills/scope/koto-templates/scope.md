@@ -856,9 +856,15 @@ states:
       - target: exit_re_evaluation
         when:
           outcome: rejected
-      - target: bail
+      # A bail goes to decide_first first: the run settles what it can, or
+      # raises the question and waits on it, and reaches bail from there only
+      # on a decision to stop.
+      - target: decide_first
         when:
           outcome: bail
+        context_assignments:
+          decide_origin: hop_brief
+          decide_fresh: "yes"
 
   hop_prd:
     # phase: 2
@@ -910,9 +916,15 @@ states:
       - target: exit_re_evaluation
         when:
           outcome: rejected
-      - target: bail
+      # A bail goes to decide_first first: the run settles what it can, or
+      # raises the question and waits on it, and reaches bail from there only
+      # on a decision to stop.
+      - target: decide_first
         when:
           outcome: bail
+        context_assignments:
+          decide_origin: hop_prd
+          decide_fresh: "yes"
 
   hop_design:
     # phase: 2
@@ -969,9 +981,15 @@ states:
       - target: exit_re_evaluation
         when:
           outcome: rejected
-      - target: bail
+      # A bail goes to decide_first first: the run settles what it can, or
+      # raises the question and waits on it, and reaches bail from there only
+      # on a decision to stop.
+      - target: decide_first
         when:
           outcome: bail
+        context_assignments:
+          decide_origin: hop_design
+          decide_fresh: "yes"
 
   hop_plan:
     # phase: 2
@@ -1087,9 +1105,15 @@ states:
       - target: finalize
         when:
           outcome: skipped
-      - target: bail
+      # A bail goes to decide_first first: the run settles what it can, or
+      # raises the question and waits on it, and reaches bail from there only
+      # on a decision to stop.
+      - target: decide_first
         when:
           outcome: bail
+        context_assignments:
+          decide_origin: hop_plan
+          decide_fresh: "yes"
 
   fold:
     # phase: 2
@@ -1413,10 +1437,14 @@ states:
           failure_reason: "full_run_blocked: recheck could not be decided (chain_complete exit 2). No hop was found incomplete; the predicate reached no verdict."
       # The escape. An agent that cannot satisfy the chain-wide gate is not
       # stuck here permanently, and it is reachable on every gate outcome
-      # because it names no gate.
-      - target: exit_abandonment
+      # because it names no gate. It passes decide_first on the way, which
+      # reaches exit_abandonment on a decision to stop.
+      - target: decide_first
         when:
           next_move: abandon
+        context_assignments:
+          decide_origin: full_run_blocked
+          decide_fresh: "yes"
 
   exit_re_evaluation:
     # phase: 3
@@ -1592,6 +1620,179 @@ states:
         context_assignments:
           outcome: cancelled
           via: bail
+
+  # The covered exits: a hop's bail and full_run_blocked's abandon arrive here
+  # first. As in /work-on and /execute, the action names the arrival in
+  # decide_arrival and counts the laps, and captures nothing; koto 0.42.0
+  # takes a timeout on a default action only with background: true, so this
+  # foreground one has none, and the gates below have theirs. decide_from
+  # names the state the run left (30 to 33 the four hops, 34
+  # full_run_blocked), so a decision goes back to it or takes the exit it was
+  # about to take, with the directive that state printed before.
+  decide_first:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --arrive "scope-{{TOPIC}}"'
+      fallback: >-
+        koto could not name this arrival at decide_first. Read the command's
+        own output above: decide-first-gate.sh exits 2 when koto is missing,
+        a context read or write failed, or decide_origin names no covered
+        state. Stop and report it; do not submit decide_outcome without an
+        arrival name.
+    gates:
+      attempt_recorded:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" "{{SESSION_NAME}}"'
+        timeout: 120
+        overridable: false
+      decide_from:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --from "{{SESSION_NAME}}"'
+        timeout: 120
+        overridable: false
+      # The lap cap /work-on's and /execute's decide_first keep: past three
+      # arrivals from the same state, resume is refused and the run stops or
+      # raises the question.
+      decide_laps:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --laps "{{SESSION_NAME}}"'
+        timeout: 120
+        overridable: false
+    accepts:
+      decide_outcome:
+        type: enum
+        values: [decided, raised]
+        required: true
+      decided_next:
+        type: enum
+        values: [resume, stop]
+        description: >-
+          With decided: resume goes back to the state the run left, stop takes
+          the exit it was about to take (bail from a hop, exit_abandonment from
+          full_run_blocked).
+    transitions:
+      - target: waiting_record
+        when:
+          decide_outcome: raised
+          gates.attempt_recorded.exit_code: 3
+      - target: hop_brief
+        when:
+          decide_outcome: decided
+          decided_next: resume
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 30
+          gates.decide_laps.exit_code: 0
+      - target: hop_prd
+        when:
+          decide_outcome: decided
+          decided_next: resume
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 31
+          gates.decide_laps.exit_code: 0
+      - target: hop_design
+        when:
+          decide_outcome: decided
+          decided_next: resume
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 32
+          gates.decide_laps.exit_code: 0
+      - target: hop_plan
+        when:
+          decide_outcome: decided
+          decided_next: resume
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 33
+          gates.decide_laps.exit_code: 0
+      - target: full_run_blocked
+        when:
+          decide_outcome: decided
+          decided_next: resume
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 34
+          gates.decide_laps.exit_code: 0
+      - target: bail
+        when:
+          decide_outcome: decided
+          decided_next: stop
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 30
+      - target: bail
+        when:
+          decide_outcome: decided
+          decided_next: stop
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 31
+      - target: bail
+        when:
+          decide_outcome: decided
+          decided_next: stop
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 32
+      - target: bail
+        when:
+          decide_outcome: decided
+          decided_next: stop
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 33
+      - target: exit_abandonment
+        when:
+          decide_outcome: decided
+          decided_next: stop
+          gates.attempt_recorded.exit_code: 0
+          gates.decide_from.exit_code: 34
+
+  # Records the run's own open question in decide_question (the default
+  # action, as /work-on's waiting_record does; no gate writes context) and
+  # ends the run at done_waiting. The way out: when the question closed
+  # (answered or withdrawn) before this tick, --record-question finds none
+  # open and leaves decide_question unset, and the run goes back to the state
+  # it left, where a second bail arrives at decide_first as a new arrival and
+  # reads the answer as precedent. Not an edge into decide_first, which only
+  # the covered exits enter.
+  waiting_record:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --record-question "scope-{{TOPIC}}"'
+      fallback: >-
+        koto could not record the question this run waits on. Read the
+        command's own output above: decide-first-gate.sh exits 1 when no open
+        question names this arrival, and 2 when the record cannot be read.
+        Tick again with nothing submitted once it reads.
+    gates:
+      question_recorded:
+        type: context-exists
+        key: decide_question
+        overridable: false
+      decide_from:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --from "{{SESSION_NAME}}"'
+        timeout: 120
+        overridable: false
+    transitions:
+      - target: done_waiting
+        when:
+          gates.question_recorded.exists: true
+        context_assignments:
+          outcome: waiting
+          failure_reason: "scope: waiting on an open question"
+      - target: hop_brief
+        when:
+          gates.question_recorded.exists: false
+          gates.decide_from.exit_code: 30
+      - target: hop_prd
+        when:
+          gates.question_recorded.exists: false
+          gates.decide_from.exit_code: 31
+      - target: hop_design
+        when:
+          gates.question_recorded.exists: false
+          gates.decide_from.exit_code: 32
+      - target: hop_plan
+        when:
+          gates.question_recorded.exists: false
+          gates.decide_from.exit_code: 33
+      - target: full_run_blocked
+        when:
+          gates.question_recorded.exists: false
+          gates.decide_from.exit_code: 34
 
   publish_full_run:
     # phase: 3
@@ -2174,6 +2375,21 @@ states:
       outcome: "${context.outcome}"
       intent: "{{RUN_INTENT}}"
       via: "${context.via}"
+
+  # The run waits on the question it raised at decide_first, its documents
+  # as they were: nothing was written for an abandonment. failure is true so
+  # a caller not taught this terminal reads it as it reads a blocked run,
+  # never as success. /scope invoked again continues this session in place
+  # (scope-open.sh rewinds it to decide_first once the question is closed);
+  # it is never replaced while the question is open.
+  done_waiting:
+    # phase: 4
+    terminal: true
+    failure: true
+    result:
+      outcome: "${context.outcome}"
+      question: "${context.decide_question}"
+      intent: "{{RUN_INTENT}}"
 
   # The two failure terminals. `outcome: refused` is a result-payload value
   # only: the printed exit line for done_refused is `outcome=error` with
@@ -3254,6 +3470,48 @@ Evidence schema:
 - `bail_ack`: `cancel` or `force_materialize`
 - `detail`: what the author chose and why
 
+## decide_first
+
+The run was about to stop: a hop's child bailed, or the chain was about to be
+abandoned at `full_run_blocked`. koto printed this arrival's name above
+(`koto context get {{SESSION_NAME}} decide_arrival` reads it again): pass it
+as `--state` to every command below. Follow
+`{{PLUGIN_ROOT}}/references/question-procedure.md`; it says when the run
+settles the matter itself and when it asks, and what each command takes. The
+commands here are:
+
+- `shirabe question precedent --in {{SESSION_NAME}} --label <label>`: an
+  answer already given in this run's chain, read before anything is raised.
+- `shirabe question attempt --in {{SESSION_NAME}} --state <arrival> ...`: your
+  attempt for this arrival, required before you leave.
+- `shirabe question raise --in {{SESSION_NAME}} --attempt <id> --state <arrival> ...`:
+  the one question, when the attempt is undecided.
+
+Then submit:
+
+- `decide_outcome: decided` with `decided_next: resume` to go back to the
+  state the run left, where its own directive is delivered again, or
+  `decided_next: stop` to take the exit it was about to take: `bail` from a
+  hop, `exit_abandonment` from `full_run_blocked`. Needs a decided or
+  provisional attempt for this arrival. From the fourth arrival from the
+  same state on, `decide_laps` refuses resume: stop, or raise the question.
+- `decide_outcome: raised` once the undecided attempt and its open question
+  are on the record. The run ends waiting on it, with its documents as they
+  are; nothing is written for an abandonment.
+
+`attempt_recorded` holds the submission when the record does not match it;
+its finding says what is missing, and it cannot be overridden. In a run
+continued after its question closed, a deciding attempt must cite the answer.
+
+## waiting_record
+
+koto runs this state itself: it records the question the run waits on and
+ends it at `done_waiting`. If the question closed before this tick, nothing is
+recorded and the run goes back to the state it left; read the answer there
+with `shirabe question precedent`. There is nothing to submit. If it holds
+here, read the action's output and tick again with
+`koto next {{SESSION_NAME}} --no-cleanup`.
+
 ## publish_full_run
 
 Publish this intent run's full-run exit: push the branch and open (or reuse)
@@ -3497,6 +3755,18 @@ when `/plan` was running, of the nearest upstream document. No PLAN was written.
 
 The run was cancelled. Nothing was force-materialized and no exit was recorded:
 a cancel finalizes nothing.
+
+## done_waiting
+
+The run is waiting on the question it raised; its documents are as they were.
+Compose no exit line yourself; print what this prints, verbatim:
+
+```bash
+"{{PLUGIN_ROOT}}/skills/scope/scripts/print-scope-exit.sh" --topic "{{TOPIC}}" --session "scope-{{TOPIC}}"
+```
+
+`/scope {{TOPIC}}` run again continues this run once the question is answered
+or withdrawn; while it is open, the run stays waiting.
 
 ## done_refused
 

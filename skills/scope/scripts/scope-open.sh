@@ -113,13 +113,19 @@
 #   outcome=error                    on every refusal or failure, followed by
 #   step=scope:refused
 #
+# For a session at done_waiting (continue_waiting, below), before any of
+# those: `waiting=<identity>` and `session=<name>` while its question is open
+# (exit 3, nothing opened), `continued=waiting` once it is closed and the
+# session rewound, or `failed=waiting` (exit 70, nothing opened).
+#
 # `refused` is never printed after `outcome=`; it is only ever a value in a
 # result payload. The human-readable message goes to stderr, rendered from
 # scope-open.wording.tsv in /scope's refusal wording.
 #
 # Exit codes: koto-open.sh's, passed through (0 opened, 2 refused, 74
 # replace_failed, 75 replace_held_live, 64 usage, 127 koto or jq missing,
-# other koto failures); 64 for this script's own refusals.
+# other koto failures); 64 for this script's own refusals; 3 a waiting run
+# whose question is open; 70 a waiting run that could not be read or rewound.
 #
 # Requires: bash 3.2+, jq. No eval anywhere, and no token is ever expanded by
 # a shell: the tokens reach koto only through the vars file.
@@ -458,12 +464,84 @@ write_prior_round() {
     return 0
 }
 
+# --- a run waiting on its question ---------------------------------------------------
+
+# A session at done_waiting is never replaced: --replace-terminal below would
+# move it aside and start over at intake, losing the question the run waits
+# on. While the question its result names is open, the open prints
+# `waiting=<identity>` and `session=<name>` and exits 3, with no koto init.
+# Once it is closed (answered or withdrawn), `koto rewind` takes the session
+# back twice, through waiting_record to decide_first, the arrival it waited
+# from; the open then attaches to it as to any live session and prints
+# `continued=waiting` first. decide_first holds there until an attempt citing
+# the answer is recorded (decide-first-gate.sh's check). A status koto answers
+# with anything but a session or `not found`, a question that can't be read,
+# and a rewind koto refuses are `failed=waiting`, exit 70: nothing is opened,
+# so a session that might be waiting is never replaced on a failed read. A
+# rewind that failed after the first step leaves the session at
+# waiting_record, which goes back to the state it left when ticked.
+continue_waiting() {
+    local status rc=0 q h o
+    status=$("${KOTO_BIN:-koto}" status "$SESSION" </dev/null) || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        case "$status" in
+            *"not found"*) return 0 ;;
+        esac
+        printf 'failed=waiting\n'
+        printf '%s: koto status %s failed (exit %s): %s\n' "$PROG" "$SESSION" "$rc" "$status" >&2
+        exit 70
+    fi
+    if ! printf '%s' "$status" | jq -e 'type == "object" and has("current_state")' >/dev/null; then
+        printf 'failed=waiting\n'
+        printf '%s: koto status %s answered something other than a session status\n' "$PROG" "$SESSION" >&2
+        exit 70
+    fi
+    printf '%s' "$status" | jq -e '.removed != true and .is_terminal == true and .current_state == "done_waiting"' >/dev/null \
+        || return 0
+    q=$(printf '%s' "$status" | jq -r '.result.payload.question // empty | strings')
+    if [ -z "$q" ]; then
+        printf 'failed=waiting\n'
+        printf '%s: %s is at done_waiting with no question in its result\n' "$PROG" "$SESSION" >&2
+        exit 70
+    fi
+    if ! h=$("${KOTO_BIN:-koto}" decisions history -- "$q" </dev/null); then
+        printf 'failed=waiting\n'
+        printf '%s: could not read the question %s\n' "$PROG" "$q" >&2
+        exit 70
+    fi
+    o=$(printf '%s' "$h" | jq -r '.open')
+    case "$o" in
+        true)
+            printf 'waiting=%s\n' "$q"
+            printf 'session=%s\n' "$SESSION"
+            printf '%s: %s is waiting on %s, still open\n' "$PROG" "$SESSION" "$q" >&2
+            exit 3
+            ;;
+        false) ;;
+        *)
+            printf 'failed=waiting\n'
+            printf '%s: the question %s reads neither open nor closed\n' "$PROG" "$q" >&2
+            exit 70
+            ;;
+    esac
+    if ! "${KOTO_BIN:-koto}" rewind "$SESSION" --rationale "the question the run waited on is closed" </dev/null >/dev/null \
+        || ! "${KOTO_BIN:-koto}" rewind "$SESSION" --rationale "back to the arrival the run waited from" </dev/null >/dev/null; then
+        printf 'failed=waiting\n'
+        printf '%s: koto could not rewind %s from done_waiting to decide_first\n' "$PROG" "$SESSION" >&2
+        exit 70
+    fi
+    printf 'continued=waiting\n'
+    return 0
+}
+
 # --- the one koto init ----------------------------------------------------------------
 
 # --replace-terminal beside --attach-live: a scope-<topic> session that already
 # reached a terminal is replaced by a fresh one, which walks intake and
 # resume_route like any new run, instead of being ticked into nothing. A live
-# session is never replaced; --attach-live joins it or koto refuses.
+# session is never replaced; --attach-live joins it or koto refuses. A waiting
+# one is continued or left as it is, first.
+continue_waiting
 read_prior_round "$SESSION"
 set -- "$SESSION" "$PLUGIN_ROOT/skills/scope/koto-templates/scope.md" "$VARS_FILE" \
     --attach-live --replace-terminal --wording "$WORDING"
