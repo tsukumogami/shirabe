@@ -6,7 +6,11 @@ name: Check release scripts
 # release-grant.sh reads the session's cut-release grant from niwa; its suite
 # runs against a stub niwa with no koto. after-release.sh runs the installs a
 # repository declares under `## After release`; its suite stubs koto, gh and
-# niwa, and reads this repository's own release extension. The state suite drives the real koto in a
+# niwa, and reads this repository's own release extension.
+# release-koto-reader.sh, a release check, names the koto release the binary's
+# session reader is pinned to in crates/shirabe/Cargo.toml and Cargo.lock; its
+# suite runs on throwaway copies of the two files and on the repository's own.
+# The state suite drives the real koto in a
 # store isolated by KOTO_SESSIONS_BASE with a stubbed gh, extracts the Phase 4
 # blocks out of SKILL.md at run time, and also reads the prose, so a change to
 # SKILL.md has to run it. It skips the engine
@@ -35,6 +39,11 @@ on:
       - 'scripts/check-bash-floor.sh'
       - 'scripts/bash-floor/release.list'
       - '.claude/shirabe-extensions/release.md'
+      # The koto session reader's release check reads the pin and the lock.
+      - 'scripts/release-koto-reader.sh'
+      - 'scripts/release-koto-reader_test.sh'
+      - 'crates/shirabe/Cargo.toml'
+      - 'Cargo.lock'
       - '.tsuku.toml'
       - '.github/workflows/check-release-scripts.yml'
   push:
@@ -52,6 +61,10 @@ on:
       - 'scripts/check-bash-floor.sh'
       - 'scripts/bash-floor/release.list'
       - '.claude/shirabe-extensions/release.md'
+      - 'scripts/release-koto-reader.sh'
+      - 'scripts/release-koto-reader_test.sh'
+      - 'crates/shirabe/Cargo.toml'
+      - 'Cargo.lock'
       - '.tsuku.toml'
       - '.github/workflows/check-release-scripts.yml'
 
@@ -113,6 +126,10 @@ jobs:
       - name: Run the after-release install tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/release/scripts/after-release_test.sh
+
+      - name: Run the koto session reader pin tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/release-koto-reader_test.sh
 
       - name: Run release script tests on the bash 3.2 floor (macOS, system bash)
         if: runner.os == 'macOS'

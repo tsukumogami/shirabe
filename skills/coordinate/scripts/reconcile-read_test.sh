@@ -67,6 +67,12 @@ eq "  ... naming each part on stderr before it reads it" \
     "$(grep '^reconcile-read: reading ' "$T/err" | tr '\n' '|' | sed 's/|$//')"
 eq "  ... while stdout stays one JSON object" 1 "$(printf '%s\n' "$OUT" | jq -c . 2>/dev/null | wc -l | tr -d ' ')"
 FOUND=$S
+expect "  ... and a record with no Run successor row reads successor null" '.successor == null'
+
+run_at "$(roadmap_vars plugin-system)" "$(printf '%s' "$ROADMAP" | jq -c '.run = [{key: "successor", value: "dispatching succ-one 2026-09-26", set_by: "coord", set: "2026-09-26T08:00Z"}]')"
+read_rec --session "$S"
+expect "the Run section is read with the other four: its successor row is the successor" \
+    '.status == "found" and .successor == "dispatching succ-one 2026-09-26" and .holdings[0].source == "record"'
 
 S="coordinate-roadmap-plugin-system-20260926T130000Z"
 log_new "$S" "$(roadmap_vars plugin-system)"

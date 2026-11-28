@@ -88,9 +88,13 @@
 # --host, never in the record's tables: KEY is rules:<label>, briefs:<label>
 # or friction with an absolute path, or one of the import's facts,
 # source_workspace (an absolute path), source_session (a coordinator session
-# name) or template_hash (64 hex). --host merges into record/host and changes
-# nothing else: it writes no table and posts no entry, since host facts never
-# leave the host. A value with a control
+# name) or template_hash (64 hex). briefs-digest:<label> is `sha256:<64 hex>`,
+# the digest of briefs:<label>'s file when it was recorded (coordinate-open.sh
+# --brief writes the two together); a --host write of briefs:<label> without
+# its briefs-digest:<label> drops any digest that label had, since the file it
+# was taken from is no longer the one named. --host merges into record/host
+# and changes nothing else: it writes no table and posts no entry, since host
+# facts never leave the host. A value with a control
 # character or a token-shaped string is refused (65); a workspace path may be
 # a home-directory path, which a row's field never is. It prints the record/host
 # object.
@@ -245,7 +249,10 @@
 # never edits it, and never prints its path: no briefs:LABEL key, or one that
 # isn't an absolute path, is refused (65); a file that isn't a readable
 # regular file exits 2, naming the label. Its digest is the sha256 of its
-# bytes, D below. A Run `briefs` row `LABEL D` means the brief was taken: it
+# bytes, D below. When record/host keeps briefs-digest:LABEL and D isn't it,
+# the file changed after it was recorded, and the intake is refused (65)
+# before any line of it is read as a candidate; so is a brief over 262144 bytes, the read
+# cap the opener's --brief keeps too. A Run `briefs` row `LABEL D` means the brief was taken: it
 # prints nothing, writes nothing and exits 0. Otherwise its lines are
 # state-schema.jq's brief_candidates, each once, read in one of two modes
 # (docs/designs/DESIGN-coordinator-brief-intake-cap.md, Decision 1). A brief
@@ -573,9 +580,12 @@ host_check() {
         source_workspace|friction|rules:*|briefs:*)
             case "$HK" in rules:*|briefs:*) [[ ${HK#*:} =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || { echo "$PROG: refused: $HW: the label is letters, digits, \`.\`, \`_\` and \`-\`" >&2; exit 65; } ;; esac
             case "$HV" in /*) ;; *) echo "$PROG: refused: $HW takes an absolute path" >&2; exit 65 ;; esac ;;
+        briefs-digest:*)
+            [[ ${HK#*:} =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || { echo "$PROG: refused: $HW: the label is letters, digits, \`.\`, \`_\` and \`-\`" >&2; exit 65; }
+            [[ $HV =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "$PROG: refused: $HW takes sha256:<64 hex>" >&2; exit 65; } ;;
         source_session) [[ $HV =~ ^coordinate-[a-z0-9-]+-[0-9]{8}T[0-9]{6}Z$ ]] || { echo "$PROG: refused: --host source_session takes a coordinator session name, coordinate-<slug>-<stamp>" >&2; exit 65; } ;;
         template_hash) [[ $HV =~ ^[0-9a-f]{64}$ ]] || { echo "$PROG: refused: --host template_hash takes 64 hex" >&2; exit 65; } ;;
-        *) echo "$PROG: --host takes source_workspace, source_session, template_hash, rules:<label>, briefs:<label> or friction" >&2; exit 64 ;;
+        *) echo "$PROG: --host takes source_workspace, source_session, template_hash, rules:<label>, briefs:<label>, briefs-digest:<label> or friction" >&2; exit 64 ;;
     esac
     if LC_ALL=C grep -q '[[:cntrl:]]' <<<"$HV"; then echo "$PROG: refused: $HW: a control character" >&2; exit 65; fi
     if grep -Eq "$TOKEN_RE" <<< "$HV"; then echo "$PROG: refused: $HW: a token-shaped string" >&2; exit 65; fi
@@ -591,8 +601,12 @@ EOF
     WD=$(mktemp -d "${TMPDIR:-/tmp}/state-stored-set.XXXXXX") || lib_die2 "cannot make a temporary directory"
     trap 'rm -rf "$WD"' EXIT
     rs_host "${RS_SESSION:-$SESSION}" "$WD/host" || lib_die2 "cannot read record/host: $(lib_scrub < "$WD/host.err")"
+    # A brief named without its digest drops the digest its label had.
     printf '%s' "$HOSTKV" | jq -R -s --slurpfile cur "$WD/host" \
-        '$cur[0] + (split("\n") | map(select(. != "") | split("\t") | {(.[0]): (.[1:] | join("\t"))}) | add // {})' \
+        '(split("\n") | map(select(. != "") | split("\t") | {(.[0]): (.[1:] | join("\t"))}) | add // {}) as $new
+        | ([$new | keys[] | select(startswith("briefs:")) | ltrimstr("briefs:")
+            | select(("briefs-digest:" + .) as $d | $new | has($d) | not) | "briefs-digest:" + .]) as $stale
+        | ($cur[0] | with_entries(select(.key as $k | $stale | index($k) | not))) + $new' \
         > "$WD/host.next" || lib_die2 "jq failed"
     lib_write_guard
     . "$HERE/state-write-core.sh"
@@ -1252,6 +1266,15 @@ intake)
     IDIG=$(lib_sha256 "$WD/brief")
     [[ $IDIG =~ ^[0-9a-f]{64}$ ]] || lib_die2 "cannot read the brief $ILABEL"
     IDIG=sha256:$IDIG
+    # The digest recorded with the path, when one was: a file swapped after
+    # it was recorded is refused, and so is one past the read cap.
+    IREC=$(jq -r --arg k "briefs-digest:$ILABEL" '.[$k] // "" | if type == "string" then . else "" end' "$WD/host") || lib_die2 "jq failed"
+    [ -z "$IREC" ] || [ "$IREC" = "$IDIG" ] \
+        || refuse "the brief briefs:$ILABEL changed after it was recorded (its digest isn't the one record/host keeps); record it again with --host briefs:$ILABEL <absolute path>"
+    # 262144 is coordinate-open.sh's BRIEF_CAP, the read cap its --brief
+    # check keeps: change the two together.
+    [ "$(wc -c < "$WD/brief" | tr -d ' ')" -le 262144 ] \
+        || refuse "the brief briefs:$ILABEL is larger than 262144 bytes, the most the intake reads"
     ISRC="inferred brief $ILABEL $IDIG"
     # A digest a Run briefs row already carries was taken: nothing to do.
     if jq -e --arg v "$ILABEL $IDIG" 'any((.run // [])[]; .key == "briefs" and .value == $v)' "$P" > /dev/null; then

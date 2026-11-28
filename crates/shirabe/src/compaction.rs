@@ -54,17 +54,21 @@
 //! through calls that log no read: `koto context history` of the note gives
 //! its last write's seq, timestamp and state; `koto status` gives the current
 //! state (a transition after the note changes it); the run's event log,
-//! `koto-<session>.state.jsonl` in the directory `koto session dir` prints,
-//! gives every event's seq and type, so any event after the note's write
-//! that moved the work on (evidence, a decision, an override, a transition
-//! back to the same state) is seen; and `koto context list` plus `koto
-//! context history` of each other key gives the latest write seq of every
-//! key. In the log, a read (`context_read`), an import (`session_imported`)
-//! and a key copied in by a cloud sync (`context_added` by writer `sync`)
-//! don't count: none of them is work. The log is opened without following a
-//! link and must be a regular file; only its last mebibyte is read, and a
-//! tail that holds nothing older than the event right after the note can't
-//! say what came between, so it leaves the freshness unknown. The branch's
+//! `koto-<session>.state.jsonl`, gives every event's seq and type, so any
+//! event after the note's write that moved the work on (evidence, a
+//! decision, an override, a transition back to the same state) is seen; and
+//! `koto context list` plus `koto context history` of each other key gives
+//! the latest write seq of every key. In the log, a read (`context_read`),
+//! an import (`session_imported`) and a key copied in by a cloud sync
+//! (`context_added` by writer `sync`) don't count: none of them is work. The
+//! log is read whole through koto's own session reader (`koto-session-reader`,
+//! in `koto_store`), from the sessions directory koto's rule names
+//! (`$KOTO_SESSIONS_BASE`, else `$KOTO_HOME` or `~/.koto` then `sessions/`),
+//! which holds the directory `koto session dir` prints; no koto call names
+//! it. The reader refuses a link, a non-regular file and a FIFO without
+//! waiting on it. A log over
+//! `koto_store`'s size cap, one the reader refuses, or a read that outlasts
+//! the hook's time budget leaves the freshness unknown. The branch's
 //! tip commit time comes from `git log -1 --format=%ct refs/heads/<branch>`,
 //! run in the entry's repository when that is still a work tree, else in the
 //! hook's working directory. Every call is bounded in time. A check that
@@ -88,6 +92,8 @@ use std::time::{Duration, Instant};
 
 use clap::{Args, Subcommand};
 use regex::Regex;
+
+use crate::koto_store::{read_run_log, RunEvent, RunLog};
 
 /// The one key a compaction note lives under in the session's koto session.
 pub const NOTE_KEY: &str = "compaction/note.md";
@@ -117,17 +123,6 @@ const MAX_KEYS_SCANNED: usize = 256;
 
 /// The most bytes read from one tool's stdout.
 const MAX_TOOL_OUTPUT: u64 = 4 * 1024 * 1024;
-
-/// The most bytes read from the end of the run's event log. An event line is
-/// a few hundred bytes, so this holds the last few thousand events.
-const LOG_TAIL_BYTES: u64 = 1024 * 1024;
-
-/// The longest session directory path the freshness read accepts.
-const MAX_SESSION_DIR: usize = 4096;
-
-/// The most bytes read from the start of a run's event log for its header
-/// line. A real header is under a kilobyte.
-const MAX_HEADER_BYTES: u64 = 64 * 1024;
 
 /// The flags every `git` call carries, so a repository's fsmonitor, hooks or
 /// signature program (`gpg.program`, run by `git log` when the repository
@@ -546,6 +541,11 @@ impl Budget {
         let left = self.deadline.checked_duration_since(Instant::now())?;
         run_tool(prog, args, left.min(CALL_TIMEOUT))
     }
+
+    /// The time left before the deadline, zero once it has passed.
+    fn remaining(&self) -> Duration {
+        self.deadline.saturating_duration_since(Instant::now())
+    }
 }
 
 fn run_tool(prog: &str, args: &[&str], timeout: Duration) -> Option<String> {
@@ -723,48 +723,24 @@ fn anchored_run(sid: &str, budget: &Budget) -> Option<String> {
     }
 }
 
-/// The `execution_dir` a run's event log header records.
-fn header_execution_dir(head: &str) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_str(head).ok()?;
-    v.get("execution_dir")?.as_str().map(str::to_string)
+/// The `to` of the latest `execution_anchor_rebound` event in a run's log.
+/// Only those events carry one.
+fn rebound_to(log: &RunLog) -> Option<String> {
+    log.events.iter().rev().find_map(|e| e.rebound_to.clone())
 }
 
-/// The `to` of the latest `execution_anchor_rebound` event in a log tail. A
-/// tail that doesn't start the log drops its first, partial line.
-fn rebound_to(tail: &LogTail) -> Option<String> {
-    let text = String::from_utf8_lossy(&tail.bytes);
-    let mut lines = text.split('\n');
-    if !tail.whole {
-        lines.next();
-    }
-    let mut to = None;
-    for line in lines {
-        let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
-        };
-        if event.get("type").and_then(|t| t.as_str()) != Some("execution_anchor_rebound") {
-            continue;
-        }
-        if let Some(t) = event.pointer("/payload/to").and_then(|t| t.as_str()) {
-            to = Some(t.to_string());
-        }
-    }
-    to
+/// The directory a run's log says it executes in: the latest rebind when
+/// there is one, else the header's `execution_dir`.
+fn log_dir(log: &RunLog) -> Option<String> {
+    rebound_to(log).or_else(|| log.execution_dir.clone())
 }
 
 /// The directory koto session `ks` runs in: the latest rebind in its event
-/// log's tail when there is one, else the header's `execution_dir`. It must
-/// pass the repository path grammar and still be a work tree.
+/// log when there is one, else the header's `execution_dir`. It must pass
+/// the repository path grammar and still be a work tree.
 fn run_dir(ks: &str, budget: &Budget) -> Option<String> {
-    let path = run_log_path(ks, budget)?;
-    let dir = read_log_tail(&path)
-        .as_ref()
-        .and_then(rebound_to)
-        .or_else(|| {
-            read_log_head(&path)
-                .as_deref()
-                .and_then(header_execution_dir)
-        })?;
+    let log = read_run_log(ks, budget.remaining())?;
+    let dir = log_dir(&log)?;
     if !valid_repo_path(&dir) {
         return None;
     }
@@ -885,121 +861,26 @@ fn parse_key_list(json: &str) -> Option<Vec<String>> {
         .collect()
 }
 
-/// The end of a run's event log, as read: its bytes, and whether they are
-/// the whole log.
-struct LogTail {
-    bytes: Vec<u8>,
-    whole: bool,
-}
-
-/// The tail of the event log of koto session `ks`: the directory `koto
-/// session dir` prints, which must be an absolute path with no control
-/// character, and `koto-<ks>.state.jsonl` in it, opened without following a
-/// link and without waiting on a FIFO, which must be a regular file. `ks`
-/// passed its grammar when the entry was read, so the name has no `/`.
-fn run_log_tail(ks: &str, budget: &Budget) -> Option<LogTail> {
-    read_log_tail(&run_log_path(ks, budget)?)
-}
-
-/// Where koto session `ks` keeps its event log, with the checks
-/// `run_log_tail` documents.
-fn run_log_path(ks: &str, budget: &Budget) -> Option<PathBuf> {
-    let out = budget.run("koto", &["session", "dir", ks])?;
-    let dir = out.strip_suffix('\n').unwrap_or(&out);
-    if !dir.starts_with('/') || dir.len() > MAX_SESSION_DIR || dir.chars().any(char::is_control) {
-        return None;
-    }
-    Some(Path::new(dir).join(format!("koto-{ks}.state.jsonl")))
-}
-
-/// The event log at `path`, opened without following a link and without
-/// waiting on a FIFO, when it is a regular file.
-fn open_log(path: &Path) -> Option<(fs::File, u64)> {
-    use rustix::fs::{open, Mode, OFlags};
-    let fd = open(
-        path,
-        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
-        Mode::empty(),
-    )
-    .ok()?;
-    let file = fs::File::from(fd);
-    let meta = file.metadata().ok()?;
-    if !meta.is_file() {
-        return None;
-    }
-    Some((file, meta.len()))
-}
-
-/// The first line of the event log at `path`: its header. Only the first
-/// `MAX_HEADER_BYTES` are read, and a header longer than that is `None`.
-fn read_log_head(path: &Path) -> Option<String> {
-    let (file, _) = open_log(path)?;
-    let mut bytes = Vec::new();
-    file.take(MAX_HEADER_BYTES).read_to_end(&mut bytes).ok()?;
-    let end = bytes.iter().position(|b| *b == b'\n')?;
-    String::from_utf8(bytes[..end].to_vec()).ok()
-}
-
-fn read_log_tail(path: &Path) -> Option<LogTail> {
-    use std::io::{Seek, SeekFrom};
-    let (mut file, len) = open_log(path)?;
-    let start = len.saturating_sub(LOG_TAIL_BYTES);
-    file.seek(SeekFrom::Start(start)).ok()?;
-    let mut bytes = Vec::new();
-    file.take(LOG_TAIL_BYTES).read_to_end(&mut bytes).ok()?;
-    Some(LogTail {
-        bytes,
-        whole: start == 0,
-    })
-}
-
 /// Whether an event moved the work on. A read, an import and a key a cloud
 /// sync copied in are not work; every other event is.
-fn moves_work_on(event: &serde_json::Value, ty: &str) -> bool {
-    match ty {
+fn moves_work_on(event: &RunEvent) -> bool {
+    match event.kind.as_str() {
         "context_read" | "session_imported" => false,
-        "context_added" => {
-            event.pointer("/payload/writer").and_then(|w| w.as_str()) != Some("sync")
-        }
+        "context_added" => event.writer.as_deref() != Some("sync"),
         _ => true,
     }
 }
 
-/// What a log tail says about a note last written at `note_seq`:
+/// What a run's log says about a note last written at `note_seq`:
 /// `Some(true)` when an event after it moved the work on, `Some(false)` when
-/// none did, and `None` when the tail can't tell: it holds no event, or it
-/// starts past the event right after the note, so what came between isn't
-/// in it. A tail that doesn't start the log starts mid-line, so its first
-/// line is dropped. Lines that aren't an event (the log's header, a line
-/// still being written) are passed over.
-fn moved_on_after(tail: &LogTail, note_seq: u64) -> Option<bool> {
-    let text = String::from_utf8_lossy(&tail.bytes);
-    let mut lines = text.split('\n');
-    if !tail.whole {
-        lines.next();
+/// the log holds events and none after the note did, and `None` when it
+/// holds no event at all.
+fn moved_on_after(log: &RunLog, note_seq: u64) -> Option<bool> {
+    if log.events.is_empty() {
+        return None;
     }
-    let mut first_seq = None;
-    for line in lines {
-        let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
-        };
-        let (Some(seq), Some(ty)) = (
-            event.get("seq").and_then(|s| s.as_u64()),
-            event.get("type").and_then(|t| t.as_str()),
-        ) else {
-            continue;
-        };
-        first_seq.get_or_insert(seq);
-        if seq > note_seq && moves_work_on(&event, ty) {
-            return Some(true);
-        }
-    }
-    let first_seq = first_seq?;
-    if tail.whole || first_seq <= note_seq.saturating_add(1) {
-        Some(false)
-    } else {
-        None
-    }
+    let after_note = |e: &RunEvent| e.seq > note_seq && moves_work_on(e);
+    Some(log.events.iter().any(after_note))
 }
 
 /// Judge the entry's note against its koto session and its branch. An entry
@@ -1044,7 +925,8 @@ fn note_freshness(e: &Entry, budget: &Budget) -> Freshness {
     }
 
     // Any event after the note that moved the work on, whatever its kind.
-    match run_log_tail(ks, budget).and_then(|t| moved_on_after(&t, note.seq)) {
+    let log = read_run_log(ks, budget.remaining());
+    match log.as_ref().and_then(|l| moved_on_after(l, note.seq)) {
         Some(true) => return Freshness::Stale,
         Some(false) => {}
         None => unknown = true,
@@ -1586,82 +1468,78 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
         }
     }
 
-    fn tail(lines: &[&str], whole: bool) -> LogTail {
-        LogTail {
-            bytes: lines.join("\n").into_bytes(),
-            whole,
+    /// One event of a run's log, with no writer and no rebind.
+    fn run_event(seq: u64, kind: &str) -> RunEvent {
+        RunEvent {
+            seq,
+            kind: kind.to_string(),
+            writer: None,
+            rebound_to: None,
+        }
+    }
+
+    /// A `context_added` event by `writer`.
+    fn added_by(seq: u64, writer: &str) -> RunEvent {
+        RunEvent {
+            writer: Some(writer.to_string()),
+            ..run_event(seq, "context_added")
+        }
+    }
+
+    /// A run's log holding `events`, with no `execution_dir`.
+    fn log_of(events: &[RunEvent]) -> RunLog {
+        RunLog {
+            execution_dir: None,
+            events: events.to_vec(),
         }
     }
 
     #[test]
-    fn a_log_tail_sees_an_event_that_moved_the_work_on() {
-        let header = r#"{"schema_version":1,"workflow":"k"}"#;
-        let note = r#"{"seq":5,"timestamp":"t","type":"context_added","payload":{"key":"compaction/note.md"}}"#;
-        let evidence = r#"{"seq":6,"timestamp":"t","type":"evidence_submitted","payload":{}}"#;
-        let read = r#"{"seq":6,"timestamp":"t","type":"context_read","payload":{}}"#;
-        let import = r#"{"seq":7,"timestamp":"t","type":"session_imported","payload":{}}"#;
-        let sync =
-            r#"{"seq":8,"timestamp":"t","type":"context_added","payload":{"writer":"sync"}}"#;
-        let agent =
-            r#"{"seq":8,"timestamp":"t","type":"context_added","payload":{"writer":"agent"}}"#;
-        assert_eq!(moved_on_after(&tail(&[header, note], true), 5), Some(false));
+    fn a_run_log_sees_an_event_that_moved_the_work_on() {
+        let note = run_event(5, "context_added");
+        let evidence = run_event(6, "evidence_submitted");
+        let read = run_event(6, "context_read");
+        let import = run_event(7, "session_imported");
+        let sync = added_by(8, "sync");
+        let agent = added_by(8, "agent");
+        let unrecorded = run_event(8, "context_added");
         assert_eq!(
-            moved_on_after(&tail(&[header, note, evidence], true), 5),
-            Some(true)
-        );
-        assert_eq!(
-            moved_on_after(&tail(&[header, note, read, import, sync], true), 5),
+            moved_on_after(&log_of(std::slice::from_ref(&note)), 5),
             Some(false)
         );
         assert_eq!(
-            moved_on_after(&tail(&[header, note, read, agent], true), 5),
+            moved_on_after(&log_of(&[note.clone(), evidence.clone()]), 5),
+            Some(true)
+        );
+        assert_eq!(
+            moved_on_after(&log_of(&[note.clone(), read.clone(), import, sync]), 5),
+            Some(false)
+        );
+        assert_eq!(
+            moved_on_after(&log_of(&[note.clone(), read.clone(), agent]), 5),
+            Some(true)
+        );
+        // A key whose writer the log doesn't record is work.
+        assert_eq!(
+            moved_on_after(&log_of(&[note, read, unrecorded]), 5),
             Some(true)
         );
         // An event at the note's own seq or before it never counts.
-        assert_eq!(
-            moved_on_after(&tail(&[header, evidence], true), 6),
-            Some(false)
-        );
-        // A trailing newline, a line still being written, and the header are
-        // passed over.
-        assert_eq!(
-            moved_on_after(&tail(&[header, note, "", r#"{"seq":9,"#], true), 5),
-            Some(false)
-        );
+        assert_eq!(moved_on_after(&log_of(&[evidence]), 6), Some(false));
         // No event at all can't tell.
-        assert_eq!(moved_on_after(&tail(&[header], true), 5), None);
-        assert_eq!(moved_on_after(&tail(&["", "not json"], true), 5), None);
+        assert_eq!(moved_on_after(&log_of(&[]), 5), None);
     }
 
     #[test]
-    fn a_partial_log_tail_drops_its_first_line_and_must_reach_the_note() {
-        let cut = r#"type":"evidence_submitted","seq":99}"#;
-        let note = r#"{"seq":5,"timestamp":"t","type":"context_added","payload":{}}"#;
-        let next_read = r#"{"seq":6,"timestamp":"t","type":"context_read","payload":{}}"#;
-        let late_read = r#"{"seq":40,"timestamp":"t","type":"context_read","payload":{}}"#;
-        let late_work = r#"{"seq":41,"timestamp":"t","type":"decision_recorded","payload":{}}"#;
-        // The cut first line is dropped, even when it would parse.
-        let whole_line = r#"{"seq":99,"timestamp":"t","type":"evidence_submitted","payload":{}}"#;
-        assert_eq!(
-            moved_on_after(&tail(&[whole_line, note], false), 5),
-            Some(false)
-        );
-        assert_eq!(
-            moved_on_after(&tail(&[cut, note, next_read], false), 5),
-            Some(false)
-        );
-        // A tail starting right after the note still sees everything after it.
-        assert_eq!(
-            moved_on_after(&tail(&[cut, next_read], false), 5),
-            Some(false)
-        );
-        // A tail of reads that starts well past the note can't tell.
-        assert_eq!(moved_on_after(&tail(&[cut, late_read], false), 5), None);
-        // But work anywhere in it after the note is enough.
-        assert_eq!(
-            moved_on_after(&tail(&[cut, late_read, late_work], false), 5),
-            Some(true)
-        );
+    fn the_whole_log_is_read_however_far_past_the_note_it_runs() {
+        let mut events = vec![run_event(5, "context_added")];
+        events.extend((6..=4000).map(|seq| run_event(seq, "context_read")));
+        // Reads long after the note leave it current: every event is there,
+        // so nothing between is missed.
+        assert_eq!(moved_on_after(&log_of(&events), 5), Some(false));
+        // Work anywhere after the note is enough.
+        events.push(run_event(4001, "decision_recorded"));
+        assert_eq!(moved_on_after(&log_of(&events), 5), Some(true));
     }
 
     fn entry_with(skills: usize, arg_len: usize, args: usize) -> Entry {
@@ -1893,31 +1771,29 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
 
     #[test]
     fn the_execution_dir_is_the_latest_rebind_else_the_header() {
-        assert_eq!(
-            header_execution_dir(r#"{"schema_version":1,"execution_dir":"/w/a"}"#).as_deref(),
-            Some("/w/a")
-        );
-        assert!(header_execution_dir(r#"{"schema_version":1}"#).is_none());
-        assert!(header_execution_dir(r#"{"execution_dir":7}"#).is_none());
-        assert!(header_execution_dir("not json").is_none());
-        let rb = |seq: u64, to: &str| {
-            format!(
-                r#"{{"seq":{seq},"type":"execution_anchor_rebound","payload":{{"from":"/x","to":"{to}"}}}}"#
-            )
+        let rebind = |seq: u64, to: &str| RunEvent {
+            rebound_to: Some(to.to_string()),
+            ..run_event(seq, "execution_anchor_rebound")
         };
-        let t = tail(
-            &[
-                r#"{"schema_version":1,"execution_dir":"/w/a"}"#,
-                &rb(2, "/w/b"),
-                r#"{"seq":3,"type":"transitioned"}"#,
-                &rb(4, "/w/c"),
-            ],
-            true,
-        );
-        assert_eq!(rebound_to(&t).as_deref(), Some("/w/c"));
-        assert!(rebound_to(&tail(&[r#"{"seq":3,"type":"transitioned"}"#], true)).is_none());
-        // A partial tail drops its first line, rebind or not.
-        assert!(rebound_to(&tail(&[&rb(2, "/w/b"), r#"{"seq":3,"type":"x"}"#], false)).is_none());
+        let mut log = log_of(&[
+            run_event(1, "workflow_initialized"),
+            rebind(2, "/w/b"),
+            run_event(3, "transitioned"),
+            rebind(4, "/w/c"),
+        ]);
+        log.execution_dir = Some("/w/a".to_string());
+        assert_eq!(rebound_to(&log).as_deref(), Some("/w/c"));
+        assert_eq!(log_dir(&log).as_deref(), Some("/w/c"));
+        // A rebind whose path couldn't be read is passed over for an earlier
+        // one.
+        log.events.push(run_event(5, "execution_anchor_rebound"));
+        assert_eq!(log_dir(&log).as_deref(), Some("/w/c"));
+        // With no rebind, the header's directory; with neither, none.
+        let mut log = log_of(&[run_event(1, "transitioned")]);
+        assert!(rebound_to(&log).is_none());
+        assert!(log_dir(&log).is_none());
+        log.execution_dir = Some("/w/a".to_string());
+        assert_eq!(log_dir(&log).as_deref(), Some("/w/a"));
     }
 
     #[test]

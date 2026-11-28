@@ -40,14 +40,23 @@
 # no other context call it can do without: a tick of a pending visit makes
 # two, the sealing tick five at most. reconcile-pass_test.sh pins the counts.
 #
-# The pass writes the record in three cases only. A holding left `dispatching`
+# The pass writes the record in four cases only. A holding left `dispatching`
 # whose worker the listing finds (and whose leg, when it has one, is bound or
 # resolved) is rewritten `dispatched` by reconcile-settle.sh. A dispatched
 # holding whose leg's request this host's store doesn't hold (the run was
 # imported here) gets its leg an end from reconcile-legs.sh: re-legged when
 # the worker's session came along unbound, else moved to the message path
-# (PRD R15). Each of those two is launched like a re-check once the facts it
-# needs are in. And once per visit, before the record read, reconcile-owe.sh
+# (PRD R15). A Run `successor` row the record read finds `dispatching` or
+# `dispatched` is settled by `reconcile-settle.sh --successor`, under the
+# run's successor lock (.niwa/dispatch-briefs/.successor.<run>.lock, the one
+# dispatch-worker.sh --successor takes, never taken over when held), with
+# dispatch-worker.sh's own rule (dispatch-common.sh dc_successor_settle).
+# Each of those three is launched like a re-check once the facts it needs
+# are in, one write at a time and only when its whole budget fits; a pending
+# row never makes the pass blocked, and a settle that fails is reported
+# under "Not verified". The report's `Successor pending:` line, built with
+# dc_successor_pending_msg, names a row still pending after the pass and
+# what to run. And once per visit, before the record read, reconcile-owe.sh
 # owes the verdict of every milestone a roadmap/v4 roadmap reads Completed
 # that the record doesn't owe yet (a verdict-owed Work row through
 # roadmap-status.sh --owe-completed; nothing on v1 to v3 or at discipline
@@ -91,7 +100,7 @@
 # of sleeping. The template never passes it.
 #
 # Like every check, the pass runs in the environment of the `koto next` call
-# that triggered it (koto#261; see SKILL.md's Known Limitations).
+# that triggered it (koto#261; see MAINTAINING.md's Known Limitations).
 #
 # Requires: bash 3.2+, jq, gh, git, koto, niwa, pkill, and a sha256 tool.
 set -uo pipefail
@@ -210,10 +219,11 @@ R="$T/reads"
 mkdir -p "$R" || die "can't create the reads directory"
 # One record read for the pass: reconcile-read.sh's read, and the holding rows
 # the settle and the legs classification read (state-holding.sh --read), all
-# take it from here; a write drops it (shirabe#1095). It is of the four
+# take it from here; a write drops it (shirabe#1095). It is of the five
 # sections reconcile-read.sh builds its view from, which hold every holding
-# row those reads need (shirabe#1315); a settle's write reads the whole record.
-rs_once_begin "$T/once" "holdings deferrals side_effects decisions" || die "can't create the record read's directory"
+# row those reads need and the Run `successor` row (shirabe#1315); a settle's
+# write reads the whole record.
+rs_once_begin "$T/once" "holdings deferrals side_effects decisions run" || die "can't create the record read's directory"
 
 list_keys
 # A refusal belongs to the pass that wrote it; progress stays until this pass
@@ -448,6 +458,12 @@ plan() {
                   and ($f["\($p).leg"].reason // "") == "request not found on this host" then
                  {id: "\($p).legs", sub: "legs", args: ["--session", $session, "--topic", $h.worker, "--return-path", $h.return_path], natural: 20}
                else empty end)),
+          # A Run successor row still pending is settled against the listing,
+          # one of the pass'"'"'s writes (reconcile-settle.sh --successor).
+          ((($rec.successor // "") | tostring | split(" ")[0]) as $ss
+            | if $ss == "dispatching" or $ss == "dispatched" then
+                {id: "succ", sub: "successor", args: ["--successor", "--session", $session], natural: 20}
+              else empty end),
           ($rec.side_effects | to_entries[] | .key as $j | .value.row as $s | "s\($j)" as $p
             | ($s.target | target) as $t
             | (($s.action // "") | ascii_downcase) as $a
@@ -555,8 +571,9 @@ collect() {
 running() { local x; for x in ${RUN_IDS[@]+"${RUN_IDS[@]}"}; do [ "$x" = "$1" ] && return 0; done; return 1; }
 # inventories: how many inventories are running.
 inventories() { local x n=0; for x in ${RUN_SUB[@]+"${RUN_SUB[@]}"}; do [ "$x" = inventory ] && n=$((n + 1)); done; echo "$n"; }
-# writing: a settle or a legs classification, one of the pass's writes, is running.
-writing() { local x; for x in ${RUN_IDS[@]+"${RUN_IDS[@]}"}; do case "$x" in *.settle | *.legs) return 0 ;; esac; done; return 1; }
+# writing: a settle, a legs classification or the successor settle, one of
+# the pass's writes, is running.
+writing() { local x; for x in ${RUN_IDS[@]+"${RUN_IDS[@]}"}; do case "$x" in *.settle | *.legs | succ) return 0 ;; esac; done; return 1; }
 
 # launch SPEC LEFT -- start one re-check in the background with its deadline
 # clipped to LEFT seconds.
@@ -581,9 +598,10 @@ launch() {
         exec 3>&-
         args=()
         while IFS= read -r a; do args+=("$a"); done < "$R/$id.args"
-        # The settle and the legs classification are the pass's writes, each
-        # in a script of its own; every other read is a re-check.
-        if [ "$sub" = settle ]; then
+        # The settle, the successor settle and the legs classification are
+        # the pass's writes, each in a script of its own; every other read is
+        # a re-check.
+        if [ "$sub" = settle ] || [ "$sub" = successor ]; then
             RECONCILE_READ_DEADLINE=$d "${RUNBASH[@]}" "$HERE/reconcile-settle.sh" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
         elif [ "$sub" = legs ]; then
             RECONCILE_READ_DEADLINE=$d "${RUNBASH[@]}" "$HERE/reconcile-legs.sh" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
@@ -622,15 +640,16 @@ while :; do
         tn=$(now) || exit 1
         el=$((tn - T0))
         left=$((READS_END - el))
-        # A write is never clipped: the settle and the legs classification
-        # start only when their whole budget fits, else in a later pass,
+        # A write is never clipped: the settle, the successor settle and the
+        # legs classification start only when their whole budget fits, else
+        # in a later pass,
         # which starts with them. And one write runs at a time: two would
         # each rewrite the record, and the second would find it changed.
         # Inventories hold at most INV_PARALLEL of the slots, so the reads of
         # GitHub and the other re-checks always have one (shirabe#1202).
         whole=1
         case "$(printf '%s' "$spec" | jq -r .sub)" in
-            settle | legs)
+            settle | legs | successor)
                 [ "$left" -lt "$(printf '%s' "$spec" | jq -r .natural)" ] && whole=0
                 writing && whole=0
                 ;;
@@ -681,8 +700,36 @@ if [ "$LEFT" -gt 0 ] || [ "$READ_LATE" = 1 ]; then
     say "pending:$VISIT:$LEFT:$H"
 fi
 
+# The Run successor row, when the record read found it pending: the
+# settle's fact, and the row as the settle left it (as read when the settle
+# didn't finish) with what the listing showed. dc_successor_pending_msg
+# gives the sentence of the report's Successor pending: line, the one
+# dispatch-worker.sh's exit 12 prints; a row the settle left
+# dispatch-failed or stranded gets none, since the slot is free. A fact
+# with no listing (a held lock, an unreadable row, a settle that didn't
+# finish) means no listing was read this pass, so the sentence is the
+# unread one: it names the row as read and never says a session is live.
+# A record with no pending row gives the facts no successor, so its report
+# is as before.
+SUCC=null
+SREAD=$(wj -r '.record.successor // "" | strings') || die "the successor row could not be read from the work file"
+case "${SREAD%% *}" in
+    dispatching | dispatched)
+        SFACT=$(wj -c '.facts.succ // null | if . == null then null else del(.t) end') || die "the successor fact could not be read"
+        SNOW=$(jq -r --arg r "$SREAD" 'if (.status // "") == "ok" then (.now // "") else $r end' <<< "$SFACT")
+        SLISTING=$(jq -r 'if (.listing // "") != "" then .listing else "unread" end' <<< "$SFACT")
+        SNAME=$(jq -r '.session // "" | strings' <<< "$SFACT")
+        SMSG=$(bash -c '. "$1" && shift && dc_successor_pending_msg "$@"' _ "$HERE/dispatch-common.sh" "$SESSION" "$SNOW" "$SLISTING" "$SNAME" 2>/dev/null) || SMSG=""
+        SUCC=$(jq -nc --arg read "$SREAD" --argjson fact "$SFACT" --arg now "$SNOW" --arg name "$SNAME" --arg msg "$SMSG" '
+            {row: $read, fact: $fact,
+             pending: (if $msg == "" then null
+                       else {row: $now, status: ($now | split(" ")[0]), topic: (($now | split(" "))[1] // ""),
+                             session: $name, sentence: $msg} end)}') || die "the successor facts could not be assembled"
+        ;;
+esac
+
 # Every re-check is done: the facts, the report, the seal.
-jq -c --arg at "$(iso)" '
+jq -c --arg at "$(iso)" --argjson succ "$SUCC" '
     .facts as $f | .record as $rec
     | def strip: del(.t);
       def get($id): if $f[$id] == null then empty else $f[$id] | strip end;
@@ -714,7 +761,8 @@ jq -c --arg at "$(iso)" '
      deferrals: [$rec.deferrals | to_entries[] | "d\(.key)" as $p
        | {row: .value.row} + (if $f[$p] != null then (get($p) | {disposed, how, status, reason}) else {status: "not_verified", reason: "not read"} end)],
      reasoning: $rec.reasoning, unparseable: $rec.unparseable}
-    + (if (.owe // null) == null then {} else {owe: .owe} end)' > "$T/facts.json" <<< "$WJ" \
+    + (if (.owe // null) == null then {} else {owe: .owe} end)
+    + (if $succ == null then {} else {successor: $succ} end)' > "$T/facts.json" <<< "$WJ" \
     || die "the facts could not be assembled"
 "${RUNBASH[@]}" "$HERE/reconcile-report.sh" json < "$T/facts.json" > "$W/report.json" || die "the report could not be built"
 "${RUNBASH[@]}" "$HERE/reconcile-report.sh" md < "$W/report.json" > "$W/report.md" || die "the report could not be rendered"

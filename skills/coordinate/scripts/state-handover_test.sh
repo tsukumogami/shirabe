@@ -29,6 +29,12 @@
 # and for a stale digest; not listed for a matching row, nor when record/host
 # names no brief (the read's fields as before) or a file that can't be read;
 # one gap of two briefs when one is taken; the brief never edited.
+# And the report brief-unrecorded, which holds nothing: a run a dispatcher
+# started whose record/host names no brief passes the gate with no gap and
+# prints the report, its fix naming the --host write and the intake, how to
+# find the path when the opener line carried no --brief, and that it is a
+# report; a briefs: key clears it, and a run with no dispatched-by link, or
+# reporting to a person, gets none.
 #
 # Usage: bash skills/coordinate/scripts/state-handover_test.sh
 set -uo pipefail
@@ -218,6 +224,29 @@ for c in "a rule row's What|{\"standing\":\"s1\",\"kind\":\"rule\",\"on\":\"\",\
 done
 seed "$(with_rt "director at coord-lead" | jq -c '.standing = [{standing: "s1", kind: "rule", on: "", until: "", what: "Report to coord-leader.", owner: "", relayed_by: "", set: "2026-09-26T08:00Z", source: "inferred"}]')"
 gate; eq "  ... a row naming a longer name holding it doesn't" "1 reports-to-unsourced" "$G"
+
+echo "== brief-unrecorded =="
+# A run dispatched by a coordinator (a dispatched-by link to its reports-to
+# address) whose record/host names no brief gets a report line, which holds
+# nothing: the gate's exit and its gaps are as they were.
+seed "$(with_rt "director at coord-lead")"
+printf '{}' | koto context add "$SR" koto/links/dispatched-by/coord-lead
+gate; eq "a dispatched run with no briefs: host key passes the gate, listing no gap" "0 " "$G"
+grep -qF 'state-handover: report, holds nothing: brief-unrecorded: record the brief this run was dispatched with: state-stored-set.sh --host briefs:<label>' "$T/gate" \
+    && ok "  ... and prints the brief-unrecorded report with its fix" || bad "  ... and prints the brief-unrecorded report with its fix" "$(cat "$T/gate")"
+grep -qF 'when it has none, ask whoever dispatched you for the file' "$T/gate" \
+    && ok "  ... its fix covering an opener line with no --brief" || bad "  ... its fix covering an opener line with no --brief" "$(cat "$T/gate")"
+grep -qF 'this is a report and holds nothing' "$T/gate" && ! grep -q 'gap.*brief-unrecorded' "$T/gate" \
+    && ok "  ... calling itself a report, never a gap" || bad "  ... calling itself a report, never a gap" "$(cat "$T/gate")"
+eq "  ... the read carries it as reports" "brief-unrecorded" "$(bash "$RH" "${RM[@]}" 2>/dev/null | jq -r '[(.reports // [])[].report] | join(",")')"
+printf '%s' '{"briefs:worker": "/srv/briefs/worker.md"}' | koto context add "$SR" record/host
+gate; grep -qF 'brief-unrecorded' "$T/gate" && bad "  ... a briefs: host key clears it" "$(cat "$T/gate")" || ok "  ... a briefs: host key clears it"
+koto context remove "$SR" koto/links/dispatched-by/coord-lead
+seed "$(with_rt "director at coord-lead")"
+bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/gate"
+grep -qF 'brief-unrecorded' "$T/gate" && bad "  ... a run with no dispatched-by link gets none" "$(cat "$T/gate")" || ok "  ... a run with no dispatched-by link gets none"
+seed "$(record "$told_both")"
+eq "  ... nor does one reporting to a person: the read has no reports field" "null" "$(bash "$RH" "${RM[@]}" 2>/dev/null | jq -c '.reports')"
 
 echo "== brief-unread =="
 # The design's Decision 10: a brief record/host names, whose digest no Run

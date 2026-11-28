@@ -1,0 +1,13 @@
+{
+  "context": "The build cache sits in front of the artifact store and is read on every CI run.",
+  "problem": "Two stores fit the access pattern and the evidence does not separate them: both meet the latency target in the benchmark.",
+  "question": "Which store should the build cache use?",
+  "options": [
+    {"label": "SQLite", "reason": "One file beside the runner, no server to operate, and the benchmark met the target with room to spare."},
+    {"label": "Postgres", "reason": "Already run for the API, so backups and monitoring exist, at the cost of a network hop on every read."},
+    {"label": "Redis", "reason": "Fastest in the benchmark, but nothing else uses it and it would be a new service to keep up."}
+  ],
+  "ground": "The choice adds or removes a service the owner's team operates, which is the owner's call.",
+  "waiting": ["issue-12", "issue-14"],
+  "label": "build cache store"
+}

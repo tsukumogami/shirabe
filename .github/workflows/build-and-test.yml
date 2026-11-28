@@ -85,5 +85,27 @@ jobs:
           bash scripts/context-size_test.sh
           bash scripts/thrash-check_test.sh
 
+      - name: Install tsuku
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
+
+      - name: Install project tools
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install -y
+
+      - name: Assert koto meets the floor
+        run: bash scripts/assert-koto-floor.sh
+
+      # The secret shapes built into `shirabe question raise` equal the
+      # public-content check's own copy.
+      - name: Secret shapes consistency
+        run: bash scripts/secret-shapes-consistency_test.sh
+
+      # `shirabe question` against the real koto: the recipient, the attempt
+      # basis, the twenty-question limit and the checks koto makes of a
+      # recorded question prompt before it records the owner's answer.
+      - name: Question commands suite
+        run: PATH="$PWD/target/release:$PATH" bash scripts/question-commands_test.sh
+
       - name: Cargo test (workspace)
         run: cargo test --workspace

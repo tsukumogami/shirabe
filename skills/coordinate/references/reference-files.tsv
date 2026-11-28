@@ -1,0 +1,25 @@
+# reference-files.tsv -- the coordinate skill's files beyond SKILL.md that a
+# coordinator session loads or runs with: the template, every reference, and
+# the opener's wording table, whose guidance blocks the opener prints.
+# scripts/rule-files.sh reads this file at every start and digests each row's
+# file into the run's `rules` rows (label skill-<file name>), after SKILL.md,
+# in this order, so the `--rules` answer covers them. A reference added under
+# references/ gets a row here; scripts/rule-files_test.sh fails while one has
+# none. This file itself and MAINTAINING.md, which nothing loads at runtime,
+# have no row.
+#
+# Columns, tab-separated:
+#   file   the path relative to skills/coordinate/, one file per row
+#   when   when a coordinator loads it
+koto-templates/coordinate.md	never directly: each state shows its own guidance
+references/loop.md	reconcile, pick, the quiet check, the failure branch, a new decision, a worker's report
+references/brief-template.md	dispatch, rebrief and re-dispatch
+references/verification-checklist.md	verify through the merge confirmation
+references/state-keys.md	every record and close-out state, and the verdict and reopen steps
+references/landing-milestone-roadmap.md	`merge_confirm` and `merged_facts`, when the run's `ROADMAP_FORM` names a milestone roadmap
+references/landing-feature-roadmap.md	`merge_confirm` and `merged_facts`, when the run's `ROADMAP_FORM` names a feature roadmap
+references/teardown-agent.md	teardown, as the brief of the local teardown agent the coordinator starts
+references/unit-cost.md	teardown, for the unit's `cost` entry the pass writes before the destroy, and reading cost entries back
+references/entry-points.tsv	dispatch: the entry point a unit's brief may name and whether its worker reports on a leg; read by the dispatch scripts
+references/decision-phrasings.tsv	never directly: the scripts that show text to a person or read a worker's report match against it
+scripts/coordinate-open.wording.tsv	never directly: the opener prints its guidance blocks on stderr at a takeover, an import, a carry, a handover, a refusal and an ask

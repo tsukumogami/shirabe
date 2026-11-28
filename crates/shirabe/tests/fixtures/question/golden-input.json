@@ -1,0 +1,13 @@
+{
+  "label": "café queue",
+  "waiting": ["issue-3"],
+  "ground": "Changing the queue changes what the on-call rota runs, which is the owner's to decide.",
+  "question": "Which queue should carry the \"retry\" jobs? ",
+  "problem": "Both queues meet the throughput target; neither is clearly better for jobs that retry.",
+  "context": "Retry jobs run from the café-region workers and today share the main queue.",
+  "standing": true,
+  "options": [
+    {"reason": "Keeps one queue to watch; retries already back off, so they don't starve new jobs.", "label": "Main queue"},
+    {"label": "A \"retry\" queue", "reason": "Isolates retries so a retry storm can't delay new work, at the cost of a second queue to watch."}
+  ]
+}

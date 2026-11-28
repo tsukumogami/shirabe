@@ -13,7 +13,11 @@
 #   1. the opener prints imported=A, then outcome=continued, predecessor=A and
 #      session=B, a new run, with no carried=, resumed= or rebound= line, and
 #      predecessor_stopped=yes (A's last event before koto's session_imported
-#      is seconds old);
+#      is seconds old); its stderr carries, once each, the import's guidance
+#      block, the imported legs' block and the takeover's, whose line telling
+#      the agent to start `koto request watch --session B --timeout-secs 7200`
+#      before the first tick names B, every guide line before the last
+#      `coordinate-open:` line, and its stdout holds only key=value lines;
 #   2. watcher=stopped and the watch in `work` has exited and
 #      leg_wake=supported, as a takeover on one host reports them, and no
 #      state= or tick= line: B opens at the template's first state, so it
@@ -118,6 +122,20 @@ mkdir -p "$DC_CLAUDE_HOME/jobs/job-b"
 jq -n --arg s "$B_ID" '{sessionId: $s, name: "coord-b", state: "working"}' > "$DC_CLAUDE_HOME/jobs/job-b/state.json"
 
 line() { printf '%s\n' "$OUT" | sed -n "s/^$1=//p"; }
+# guided <label> <text>: the opener's last run printed a guidance block (the
+# `coordinate-open guide: ` lines of $T/open.err) with <text> on exactly one
+# line, every guide line before the last `coordinate-open: ` line when there
+# is one, and nothing on stdout ($OUT) but key=value lines.
+guided() {
+    local n g m odd
+    n=$(grep '^coordinate-open guide: ' "$T/open.err" | grep -cF -- "$2")
+    g=$(grep -n '^coordinate-open guide: ' "$T/open.err" | tail -1 | cut -d: -f1)
+    m=$(grep -n '^coordinate-open: ' "$T/open.err" | tail -1 | cut -d: -f1)
+    if [ "$n" = 1 ] && [ -n "$g" ] && { [ -z "$m" ] || [ "$g" -lt "$m" ]; }; then ok "$1"
+    else bad "$1" "$(cat "$T/open.err")"; fi
+    odd=$(printf '%s\n' "$OUT" | grep -v '^$' | grep -vE '^[a-z][a-z_-]*=')
+    eq "$1, stdout holding only key=value lines" "" "$odd"
+}
 importer() { # importer <scope name> <run> [plugin root]: the opener in `second` as B; OUT its stdout, ORC its exit
     printf '["docs/roadmaps/ROADMAP-%s.md", "--import", "%s", "--from", "%s"]' "$1" "$2" "$W1" > "$T/args.json"
     OUT=$(cd "$W2" && CLAUDE_CODE_SESSION_ID=$B_ID bash "$PS/coordinate-open.sh" --plugin-root "${3:-$PR}" "$T/args.json" 2>"$T/open.err"); ORC=$?
@@ -182,6 +200,13 @@ B=$(line session)
 case "$B" in coordinate-roadmap-imp-2*Z) [ "$B" != "$A" ] && ok "1: session= names a new run ($B)" || bad "1: session= names a new run" "$B" ;; *) bad "1: session= names a new run" "$OUT $(cat "$T/open.err")" ;; esac
 eq "1: no carried=, resumed= or rebound= line" "" "$(printf '%s\n' "$OUT" | grep -E '^(carried|resumed|rebound)=')"
 eq "1: A's last event before the import is seconds old: predecessor_stopped=yes" yes "$(line predecessor_stopped)"
+# The three blocks this start is keyed to, each once: the import's (--import),
+# the legs' (imported=) and the takeover's (outcome=continued), whose watch
+# line names B, the new run.
+guided "1: stderr carries the import's block" "An import moves a run another host started here."
+guided "1: stderr carries the imported legs' block" "An import brings every worker's leg (legs/<request>/<leg>) but not its request"
+guided "1: stderr carries the takeover's block, its watch line naming B" \
+    "start one background \`koto request watch --session $B --timeout-secs 7200\`"
 
 # ---- 2. watcher= and leg_wake=, and no state= or tick= ----------------------------
 eq "2: watcher=stopped" stopped "$(line watcher)"

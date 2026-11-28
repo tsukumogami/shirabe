@@ -28,17 +28,36 @@
 #                                              (for a fix) a reproducing test
 #                                              changed after the red
 #                                              (scripts/lib/test-classify.sh)
+#                           red_test_edited    a fix's reproducing test or
+#                                              harness file (red_first.json)
+#                                              changed after the red
 #                           criteria_changed   the acceptance criteria changed
-#                           unclassified       a changed path is in no class
+#                           unclassified       a changed path is in no class,
+#                                              or a change has no meaningful
+#                                              line count: a binary file, a
+#                                              rename or copy, a mode or type
+#                                              change, a submodule bump
+#   cap <level> lines<=N files<=M classes=<a,b,...>
+#                         lowers a `standard` floor to <level>, which must be
+#                         `light`, when no `full` rule fired, neither
+#                         criteria_changed nor unclassified holds, changed
+#                         lines are at most N and files at most M, and every
+#                         class a changed path is in is one of the listed
+#                         classes. It never lowers `full`, and `manifest` may
+#                         not be listed, so a dependency change keeps
+#                         `standard`. Evaluated after the rules; the first cap
+#                         that applies is the one the facts record.
 #
-# The floor is the highest level any rule yields, `light` when none fires.
-# A path can be in several classes and every one counts, so `docs` (which no
-# rule names) only keeps a path out of `unclassified`: README.md alone stays
-# `light`, SKILL.md is `instruction` as well and floors at `standard`, and an
-# unclassified source file floors at `standard`. `light` is reachable only
-# when every changed path is documentation or in a class with no rule.
-# review-level.sh refuses (exit 64) a file with an unknown record type, level
-# or fact, or a rule naming a class no `class` line defines.
+# The floor is the highest level any rule yields, `light` when none fires,
+# lowered by a cap that applies. A path can be in several classes and every
+# one counts, so `docs` (which no rule names) only keeps a path out of
+# `unclassified`: README.md alone stays `light`, SKILL.md is `instruction` as
+# well and floors at `standard`, and an unclassified source file floors at
+# `standard`. `light` is reachable when every changed path is documentation or
+# in a class with no rule, or when the cap applies.
+# review-level.sh refuses (exit 64) a file with an unknown record type, level,
+# fact or cap term, a rule or cap naming a class no `class` line defines, or a
+# cap that lists `manifest` or lowers to anything but `light`.
 
 class	ci	.github/workflows/**
 class	ci	.github/actions/**
@@ -56,8 +75,13 @@ class	security	**/.env
 class	security	**/.env.*
 class	security	*.pem
 
-# koto templates hold the gates and the routing.
-class	template	**/koto-templates/**
+# koto templates hold the gates and the routing: the template itself, its
+# diagram, and the decider fixtures beside it. A template's compatibility
+# file (`<template>.compat.json`) is in `manifest` below, not here: what it
+# records a digest of is in `engine`, so a change to those scripts floors at
+# `full` on its own, and the file alone floors at `standard`.
+class	template	**/koto-templates/*.md
+class	template	**/koto-templates/*.jsonl
 # The text every /execute step agent is handed: a change to it changes what
 # every later step agent does, as a template change would.
 class	template	skills/execute/references/step-agent-handoff.md
@@ -229,6 +253,7 @@ class	manifest	**/pyproject.toml
 class	manifest	**/poetry.lock
 class	manifest	**/Gemfile
 class	manifest	**/Gemfile.lock
+class	manifest	**/koto-templates/*.compat.json
 
 # Documentation: no rule names it, so a path here and in no other class
 # leaves the floor at `light`. requirements*.txt matches `*.txt` too, and the
@@ -244,10 +269,11 @@ rule	full	class:template
 rule	full	class:engine
 rule	full	lines>400
 rule	full	files>12
-# An edited test needs the QA seat beside the other two panels; a test that
-# only gained lines, or a new test file, still floors at `standard` through
-# class:test below.
-rule	full	tests_edited
+# A fix's own reproducing test rewritten after its red is where a test is
+# most likely weakened to pass, so it takes every panel. Any other edited
+# test is still a fact (tests_edited) the panels and the acceptance hold
+# read, and floors at `standard` through class:test below.
+rule	full	red_test_edited
 
 rule	standard	class:instruction
 rule	standard	class:executable
@@ -256,3 +282,9 @@ rule	standard	class:manifest
 rule	standard	unclassified
 rule	standard	criteria_changed
 rule	standard	lines>40
+
+# The light cap, first step: a small change to documentation and tests takes
+# the one light seat (references/review-levels.md, "The light cap"). Widening
+# the classes is a change to this file, which floors at `full`, and is judged
+# by the copy a run stored at init.
+cap	light	lines<=200	files<=5	classes=docs,test

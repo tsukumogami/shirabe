@@ -1,6 +1,6 @@
 # Phase 4d: Light Review
 
-The one panel of the `light` review level (`../review-levels.md`): a single reviewer seat in place of scrutiny, review and QA. A run reaches it from the review-level check only when its level is `light` and the facts of the change didn't raise it. The seat must pass for the workflow to advance to verification.
+The one panel of the `light` review level (`../review-levels.md`): a single reviewer seat in place of scrutiny, review and QA. A run reaches it from the review-level check only when its level is `light`: the facts of the change didn't raise it, or the light cap lowered a small documentation and test change to it. The seat must pass for the workflow to advance to verification, and it can send the run to the full panels instead with `escalate`. On an audited run (`review-level.sh audit`, about one session in ten) a passed light panel goes on to scrutiny, review and QA anyway, and their verdicts are checked against this seat's.
 
 ## Reviewer
 
@@ -30,6 +30,13 @@ runs after you, so judge the whole change on three questions.
 A blocking finding is one that would make a criterion false, break existing
 behaviour, or leave the next developer likely to break it: the same bar a
 code-review seat applies. Everything else is advisory.
+
+Return "escalate": true, with a one-line escalate_reason, when one reviewer
+is not enough for this change whatever you found: it changes behaviour that
+the diff's size and paths understate (a test that now passes for a different
+reason, documentation that tells an agent to run something new), or you
+can't judge a criterion without running the code. Escalating doesn't replace
+findings: still return every finding you have.
 ```
 
 ## Which Seat Runs
@@ -51,11 +58,13 @@ The seat writes full findings to a `mktemp`-produced file outside the repository
   "cited": [{"path": "src/a.sh", "lines": "10-24"}],
   "findings": [{"severity": "advisory", "summary": "<one line>", "path": "src/a.sh", "lines": "12"}],
   "test_edits": [{"path": "tests/a_test.sh", "judgment": "corrects", "reason": "<one line>"}],
+  "escalate": false,
+  "escalate_reason": "<one line, only when escalate is true>",
   "detail_file": "<the reviewer's mktemp path>"
 }
 ```
 
-`cited` and `findings` mean what they mean in `phase-4a-scrutiny.md`, and every finding carries a `severity` of `blocking` or `advisory`: the seat is blocking exactly when one finding is `blocking`, and a finding without a severity makes `--record` refuse the round. Delete the detail file once the round is aggregated; anything worth keeping goes into `light_results.json`.
+`cited` and `findings` mean what they mean in `phase-4a-scrutiny.md`, and every finding carries a `severity` of `blocking` or `advisory`: the seat is blocking exactly when one finding is `blocking`, and a finding without a severity makes `--record` refuse the round. Carry `escalate` into the seat's round-file entry as the seat returned it (`"escalate": true`, or false or absent): `--record` keeps it on the seat's ledger entry and the round, and while the seat's latest verdict says escalate the `light_escalate` gate closes every passed route (see Escalate below). `escalate_reason` stays in your summary; `--record` doesn't read it. Only the light reviewer may carry `"escalate": true`, and a value that isn't a boolean makes `--record` refuse the round. Delete the detail file once the round is aggregated; anything worth keeping goes into `light_results.json`.
 
 ## Aggregation
 
@@ -113,6 +122,22 @@ exit "$NEXT_STATUS"
 ```
 
 Every panel's key goes, not only this one's: if the level is raised on the way back, the run enters scrutiny and review, and neither may be read on a summary written before the fix; their verdicts come from the ledger. `phase-4a-scrutiny.md` explains the removal and the two checks. The verdict ledger and the review-level ledger stay.
+
+## Escalate
+
+When the seat returns `"escalate": true`, record its round with `"escalate": true` on the reviewer's entry, raise the level, then submit the escalate outcome:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/review-level.sh" raise <WF> standard --reason escalate
+EV=$(mktemp -d) || exit 1
+printf '{"light_outcome": "escalate"}\n' > "$EV/evidence.json"
+koto next <WF> --with-data @"$EV/evidence.json" --no-cleanup
+NEXT_STATUS=$?
+rm -rf "$EV"
+exit "$NEXT_STATUS"
+```
+
+Koto enforces the order. Once the round is recorded with the flag, the `light_escalate` gate (`panel-scope.sh --escalated light`) closes every passed route, so the run can't pass at `light` on a seat that escalated: it holds here until the raise. The `light_level` gate holds the escalate route until the raise is in the ledger, so an escalate submitted early waits here too. The round's findings stay in the ledger (a blocking one still has to close). The run goes back to the review-level check, which keeps the raise (`review-level.sh raise` is never lowered for the rest of the run), and on to scrutiny: the next panel is `standard`'s, and the light seat's escalate is not counted as an audit.
 
 ## Escalation
 

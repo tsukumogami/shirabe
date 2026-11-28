@@ -1,6 +1,7 @@
 # Verification Checklist
 
-The rule is in `skills/coordinate/SKILL.md`: verify before you relay or act.
+The rule is in the template's `verify` through `land` states: verify before
+you relay or act.
 This file is the exact reads behind it, the wording of a report, and the
 land step's merge-order table and merge confirmation. Load it at the
 verify step and the land step. Run the reads at the moment you are about

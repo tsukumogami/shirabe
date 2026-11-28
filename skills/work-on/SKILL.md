@@ -954,7 +954,15 @@ the level from the facts of the change (its size, the path classes it touched,
 whether tests or acceptance criteria changed), within the coordinator's bound,
 and routes on it in the same tick, without stopping:
 
-- `light` — one panel, `light_review`, of one reviewer seat.
+- `light` — one panel, `light_review`, of one reviewer seat. A small change
+  to documentation and tests (at most 200 lines and 5 files, nothing in another
+  class) reaches it through the light cap. The seat can return `escalate`:
+  raise with `scripts/review-level.sh raise <session> standard --reason
+  escalate`, then submit `light_outcome: escalate`, and the run goes back to
+  the level check and on to scrutiny. About one run in ten is audited
+  (`review-level.sh audit`): its passed light panel goes on to `scrutiny`,
+  `review` and `qa_validation`, and a blocking finding they raise is recorded
+  as a miss.
 - `standard` — `scrutiny` then `review`, no QA.
 - `full` — `scrutiny`, `review` and `qa_validation`.
 
@@ -979,7 +987,7 @@ run.
 
 | Flag | Variable | Values |
 |------|----------|--------|
-| `--review-floor=<level>` | `REVIEW_FLOOR` | `light`, `standard` or `full`; the lowest level the run takes, whatever the facts say |
+| `--review-floor=<level>` | `REVIEW_FLOOR` | `light`, `standard` or `full`; the lowest level the run takes, whatever the facts say. `standard` opts a run out of the light cap |
 | `--review-ceiling=<level>` | `REVIEW_CEILING` | `light`, `standard` or `full`; a raise past it needs a recorded reason, and a facts floor past it is taken and logged as a breach |
 
 ### Review Panel
@@ -987,8 +995,10 @@ run.
 Read `references/review-panel-orchestration.md` for details (panel states: `scrutiny`, `review`, `qa_validation`, `light_review` — require parallel spawns, not standard directive execution).
 
 An edited test is reviewed apart from an added one. A change that edits a test (removes
-or changes a line, deletes it, renames it with a change) floors at `full`
-(`tests_edited`); one that only adds tests floors at `standard`. The code packet lists
+or changes a line, deletes it, renames it with a change) records `tests_edited`, and a
+fix whose own reproducing test changed after its red floors at `full`
+(`red_test_edited`); any other test change floors at `standard`, or `light` under the
+light cap. The code packet lists
 added and edited tests in its own `## Test changes` section, with the edited hunks;
 every seat that runs judges each edited test as `corrects` or `weakens` in its
 `test_edits`, `panel-scope.sh --record` refuses a round that skips one, and a `weakens`

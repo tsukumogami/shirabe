@@ -61,6 +61,13 @@
 # decision with the override: /work-on's panel verdict directives have the run
 # record a person's override of a panel gate naming that person, and an older
 # koto refuses the flags.
+# 0.42.0 is the release that records a question as an `escalate` with a typed
+# recipient, a label, a need and a content hash, stores the content once
+# (`koto decisions content`), lists open questions for a person or a position
+# (`koto decisions open`), and records a person's answer only from the pointer
+# to the question prompt that asked it (`koto decisions answer --by person:...
+# --prompt`): `shirabe question` raises, lists, renders and answers through
+# them, and an older koto has none of them.
 # Raise it in the pull request that adopts a feature from a
 # newer koto: change FLOOR, run scripts/koto-minimum-consistency_test.sh, and
 # update each restatement it names, adding to this paragraph what the new
@@ -99,7 +106,7 @@ if [ "${1-}" = "--print-floor" ]; then
     unset KOTO_FLOOR
 fi
 
-FLOOR="${KOTO_FLOOR:-0.37.0}"
+FLOOR="${KOTO_FLOOR:-0.42.0}"
 KOTO="${KOTO_BIN:-koto}"
 
 # semver_ge A B -- exit 0 when MAJOR.MINOR.PATCH A >= B, compared numerically

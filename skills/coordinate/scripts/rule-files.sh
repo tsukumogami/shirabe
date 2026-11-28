@@ -11,9 +11,10 @@
 #   skill-<file name>        the coordinate skill's own files at the plugin
 #                            root (the root whose .claude-plugin/plugin.json
 #                            names the version): skills/coordinate/SKILL.md,
-#                            then every path SKILL.md's Reference Files table
-#                            names (the template and the references), read
-#                            from the table itself
+#                            then every path the sidecar
+#                            skills/coordinate/references/reference-files.tsv
+#                            names (the template and the references), in its
+#                            row order
 #   workspace-<depth>-<file name>
 #                            CLAUDE.md and CLAUDE.local.md
 #   workspace-<depth>-rules-<file name>
@@ -31,10 +32,10 @@
 #
 # Usage: rule-files.sh --plugin-root <root>
 #
-# Exit codes: 0 printed; 1 a file couldn't be read, SKILL.md's table names no
-# path or one that isn't a plain relative path, or two skill files share a
-# name (the reason on stderr, nothing on stdout, so the caller writes no row);
-# 64 usage.
+# Exit codes: 0 printed; 1 a file couldn't be read, the sidecar names no path,
+# has a row without both columns or names one that isn't a plain relative
+# path, or two skill files share a name (the reason on stderr, nothing on
+# stdout, so the caller writes no row); 64 usage.
 set -uo pipefail
 export LC_ALL=C
 
@@ -70,14 +71,23 @@ add() {
     OUT="$OUT$o"$'\n'
 }
 
-# The skill's files: SKILL.md, then the Reference Files table's paths, each
-# relative to the skill's directory.
+# The skill's files: SKILL.md, then the sidecar's paths in its row order, each
+# relative to the skill's directory. A sidecar row is <file>TAB<when>; only
+# the file is read here, so a slip in the when column never stops a start's
+# digest (rule-files_test.sh checks that column). `#` lines and blank lines
+# are skipped.
 SKILL_DIR="$ROOT/skills/coordinate"
+SIDECAR=references/reference-files.tsv
 [ -r "$SKILL_DIR/SKILL.md" ] || fail "can't read $SKILL_DIR/SKILL.md"
-REFS=$(awk '/^## Reference Files[[:space:]]*$/ { on = 1; next } /^## / { on = 0 } on && /^\|/' "$SKILL_DIR/SKILL.md" \
-    | awk -F'|' '{ print $2 }' | grep -oE '`[^`]+`' | tr -d '`') \
-    || fail "can't read SKILL.md's Reference Files table"
-[ -n "$REFS" ] || fail "SKILL.md's Reference Files table names no file"
+[ -r "$SKILL_DIR/$SIDECAR" ] || fail "can't read $SKILL_DIR/$SIDECAR"
+REFS=
+while IFS= read -r row || [ -n "$row" ]; do
+    case "$row" in ''|'#'*) continue ;; esac
+    rel=${row%%$'\t'*}
+    [ -n "$rel" ] || fail "$SIDECAR has a row with no file: $row"
+    REFS="$REFS$rel"$'\n'
+done < "$SKILL_DIR/$SIDECAR" || fail "can't read $SKILL_DIR/$SIDECAR"
+[ -n "$REFS" ] || fail "$SIDECAR names no file"
 SEEN=$'\n'
 skill() { # skill <path relative to the skill's directory>
     local name=${1##*/}
@@ -90,7 +100,7 @@ skill SKILL.md
 while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     [[ $rel =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] && [[ ! /$rel/ =~ /\.\.?/ ]] \
-        || fail "SKILL.md's Reference Files table names $rel, which isn't a plain relative path"
+        || fail "$SIDECAR names $rel, which isn't a plain relative path"
     skill "$rel"
 done <<EOF
 $REFS

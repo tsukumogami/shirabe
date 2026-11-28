@@ -31,8 +31,9 @@
 #   the floor           a light choice below a standard floor is lifted by the
 #                       check, naming the rule, and the run enters scrutiny
 #   a retry             a blocking light round returns to implementation with
-#                       its seat in the verdict ledger; a fix past 40 changed
-#                       lines then takes the next lap to scrutiny
+#                       its seat in the verdict ledger; a fix past the light
+#                       cap's 200 changed lines then takes the next lap to
+#                       scrutiny
 #   a hand rebind       made before the check, it can't steer the route: the
 #                       check routes on the ledger and rebinds the variable;
 #                       made later, in review or light_review, it holds that
@@ -54,6 +55,18 @@
 #   clearing sites      every retry clearing loop that removes the panels'
 #                       results removes light_results.json too, and none
 #                       names review_level.jsonl
+#   escalate            the light seat's escalate, submitted before the raise,
+#                       holds light_review, and so does a passing round whose
+#                       seat escalated, ticked with nothing submitted; after `review-level.sh raise ...
+#                       --reason escalate` it returns to review_level_check,
+#                       which keeps the raise, and the next panel is
+#                       scrutiny: the run is standard and skips QA
+#   an audited run      a session the audit selects goes from its passed
+#                       light panel to scrutiny, review and qa_validation,
+#                       then verification, and the QA round's record leaves a
+#                       no-miss decision; blocking scrutiny findings leave
+#                       one miss, named by the most severe category their
+#                       seats gave them
 #
 # The light retry runs the clearing block shipped in phase-4d-light.md, so an
 # edit that breaks it fails here.
@@ -224,6 +237,27 @@ GOT=$(jq -r '.states.review_level_check.gates.level_fits_facts.decider_check
     || fail "the decider check is [$GOT]"
 GOT=$(jq -r '[.states[].transitions[]?.when // {} | keys[] | select(startswith("gates.level_fits_facts"))] | length' "$COMPILED" 2>/dev/null)
 [ "$GOT" = 0 ] && pass "no route reads the decider check" || fail "$GOT when clauses read level_fits_facts"
+GOT=$(jq -r '.states.light_review.gates | [.light_level.type, .light_level.command, .audited.type, .audited.command] | join("|")' "$COMPILED" 2>/dev/null)
+case "$GOT" in
+    "command|"*'review-level.sh" level '*"--exit|command|"*'review-level.sh" audit '*) pass "light_review reads the ledger's level and the audit as command gates" ;;
+    *) fail "light_review's light_level and audited gates are [$GOT]" ;;
+esac
+GOT=$(jq -r '[.states.light_review.transitions[] | select(.when.light_outcome == "escalate")
+              | "\(.target):\(.when["gates.light_level.exit_code"])"] | join(",")' "$COMPILED" 2>/dev/null)
+[ "$GOT" = "review_level_check:12,review_level_check:13" ] \
+    && pass "escalate goes back to the level check, only with the ledger at standard or full" || fail "escalate routes are [$GOT]"
+GOT=$(jq -r '[.states.light_review.transitions[] | select(.when.light_outcome == null)
+              | "\(.target):\(.when["gates.audited.exit_code"]):\(.when["gates.light_level.exit_code"])"] | unique | join(",")' "$COMPILED" 2>/dev/null)
+[ "$GOT" = "scrutiny:0:11,verification:1:11,verification_deferred:1:11,verification_plan:1:11" ] \
+    && pass "a passed light panel goes to verification (local, hosted-ci or auto), or to scrutiny when audited, only at light" || fail "light_review's passed routes are [$GOT]"
+GOT=$(jq -r '[.states.light_review.transitions[] | select(.when.light_outcome == null) | .when["gates.light_escalate.exit_code"]] | unique | map(tostring) | join(",")' "$COMPILED" 2>/dev/null)
+[ "$GOT" = 1 ] && pass "every passed light route needs light_escalate at 1 (the seat didn't escalate)" \
+    || fail "light_review's passed routes read light_escalate as [$GOT]"
+GOT=$(jq -r '.states.light_review.gates.light_escalate | "\(.type)|\(.command)"' "$COMPILED" 2>/dev/null)
+case "$GOT" in 'command|'*'panel-scope.sh" --escalated light '*) pass "light_escalate runs panel-scope.sh --escalated light" ;;
+    *) fail "light_escalate is [$GOT]" ;; esac
+GOT=$(jq -r '[.states.review.transitions[] | select(.when["vars.REVIEW_LEVEL"] == "light") | .target] | unique | join(",")' "$COMPILED" 2>/dev/null)
+[ "$GOT" = qa_validation ] && pass "review sends a light run (an audited one) to qa_validation" || fail "review's light routes go to [$GOT]"
 GOT=$(jq -r '.states.review_level_check.default_action.command // ""' "$COMPILED" 2>/dev/null)
 case "$GOT" in *"review-level.sh\" facts"*"--no-check-line && "*"review-level.sh\" set-from-facts"*)
     pass "the level check's action gathers the facts, then sets the level from them" ;;
@@ -631,7 +665,7 @@ if new_case "$S" 'mkdir -p scripts && seq 1 5 > scripts/tool.sh' && choose_and_i
 fi
 
 # ==============================================================================
-echo "--- engine: a light retry, then a fix past 40 lines"
+echo "--- engine: a light retry, then a fix past the light cap"
 
 LIGHT_BLOCK=$(awk '
     /^```bash$/  { inblk = 1; buf = ""; next }
@@ -658,11 +692,12 @@ if new_case "$S" "$SMALL" && choose_and_implement "$S" - code; then
     [ "$GOT" = blocking ] && pass "the light seat's blocking verdict is in the verdict ledger" || fail "light/reviewer is [$GOT]"
     koto context exists "$S" review_level.jsonl 2>/dev/null && pass "the retry left the level ledger alone" \
         || fail "the retry removed review_level.jsonl"
-    seq 1 50 >> docs/notes.md
+    # Past the light cap's 200 lines: 40 would still be capped to light.
+    seq 1 200 >> docs/notes.md
     git commit -q -am "fix: a bigger change"
     tick "$S" '{"implementation_status":"complete"}'
     tick "$S" '{"issue_type":"code"}'
-    expect_state "the light run whose fix passed 40 lines" scrutiny
+    expect_state "the light run whose fix passed the cap's 200 lines" scrutiny
     expect_visits "$S" light_review 1
     GOT=$(ledger "$S" | jq -r 'select(.event == "from_facts") | "\(.to)|\(.rule)"' | tail -n 1)
     [ "$GOT" = "standard|lines>40" ] && pass "the second lap's check raised the level on the lines rule" \
@@ -736,7 +771,9 @@ if new_case "$S" "$SMALL" && choose_and_implement "$S" full code; then
     expect_visits "$S" verification 0
 fi
 
-S=rebind-light
+# Not an audited name (review-level.sh audit exits 1 for it): a passed light
+# panel here goes to verification.
+S=rebind-light-2
 if new_case "$S" "$SMALL" && choose_and_implement "$S" - code; then
     expect_state "a light code run" light_review
     hand_rebind "$S" standard
@@ -750,6 +787,114 @@ if new_case "$S" "$SMALL" && choose_and_implement "$S" - code; then
     setlevel "$S" light
     tick "$S"
     expect_state "after set puts the ledger's level back" verification
+fi
+
+# ==============================================================================
+echo "--- engine: the light seat escalates"
+
+# The seat returned escalate. A submission before the raise holds; the raise
+# lets the escalate route back to the level check, which keeps it.
+S=escalate-1
+bash "$RL" audit "$S" && fail "$S is an audited name; pick another"
+if new_case "$S" "$SMALL" && choose_and_implement "$S" - code; then
+    expect_state "a light code run" light_review
+    tick "$S" '{"light_outcome":"escalate"}'
+    expect_state "escalate before the raise is recorded" light_review
+    expect_visits "$S" review_level_check 1
+    "$RL" raise "$S" standard --reason escalate >"$WORKDIR/raise.out" 2>&1 \
+        || fail "$S: review-level.sh raise failed: $(cat "$WORKDIR/raise.out")"
+    [ "$(ledger "$S" | jq -c 'select(.event == "raise") | {to, reason, source}')" = '{"to":"standard","reason":"escalate","source":"raise"}' ] \
+        && pass "the raise is in the ledger with reason escalate" || fail "ledger is [$(ledger "$S")]"
+    record_round "$S" light '[{"seat":"reviewer","findings":[],"escalate":true}]'
+    tick "$S"
+    expect_state "escalate once the raise is recorded, in one tick" scrutiny
+    expect_visits "$S" review_level_check 2
+    [ "$(ledger "$S" | tail -n 1 | jq -r '"\(.event)|\(.level)|\(.floor)"')" = "check|standard|light" ] \
+        && pass "the level check kept the raise over a light facts floor" || fail "last line: $(ledger "$S" | tail -n 1)"
+    pass_scrutiny "$S"
+    pass_review "$S"
+    expect_state "the escalated run's passed review, at standard" verification
+    expect_visits "$S" qa_validation 0
+fi
+
+# The seat escalated in a passing round, and nobody raised: the recorded flag
+# closes the passed routes, so the run holds at light_review instead of
+# reaching verification. The raise then lets escalate take it back.
+S=escalate-2
+bash "$RL" audit "$S" && fail "$S is an audited name; pick another"
+if new_case "$S" "$SMALL" && choose_and_implement "$S" - code; then
+    expect_state "a light code run" light_review
+    record_round "$S" light '[{"seat":"reviewer","findings":[],"escalate":true}]'
+    [ "$(koto context get "$S" verdict_ledger.json 2>/dev/null | jq -r '.seats["light/reviewer"].escalate')" = true ] \
+        && pass "--record kept the seat's escalate" || fail "the light seat's entry: $(koto context get "$S" verdict_ledger.json 2>/dev/null | jq -c '.seats["light/reviewer"]')"
+    tick "$S"
+    expect_state "a passing round that escalated, with no raise, ticked with nothing submitted" light_review
+    tick "$S"
+    expect_state "  ... and again" light_review
+    expect_visits "$S" verification 0
+    tick "$S" '{"light_outcome":"escalate"}'
+    expect_state "escalate submitted before the raise" light_review
+    "$RL" raise "$S" standard --reason escalate >"$WORKDIR/raise.out" 2>&1 \
+        || fail "$S: review-level.sh raise failed: $(cat "$WORKDIR/raise.out")"
+    tick "$S" '{"light_outcome":"escalate"}'
+    expect_state "escalate after the raise" scrutiny
+    expect_visits "$S" review_level_check 2
+    expect_visits "$S" verification 0
+fi
+
+# ==============================================================================
+echo "--- engine: an audited light run"
+
+# audited_name <prefix>: the first <prefix>-<n> the audit selects.
+audited_name() {
+    local n=0
+    while [ "$n" -lt 400 ]; do
+        "$RL" audit "$1-$n" >/dev/null 2>&1 && { printf '%s-%s\n' "$1" "$n"; return 0; }
+        n=$((n + 1))
+    done
+    return 1
+}
+light_decisions() {
+    koto decisions list "$1" --format v1 2>/dev/null \
+        | jq -c '[.decisions[]?.decision | select(.kind == "verdict") | {outcome, what: .subject.what}]'
+}
+
+S=$(audited_name audited) || fail "no audited name found"
+if [ -n "$S" ] && new_case "$S" "$SMALL" && choose_and_implement "$S" - code; then
+    expect_state "an audited light run" light_review
+    pass_light "$S"
+    expect_state "its passed light panel" scrutiny
+    expect_visits "$S" verification 0
+    [ "$(light_decisions "$S")" = '[]' ] && pass "no audit decision before the full panels' verdicts" \
+        || fail "decisions are [$(light_decisions "$S")]"
+    pass_scrutiny "$S"
+    expect_state "its passed scrutiny" review
+    pass_review "$S"
+    expect_state "its passed review, at light" qa_validation
+    [ "$(light_decisions "$S")" = '[]' ] && pass "no decision while QA hasn't run" || fail "decisions are [$(light_decisions "$S")]"
+    pass_qa "$S"
+    expect_state "its passed QA" verification
+    [ "$(light_decisions "$S")" = '[{"outcome":"pass","what":"light-audit/no-miss"}]' ] \
+        && pass "the QA round's record left one no-miss decision" || fail "decisions are [$(light_decisions "$S")]"
+    expect_visits "$S" light_review 1
+    [ "$(ledger "$S" | jq -r 'select(.event == "from_facts") | .to')" = light ] \
+        && pass "the audited run stays at light in the ledger" || fail "ledger is [$(ledger "$S")]"
+fi
+
+S=$(audited_name audited-miss) || fail "no audited name found"
+if [ -n "$S" ] && new_case "$S" "$SMALL" && choose_and_implement "$S" - code; then
+    pass_light "$S"
+    expect_state "an audited light run's passed light panel" scrutiny
+    # Two blocking findings recorded through panel-scope.sh --record, each with
+    # the category its seat gave, and an advisory one with none: the miss
+    # names the more severe category.
+    record_round "$S" scrutiny '[{"seat":"completeness","findings":[{"severity":"blocking","summary":"a criterion has no implementation","category":"correctness"}]},{"seat":"justification","findings":[{"severity":"advisory","summary":"a reason could be clearer"}]},{"seat":"intent","findings":[{"severity":"blocking","summary":"the token is written to the log","category":"security"}]}]'
+    GOT=$(koto context get "$S" verdict_ledger.json 2>/dev/null | jq -c '[.findings[] | select(.panel == "scrutiny") | "\(.severity):\(.category // "-")"] | sort')
+    [ "$GOT" = '["advisory:-","blocking:correctness","blocking:security"]' ] \
+        && pass "--record kept each blocking finding's category, and none on the advisory one" || fail "the ledger's scrutiny findings are $GOT"
+    [ "$(light_decisions "$S")" = '[{"outcome":"fail","what":"light-audit/miss/security"}]' ] \
+        && pass "the recorded blocking findings at the head the light seat passed left one miss, named by the security category" \
+        || fail "decisions are [$(light_decisions "$S")]"
 fi
 
 git checkout -q main

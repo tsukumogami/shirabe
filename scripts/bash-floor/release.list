@@ -11,3 +11,7 @@ skills/release/scripts/release-grant_test.sh
 # /release's Phase 7 installs, against a koto stand-in and stubbed gh
 # and niwa; needs only bash, git and jq.
 skills/release/scripts/after-release_test.sh
+# The release check naming the koto release the session reader is pinned
+# to, against throwaway manifests and locks; needs only bash, grep, sed
+# and awk.
+scripts/release-koto-reader_test.sh

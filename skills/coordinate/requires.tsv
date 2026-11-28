@@ -10,7 +10,7 @@
 # declare, is the declared floor: the policy allows no version number here, and
 # preflight on an older koto names the missing flags.
 # The records catch a koto older than 0.13.0 only. shirabe's koto minimum is
-# 0.37.0 (scripts/assert-koto-floor.sh). What 0.14.0 added (a failure terminal
+# 0.42.0 (scripts/assert-koto-floor.sh). What 0.14.0 added (a failure terminal
 # keeps its session, a child's result is delivered under --no-cleanup, and
 # `koto next --to` is refused past a failing non-overridable gate) is behaviour
 # with no flag to declare, so no record here carries it. The preflight compares
@@ -97,10 +97,11 @@ koto	request attach	--session	always
 #
 # Citations, not calls: SKILL.md and coordinate.md tell the coordinator never
 # to use `koto next --to` (koto#251: koto 0.14.0 and later refuse it past a failing check).
-# SKILL.md's handover steps and coordinate-open.sh's bound-elsewhere refusal
-# also name `koto session rebind <run> --to <dir>` for the operator to run;
-# no script runs it.
-#not-a-call-site	skills/coordinate/SKILL.md	koto	--to	named to forbid koto next --to, and as the rebind the operator runs at a handover
+# coordinate-open.sh's takeover guidance and bound-elsewhere refusal also name
+# `koto session rebind <run> --to <dir>` for the operator to run; no script
+# runs it.
+#not-a-call-site	skills/coordinate/SKILL.md	koto	--to	named only to forbid koto next --to
+#not-a-call-site	skills/coordinate/MAINTAINING.md	koto	--to	named only as the directed transition koto refuses past a failing check
 #not-a-call-site	skills/coordinate/scripts/coordinate-open.sh	koto	--to	named in the bound-elsewhere refusal as the rebind the operator runs; the script never runs it
 #not-a-call-site	skills/coordinate/koto-templates/coordinate.md	koto	--to	named only to forbid it and to explain the seal
 #not-a-call-site	skills/coordinate/references/state-keys.md	koto	--to	named only as a write the session store refuses after it

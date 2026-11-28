@@ -1,7 +1,7 @@
 # The State: Keys and Procedures
 
-What the record holds, and where it lives for each scope, are in
-`skills/coordinate/SKILL.md`. This file holds every key of the record's
+What the record holds, and where it lives for each scope, are below and in
+the template's `record_find` state. This file holds every key of the record's
 state, its JSON shape and its one writer, and the steps that open, update and
 close it. Load it when you open or update the record.
 
@@ -88,6 +88,7 @@ yourself with `koto context get <session> <key>`; never write one by hand.
 | `record/entries/<n>`, `record/posted/<n>` | the account, one entry each, and the URL of an outward entry's comment | `state-entry.sh` |
 | `record/archive/<n>` | `{n}`, the marker beside a `decisions` entry, so the archived rows are read without listing every entry | `state-entry.sh`; the legacy importer |
 | `legs/<request>/<leg>` | a worker leg (see Where State Lives) | `dispatch-worker.sh`, `wait-target.sh`, `reconcile-legs.sh` |
+| `coord/start_brief.json` | `{label, path, digest}`: the brief a fresh start was given with `--brief`, as the opener checked it, kept for the seed because a fresh run holds no record yet; not a record key, so a carry doesn't copy it | `coordinate-open.sh`, on a fresh start; read by `state-open.sh` after each seed it makes, which passes the stored label, path and digest unchanged to `state-stored-set.sh --host`, and that writes `record/host`'s `briefs:<label>` and `briefs-digest:<label>` |
 
 Any section key may also be written by the core's carry: `state-open.sh`
 seeding a new run or carrying a predecessor's state, `coordinate-open.sh`
@@ -406,7 +407,11 @@ settles the row against niwa's listing before every dispatch
 (`dc_successor_settle` in `dispatch-common.sh`): a `dispatching` row whose
 session is listed is written `dispatched`, and a `dispatched` row whose
 session a listing that was read doesn't show is written `stranded`; a
-listing that can't be read writes nothing. `--successor clear --by <who>`
+listing that can't be read writes nothing. Reconcile settles the row too:
+the pass runs `reconcile-settle.sh --successor` when the record read finds
+it `dispatching` or `dispatched`, under the run's successor lock, with the
+same rule, and the report names a row still pending on its
+`Successor pending:` line. `--successor clear --by <who>`
 removes the row; the successor's opener runs it when it takes the run over
 with `--dispatched-by` naming the run in the row's Set by, and any other
 takeover keeps the row, carried with the rest of the record.
@@ -567,8 +572,12 @@ prints only those rows (one the record lacks is refused, 65). `--rules
 each Run `rules` row, so `grep '^inferred '` gives the unsourced rules the
 record holds. Neither mode writes.
 
-The brief intake brings a brief's rules in once. You record the brief's path
-with `--host briefs:<label> <path>`; `--intake <label> --by <who>` reads that
+The brief intake brings a brief's rules in once. The brief a start's opener
+line passes as `--brief` is recorded for you, as `briefs:<label>` with its
+digest: by the opener
+on a start that finds a record, and by `state-open.sh` after the seed on a
+fresh one. Any other brief you record with `--host briefs:<label> <path>`;
+`--intake <label> --by <who>` reads that
 file once, never edits it and never prints its path. When a Run `briefs` row
 already reads `<label> sha256:<its digest>` it writes nothing and exits 0.
 Otherwise its candidates are the brief's sentences, less heading lines and
@@ -596,6 +605,17 @@ exits 2 with nothing written. The rows, the ended rows and the `briefs` or
 `briefs-read` row go in one write, then their entries: one rule entry per
 row, one end entry per ended row, and `Run briefs <label> sha256:<digest> set
 by <who>.` or `Run briefs-read <label> sha256:<digest> c/n set by <who>.`
+
+A successor brief you write by hand carries a `## Standing rules` heading,
+spelled exactly so, even when nothing new goes under it; with that line the
+intake reads only the sentences under it, `## Decisions already made`,
+`## Out of scope` and `## Workspace rules`. Every rule the successor must
+keep goes under it, one to a sentence or bullet; decisions, out-of-scope
+lines and workspace rules may sit under the renderer's own headings instead,
+and those count too. A warning that holds for the rest of the run is a rule;
+a warning about how things stand now isn't. Restate a rule the record
+already holds in its exact words: it costs no room. Holdings, takeover
+steps, positions and history go anywhere else, under any headings or none.
 
 `scripts/state-handover.sh` reads the stored set back, with the holds, and
 names its gaps: no arguments, cap or address; a live holding (dispatched, and
@@ -864,8 +884,9 @@ stamp, while each judgment is still made against every call; `holds` and
 
 ## Where State Lives
 
-Every script reads the record's state through `scripts/state-read.sh`, from
-the run's session: its `rs_record` assembles the state from the keys and
+Every script reads the record's state through one reader,
+`scripts/state-read.sh`, from the run's session, and a test holds every
+script to it: there is no body to parse. Its `rs_record` assembles the state from the keys and
 checks it;
 `rs_record_api` is the land check's and the merge's read under their deadline;
 `rs_facts` gives one holding's repository, pull request, branch, verified head,
@@ -1271,3 +1292,16 @@ entries and the next decision number, into its own session, naming this one
 as its predecessor in `record/rotation`. Its reconcile reads this reasoning,
 attributed to this rotation and not re-checked, and its open deferrals are its
 own to dispose of before its first dispatch.
+
+## The Closing Lines
+
+At `"action": "done"` the run prints its closing lines with
+`coordinate-report.sh`, which prints `outcome=` first, then `scope=`,
+`host=`, `record=` and, with `--session`, the run's event count.
+
+| Outcome | Meaning |
+|---------|---------|
+| `closed` | The roadmap is done and the close step ended the run, or the rotation ended with its reasoning written at `rotation_end`. |
+| `handed-over` | The last finishing step (the roadmap's close, or a merge) is handed over: to the coordinator that dispatched this one when its session is bound, and to a person only for a root coordinator. |
+| `stopped` | The human stopped the run, or the scope ended without a close-out. |
+| `not-active` | The roadmap is missing or not Active; nothing was dispatched. |

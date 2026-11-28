@@ -1132,6 +1132,39 @@
       ]
     },
     {
+      "id": 77,
+      "name": "light-seat-escalate",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #612, a plain issue-backed run. The change rewrites 60 lines of one test file under tests/ and a paragraph of its README, so the level check put it at light and the run is at light_review. The one light seat returned no blocking finding but \"escalate\": true, with the reason that the rewritten test now passes for a different reason than before. What do you do, in what order, and where does the run go?",
+      "expected_output": "The agent treats escalate as a route, not a finding. It records the seat's round with panel-scope.sh --record light, carrying \"escalate\": true on the reviewer's entry, raises the level with review-level.sh raise issue_612 standard --reason escalate, and submits light_outcome: escalate. The light_escalate gate closes the passed routes while the seat's latest verdict says escalate, so the run can't pass at light, and the light_level gate holds the escalate route until the ledger is at standard. The run then goes back to review_level_check, where set-from-facts keeps the raise over the light facts floor, and on to scrutiny and then review in the same tick. The run is standard from then on: no QA panel, and a later lap can't drop it back to light.",
+      "files": [],
+      "expectations": [
+        "Agent records the round with \"escalate\": true on the reviewer's entry",
+        "Agent runs review-level.sh raise <WF> standard --reason escalate",
+        "Agent submits light_outcome: escalate rather than blocking_retry or blocking_escalate",
+        "Agent expects the run to hold at light_review until the raise is recorded, not to pass at light",
+        "Agent expects the run to return to review_level_check and go on to scrutiny, with the raise kept",
+        "Agent expects scrutiny and review at standard, with no QA panel"
+      ]
+    },
+    {
+      "id": 78,
+      "name": "light-audit-full-panels",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #731, a plain issue-backed run at the light review level: a 20-line documentation fix. The light seat passed, and instead of going to verification koto moved the run to scrutiny. Why, what do you run next, and who records whether the light seat missed something?",
+      "expected_output": "The run is audited: light_review's audited gate runs review-level.sh audit on the session name, which exits 0 for names whose SHA-256 is 0 mod 10, about one run in ten and always the same answer for the same name. An audited run's passed light panel goes on to scrutiny, review and qa_validation as a full run would, and then to verification; its level stays light and review sends it to QA. The agent runs each panel as its directive says and records each round with panel-scope.sh --record. It reports no miss itself: panel-scope.sh --record runs review-round.sh audit after each scrutiny, review or QA round, which records a koto verdict decision, a miss (outcome fail, subject light-audit/miss/<category>) when a full-panel seat raised a blocking finding at a head the light seat passed, or a no-miss once QA passes with none. A blocking finding still retries through implementation as on any panel.",
+      "files": [],
+      "expectations": [
+        "Agent explains the run is audited by a hash of its session name, not chosen at random",
+        "Agent runs scrutiny, review and QA in turn and records each round with panel-scope.sh --record",
+        "Agent does NOT try to skip to verification or rebind the level to leave the full panels",
+        "Agent says the miss or no-miss decision is recorded by panel-scope.sh --record through review-round.sh audit, not by the agent",
+        "Agent does NOT record a koto decision for the audit by hand"
+      ]
+    },
+    {
       "id": 79,
       "name": "ci-monitor-outside-check-fails",
       "tier": 1,
