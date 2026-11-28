@@ -146,6 +146,18 @@
 #                                            since the row may have come
 #                                            through the shared bucket
 #
+# Without --check it also prints unseen: the owner answers in effect at or
+# below the run that no decision in its run cites yet, as `shirabe question
+# pending --in <the run's session>` lists them under `unseen` (RS_SESSION
+# under the test flags), each {identity, question, label, text, session, id,
+# answer, reading, time}: identity names the question it answers, answer is
+# the <session>:<id> to mark seen with `shirabe question seen`. The key is
+# printed only when there is one, so a run with none reads as it did before
+# the field existed. A listing that fails, or prints no `unseen` array, gives
+# unseen_error, the reason in one line, and no unseen key; it is never a gap
+# and never read as an empty list. shirabe is SHIRABE_BIN, else shirabe on
+# PATH. An unseen answer never holds the handover: --check doesn't read it.
+#
 # With --check nothing is printed on success but a report; the gaps and the
 # reports go to stderr, and only a gap fails the check.
 #
@@ -161,7 +173,8 @@
 # each brief file record/host names (briefs:<label>) for its digest and its
 # text, and never edits one, and the Claude job directory (DC_CLAUDE_HOME,
 # default $HOME/.claude) for a merged holding on the message path. It reads
-# nothing on GitHub.
+# nothing on GitHub. Without --check it also runs shirabe question pending
+# (above), which reads koto itself.
 set -uo pipefail
 
 PROG=state-handover
@@ -291,7 +304,25 @@ if [ -n "$SESSION" ] && [ "$SCOPE" = discipline ]; then
     fi
 fi
 
-jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
+# The owner answers not yet marked seen, read only when the set is printed:
+# the check never waits on them (see the header).
+echo null > "$WD/unseen.json"
+UERR=""
+US=${RS_SESSION:-$SESSION}
+if [ "$CHECK" = 0 ] && [ -n "$US" ]; then
+    if "${SHIRABE_BIN:-shirabe}" question pending --in "$US" < /dev/null > "$WD/pending.json" 2> "$WD/pending.err"; then
+        jq -c 'if (.unseen | type) == "array"
+               then [.unseen[] | {identity, question, label, text, session, id, answer, reading, time}]
+               else error("no unseen list") end' "$WD/pending.json" > "$WD/unseen.json" 2> "$WD/unseen.err" || {
+            echo null > "$WD/unseen.json"
+            UERR="shirabe question pending printed no unseen list: $(head -n 1 "$WD/unseen.err" | lib_scrub)"
+        }
+    else
+        UERR="shirabe question pending failed: $(head -n 1 "$WD/pending.err" | lib_scrub)"
+    fi
+fi
+
+jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile unseen "$WD/unseen.json" --arg uerr "$UERR" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
     --slurpfile carry "$WD/carry.json" --slurpfile dby "$WD/dispatched-by.json" --slurpfile briefs "$WD/briefs.json" '
     include "state-schema";
     def runval($k): [(.run // [])[] | select(.key == $k) | .value][0];
@@ -399,7 +430,9 @@ jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile host "$WD/host.
       then .reports = [{report: "brief-unrecorded",
                         fix: "record the brief this run was dispatched with: state-stored-set.sh --host briefs:<label> <its absolute path> (the --brief path on the brief'"'"'s opener line when it has one; when it has none, ask whoever dispatched you for the file'"'"'s path, and a brief with no file stays unrecorded), then state-stored-set.sh --intake <label> --by <you>; this is a report and holds nothing, and the reports-to row stays as it is"}]
       else . end
-    | if any($rows[]; .kind == "rule") then .rule_lists = rule_lists($rows) else . end' "$WD/parsed.json" > "$WD/out.json" || lib_die2 "jq failed"
+    | if any($rows[]; .kind == "rule") then .rule_lists = rule_lists($rows) else . end
+    | if ($unseen[0] | type) == "array" and ($unseen[0] | length) > 0 then .unseen = $unseen[0] else . end
+    | if $uerr != "" then .unseen_error = $uerr else . end' "$WD/parsed.json" > "$WD/out.json" || lib_die2 "jq failed"
 
 if [ "$CHECK" = 1 ]; then
     # A report holds nothing: it is printed, and only the gaps decide the exit.

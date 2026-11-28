@@ -16,6 +16,15 @@
 # whose leg is taken or unwatchable or whose request this host doesn't hold,
 # and refused for a leg-bound one watched here or an unknown topic, and
 # malformed inputs.
+# For a waiting run (a recorded leg payload, testdata/waiting-leg/, whose
+# `question` names a question koto's history reads open): select holds the
+# unit as waiting on it, picks an open leg over it or none, takes and marks
+# nothing, and names it under wait_target's `waiting`; the leg mode run on it
+# (the gate took it between ticks) doesn't mark it taken; a history koto
+# can't read holds it too. Once the history reads closed it is offered with
+# disposition `answered` and the question, and the leg mode marks it taken.
+# A value that isn't an identity is taken as any resolved result; of two
+# questions, only the closed one is named answered.
 #
 # Each section names the hand-offs it walks: `deliver`, `execute`, `scope` or
 # `work-on`. wait-target.sh and report-source.sh never read an entry point: a
@@ -87,6 +96,11 @@ case "$1 $2" in
     "request get")
         [ -f "$ST/req/$3.gone" ] && exit 2
         [ -f "$ST/req/$3.json" ] || exit 1; cat "$ST/req/$3.json" ;;
+    "decisions history")
+        echo "history $3" >>"$ST/calls.log"
+        [ -f "$ST/q/$3.fail" ] && { echo "koto: the store is locked" >&2; exit 1; }
+        [ -f "$ST/q/$3.json" ] || { echo '{"code":"decision_not_found"}' >&2; exit 2; }
+        cat "$ST/q/$3.json" ;;
     *) exit 64 ;;
 esac
 EOF
@@ -239,6 +253,70 @@ reset "$PROWS"
 req req_a scope open; req req_g execute resolved
 rm -f "$ST/state.json"
 eq  "select: after the resume the resolved leg is offered first" req_g "$(sel)"
+fi
+
+if section "deliver execute scope work-on" "a waiting run"; then
+WL="$HERE/testdata/waiting-leg"
+Q1=5b0e7a52-6c1d-4f3e-9a7b-2d8c1e4f6a90/4
+# qstate <identity> open|closed|fail: what koto decisions history answers.
+qstate() {
+    mkdir -p "$(dirname "$ST/q/$1")"
+    rm -f "$ST/q/$1.json" "$ST/q/$1.fail"
+    case "$2" in
+        open) cp "$WL/history-open.json" "$ST/q/$1.json" ;;
+        closed) cp "$WL/history-closed.json" "$ST/q/$1.json" ;;
+        fail) : >"$ST/q/$1.fail" ;;
+    esac
+}
+WROWS='[
+ {"worker":"gamma","dispatch_status":"dispatched","return_path":"leg req_w:work-on"},
+ {"worker":"alpha","dispatch_status":"dispatched","return_path":"leg req_a:scope"}
+]'
+WONLY='[{"worker":"gamma","dispatch_status":"dispatched","return_path":"leg req_w:work-on"}]'
+reset "$WROWS"
+cp "$WL/request.json" "$ST/req/req_w.json"; req req_a scope open; qstate "$Q1" open
+eq  "waiting: an open leg is picked over a result waiting on an open question" req_a "$(sel)"
+eq  "  ... the waiting unit named under waiting, with its question" \
+    "[{\"topic\":\"gamma\",\"request\":\"req_w\",\"leg\":\"work-on\",\"question\":\"$Q1\"}]" "$(target '.waiting | tojson')"
+eq  "  ... koto read the question's history" "history $Q1" "$(grep '^history' "$ST/calls.log")"
+reset "$WONLY"
+cp "$WL/request.json" "$ST/req/req_w.json"; qstate "$Q1" open
+eq  "waiting: alone, nothing is picked" none "$(sel)"
+eq  "  ... wait_target path none, the unit still named waiting" "none gamma" "$(target '"\(.path) \(.waiting[0].topic)"')"
+eq  "  ... nothing taken" "" "$(cat "$ST/ctx/taken_legs" 2>/dev/null)"
+eq  "  ... and no key written" "" "$(grep 'add legs/' "$ST/calls.log")"
+# The gate took the waiting result between two ticks: the leg mode runs on it.
+printf '{"path":"leg","topic":"gamma","request":"req_w","leg":"work-on"}\n' >"$ST/ctx/wait_target"
+eq  "waiting: the leg mode on a waiting result still prints its leg" work-on "$(bash "$S" leg --session coord)"
+eq  "  ... and doesn't mark it taken while the question is open" "" "$(cat "$ST/ctx/taken_legs" 2>/dev/null)"
+eq  "  ... so the next pick still holds it" none "$(sel)"
+qstate "$Q1" fail
+eq  "waiting: a history koto can't read holds the unit, never read as an answer" none "$(sel 2>"$ST/err")"
+grep -q "cannot read the history of question $Q1" "$ST/err" && ok "  ... and says so" || bad "  ... and says so" "$(cat "$ST/err")"
+qstate "$Q1" missing
+eq  "waiting: a history koto doesn't find holds it too" none "$(sel 2>/dev/null)"
+qstate "$Q1" closed
+eq  "answered: once the question is closed the unit is offered again" req_w "$(sel)"
+eq  "  ... with disposition answered and the question" "answered $Q1 0" "$(target '"\(.disposition) \(.question) \(.waiting | length)"')"
+bash "$S" leg --session coord >/dev/null
+eq  "  ... the leg mode marks it taken" "req_w:work-on" "$(cat "$ST/ctx/taken_legs")"
+eq  "  ... and it isn't offered again" none "$(sel)"
+reset "$WONLY"
+jq -c '.legs["work-on"].result.payload.question = "q1"' "$WL/request.json" >"$ST/req/req_w.json"
+eq  "waiting: a question that isn't an identity is taken as any resolved result" "req_w resolved" "$(sel 2>"$ST/err") $(target .disposition)"
+grep -q "not an identity" "$ST/err" && ok "  ... and says so" || bad "  ... and says so" "$(cat "$ST/err")"
+reset "$WONLY"
+jq -c --arg q "$Q1 w2/5" '.legs["work-on"].result.payload.question = $q' "$WL/request.json" >"$ST/req/req_w.json"
+qstate "$Q1" open; qstate w2/5 open
+eq  "waiting: two questions, both open, hold the unit" none "$(sel)"
+eq  "  ... both named" "$Q1 w2/5" "$(target '.waiting[0].question')"
+qstate w2/5 closed
+eq  "answered: one of two closed offers the unit" req_w "$(sel)"
+eq  "  ... naming only the closed one" "answered w2/5" "$(target '"\(.disposition) \(.question)"')"
+reset "$ROWS"
+req req_g execute resolved
+sel >/dev/null
+eq  "a result with no question carries no question field" false "$(target 'has("question")')"
 fi
 
 if section "" "usage"; then

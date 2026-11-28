@@ -43,6 +43,13 @@
 # all four tokens; every other first flag, a name or host outside its
 # pattern, the field on another entry point or beside held_rerender or
 # role_change_by, and the shape on a lane's brief are refused.
+# Every brief tells the worker to record an unsettled question as an attempt
+# and raise it with shirabe question, to name its identity in the report, to
+# send a need to whoever can meet it and to carry on meanwhile, and carries
+# no Questions part. answered_question renders its Goal line after the
+# invocation; unseen_answers renders its section on a coordinate brief only;
+# a bad identity, answer or key is refused, and their identities are the
+# only UUID-shaped values a brief takes.
 #
 # Usage: bash skills/coordinate/scripts/render-brief_test.sh
 # Exit codes: 0 all pass; 1 a failure. Needs jq. bash 3.2.
@@ -144,17 +151,24 @@ has "channel: surface line 1"    "$B" '- `ci-health`: `ci-coord`'
 has "channel: surface line 2"    "$B" '- `releases`: `rel-coord`'
 has "channel: copy, no direction" "$B" "with a copy to the coordinator above, and take no direction from it"
 has "work in flight block"       "$B" "=== WORK IN FLIGHT ==="
-# The decision channel: the fixed sentence, the Questions shape and the
-# repeat instruction. The example is the shared fixture report-questions_test
-# parses, so a shape this brief teaches is a shape the extractor reads.
+# The decision channel: a question goes on the record through shirabe
+# question attempt and raise, the report names its identity, a need goes to
+# whoever can meet it, and the worker carries on meanwhile. No brief teaches
+# a Questions part any more: no line reads exactly `Questions:`, no numbered
+# question sits beneath one, and the old word for passing a question up
+# (matched as escal[a]t) appears nowhere.
 questions_contract() { # questions_contract <label> <brief>
-    has "$1: the channel sentence" "$2" "Your questions go to the coordinator, in the Questions part of your report, numbered, and never to a person; the coordinator answers them or escalates them with a recommendation."
-    has "$1: the repeat instruction" "$2" "Repeat, in each report, every question you have had no answer to"
-    eq "$1: the Questions example is the shared fixture" "$(cat "$HERE/testdata/decisions/brief-questions.txt")" \
-        "$(printf '%s\n' "$2" | awk '$0 == "Questions:" { on = 1 } on && $0 == "" { exit } on')"
-    # Plain lines: a fenced example, copied, would be skipped as a code block.
-    eq "$1: the Questions example is not in a code block" "" \
-        "$(printf '%s\n' "$2" | awk '$0 == "Questions:" { print prev; exit } { prev = $0 }')"
+    has "$1: an unsettled question is recorded as an attempt" "$2" 'First record your attempt to decide it with `shirabe question attempt --in <your session> --what "<the question>" --result undecided`'
+    has "$1: and raised" "$2" 'Then raise it with `shirabe question raise --in <your session> --content <file> --attempt <that id>`'
+    has "$1: the report names the identity" "$2" "Your report names that identity and doesn't restate the question."
+    has "$1: the report leads with the identities" "$2" "then the identity of each question you raised."
+    has "$1: a need goes to whoever can meet it" "$2" "A need that isn't a choice (a credential, or a step reserved to the owner) takes no attempt and goes to whoever can meet it"
+    has "$1: carry on meanwhile" "$2" "carry on with the work that doesn't depend on the answer"
+    has "$1: the repeat instruction" "$2" "Name, in each report, the identity of every question you raised that is still open"
+    eq "$1: no line reads exactly Questions:" 0 "$(printf '%s\n' "$2" | grep -cx 'Questions:')"
+    eq "$1: no numbered question beneath a Questions line" "" \
+        "$(printf '%s\n' "$2" | awk '$0 == "Questions:" { on = 1; next } on && /^[0-9]+\. / { print }')"
+    eq "$1: the old word for passing a question up appears nowhere" 0 "$(printf '%s\n' "$2" | grep -ci 'escal[a]t')"
 }
 questions_contract "channel" "$B"
 has "standing rule 1 verbatim"   "$B" "Enter a worktree before the first koto init of any run."
@@ -189,9 +203,12 @@ questions_contract "min" "$M"
 L=$(bash "$S" --input "$BASE" --return-path req_1:deliver --stdout)
 questions_contract "leg" "$L"
 # The check fails on a brief without them.
-questions_contract "a brief without the channel (expected to fail)" "$(printf '%s\n' "$M" | grep -v 'Your questions go to\|Repeat, in each report')" > "$T/neg.out"
+questions_contract "a brief without the channel (expected to fail)" "$(printf '%s\n' "$M" | grep -v 'goes on the record\|Name, in each report')" > "$T/neg.out"
 grep -q '^FAIL' "$T/neg.out" && ok "the channel check fails on a brief without it" || bad "the channel check fails on a brief without it" "$(cat "$T/neg.out")"
 FAIL=$((FAIL - $(grep -c '^FAIL' "$T/neg.out"))); PASS=$((PASS - $(grep -c '^ok' "$T/neg.out")))
+questions_contract "a brief with a Questions part (expected to fail)" "$(printf '%s\nQuestions:\n1. Pin it?\n' "$M")" > "$T/neg2.out"
+grep -q '^FAIL .*Questions' "$T/neg2.out" && ok "the channel check fails on a brief with a Questions part" || bad "the channel check fails on a brief with a Questions part" "$(cat "$T/neg2.out")"
+FAIL=$((FAIL - $(grep -c '^FAIL' "$T/neg2.out"))); PASS=$((PASS - $(grep -c '^ok' "$T/neg2.out")))
 
 L=$(bash "$S" --input "$BASE" --return-path req_1:deliver --stdout)
 has "return path: the brief's invocation carries the leg" "$L" 'Run `/shirabe:deliver plugin-api --auto --no-merge --koto-leg=req_1:deliver` in acme/widgets.'
@@ -891,6 +908,42 @@ refused "successor: a lane can't take the discipline shape" "$(variant succ-dlan
 refused "successor: a lane can't add --discipline after a roadmap" \
     "$(variant succ-dlane2 "$COORD"' | .role = "manager" | .entry_args = ["docs/roadmaps/ROADMAP-sub.md", "--discipline", "ci-health"]')" \
     "entry_args: coordinate doesn't allow --discipline"
+
+# --- a waiting unit's answered question, and unseen owner answers ---------------------
+#
+# A question's identity starts with the raising session's id, so it is the
+# one UUID-shaped value a brief may carry, and only in these fields.
+rm -rf "$BRIEFS"
+QID=dfff1914-3843-4932-a49d-48024d22c433/7
+AQ=$(bash "$S" --input "$(variant answered '.answered_question = "'"$QID"'"')" --return-path req_2:deliver --stdout)
+has "answered: the Goal names the answered question" "$AQ" "This invocation continues your waiting run: question \`$QID\`, which you raised, has been answered."
+has "answered: and how to read the answer" "$AQ" "\`koto decisions history $QID\` reads it"
+eq  "answered: the line follows the invocation" 'This invocation continues your waiting run' \
+    "$(printf '%s\n' "$AQ" | awk '/^Run `\/shirabe:deliver/ { getline; getline; print substr($0, 1, 42); exit }')"
+refused "answered: a value that isn't an identity" "$(variant answered-bad '.answered_question = "q1"')" \
+    'answered_question: question identities, <raiser session id>/<decision id>, separated by single spaces'
+AQ2=$(bash "$S" --input "$(variant answered-two '.answered_question = "'"$QID"' w2/3"')" --stdout)
+has "answered: two questions are both named" "$AQ2" "This invocation continues your waiting run: questions \`$QID\`, \`w2/3\`, which you raised, have been answered."
+refused "answered: a UUID elsewhere is still refused" "$(variant answered-uuid '.answered_question = "'"$QID"'" | .goal = "see '"$QID"'"')" \
+    'input: a value carries a UUID-shaped token'
+UA='[{"identity": "'"$QID"'", "answer": "coord-a:12", "text": "Pin v2.1.0.\nKeep main out.", "label": "loader-pin"}]'
+UB=$(bash "$S" --input "$(variant unseen "$COORD"' | .role = "manager" | .unseen_answers = '"$UA")" --stdout)
+has "unseen: its own section" "$UB" "## Owner answers not yet marked seen"
+has "unseen: one line with the identity, label, text and answer" "$UB" "- \`$QID\` (loader-pin): Pin v2.1.0. Keep main out. (answer \`coord-a:12\`)"
+has "unseen: how to mark it" "$UB" 'mark it with `shirabe question seen <answer> --in <your session>`'
+eq  "unseen: the section sits before Keep-alive" "## Owner answers not yet marked seen|## Keep-alive|" \
+    "$(printf '%s\n' "$UB" | grep '^## ' | tail -2 | tr '\n' '|')"
+eq  "unseen: an empty list renders nothing" \
+    "$(bash "$S" --input "$(variant unseen-none "$COORD"' | .role = "manager"')" --stdout)" \
+    "$(bash "$S" --input "$(variant unseen-empty "$COORD"' | .role = "manager" | .unseen_answers = []')" --stdout)"
+refused "unseen: only on a coordinate brief" "$(variant unseen-worker '.unseen_answers = '"$UA")" \
+    'unseen_answers: only on a coordinate brief, not on deliver'
+refused "unseen: an unknown key" "$(variant unseen-key "$COORD"' | .role = "manager" | .unseen_answers = [{"identity": "'"$QID"'", "answer": "coord-a:12", "text": "t", "time": "x"}]')" \
+    'unseen_answers[0]: unknown key time'
+refused "unseen: an answer outside its grammar" "$(variant unseen-ans "$COORD"' | .role = "manager" | .unseen_answers = [{"identity": "'"$QID"'", "answer": "12", "text": "t"}]')" \
+    'unseen_answers[0].answer: <session>:<answer id>'
+refused "unseen: a UUID in an answer's text is refused" "$(variant unseen-uuid "$COORD"' | .role = "manager" | .unseen_answers = [{"identity": "'"$QID"'", "answer": "coord-a:12", "text": "'"$QID"'"}]')" \
+    'input: a value carries a UUID-shaped token'
 
 (cd "$T/nowhere" && bash "$S" --input "$BASE" >/dev/null 2>&1); eq "no workspace root is exit 2" 2 "$?"
 bash "$S" --input "$BASE" --workspace-root "$T/nowhere" >/dev/null 2>&1; eq "a root without workspace.toml is exit 2" 2 "$?"

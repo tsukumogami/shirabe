@@ -354,4 +354,41 @@ echo "$pid" > "$T/mk.pid.new" && mv "$T/mk.pid.new" "$T/mk.pid"
 wait "$pid" 2> /dev/null
 if [ -z "$(ls -A "$MT")" ]; then ok "a rule read killed while it makes its temporary directory leaves none"; else bad "a rule read killed while it makes its temporary directory leaves none" "$(ls -A "$MT")"; fi
 
+echo "== a question koto shows closed routes to decision_answer =="
+# An unsettled entry held by a question identity whose question koto's
+# history shows closed is an answer to record: `unrecorded-answer <n> koto`,
+# the lowest such entry first. koto's history comes from the stand-in's
+# fixtures (testdata/koto-decisions).
+QA=0a1b2c3d-0000-4000-8000-00000000000a/000000000002
+QB=0a1b2c3d-0000-4000-8000-00000000000b/000000000003
+KH() { # KH <identity> <true|false>: koto's history of the question, open or closed
+    mkdir -p "$KOTO_STORE/decisions/history"
+    jq -nc --arg q "$1" --argjson o "$2" '{identity: $q, open: $o, answer: null, entries: []}' \
+        > "$KOTO_STORE/decisions/history/$(printf '%s' "$1" | tr '/' '_').json"
+}
+held() { # held <n> <state> <identity>: an entry held by the question, escalated and sent
+    E "$1" "$2" "\"round\": \"1\", \"source\": \"question $3 [20260926T070000Z report 3.$1]\", \"grounds\": \"changes-scope\", \"target\": \"a person\", \"verdict\": \"escalate\", \"asked\": \"2026-09-26T07:30Z\""
+}
+held_run() { # held_run <entries...>: a run owing nothing else, its record those entries
+    rm -rf "$KOTO_STORE/decisions"
+    build
+    put_record "$(record_json discipline ci | jq -c --argjson e "[$(IFS=,; echo "$*")]" '.decisions = {next: 20, entries: $e}')"
+}
+held_run "$(held 5 escalated "$QA")" "$(held 6 escalated "$QB")"
+KH "$QA" true; KH "$QB" true
+eq "questions koto shows open: nothing owed" "clear" "$(next)"
+KH "$QB" false
+eq "a closed question routes its entry to decision_answer" "unrecorded-answer 6 koto" "$(next)"
+KH "$QA" false
+eq "with two closed, the lowest entry first" "unrecorded-answer 5 koto" "$(next)"
+held_run "$(held 5 settled "$QA")" "$(held 6 escalated "$QB")"
+KH "$QA" false; KH "$QB" false
+eq "a settled entry's closed question owes nothing" "unrecorded-answer 6 koto" "$(next)"
+held_run "$(held 5 escalated "$QA")"
+eq "a history koto can't give is an error, not an open question" "2|" "$(bash "$DN" --session "$S" > "$T/out" 2>"$T/err"; echo "$?|$(cat "$T/out")")"
+build take
+: > "$KOTO_STORE/calls"
+next > /dev/null
+eq "an entry with no identity reads no history from koto" 0 "$(grep -c '^decisions history' "$KOTO_STORE/calls")"
+
 done_tests decision-next

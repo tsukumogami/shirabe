@@ -61,6 +61,12 @@
 # role_change is refused on a new dispatch, a successor, --releg, a worker
 # holding and a bad value, and an address over 80 characters at render; and
 # /deliver and /work-on re-briefs render as before.
+# A --rebrief of a waiting unit (a recorded leg payload whose `question`
+# names a question, testdata/waiting-leg/): while koto's history reads it
+# open, exit 9 with nothing written; once closed, the unit runs again on a
+# new leg whose brief names the answered question; a history koto can't
+# read exits 2 with nothing written; an input's own answered_question never
+# reaches a brief.
 #
 # Each section names the hand-offs it walks: `deliver`, `execute`, `scope` or
 # `work-on`, the entry points its cases dispatch to or assert on. A section
@@ -187,6 +193,12 @@ case "$1 $2" in
         ;;
     "request list")
         if [ -f "$ST/open_requests.json" ]; then cat "$ST/open_requests.json"; else printf '{"requests":[]}\n'; fi
+        ;;
+    "decisions history")
+        echo "koto decisions history $3" >>"$ST/calls.log"
+        [ -f "$ST/history.rc" ] && { echo "koto: the store is locked" >&2; exit "$(cat "$ST/history.rc")"; }
+        [ -f "$ST/history/$3.json" ] || { echo '{"code":"decision_not_found"}' >&2; exit 2; }
+        cat "$ST/history/$3.json"
         ;;
     *) exit 64 ;;
 esac
@@ -1456,6 +1468,59 @@ jq -c '.entry_point = "explore"' "$ST/rows/plugin-api.json" >"$ST/r" && mv "$ST/
 spent resolved explicit; : >"$ST/calls.log"
 run --releg >/dev/null 2>&1; eq "releg: an entry point that takes no leg has none to replace: exit 9" 9 "$?"
 eq  "releg: and nothing written" "" "$(grep -E 'record write|koto request create' "$ST/calls.log")"
+fi
+
+# --- --rebrief of a waiting unit ----------------------------------------------------------------------------
+
+# A scope worker on leg req_1:scope stopped at its waiting terminal: its
+# promoted result is the recorded waiting payload, its question Q1.
+if section "scope" "--rebrief of a waiting unit"; then
+WL="$HERE/testdata/waiting-leg"
+Q1=5b0e7a52-6c1d-4f3e-9a7b-2d8c1e4f6a90/4
+waiting_leg() { # waiting_leg open|closed: req_1's view and Q1's history
+    jq -c '.request_id = "req_1" | .legs = {scope: (.legs["work-on"] | .name = "scope")}' "$WL/request.json" >"$ST/request_get.json"
+    mkdir -p "$ST/history/${Q1%/*}"
+    cp "$WL/history-$1.json" "$ST/history/$Q1.json"
+    printf '{"requests":[{"request_id":"req_1","coordinator_of_record":"coordinate-plugin-api","request_state":"open"}]}\n' >"$ST/open_requests.json"
+}
+reset "$INPUT_SCOPE"
+run >/dev/null 2>&1
+printf 'plugin-api' >"$ST/ctx/report_topic"
+waiting_leg open
+cp "$W/.niwa/dispatch-briefs/plugin-api.md" "$T/brief-before.md"
+: >"$ST/calls.log"
+ERR=$(run --rebrief 2>&1 >/dev/null); RC=$?
+eq  "waiting: a question still open: exit 9" 9 "$RC"
+has "  ... saying the unit waits on it" "$ERR" "waits on question $Q1"
+has "  ... koto's history was read" "$(calls)" "koto decisions history $Q1"
+eq  "  ... nothing written, opened or abandoned" "" "$(grep -E 'record write|koto request create|abandon' "$ST/calls.log")"
+eq  "  ... the holding keeps its leg" "leg req_1:scope" "$(row return_path)"
+cmp -s "$T/brief-before.md" "$W/.niwa/dispatch-briefs/plugin-api.md" && ok "  ... and the brief is untouched" \
+    || bad "  ... and the brief is untouched" "the brief changed"
+waiting_leg closed
+: >"$ST/calls.log"
+OUT=$(run --rebrief 2>"$ST/err"); RC=$?
+eq  "answered: once closed, the unit runs again: exit 0" 0 "$RC"
+has "  ... on a new leg" "$OUT" "leg=req_2:scope"
+eq  "  ... the holding is on it" "leg req_2:scope" "$(row return_path)"
+eq  "  ... and stays dispatched" dispatched "$(row dispatch_status)"
+eq  "  ... no launch: the worker is kept" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
+has "  ... the brief names the new leg" "$B" "--koto-leg=req_2:scope"
+has "  ... and the answered question" "$B" "This invocation continues your waiting run: question \`$Q1\`, which you raised, has been answered."
+reset "$INPUT_SCOPE"; run >/dev/null 2>&1; printf 'plugin-api' >"$ST/ctx/report_topic"
+waiting_leg open
+echo 1 >"$ST/history.rc"; : >"$ST/calls.log"
+ERR=$(run --rebrief 2>&1 >/dev/null); RC=$?
+eq  "waiting: a history koto can't read: exit 2" 2 "$RC"
+has "  ... saying so" "$ERR" "cannot read the history of question $Q1"
+eq  "  ... nothing written, opened or abandoned" "" "$(grep -E 'record write|koto request create|abandon' "$ST/calls.log")"
+rm -f "$ST/history.rc"
+reset "$INPUT_SCOPE"; run >/dev/null 2>&1; printf 'plugin-api' >"$ST/ctx/report_topic"
+jq -c --arg q "$Q1" '.answered_question = $q' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
+run --rebrief >/dev/null 2>&1; RC=$?
+eq  "an input's own answered_question: a plain re-brief, exit 0" 0 "$RC"
+lacks "  ... and the brief names no answered question" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "continues your waiting run"
 fi
 
 # --- send_execution: a scoping-ahead holding sent its execution ------------------------------------------

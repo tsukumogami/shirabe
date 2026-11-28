@@ -9,8 +9,17 @@
 # state (the verdict cleared, a settled outcome kept, an owed reply cleared, a
 # withdrawal owed only for a sent escalation); an owed reply exactly when the
 # source is a worker, a coordinator or the dispatcher and its latest evidence
-# isn't its own withdrawal; one escalation at a time and the release of the
-# queued one; the answer by round, a nested decider, an option's explanation
+# isn't its own withdrawal; --escalate by question identity through shirabe
+# question pass-up, behind an undecided attempt (refused when it is missing,
+# decided, provisional or tied to another question; a need takes none), and
+# --identity for an entry that holds none; at most four escalated per target,
+# the queued ones released by most waiting work items, then oldest, then
+# identity, and listed with their age; an entry held by a question settled
+# from koto's answer (an --outcome that differs refused, a withdrawal settled
+# as withdrawn), a typed reply leaving it escalated; --sent --route tool
+# refused in an unattended session and --route record kept as waiting on the
+# record; an identity item of the report opened once, its wording refused;
+# the answer by round, a nested decider, an option's explanation
 # as the reason and the same answer twice; --sent against the render's seal
 # for each kind, with the route of an escalation to a person; --open-from-
 # report's coverage of the sealed list, its citations, addressed marks,
@@ -31,6 +40,41 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 RD="$HERE/state-decision.sh"
 CL="$HERE/coord-log.sh"
 RUN=20260926T080000Z
+# The shirabe question stand-in, for pass-up, pending and render.
+PATH="$HERE/testdata/question-stand-in:$PATH"
+
+# --- koto's record of a question (testdata/koto-decisions' fixtures) ---------------
+QA=0a1b2c3d-0000-4000-8000-00000000000a/000000000002
+QB=0a1b2c3d-0000-4000-8000-00000000000b/000000000003
+qkey() { printf '%s' "$1" | tr '/' '_'; }
+KD() { mkdir -p "$KOTO_STORE/decisions/$1"; printf '%s' "$KOTO_STORE/decisions/$1"; }
+# question <identity> <true|false> [need] [raiser]: koto's history and content
+question() {
+    jq -nc --arg q "$1" --argjson o "$2" --arg n "${3:-decision}" --arg r "${4:-w1}" '{identity: $q, open: $o,
+        raiser: {name: $r}, question: {need: $n, text: "Which store?"}, entries: [{entry: "raise", session: $r}], answer: null}' \
+        > "$(KD history)/$(qkey "$1").json"
+    printf '%s' '{"context":"CTX-MARK","problem":"PROB-MARK","ask":"Which store?","options":[{"label":"SQLite","reason":"REASON-MARK"}],"ground":"GROUND-MARK","waiting":["issue-12"],"label":"cache"}' \
+        > "$(KD content)/$(qkey "$1").json"
+}
+# attempt <identity> <id> [result]: an attempt of $S's tied to the question
+attempt() {
+    local f
+    f="$(KD attempts)/$S.json"
+    [ -f "$f" ] || printf '{"attempts":[],"in":"%s","unreadable":[],"v":1}' "$S" > "$f"
+    jq -c --arg q "$1" --arg i "$2" --arg r "${3:-undecided}" '.attempts += [{id: $i, result: $r, status: "in-effect", questions: [$q]}]' "$f" > "$f.new" && mv "$f.new" "$f"
+}
+# answered <identity> <answered|withdrawn> <text>: koto shows it closed, the
+# answer recorded in session director as decision 000000000001
+answered() {
+    local h
+    h="$(KD history)/$(qkey "$1").json"
+    jq -c --arg o "$2" --arg t "$3" '.open = false | .answer = {session: "director", id: "000000000001", outcome: $o, text: (if $t == "" then null else $t end)}' "$h" > "$h.new" && mv "$h.new" "$h"
+    printf '%s' '{"decision":{"kind":"answer","reason":"one file is enough","decider":{"kind":"session","session":{"value":"director"}}}}' \
+        > "$(KD show)/director_000000000001.json"
+}
+qready() { question "$QA" true; attempt "$QA" 000000000005; }
+# shirabe_calls <word>: the stand-in's calls of that subcommand
+shirabe_calls() { grep -h " $1 " "$KOTO_STORE/shirabe-calls" 2>/dev/null; }
 
 # --- fixtures ----------------------------------------------------------------------
 
@@ -45,12 +89,20 @@ ESCALATED='{round: "1", verdict: "escalate", recommendation: "wait", reason: "th
 # Merges with a comma live in variables: bash 3.2 brace-expands a {a, b}
 # written inside a nested command substitution.
 UNSENT="$ESCALATED + {owed: \"escalation\", asked: \"\"}"
+# The same, held by question QA: the escalation decision-render.sh renders
+# (with qready run, so koto holds the question and an attempt behind it).
+UNSENT_HELD="$UNSENT + {source: \"question $QA [20260926T070000Z report 3.1]\", options: \"\", grounds: \"changes-scope\"}"
 QUEUED="$ESCALATED + {state: \"coordinator-verdict\", round: \"0\", asked: \"\"}"
+# A queued escalation held by question QB, open in koto with an attempt behind
+# it once qb_ready runs: the one a freed place releases. A queued entry with no
+# identity is never released; its verdict is cleared.
+QUEUED_HELD="$QUEUED + {source: \"question $QB [20260926T070000Z report 3.2]\", options: \"\", grounds: \"changes-scope\"}"
+qb_ready() { question "$QB" true; attempt "$QB" 000000000006; }
 
 # setup <entries-json-array> [next] [reports-to]: a fresh session that found
 # its record, the record in its keys. Sets S.
 setup() {
-    rm -rf "$KOTO_STORE/sessions" "$KOTO_STORE/context"; mkdir -p "$KOTO_STORE/sessions"
+    rm -rf "$KOTO_STORE/sessions" "$KOTO_STORE/context" "$KOTO_STORE/decisions" "$KOTO_STORE/shirabe-calls"; mkdir -p "$KOTO_STORE/sessions"
     db_init
     S="coordinate-roadmap-feat-$RUN"
     found_session "$S" "$(roadmap_vars feat | jq -c --arg r "${3-}" '.REPORTS_TO = $r')"
@@ -165,38 +217,120 @@ refused "--settle: an entry not awaiting a verdict is refused" --settle --outcom
 # --- --escalate -----------------------------------------------------------------------------
 
 echo "== --escalate =="
-ESC_ARGS=(--recommendation wait --reason "the release is Friday" --context "The context." --problem "The problem." --grounds scope)
-setup "[$(E 1 coordinator-verdict), $(E 2 coordinator-verdict)]"
+# An entry is escalated by its question identity: shirabe question pass-up
+# passes it up in koto, behind an undecided attempt of the run's at it.
+HELD_A="{source: \"question $QA [20260926T070000Z report 3.1]\", options: \"\"}"
+HELD_B="{source: \"question $QB [20260926T070000Z report 3.2]\", options: \"\"}"
+ESC_ARGS=(--grounds changes-scope --attempt 000000000005)
+setup "[$(E 1 coordinator-verdict "$HELD_A"), $(E 2 coordinator-verdict "$HELD_B")]"
+qready
 route "verdict 1" decision_verdict
 rd --escalate "${ESC_ARGS[@]}"; wrote "--escalate writes"
 eq "--escalate: escalated to the run's target, round 1, an escalation owed" "escalated|1|a person|escalation" \
     "$(ent 1 | jq -r '"\(.state)|\(.round)|\(.target)|\(.owed)"')"
+eq "--escalate: passed up with shirabe question pass-up, the attempt named and the owner as the addressee" \
+    "question pass-up $QA --in $S --ground changes-scope --attempt 000000000005 --to person:owner" "$(shirabe_calls pass-up)"
+question "$QB" true; attempt "$QB" 000000000006
 route "verdict 2" decision_verdict
-rd --escalate "${ESC_ARGS[@]}"
-eq "--escalate: with one entry escalated, the next verdict is queued" "coordinator-verdict|escalate|0" "$(ent 2 | jq -r '"\(.state)|\(.verdict)|\(.round)"')"
-setup "[$(E 1 coordinator-verdict '{options: "ship now\nwait"}')]"
+rd --escalate --grounds outward-facing --attempt "$S:000000000006"
+eq "--escalate: a second entry for the same target is escalated too, its attempt given as <session>:<id>" "escalated|1" "$(ent 2 | jq -r '"\(.state)|\(.round)"')"
+# Passing up needs an attempt: each refusal names it and leaves the record and koto as they were.
+setup "[$(E 1 coordinator-verdict "$HELD_A")]"
+question "$QA" true
+attempt "$QA" 000000000007 decided
+attempt "$QA" 000000000008 provisional
+attempt "$QB" 000000000009
 route "verdict 1" decision_verdict
-refused "--escalate: an option without its explanation is refused" --escalate "${ESC_ARGS[@]}"
-rd --escalate "${ESC_ARGS[@]}" --option "ship now -- users get the format this week" --option "wait -- one upgrade carries both"
-eq "--escalate: --option gives every option its explanation" "escalated|wait -- one upgrade carries both" "$(f 1 state)|$(f 1 options | sed -n 2p)"
-setup "[$(E 1 coordinator-verdict '{options: "ship now\nwait"}')]"
+refused "--escalate: a decision with no --attempt is refused" --escalate --grounds changes-scope
+for a in 000000000004 000000000007 000000000008 000000000009; do
+    refused "--escalate: attempt $a (missing, decided, provisional or tied to another question) is refused" --escalate --grounds changes-scope --attempt "$a"
+    grep -q "attempt $a " "$T/err" && ok "  ... and the refusal names attempt $a" || bad "  ... and the refusal names attempt $a" "$(cat "$T/err")"
+done
+refused "--escalate: another session's attempt is refused" --escalate --grounds changes-scope --attempt "w9:000000000005"
+eq "--escalate: no refused escalation called pass-up" "" "$(shirabe_calls pass-up)"
+refused "--escalate: a ground that isn't pass-up's is refused" --escalate --grounds scope --attempt 000000000005
+refused "--escalate: outside-scope is never passed up to a person" --escalate --grounds outside-scope --attempt 000000000005
+attempt "$QA" 000000000005
+refused "--escalate: --recommendation, --context, --problem and --option don't apply to a question koto words" \
+    --escalate "${ESC_ARGS[@]}" --recommendation SQLite
+refused "--escalate: nor an --option, even one starting with a dash" --escalate "${ESC_ARGS[@]}" --option "-r -- the raw route"
+answered "$QA" answered SQLite
+refused "--escalate: a question koto shows closed is refused" --escalate "${ESC_ARGS[@]}"
+# A need is passed up with no attempt.
+setup "[$(E 1 coordinator-verdict "$HELD_A")]"
+question "$QA" true need
 route "verdict 1" decision_verdict
-refused "--escalate: --option naming other options is refused" --escalate "${ESC_ARGS[@]}" --option "later -- x" --option "wait -- y"
-setup "[$(E 1 coordinator-verdict)]"
+refused "--escalate: a need takes no attempt" --escalate "${ESC_ARGS[@]}"
+rd --escalate --grounds changes-scope
+eq "--escalate: a need is passed up with no attempt" "escalated|question pass-up $QA --in $S --ground changes-scope --to person:owner" \
+    "$(f 1 state)|$(shirabe_calls pass-up)"
+# A pass-up koto refuses leaves the entry unescalated and the record unchanged.
+setup "[$(E 1 coordinator-verdict "$HELD_A")]"
+qready; : > "$KOTO_STORE/decisions/passup-fail"
 route "verdict 1" decision_verdict
-refused "--escalate: a recommendation outside the options is refused" --escalate --recommendation later --reason r --context c --problem p --grounds scope
-refused "--escalate: no ground is refused" --escalate --recommendation wait --reason r --context c --problem p --grounds ""
-refused "--escalate: a blank context is refused" --escalate --recommendation wait --reason r --context "  " --problem p --grounds scope
-setup "[$(E 1 coordinator-verdict)]" 10 ws
+refused "--escalate: a pass-up koto refuses is refused, the entry not escalated" --escalate "${ESC_ARGS[@]}"
+# Unattended, the pass-up still lands.
+setup "[$(E 1 coordinator-verdict "$HELD_A")]"
+qready
+route "verdict 1" decision_verdict
+KOTO_RUN_MODE=unattended rd --escalate "${ESC_ARGS[@]}"
+eq "--escalate: an unattended session's pass-up still lands" "escalated|1" "$(f 1 state)|$(shirabe_calls pass-up | wc -l | tr -d ' ')"
+# A run reporting to a coordinator passes up to it, with no owner addressee.
+setup "[$(E 1 coordinator-verdict "$HELD_A")]" 10 ws
+qready
 route "verdict 1" decision_verdict
 rd --escalate "${ESC_ARGS[@]}"
 eq "--escalate: a run reporting to a coordinator escalates to it" "coordinator ws" "$(f 1 target)"
-# --option values starting with a dash are explained as given (#1405).
-setup "[$(E 1 coordinator-verdict '{options: "-r\n--flag=value"}')]"
+eq "  ... passed up with no --to" "question pass-up $QA --in $S --ground changes-scope --attempt 000000000005" "$(shirabe_calls pass-up)"
+# An entry with no identity is refused until it holds one this session raised.
+setup "[$(E 1 coordinator-verdict)]"
 route "verdict 1" decision_verdict
-rd --escalate --recommendation "-r" --reason r --context c --problem p --grounds scope --option "-r -- the raw route" --option "--flag=value -- the flag route"
-wrote "--escalate: options starting with a dash are written"
-eq "--escalate: options starting with a dash are stored as given" "escalated|-r -- the raw route|--flag=value -- the flag route" "$(f 1 state)|$(opts 1)"
+refused "--escalate: an entry holding no question identity is refused" --escalate "${ESC_ARGS[@]}"
+question "$QA" true decision w1
+refused "--identity: a question another session raised is refused" --identity "$QA"
+refused "--identity: a malformed identity is refused" --identity "not-an-identity"
+question "$QA" true decision "$S"
+answered "$QA" answered SQLite
+refused "--identity: a question koto shows closed is refused" --identity "$QA"
+question "$QA" true decision "$S"
+rd --identity "$QA"; wrote "--identity writes"
+eq "--identity: the entry's source names the question, its stamp kept" "question $QA [20260925T080000Z raise 3]" "$(f 1 source)"
+refused "--identity: an entry already held by a question is refused" --identity "$QB"
+attempt "$QA" 000000000005
+route "verdict 1" decision_verdict
+rd --escalate "${ESC_ARGS[@]}"
+eq "--escalate: once it holds the identity, the entry escalates" "escalated" "$(f 1 state)"
+
+# Four at a time per target, then by most waiting work items, oldest, identity.
+QN() { printf 'w%s-0000/00000000000%s' "$1" "$1"; }
+HELDN() { printf '{source: "question %s [20260926T070000Z report 3.%s]", options: "", grounds: "changes-scope", target: "a person"}' "$(QN "$1")" "$1"; }
+four_and_two() { # four_and_two <pending-json>: entries 1-4 escalated, 5 and 6 queued
+    local i list=
+    for i in 1 2 3 4; do list="$list$(E "$i" escalated "$ESCALATED + $(HELDN "$i")"), "; done
+    setup "[$list$(E 5 coordinator-verdict "$QUEUED + $(HELDN 5)"), $(E 6 coordinator-verdict "$QUEUED + $(HELDN 6)")]"
+    for i in 1 2 3 4 5 6; do question "$(QN "$i")" true; attempt "$(QN "$i")" "00000000002$i"; done
+    mkdir -p "$KOTO_STORE/decisions/pending"; printf '%s' "$1" > "$KOTO_STORE/decisions/pending/$S.json"
+}
+four_and_two "{\"questions\":[{\"identity\":\"$(QN 5)\",\"waiting\":1,\"raised\":\"2026-09-26T06:00:00Z\"},{\"identity\":\"$(QN 6)\",\"waiting\":3,\"raised\":\"2026-09-26T06:30:00Z\"}]}"
+eq "--list: each queued entry with its age" "5|$(QN 5)|2026-09-26T07:00Z|yes,6" \
+    "$(sec | jq -r '.queued | "\(.[0].decision)|\(.[0].identity)|\(.[0].since)|\(.[0].age_minutes > 0),\(.[1].decision)"')"
+ev
+eq "release: four at a time, the freed place goes to the entry with the most waiting work items" "coordinator-verdict|coordinator-verdict|escalated" "$(f 1 state)|$(f 5 state)|$(f 6 state)"
+eq "  ... only that one passed up" "question pass-up $(QN 6) --in $S --ground changes-scope --attempt 000000000026 --to person:owner" "$(shirabe_calls pass-up)"
+four_and_two "{\"questions\":[{\"identity\":\"$(QN 5)\",\"waiting\":2,\"raised\":\"2026-09-26T06:00:00Z\"},{\"identity\":\"$(QN 6)\",\"waiting\":2,\"raised\":\"2026-09-26T05:00:00Z\"}]}"
+ev
+eq "release: with as many waiting work items, the oldest goes first" "coordinator-verdict|escalated" "$(f 5 state)|$(f 6 state)"
+four_and_two '{"questions":[]}'
+ev
+eq "release: with neither listed by pending, the lower identity goes first" "escalated|coordinator-verdict" "$(f 5 state)|$(f 6 state)"
+# A fifth --escalate for the target queues: nothing is passed up until a place frees.
+four_and_two '{"questions":[]}'
+put_decisions "$(sec | jq -c '.entries | map(if .decision == "5" then .verdict = "" | .grounds = "" | .target = "" else . end)')" 10
+route "verdict 5" decision_verdict
+rd --escalate --grounds changes-scope --attempt 000000000025
+eq "--escalate: with four entries escalated to the target, the fifth is queued and not passed up" "coordinator-verdict|escalate|0|" \
+    "$(ent 5 | jq -r '"\(.state)|\(.verdict)|\(.round)"')|$(shirabe_calls pass-up)"
+
 
 # --- --hold ---------------------------------------------------------------------------------
 
@@ -235,7 +369,7 @@ eq "evidence on a settled entry keeps the old outcome as evidence and clears the
 case "$(f 1 evidence)" in *"previous outcome"*"wait; reason: r (decided by a person)"*) ok "evidence: the old outcome and who decided are kept" ;;
     *) bad "evidence: the old outcome and who decided are kept" "$(f 1 evidence)" ;; esac
 refused "evidence: a second write for the same wait visit is refused" --evidence --source dispatcher --text again
-setup "[$(E 1 escalated "$ESCALATED"), $(E 2 coordinator-verdict "$QUEUED")]"; ev
+setup "[$(E 1 escalated "$ESCALATED"), $(E 2 coordinator-verdict "$QUEUED_HELD")]"; qb_ready; ev
 eq "evidence that frees the slot releases the queued escalation" "escalated|1|escalation" "$(ent 2 | jq -r '"\(.state)|\(.round)|\(.owed)"')"
 setup "[$(E 1 proposed)]"
 arrive decision_evidence '{"event":"evidence","decision":"1"}'
@@ -254,7 +388,8 @@ grep -q "names no decision" "$T/err" && ok "  ... as a bad id" || bad "  ... as 
 
 echo "== --answer =="
 ans() { arrive decision_answer "{\"event\":\"answer\",\"decision\":\"1\",\"round\":\"$1\"}"; shift; rd --answer "$@"; }
-setup "[$(E 1 escalated "$ESCALATED"), $(E 2 coordinator-verdict "$QUEUED")]"
+setup "[$(E 1 escalated "$ESCALATED"), $(E 2 coordinator-verdict "$QUEUED_HELD")]"
+qb_ready
 ans 1 --outcome wait; wrote "--answer writes"
 eq "--answer: settles, decided by the target, with the option's explanation as its reason" "settled|a person|wait; reason: one upgrade carries both" \
     "$(ent 1 | jq -r '"\(.state)|\(.decided_by)|\(.outcome)"')"
@@ -295,6 +430,28 @@ log_evidence "$S" escalate_send '{"sent":"answered","decision":"1","round":"1"}'
 to decision_answer
 rd --answer --outcome wait
 eq "--answer: from escalate_send, the question-tool route" "settled|a person" "$(f 1 state)|$(f 1 decided_by)"
+# An entry held by a question settles from koto's record of it, not from the reply.
+HELD_ESC="$ESCALATED + {source: \"question $QA [20260926T070000Z report 3.1]\", options: \"\", grounds: \"changes-scope\"}"
+setup "[$(E 1 escalated "$HELD_ESC")]"
+qready; answered "$QA" answered SQLite
+route "unrecorded-answer 1 koto" decision_answer
+refused "--answer: an --outcome that isn't koto's answer is refused" --answer --outcome Postgres
+grep -q "not koto's answer" "$T/err" && ok "  ... naming koto's answer" || bad "  ... naming koto's answer" "$(cat "$T/err")"
+rd --answer; wrote "--answer: koto's closed question settles the entry"
+eq "--answer: outcome and decider from koto" "settled|SQLite; reason: one file is enough|session director" "$(f 1 state)|$(f 1 outcome)|$(f 1 decided_by)"
+case "$(f 1 evidence)" in *"koto answer director:000000000001: SQLite"*) ok "--answer: koto's answer is cited as evidence" ;; *) bad "--answer: koto's answer is cited as evidence" "$(f 1 evidence)" ;; esac
+setup "[$(E 1 escalated "$HELD_ESC")]"
+qready; answered "$QA" withdrawn ""
+route "unrecorded-answer 1 koto" decision_answer
+rd --answer --outcome withdrawn
+eq "--answer: a withdrawn question settles the entry as withdrawn" "settled|withdrawn; reason: one file is enough" "$(f 1 state)|$(f 1 outcome)"
+# A typed reply for an owner-escalated entry koto still shows open leaves it escalated.
+setup "[$(E 1 escalated "$HELD_ESC")]"
+qready
+ans 1 --outcome "use SQLite, I typed it"
+wrote "--answer: a typed reply koto doesn't hold is recorded"
+eq "--answer: a typed reply leaves the owner-escalated entry escalated" "escalated|1|" "$(f 1 state)|$(f 1 round)|$(f 1 outcome)"
+case "$(f 1 evidence)" in *"arrived outside koto"*) ok "  ... with a line saying it settles from koto's record" ;; *) bad "  ... with a line saying it settles from koto's record" "$(f 1 evidence)" ;; esac
 
 # --- --sent ---------------------------------------------------------------------------------
 
@@ -304,7 +461,7 @@ render_msg() {
     route "$3" "$1"
     log_capture "$S" "$4" "$(bash "$HERE/decision-render.sh" --session "$S" --state "$1" --kind "$2" 2>"$T/render.err")"
 }
-setup "[$(E 1 escalated "$UNSENT")]"
+setup "[$(E 1 escalated "$UNSENT_HELD")]"; qready
 render_msg escalate escalation "escalate 1" ESCALATE_MESSAGE
 to escalate_send
 refused "--sent: an escalation to a person must name its route" --sent
@@ -312,7 +469,17 @@ rd --sent --route message; wrote "--sent writes"
 eq "--sent: the escalation is no longer owed, and Asked is stamped" "|yes" "$(f 1 owed)|$([ -n "$(f 1 asked)" ] && echo yes)"
 case "$(f 1 evidence)" in *"[$RUN ask "*"]: asked by message"*) ok "--sent: the route is recorded on the entry" ;; *) bad "--sent: the route is recorded on the entry" "$(f 1 evidence)" ;; esac
 refused "--sent: marking it again is refused" --sent --route message
-setup "[$(E 1 escalated "$UNSENT")]"
+# Unattended, no question tool is asked: --route tool writes nothing, and the
+# escalation is recorded as waiting on the record.
+setup "[$(E 1 escalated "$UNSENT_HELD")]"; qready
+render_msg escalate escalation "escalate 1" ESCALATE_MESSAGE
+to escalate_send
+KOTO_RUN_MODE=unattended refused "--sent: --route tool in an unattended session is refused, nothing written" --sent --route tool
+CLAUDE_CODE_SESSION_ATTENDED=0 refused "--sent: so is it when Claude Code reads the session unattended" --sent --route tool
+KOTO_RUN_MODE=unattended rd --sent --route record; wrote "--sent: an unattended escalation is marked --route record"
+case "$(f 1 evidence)" in *"[$RUN ask "*"]: waiting on the record"*) ok "--sent: the route is recorded as waiting on the record" ;;
+    *) bad "--sent: the route is recorded as waiting on the record" "$(f 1 evidence)" ;; esac
+setup "[$(E 1 escalated "$UNSENT_HELD")]"; qready
 render_msg escalate escalation "escalate 1" ESCALATE_MESSAGE
 printf 'something else\n' > "$T/edited"; koto context add "$S" coord/decision_message.txt --from-file "$T/edited"
 to escalate_send
@@ -390,6 +557,21 @@ eq "--open-from-report: another run's stamps with the same sequence don't block 
 
 # --- compaction -------------------------------------------------------------------------------
 
+# An item held by a question identity opens by that identity, worded by koto.
+QITEM="{\"index\":1,\"kind\":\"question\",\"identity\":\"$QA\",\"text\":\"Which store?\",\"options\":[\"SQLite\"],\"source\":\"question $QA\",\"addressed\":false,\"cite\":null}"
+setup "[]" 1
+listed "[$QITEM]"
+words '{"1":{"question":"in other words","options":["a -- b"]}}'
+eq "--open-from-report: a wording for an item held by an identity is refused" 65 "$RC"
+grep -q "item 1 is question $QA" "$T/err" && ok "  ... naming the item" || bad "  ... naming the item" "$(cat "$T/err")"
+words '{}'
+eq "--open-from-report: the identity item opens a proposed entry whose source is the question" "proposed|question $QA [$RUN report $RSEQ.1]" "$(f 1 state)|$(f 1 source)"
+setup "[$(E 1 proposed "{source: \"question $QA [20260926T070000Z report 3.1]\"}")]" 2
+listed "[$QITEM]"
+words '{}'
+eq "--open-from-report: an identity already held adds no entry" "1|2" "$(sec | jq -r '"\(.entries | length)|\(.next)"')"
+case "$(f 1 evidence)" in *"reported again"*) ok "  ... only a line saying it was reported again" ;; *) bad "  ... only a line saying it was reported again" "$(f 1 evidence)" ;; esac
+
 echo "== compaction =="
 setup "[$(E 1 settled '{outcome: "wait; reason: r", decided_by: "a person", verdict: "settle", evidence: "2026-09-26T07:40Z dispatcher [20260926T070000Z wait 3]: mixed"}'), $(E 2 proposed)]"
 route "take 2" decision_take
@@ -402,7 +584,7 @@ eq "a write compacts a settled entry that owes nothing, keeping its options" "|s
 echo "== --carry =="
 PRED="coordinate-discipline-ci-20260919T080000Z"
 carry_setup() { # carry_setup <record entries> <predecessor's decisions> [predecessor]
-    rm -rf "$KOTO_STORE/sessions" "$KOTO_STORE/context"; mkdir -p "$KOTO_STORE/sessions"
+    rm -rf "$KOTO_STORE/sessions" "$KOTO_STORE/context" "$KOTO_STORE/decisions" "$KOTO_STORE/shirabe-calls"; mkdir -p "$KOTO_STORE/sessions"
     db_init
     seed_session "$PRED" "$(record_json discipline ci | jq -c --argjson d "$2" '.decisions = $d')"
     S="coordinate-discipline-ci-$RUN"
@@ -433,7 +615,8 @@ route "take 2" decision_take
 rd --take
 eq "compaction keeps this run's stamped lines and drops another run's" "2026-09-26T07:41Z dispatcher [$RUN wait 3]: this run" "$(f 1 evidence)"
 # A withdrawal that frees the escalated slot releases the queued escalation.
-setup "[$(E 1 escalated "$ESCALATED + {source: \"coordinator rr #4 round 1 [20260926T070000Z report 3.1]\"}"), $(E 2 coordinator-verdict "$QUEUED")]" 3
+setup "[$(E 1 escalated "$ESCALATED + {source: \"coordinator rr #4 round 1 [20260926T070000Z report 3.1]\"}"), $(E 2 coordinator-verdict "$QUEUED_HELD")]" 3
+qb_ready
 listed '[{"index":1,"kind":"withdrawal","text":"Withdrawn: decision 4 round 1.","source":"coordinator rr #4 round 1","addressed":false,"cite":null,"n":4,"round":1}]'
 words '{}'
 eq "--open-from-report: a withdrawal that frees the slot releases the queued escalation" "coordinator-verdict escalated" "$(f 1 state) $(f 2 state)"
@@ -480,9 +663,9 @@ for src in "coordinator rr #4 round 1 [20260926T070000Z report 3.1]" "dispatcher
     eq "--settle: a reply is owed to the source ${src%% *}" "reply" "$(f 1 owed)"
 done
 # --sent reads the render's kind and round, and holds the entry to them.
-setup "[$(E 1 escalated "$UNSENT")]"
+setup "[$(E 1 escalated "$UNSENT_HELD")]"; qready
 render_msg escalate escalation "escalate 1" ESCALATE_MESSAGE
-put_decisions "[$(E 1 escalated "$UNSENT + {round: \"2\"}")]" 10
+put_decisions "[$(E 1 escalated "$UNSENT_HELD + {round: \"2\"}")]" 10
 to escalate_send
 refused "--sent: an entry whose round moved since the render is refused" --sent --route message
 setup "[$(E 1 settled '{outcome: "wait; reason: r", decided_by: "a person", owed: "reply", source: "worker w1 [20260926T080000Z report 4.1]"}')]"

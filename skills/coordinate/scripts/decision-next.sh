@@ -36,6 +36,13 @@
 #                       record has no entry for, or an answer with no plain
 #                       round) is never owed: routing back to it would loop
 #                       with no way out
+#     unrecorded-answer <n> koto
+#                       after the log's unrecorded writes: entry <n>, the
+#                       lowest unsettled one held by a question identity
+#                       (Source `question <identity>`), whose question koto
+#                       shows closed (koto decisions history: open false).
+#                       state-decision.sh --answer settles it from koto's
+#                       answer
 #     unrecorded-evidence  likewise for the latest `wait` evidence event
 #     unrecorded-raise  the latest visit to decision_raise left no entry with
 #                       this run's `raise <seq>` stamp; when that visit is a
@@ -292,6 +299,24 @@ NEXT=$(jq -r -L "$HERE" --arg run "$RUN" --argjson carry "$CARRY" --arg qcap "$Q
       then "verdict \(lowest(.state == "coordinator-verdict" and (.verdict // "") == ""))"
     elif $to_open and $cls < $rq and (($rcap | split(" "))[0] == "holding") then "clear-report"
     else "clear" end' "$T/section.json") || lib_die2 "cannot read the owed rules"
+# Rule 2's koto answer: below the log's own unrecorded writes and above every
+# message and entry rule, an unsettled entry held by a question that koto
+# shows closed (answered or withdrawn) is owed its settle, lowest first. One
+# koto decisions history read per unsettled entry held by a question; a read
+# that fails stops the run.
+case "${NEXT%% *}" in
+    carry|unrecorded-*) ;;
+    *)
+        jq -r -L "$HERE" 'include "state-schema"; [.entries[] | select(.state != "settled") | select(d_identity != "")
+            | {n: (.decision | tonumber), id: d_identity}] | sort_by(.n) | .[] | "\(.n) \(.id)"' "$T/section.json" > "$T/held.txt" \
+            || lib_die2 "cannot read the entries held by a question"
+        while read -r hn hid; do
+            "$KOTO" decisions history "$hid" > "$T/history.json" 2> "$T/history.err" \
+                || { lib_scrub < "$T/history.err" >&2; echo >&2; lib_die2 "cannot read question $hid's history from koto"; }
+            if [ "$(jq -r '.open' "$T/history.json")" = false ]; then NEXT="unrecorded-answer $hn koto"; break; fi
+        done < "$T/held.txt"
+        ;;
+esac
 WORD=${NEXT%% *}
 
 # --owed: what blocks the step, without sealing or writing anything.

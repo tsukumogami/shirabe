@@ -35,6 +35,13 @@
 # find the path when the opener line carried no --brief, and that it is a
 # report; a briefs: key clears it, and a run with no dispatched-by link, or
 # reporting to a person, gets none.
+# And unseen owner answers, from a shirabe stand-in printing a `question
+# pending` listing (testdata/handover-unseen/): none listed, the read's fields
+# are as before; one listed, the read prints it under unseen with the
+# question's identity and the answer to mark seen, and nothing else changes;
+# --check never runs the listing and exits as it does without the answer; a
+# listing that fails, or prints no unseen list, gives unseen_error and no
+# unseen, and holds nothing.
 #
 # Usage: bash skills/coordinate/scripts/state-handover_test.sh
 set -uo pipefail
@@ -44,6 +51,23 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
 RH="$HERE/state-handover.sh"
+# shirabe question pending is a stand-in printing UNSEEN_FIXTURE, logging each
+# call; UNSEEN_EXIT makes it fail. Every read in this suite goes through it, so
+# no case depends on the host's shirabe.
+UNSEEN_DIR="$HERE/testdata/handover-unseen"
+export UNSEEN_FIXTURE="$UNSEEN_DIR/none.json" UNSEEN_EXIT=0 UNSEEN_CALLS="$T/shirabe.calls"
+cat > "$T/shirabe-stand-in" <<'STANDIN'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$UNSEEN_CALLS"
+case "$1 $2" in
+    "question pending") ;;
+    *) echo "shirabe stand-in: unexpected call: $*" >&2; exit 2 ;;
+esac
+if [ "$UNSEEN_EXIT" != 0 ]; then echo "koto refused: store locked" >&2; exit "$UNSEEN_EXIT"; fi
+cat "$UNSEEN_FIXTURE"
+STANDIN
+chmod +x "$T/shirabe-stand-in"
+export SHIRABE_BIN="$T/shirabe-stand-in"
 
 SR=coordinate-roadmap-plugin-system-20260926T070000Z
 export RS_SESSION=$SR
@@ -283,6 +307,39 @@ host_names "$(jq -nc --arg p "$T/briefs/missing.md" '{"briefs:gone": $p}')"
 gate; eq "  ... and a brief whose file can't be read raises no gap" "0 " "$G"
 cmp -s <(printf '# Brief: lane\n\n## Decisions already made\n\n- Keep one lane per feature.\n') "$BRIEF" \
     && ok "  ... no read edited the brief" || bad "  ... no read edited the brief" "$(cat "$BRIEF")"
+
+echo "== unseen owner answers =="
+OLDKEYS="arguments briefs cap coordinator friction gaps holds host reports_to role rules standing told work workers"
+seed "$(record "$told_both")"
+: > "$UNSEEN_CALLS"
+H0=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "a listing with nothing unseen: the read prints" 0 $?
+eq "  ... with the fields as before, no unseen key" "$OLDKEYS" "$(printf '%s' "$H0" | jq -r 'keys | join(" ")')"
+eq "  ... the listing read in the run's session" "question pending --in $SR" "$(cat "$UNSEEN_CALLS")"
+export UNSEEN_FIXTURE="$UNSEEN_DIR/one.json"
+H1=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "one owner answer unseen: the read prints" 0 $?
+eq "  ... it in a field of its own, with the question's identity and the answer to mark seen" \
+    "dfff1914-3843-4932-a49d-48024d22c433/7 coordinate-roadmap-plugin-system-20260926T070000Z:12 loader-pin Pin v2.1.0." \
+    "$(printf '%s' "$H1" | jq -r '.unseen[] | "\(.identity) \(.answer) \(.label) \(.text)"')"
+eq "  ... each with the listing's fields" "answer id identity label question reading session text time" \
+    "$(printf '%s' "$H1" | jq -r '.unseen[0] | keys | join(" ")')"
+eq "  ... and everything else as the read without it" "$(printf '%s' "$H0" | jq -cS .)" "$(printf '%s' "$H1" | jq -cS 'del(.unseen)')"
+: > "$UNSEEN_CALLS"
+gate; eq "  ... the gate exits as it does without it: an unseen answer holds nothing" "0 " "$G"
+eq "  ... and --check never runs the listing" "" "$(cat "$UNSEEN_CALLS")"
+seed "$(record "[$(row told worker-f2)]")"
+gate; eq "  ... a gap still holds the gate beside it, as before" "1 not-told worker-f3" "$G"
+seed "$(record "$told_both")"
+export UNSEEN_EXIT=4
+H2=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "a listing that fails: the read still prints" 0 $?
+eq "  ... no unseen key, and unseen_error naming the failure" "null|shirabe question pending failed: koto refused: store locked" \
+    "$(printf '%s' "$H2" | jq -r '"\(.unseen)|\(.unseen_error)"')"
+eq "  ... and no gap from it" "[]" "$(printf '%s' "$H2" | jq -c .gaps)"
+gate; eq "  ... the gate passes as before" "0 " "$G"
+export UNSEEN_EXIT=0 UNSEEN_FIXTURE="$UNSEEN_DIR/no-list.json"
+H3=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "a listing with no unseen list (an older shirabe): the read prints" 0 $?
+eq "  ... unseen_error, never an empty list" "null|shirabe question pending printed no unseen list" \
+    "$(printf '%s' "$H3" | jq -r '"\(.unseen)|\(.unseen_error | sub(": .*$"; ""))"')"
+export UNSEEN_FIXTURE="$UNSEEN_DIR/none.json"
 
 echo "== the schema =="
 state_json "$(record "[$(row told worker-f2),$(row pending worker-f2)]")" >/dev/null 2>"$T/err"

@@ -52,15 +52,13 @@ Your report step: when your entry point finishes, run `"${CLAUDE_PLUGIN_ROOT}/sk
 
 A run the account's usage limit cut short (an eval or a nested session that executed nothing) is not a result: re-run it once the limit resets, and never report it as a score.
 
-Each report leads with the verdict, then the paths or pull requests it concerns, then its claims, each marked measured, verified by reading, or inferred, then its questions. Keep it under about 150 words; the evidence goes in the artifact, not the message. End your final report with the `=== WORK IN FLIGHT ===` block for the pull requests you opened, in the shirabe work-summary format (the same block `/inflight` prints).
+Each report leads with the verdict, then the paths or pull requests it concerns, then its claims, each marked measured, verified by reading, or inferred, then the identity of each question you raised. Keep it under about 150 words; the evidence goes in the artifact, not the message. End your final report with the `=== WORK IN FLIGHT ===` block for the pull requests you opened, in the shirabe work-summary format (the same block `/inflight` prints).
 
-Your questions go to the coordinator, in the Questions part of your report, numbered, and never to a person; the coordinator answers them or escalates them with a recommendation. Write the part as a line reading exactly `Questions:` followed by one numbered question per line, and cite a decision you were already given by its number. Write it as plain lines, not in a code block, which the coordinator does not read for questions:
+A question you can't settle on your own evidence goes on the record, not into a message. First record your attempt to decide it with `shirabe question attempt --in <your session> --what "<the question>" --result undecided`, adding `--undo cheap|costly --undo-reason "<what undoing would take>"` in an unattended run, and note the id it prints. Then raise it with `shirabe question raise --in <your session> --content <file> --attempt <that id>`, the file holding the parts `${CLAUDE_PLUGIN_ROOT}/references/question-procedure.md` lists. It goes to whoever dispatched you and prints the question's identity. Your report names that identity and doesn't restate the question.
 
-Questions:
-1. Should the loader pin v2.1.0 or track main? (decision 3)
-2. Is the flaky upload test in scope for this unit?
+A need that isn't a choice (a credential, or a step reserved to the owner) takes no attempt and goes to whoever can meet it: `shirabe question raise` addresses it to the owner. Either way, carry on with the work that doesn't depend on the answer; the answer reaches your session on its next `koto next`.
 
-Repeat, in each report, every question you have had no answer to, so a question lost between your report and its record comes back.
+Name, in each report, the identity of every question you raised that is still open, so a question lost between your report and its record comes back.
 
 Report tooling or workspace problems unrelated to this work in your report to the coordinator above; no discipline coordinator is named for any surface.
 

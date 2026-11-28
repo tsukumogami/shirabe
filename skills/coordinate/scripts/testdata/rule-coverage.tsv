@@ -215,7 +215,7 @@ D9	skills/coordinate/koto-templates/coordinate.md	escalate_send	and keep coordin
 D10	skills/coordinate/koto-templates/coordinate.md	escalate_send	The answer comes back the same way on both
 D11	skills/coordinate/koto-templates/coordinate.md	surface_check	A decision never travels as a need
 D12	skills/coordinate/SKILL.md	-	free-text section
-D13	skills/coordinate/scripts/render-brief.sh	-	Your questions go to the coordinator
+D13	skills/coordinate/scripts/render-brief.sh	-	goes on the record, not into a message	changed: a worker records an unsettled question with shirabe question attempt and raise and names its identity in the report, in place of a numbered Questions part
 D14	skills/coordinate/koto-templates/coordinate.md	decision_next	Don't retry it by hand
 D15	skills/coordinate/koto-templates/coordinate.md	decision_next	nothing blocks `wait`
 D16	skills/coordinate/scripts/progress-view.sh	-	a decision is raised as an entry
