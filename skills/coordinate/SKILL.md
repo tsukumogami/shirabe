@@ -55,7 +55,31 @@ stops there. Scripts named below sit in this skill's `scripts/`.
   takes none. Up to four go to a target at a time, most waiting work first,
   then the oldest, then the identity, and the rest wait queued. A prompt
   opens only in a turn the owner started, four questions at most per prompt;
-  otherwise they wait on the record and you keep coordinating.
+  otherwise they wait on the record and you keep coordinating. An entry
+  carrying contradicts-answer, changes-scope, outward-facing or reserved-step
+  is never settled or answered by the coordinator itself; it is passed up. A
+  ground nobody recorded can't be enforced. A restarted coordinator can't
+  pass up a question on its predecessor's attempt; record one in the new
+  session with `shirabe question attempt --in <session> --what '<the
+  question>' --result undecided --basis <session>:<id>`. A report line
+  holding a standalone `<word>/<digits>` token is taken for a question
+  identity and dropped; every dropped line is counted in the verdict as
+  `dropped:<n>`.
+- A question a worker addresses to you gets a decision entry before the run
+  moves on from it. A leg-bound worker that raised one and stopped at its
+  waiting terminal is offered once for its question, its report opens the
+  entry by identity, and the re-brief is refused while the question is open;
+  its leg comes back while the question has no entry, and is held as waiting
+  until a question closes. Closing is held too: the handover gate at
+  `reconcile` fails while a question addressed to this run has no entry, or
+  one that is neither escalated, queued nor held, and its report lists every
+  open question with its age. Dispatching stays open on purpose: other units
+  must not stall on one question. The limits: a question from a
+  message-path worker, or a session further down, isn't brought in through a
+  leg; it gets its entry when its raiser's report comes in, and until then
+  only the handover gate holds on it. That gate runs at `reconcile` only, so
+  a run that stops with `end`, a roadmap close and a rotation end don't pass
+  it.
 - Never run a cleanup or cancel verb against a session this run didn't open,
   and never `koto next --to`. A takeover acts on the run it took over and
   nothing else.

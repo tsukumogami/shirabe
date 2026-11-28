@@ -1624,6 +1624,10 @@ fi
 # or as an answer.
 rebrief_waiting() {
     local view rc q id h st closed=""
+    # The one identity shape (wait-target.sh RE_ID): the session id in koto's
+    # name characters, its length unbounded as in state-decision.sh's
+    # RE_IDENTITY, the decision id 1 to 20 digits.
+    local re_id='[A-Za-z0-9][A-Za-z0-9._-]*/[0-9]{1,20}'
     view=$("$KOTO" request get "$1" </dev/null)
     rc=$?
     [ "$rc" = 2 ] && return 0
@@ -1633,7 +1637,7 @@ rebrief_waiting() {
         | (.result.payload // {}) | if type == "object" then (.question // "") else "" end | strings' <<<"$view") ||
         die 2 "koto's record of request $1 is not JSON"
     [ -n "$q" ] || return 0
-    if ! grep -Eq '^[0-9A-Za-z][0-9A-Za-z-]*/[0-9]+( [0-9A-Za-z][0-9A-Za-z-]*/[0-9]+)*$' <<<"$q"; then
+    if ! grep -Eq "^$re_id( $re_id)*\$" <<<"$q"; then
         printf '%s: the result on %s:%s names a question that is not an identity; re-briefed as any other\n' "$PROG" "$1" "$2" >&2
         return 0
     fi
@@ -1648,7 +1652,7 @@ rebrief_waiting() {
         esac
     done
     [ -n "$closed" ] ||
-        die 9 "$TOPIC waits on question $q, still open: nothing re-briefed; wait-target.sh offers its leg again once one is closed"
+        die 9 "$TOPIC waits on question $q, still open: nothing re-briefed (the workflow submits sent: refused and waits); wait-target.sh offers its leg again once one is closed"
     jq --argjson row "$ROW" --arg q "$closed" '.repo = $row.repo | .entry_point = $row.entry_point
         | .run_mode = $row.mode | .entry_args = [.entry_args[0]]
         | del(.role, .role_change_by, .held_rerender, .role_change)

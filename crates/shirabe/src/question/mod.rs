@@ -1244,8 +1244,10 @@ fn epoch_nanos(t: &str) -> Option<i128> {
 
 /// The answers that have arrived for `session` and that no decision in its
 /// run cites yet: to questions it raised, and owner answers given at or below
-/// it.
-fn answered(session: &str) -> Result<Vec<Value>, Failure> {
+/// it. `prec` is koto's owner-precedent read for the session's chain; with
+/// `None` (that read failed) only the answers to questions it raised are
+/// listed.
+fn answered(session: &str, prec: Option<&Value>) -> Result<Vec<Value>, Failure> {
     let mut out: BTreeMap<String, Value> = BTreeMap::new();
     let listed = koto::run(&[
         "decisions",
@@ -1289,10 +1291,8 @@ fn answered(session: &str) -> Result<Vec<Value>, Failure> {
             json!({"identity": identity, "answer": ans}),
         );
     }
-    let chain_arg = format!("--chain={session}");
-    let prec = koto::run(&["decisions", "precedent", "--person=owner", &chain_arg])?;
     for a in prec
-        .get("answers")
+        .and_then(|p| p.get("answers"))
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default()
@@ -1315,10 +1315,9 @@ fn answered(session: &str) -> Result<Vec<Value>, Failure> {
 /// its run cites yet: what reached it as knowledge and that it has not marked
 /// seen (`shirabe question seen`). Each carries the question it answers, its
 /// label, the answer's text, the session it was given in and koto's
-/// `reading`, as koto prints them.
-fn unseen(session: &str) -> Result<Vec<Value>, Failure> {
-    let chain_arg = format!("--chain={session}");
-    let prec = koto::run(&["decisions", "precedent", "--person=owner", &chain_arg])?;
+/// `reading`, as koto prints them. `prec` is koto's owner-precedent read for
+/// the session's chain.
+fn unseen(session: &str, prec: &Value) -> Result<Vec<Value>, Failure> {
     let mut out = Vec::new();
     for a in prec
         .get("answers")
@@ -1387,8 +1386,24 @@ fn pending_cmd(a: &PendingArgs) -> Result<Value, Failure> {
     };
     let p = gather(person, at)?;
     let (held, ready): (Vec<_>, Vec<_>) = p.questions.into_iter().partition(|q| q.held);
-    let answered = answered(&a.in_)?;
-    let unseen = unseen(&a.in_)?;
+    // One owner-precedent read serves `answered` and `unseen`. When it fails,
+    // the listing still comes back: `unseen` is null and `unseen_error`
+    // carries koto's code and message, and `answered` holds only the answers
+    // to questions the session raised. A caller that needs the owner's
+    // answers reads `unseen_error` and does not take a null as "none".
+    let chain_arg = format!("--chain={}", a.in_);
+    let prec = koto::run(&["decisions", "precedent", "--person=owner", &chain_arg]);
+    let answered = answered(&a.in_, prec.as_ref().ok())?;
+    let (unseen, unseen_error) = match &prec {
+        Ok(p) => (json!(unseen(&a.in_, p)?), Value::Null),
+        Err(r) => (
+            Value::Null,
+            json!({
+                "code": r.code.clone(),
+                "message": format!("koto decisions precedent --person owner --chain {} failed: {}", a.in_, r.error),
+            }),
+        ),
+    };
     Ok(json!({
         "v": 1,
         "in": a.in_,
@@ -1397,6 +1412,7 @@ fn pending_cmd(a: &PendingArgs) -> Result<Value, Failure> {
         "incomplete": p.incomplete,
         "answered": answered,
         "unseen": unseen,
+        "unseen_error": unseen_error,
     }))
 }
 

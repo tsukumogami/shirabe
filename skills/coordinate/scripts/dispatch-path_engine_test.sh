@@ -134,6 +134,15 @@ cat >"$S/state-stored-set.sh" <<'EOF'
 #!/usr/bin/env bash
 echo '{"run":[{"key":"coordinator","value":"coord-engine","set_by":"coord-engine","set":"2026-09-26T08:00Z"}],"standing":[],"work":[]}'
 EOF
+# state-decision.sh: no question open at this session, which the leg pick
+# reads on every select (--open-questions; wait-target_test.sh covers one).
+cat >"$S/state-decision.sh" <<'EOF'
+#!/usr/bin/env bash
+case " $* " in
+    *" --open-questions "*) echo '{"questions":[],"unhandled":[]}' ;;
+    *) exit 64 ;;
+esac
+EOF
 BIN="$T/bin"
 mkdir -p "$BIN"
 # niwa: `list --json` names each worker's instance.

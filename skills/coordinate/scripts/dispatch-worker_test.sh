@@ -66,7 +66,7 @@
 # open, exit 9 with nothing written; once closed, the unit runs again on a
 # new leg whose brief names the answered question; a history koto can't
 # read exits 2 with nothing written; an input's own answered_question never
-# reaches a brief.
+# reaches a brief; a raiser name with `.` and `_` is an identity.
 #
 # Each section names the hand-offs it walks: `deliver`, `execute`, `scope` or
 # `work-on`, the entry points its cases dispatch to or assert on. A section
@@ -1521,6 +1521,17 @@ jq -c --arg q "$Q1" '.answered_question = $q' "$ST/ctx/brief_input.json" >"$ST/b
 run --rebrief >/dev/null 2>&1; RC=$?
 eq  "an input's own answered_question: a plain re-brief, exit 0" 0 "$RC"
 lacks "  ... and the brief names no answered question" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "continues your waiting run"
+# The one identity shape: a raiser's session id may hold `.` and `_`, and such
+# a question holds the unit like any other.
+reset "$INPUT_SCOPE"; run >/dev/null 2>&1; printf 'plugin-api' >"$ST/ctx/report_topic"
+waiting_leg open
+Q2=scope-plugin_api.v2/12
+jq -c --arg q "$Q2" '.legs.scope.result.payload.question = $q' "$ST/request_get.json" >"$ST/r" && mv "$ST/r" "$ST/request_get.json"
+mkdir -p "$ST/history/${Q2%/*}"
+cp "$WL/history-open.json" "$ST/history/$Q2.json"
+ERR=$(run --rebrief 2>&1 >/dev/null); RC=$?
+eq  "identity: a raiser name with . and _ is read as a question: exit 9" 9 "$RC"
+has "  ... waiting on it" "$ERR" "waits on question $Q2"
 fi
 
 # --- send_execution: a scoping-ahead holding sent its execution ------------------------------------------

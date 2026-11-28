@@ -290,8 +290,12 @@ logged "$T/A.rules.log" "$A" state-stored-set.sh --rules > /dev/null 2> "$T/A.ru
 logged "$T/A.handover.log" "$A" state-handover.sh > "$T/A.handover" 2> "$T/A.handover.err" || needf "the logged handover read on A fails: $(cat "$T/A.handover.err")"
 for l in counts rules handover; do
     [ -s "$T/A.$l.log" ] || needf "the $l read made no call through KOTO_BIN, so its log proves nothing"
-    need "  ... the $l read on A runs no koto decisions command" 0 "$(grep -c '^decisions\( \|$\)' "$T/A.$l.log")"
+    # The handover read lists the questions open at the run (state-decision.sh
+    # --open-questions, `decisions open --at`); no rule list reads a decision.
+    need "  ... the $l read on A runs no koto decisions command but the open listing" 0 \
+        "$(grep '^decisions\( \|$\)' "$T/A.$l.log" | grep -vc '^decisions open --at ')"
 done
+need "  ... the handover read lists the open questions once" 1 "$(grep -c '^decisions open --at ' "$T/A.handover.log")"
 need "  ... --counts lists no record/entries/ key" 0 "$(grep -c 'record/entries/' "$T/A.counts.log")"
 grep -q 'record/entries/' "$T/A.rules.log" || needf "--rules, which reads the entries, logged no record/entries/ call, so the log can't tell"
 crit "3. --rules --counts --id exits 64 with nothing on stdout; through a logging koto, --counts lists no entry and no read on A runs koto decisions"

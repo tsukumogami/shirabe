@@ -980,9 +980,17 @@ states and their meaning.
 
 A leg's result whose payload carries `question` (one question identity, or
 several separated by spaces) is a worker's run waiting on the questions it
-raised. While koto reads every one of them open, `wait-target.sh` passes the
-leg over without marking it taken and lists it under `waiting` in
-`wait_target` (`{topic, request, leg, question}`). Once koto reads one closed,
+raised. `wait-target.sh` offers it once with disposition `question` and the
+identities in `wait_target`'s `question`, so its report reaches
+`report_questions`, which opens an entry for each; the leg mode puts it in
+the context key `question_legs` (`<request>:<leg>` lines), never in
+`taken_legs`. From then on, while koto reads every one of them open,
+`wait-target.sh` passes the leg over without marking it taken and lists it
+under `waiting` in `wait_target` (`{topic, request, leg, question}`), unless
+one of its questions is listed under `wait_target`'s `unentered`: every
+question koto shows open and addressed to this session with no Decisions
+entry (`state-decision.sh --open-questions`), as `{identity, raiser, raised,
+age_minutes}`, which offers the leg as `question` again. Once koto reads one closed,
 the leg is offered with disposition `answered` and the closed identities in
 `wait_target`'s `question`, and `dispatch-worker.sh --rebrief` runs the unit's
 entry point again on a new leg, its brief input's `answered_question` naming

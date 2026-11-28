@@ -44,28 +44,52 @@
 # worker's session promoted whose payload carries `question` (a worker that
 # raised a question and stopped at its waiting terminal) names one question
 # identity (<raiser session id>/<decision id>), or several separated by
-# spaces, and each is read through `koto decisions history <identity>`.
-# While koto reads every one of them open, the unit waits: select passes the
-# leg over, takes nothing and marks nothing, so no report, redo or failure
-# follows from it, and wait_target names it under `waiting` as {topic,
-# request, leg, question}. A history koto can't read counts as open, with
-# the failure on stderr: it is never read as an answer. Once koto reads any
-# of them closed, the leg is offered like any resolved one, with disposition
-# `answered` and the closed identities in wait_target's `question`; its
-# report goes on to classification, and the unit's re-dispatch under a new
-# leg is dispatch-worker.sh --rebrief's, which names the answered questions
-# in the brief. A waiting result the wait_leg gate took while its questions
-# were all still open (the leg resolved between two ticks) isn't marked
-# taken, so it comes back as `answered` once one closes. A `question` that
-# isn't identities is no question koto can read: the leg is taken as any
-# resolved one, and stderr says so.
+# spaces (RE_ID below is the one identity shape), and each is read through
+# `koto decisions history <identity>`. While koto reads every one of them
+# open, the leg is offered once for its question: disposition `question`,
+# the identities in wait_target's `question`. Its result goes through
+# take_report and report_facts to report_questions, whose read of koto's
+# open listing at this session opens an entry, by identity, for each of them
+# addressed here; classify_report then takes `needs_fix`, and
+# dispatch-worker.sh --rebrief exits 9 while the question is open, so the
+# re-brief is refused with nothing written. A leg whose questions are open is
+# never marked taken: it joins the context key `question_legs`, and from then
+# on select passes it over, takes nothing and marks nothing, so no report,
+# redo or failure follows from it, and wait_target names it under `waiting`
+# as {topic, request, leg, question}. A history koto can't read counts as
+# open, with the failure on stderr: it is never read as an answer. Once koto
+# reads any of them closed, the leg is offered like any resolved one, with
+# disposition `answered` and the closed identities in `question`; its report
+# goes on to classification, and the unit's re-dispatch under a new leg is
+# dispatch-worker.sh --rebrief's, which names the answered questions in the
+# brief. A waiting result the wait_leg gate took while its questions were all
+# still open (the leg resolved between two ticks) has gone the way an offer
+# goes, so it joins `question_legs` too.
+#
+# The hold. Every select reads the open questions whose current addressee is
+# this session (state-decision.sh --open-questions, which reads koto
+# decisions open --at <session> against the record); those no Decisions entry
+# holds by its identity are listed in wait_target's `unentered` as
+# {identity, raiser, raised, age_minutes}. A leg
+# whose question is among them is offered as `question` again, offered before
+# or not, so the leg comes back on every `leg` tick until its entry exists.
+# Limit: a question raised by a session on no leg of this run (a message-path
+# worker, or a session further down) can't be brought in this way. It is
+# listed in `unentered`, opens its entry when its raiser's report reaches
+# report_questions, and holds the handover gate (state-handover.sh --check)
+# until then. A failed koto read or record read fails select (exit 2): it is
+# never read as no question.
+#
+# A `question` that isn't identities is no question koto can read: the leg is
+# taken as any resolved one, and stderr says so.
 #
 # Modes:
 #
 #   select --session <s>
 #       Writes wait_target as {"path":"leg","topic","request","leg",
-#       "disposition","passed_over","waiting"} (with "question" when the
-#       disposition is `answered`) or {"path":"none","passed_over","waiting"}
+#       "disposition","passed_over","waiting","unentered"} (with "question"
+#       when the disposition is `question` or `answered`) or
+#       {"path":"none","passed_over","waiting","unentered"}
 #       and prints the request id or
 #       `none`, whenever the record can be read. It always prints
 #       a token: an empty capture would fail the action instead of letting the
@@ -87,9 +111,10 @@
 # run log), 64 usage.
 #
 # Reads the record, the request store and, for a waiting result, koto's
-# history of the question it names; writes only this session's
-# wait_target, taken_legs, leg_consumed, leg_children and report_topic context
-# keys and its legs/ keys. bash 3.2; needs jq.
+# history of the question it names, koto's open listing at this session and
+# the record's Decisions section; writes only this session's wait_target,
+# taken_legs, question_legs, leg_consumed, leg_children and report_topic
+# context keys and its legs/ keys. bash 3.2; needs jq.
 set -uo pipefail
 
 PROG=wait-target
@@ -100,6 +125,10 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 KOTO="${KOTO:-koto}"
 RE_REQ="$DC_RE_REQ"
 RE_LEG="$DC_RE_LEG"
+# The record's decision script, for the questions open here with no entry
+# (state-decision.sh --open-questions); tests use a stand-in, as for the
+# holdings and the stored set.
+DC_RECORD_DECISION="${DC_RECORD_DECISION:-$HERE/state-decision.sh}"
 
 usage() { printf 'usage: %s select|leg --session <s>\n' "$PROG" >&2; exit 64; }
 
@@ -121,7 +150,7 @@ trap 'rm -rf "$WORK"' EXIT
 # rs_once_begin; shirabe#1315), which every script run below inherits.
 if [ "$MODE" = select ]; then
     mkdir -p "$WORK/once" || exit 2
-    export RS_ONCE="$WORK/once" RS_ONCE_FIELDS="holdings run standing work"
+    export RS_ONCE="$WORK/once" RS_ONCE_FIELDS="decisions holdings run standing work"
 fi
 
 put() {
@@ -147,10 +176,14 @@ LEG_DISP='(.request // .) as $r
     | if $d == "open" and (($r.request_state // "open") != "open") then "abandoned" else $d end
     | strings'
 
-# A waiting result's `question`: one question identity (<raiser session
-# id>/<decision id>, the grammar shirabe question reads), or several
-# separated by single spaces, as /execute names every question it waits on.
-RE_QUESTIONS='^[0-9A-Za-z][0-9A-Za-z-]*/[0-9]+( [0-9A-Za-z][0-9A-Za-z-]*/[0-9]+)*$'
+# A waiting result's `question`: one question identity, or several separated
+# by single spaces, as /execute names every question it waits on. RE_ID is
+# the one identity shape, <raiser session id>/<decision id>: the session id in
+# koto's name characters, its length unbounded here as in state-schema.jq's
+# re_identity and state-decision.sh's RE_IDENTITY, the decision id 1 to 20
+# digits. dispatch-worker.sh holds the same pattern.
+RE_ID='[A-Za-z0-9][A-Za-z0-9._-]*/[0-9]{1,20}'
+RE_QUESTIONS="^$RE_ID( $RE_ID)*\$"
 
 # leg_question <view> <leg>: the `question` a promoted result's payload names,
 # or nothing for any other leg or a payload with none.
@@ -233,8 +266,15 @@ mark_if_done() {
     disp=$(printf '%s' "$view" | jq -r --arg l "$leg" "$LEG_DISP")
     [ "$disp" = open ] && return 0
     leg_record "$req" "$leg" "$(jq -r '.topic // "" | strings' <<<"$t")" "$view" || return 2
-    # A waiting result whose question is still open comes back once it closes.
-    [ -n "$(waiting_on "$view" "$leg" "$req:$leg")" ] && return 0
+    # A waiting result whose question is still open is never taken: it went
+    # through for its question (offered, or taken by the gate between two
+    # ticks), so it joins question_legs, and it comes back once one closes.
+    if [ -n "$(waiting_on "$view" "$leg" "$req:$leg")" ]; then
+        taken=$(ctx_or_empty question_legs) || return 2
+        grep -Fqx -- "$req:$leg" <<<"$taken" && return 0
+        put question_legs "$(printf '%s\n%s\n' "$taken" "$req:$leg" | sed '/^$/d' | sort -u)"
+        return 0
+    fi
     taken=$(ctx_or_empty taken_legs) || return 2
     put taken_legs "$(printf '%s\n%s\n' "$taken" "$req:$leg" | sed '/^$/d' | sort -u)"
 }
@@ -289,20 +329,49 @@ paused_topics() {
     printf '%s' "$1" | jq -r --slurpfile p "$WORK/pauses.json" '.[] | select(.unit != null and $p[0].covers[.unit] != null) | .worker' >"$WORK/paused" || return 2
 }
 
+# unentered: the open questions whose current addressee is this session and
+# that no Decisions entry holds (state-decision.sh --open-questions, its rows
+# with no decision), into $WORK/unentered.json as [{identity, raiser, raised,
+# age_minutes}] and their identities, one per line, into
+# $WORK/unentered.ids. Returns 2 when koto's listing or the record can't be
+# read: a failed read is never read as no question.
+unentered() {
+    : >"$WORK/unentered.ids"
+    echo '[]' >"$WORK/unentered.json"
+    bash "$DC_RECORD_DECISION" --session "$SESSION" --open-questions >"$WORK/oq.json" 2>"$WORK/oq.err"
+    case $? in
+        0 | 1) ;;
+        *)
+            sed -n '1,3s/^/  /p' "$WORK/oq.err" >&2
+            printf '%s: the questions open at %s could not be read against the record\n' "$PROG" "$SESSION" >&2
+            return 2
+            ;;
+    esac
+    jq -c '[(.questions // [])[] | select(.decision == null) | {identity, raiser, raised, age_minutes}]' \
+        "$WORK/oq.json" >"$WORK/unentered.json" || {
+        printf '%s: state-decision.sh --open-questions printed no list\n' "$PROG" >&2
+        return 2
+    }
+    jq -r '.[].identity' "$WORK/unentered.json" >"$WORK/unentered.ids" || return 2
+}
+
 # candidates: one "<disposition><TAB><topic><TAB><request><TAB><leg><TAB><questions>"
 # line per leg-bound, dispatched holding, in record order, a paused holding's
-# left out. A resolved leg holding a waiting result reads `waiting`, with the
-# questions it names, while koto reads every one of them open (or can't read
-# its history), and `answered`, with the closed ones, once any is closed;
-# every other line's last field is empty.
+# left out. A resolved leg holding a waiting result reads `question`, with
+# the questions it names, while koto reads every one of them open and the leg
+# isn't in question_legs or one of them is in unentered; `waiting` while they
+# are all open otherwise (or koto can't read a history); and `answered`, with
+# the closed ones, once any is closed. Every other line's last field is
+# empty.
 candidates() {
     local rows rc
     rows=$(dc_record_list "$SESSION")
     rc=$?
     [ "$rc" -eq 0 ] || return "$rc"
     paused_topics "$rows" || { printf '%s: the record'"'"'s pauses could not be read\n' "$PROG" >&2; return 2; }
-    local topic rp req leg view disp taken children child added="" q closed
+    local topic rp req leg view disp taken children child added="" q closed asked id offer
     taken=$(ctx_or_empty taken_legs) || return 2
+    asked=$(ctx_or_empty question_legs) || return 2
     children=$(ctx_or_empty leg_children) || return 2
     while IFS='	' read -r topic rp; do
         [ -n "$topic" ] || continue
@@ -333,7 +402,19 @@ candidates() {
             q=$(leg_question "$view" "$leg")
             if [ -n "$q" ] && grep -Eq "$RE_QUESTIONS" <<<"$q"; then
                 closed=$(closed_questions "$q")
-                if [ -z "$closed" ]; then disp=waiting; else disp=answered q=$closed; fi
+                if [ -n "$closed" ]; then
+                    disp=answered q=$closed
+                else
+                    # Offered once for its question, and again while one of
+                    # its questions addressed here has no entry; otherwise
+                    # it waits.
+                    offer=0
+                    grep -Fqx -- "$rp" <<<"$asked" || offer=1
+                    for id in $q; do
+                        grep -Fqx -- "$id" "$WORK/unentered.ids" && offer=1
+                    done
+                    if [ "$offer" = 1 ]; then disp=question; else disp=waiting; fi
+                fi
             elif [ -n "$q" ]; then
                 printf '%s: %s names a question that is not an identity; its result is taken as any other\n' "$PROG" "$rp" >&2
                 q=""
@@ -385,6 +466,9 @@ pick() {
 
 : >"$WORK/paused"
 : >"$WORK/waiting"
+# The questions addressed here with no entry, read before the legs: a leg
+# holding one is offered for it again (see the header's hold).
+unentered || exit 2
 LINE=$(pick)
 RC=$?
 [ "$RC" -eq 0 ] || { printf '%s: the record could not be read\n' "$PROG" >&2; exit "$RC"; }
@@ -398,7 +482,8 @@ WAITING="$WORK/waiting.json"
 jq -R -s -c 'split("\n") | map(select(. != "") | split("\t") | {topic: .[1], request: .[2], leg: .[3], question: .[4]})' "$WORK/waiting" > "$WAITING" ||
     { printf '%s: cannot read the legs waiting on a question\n' "$PROG" >&2; exit 2; }
 if [ -z "$LINE" ]; then
-    put wait_target "$(jq -nc --slurpfile p "$PASSED" --slurpfile w "$WAITING" '{path: "none", passed_over: $p[0], waiting: $w[0]}')"
+    put wait_target "$(jq -nc --slurpfile p "$PASSED" --slurpfile w "$WAITING" --slurpfile u "$WORK/unentered.json" \
+        '{path: "none", passed_over: $p[0], waiting: $w[0], unentered: $u[0]}')"
     printf 'none\n'
     exit 0
 fi
@@ -407,6 +492,7 @@ IFS='	' read -r DISP TOPIC REQ LEG QUESTION <<EOF
 $LINE
 EOF
 put wait_target "$(jq -nc --arg t "$TOPIC" --arg r "$REQ" --arg l "$LEG" --arg d "$DISP" --arg q "$QUESTION" --slurpfile p "$PASSED" --slurpfile w "$WAITING" \
-    '{path: "leg", topic: $t, request: $r, leg: $l, disposition: $d, passed_over: $p[0], waiting: $w[0]}
-     + (if $d == "answered" then {question: $q} else {} end)')"
+    --slurpfile u "$WORK/unentered.json" \
+    '{path: "leg", topic: $t, request: $r, leg: $l, disposition: $d, passed_over: $p[0], waiting: $w[0], unentered: $u[0]}
+     + (if $d == "answered" or $d == "question" then {question: $q} else {} end)')"
 printf '%s\n' "$REQ"

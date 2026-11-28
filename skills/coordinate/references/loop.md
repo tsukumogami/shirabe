@@ -30,7 +30,10 @@ move there is to tick again with no evidence.
   visit, and the workflow moves to `reconcile`. There, close every gap the
   handover check names (all but a carried rotation's `carry-unacknowledged`:
   the report asks the person for that go-ahead, and the submit waits for it),
-  then print the report with
+  including `question-unhandled <identity>`: a question addressed to this run
+  that has no Decisions entry, or one neither escalated, queued nor held. The
+  check lists every open question with its age. Open the entry, then settle,
+  escalate or hold it through the decision flow. Then print the report with
   `scripts/reconcile-report-get.sh --session <session> --md` and report what
   it prints up, not the stored `reconcile/report.md`: it checks the report
   against its seal and adds the record line, read from the record as it is

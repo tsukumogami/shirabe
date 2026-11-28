@@ -1,6 +1,7 @@
 //! `shirabe question seen` against the koto stand-in: one judgment citing an
 //! owner answer in the session's chain, nothing added the second time, and
-//! each answer it refuses (not an owner answer, outside the chain, a remote
+//! each answer it refuses (not an owner answer, outside the chain, given
+//! above the session, a remote
 //! session's reading, one koto does not hold). Against the real koto, the
 //! listing in the session and above it runs in
 //! skills/coordinate/scripts/question-ladder_engine_test.sh.
@@ -95,6 +96,47 @@ fn an_answer_outside_the_sessions_chain_is_refused() {
         r#"{"v":1,"person":"owner","answers":[]}"#,
     );
     refused(&s, "chain");
+}
+
+#[test]
+fn an_answer_given_above_the_session_is_refused() {
+    // The precedent read lists the answer given in w1 with `below` false:
+    // here w1 sits above manager in its chain. `unseen` at manager never lists it, so seen there
+    // refuses it rather than marking something manager was never shown.
+    let s = setup(
+        &show(OWNER, "answer", "verified"),
+        r#"{"v":1,"person":"owner","chain":"manager","answers":[{"below":false,"cited":false,"id":"000000000003","identity":"sid-w3/000000000002","label":"cache","reading":"verified","session":"w1","text":"SQLite"}]}"#,
+    );
+    let j = refused(&s, "above manager");
+    assert!(
+        j["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("at or below the session"),
+        "{j}"
+    );
+}
+
+#[test]
+fn an_answer_given_in_the_session_itself_is_marked() {
+    // `below` is false for the session's own answers; the session is
+    // included, as `unseen` includes it.
+    let s = Standin::new();
+    s.write(
+        "show/manager_000000000003",
+        show(OWNER, "answer", "verified").replace("\"session\":\"w1\"", "\"session\":\"manager\""),
+    );
+    s.write(
+        "precedent.json",
+        r#"{"v":1,"person":"owner","chain":"manager","answers":[{"below":false,"cited":false,"id":"000000000003","identity":"sid-w3/000000000002","label":"cache","reading":"verified","session":"manager","text":"SQLite"}]}"#,
+    );
+    let out = s
+        .cmd(&["seen", "manager:000000000003", "--in", "manager"])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    assert_eq!(json(&out.stdout)["recorded"], json!(true));
 }
 
 #[test]

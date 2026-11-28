@@ -3140,6 +3140,14 @@ what it resumes to, and tick `leg` once if a leg was passed over while paused
 isn't offered by pick: tick `redispatch` with its unit, and submit `move:
 redispatch` again at `failure`.
 
+**Questions addressed here.** `wait_target`'s `unentered` lists every question
+koto shows open and addressed to this session with no Decisions entry, with
+its raiser and its age in minutes. A leg-bound worker's question there brings
+its leg back on the next `leg` tick, so tick `leg`. One from a message-path
+worker opens its entry when that worker's report comes in; until it has one,
+the handover gate at `reconcile` holds on it (`question-unhandled`). Dispatching
+other units goes on meanwhile: one open question never stalls the rest.
+
 **Waking.** Ask for no wake you don't need. The wakes are a worker's message
 (a checkpoint, a ready report, a question, a blocker) and your teardown
 agent's report; tick each as its event. While any leg-bound worker's leg is
@@ -3230,11 +3238,15 @@ refused result, or an abandoned or missing leg, means the worker's session
 recorded no result: the leg was spent early, and `leg_spent` follows. A leg is read once:
 `wait-target.sh` marks it taken, so a report routed to a fix or to the human
 doesn't bring the same result back. A result whose payload names a `question`
-the worker raised is a waiting run, not a result to take: while koto reads
-every question it names open, the leg is passed over, listed under `waiting`
-in `wait_target` and not marked taken, so no report, redo or failure follows
-from it. Once koto reads one closed, the leg is offered again with disposition
-`answered`.
+the worker raised is a waiting run, not a result to take. It is offered once
+with disposition `question` (the identities in `wait_target`'s `question`), so
+its report reaches `report_questions`, which opens an entry for each question
+addressed here; it is never marked taken. From then on, while koto reads every
+question it names open, the leg is passed over, listed under `waiting` in
+`wait_target`, so no report, redo or failure follows from it. It is offered as
+`question` again while one of its questions is listed under `wait_target`'s
+`unentered` (open here, with no Decisions entry). Once koto reads one closed,
+the leg is offered again with disposition `answered`.
 
 ## leg_spent
 
@@ -3694,7 +3706,13 @@ A leg whose run stopped waiting on a question it raised comes here only once
 koto reads that question closed (`wait_target`'s disposition `answered`, the
 closed identities in its `question`): classify it `needs_fix`, so `rebrief`
 runs `dispatch-worker.sh --rebrief`, which continues the waiting run on a new
-leg with a brief naming the answered question. It isn't failed work.
+leg with a brief naming the answered question. It isn't failed work. One
+offered with disposition `question` (its questions still open, their entries
+opened at `report_questions`) is classified `needs_fix` too: at `rebrief`,
+`dispatch-worker.sh --rebrief` exits 9 while every question is open, and you
+submit `sent: refused`, which records nothing and goes back to `wait`; when
+you settled one of them earlier in this pass, the re-brief goes ahead on a new
+leg.
 
 <!-- details -->
 
@@ -3756,7 +3774,9 @@ runs the unit's entry point again on a new leg, as `--releg` does, renders the
 brief with `answered_question` naming the closed questions, and prints
 `brief=`, `leg=` and, when it finds the worker, `session=`; message the worker
 that brief. While every question it waits on is still open it exits 9 and
-writes nothing. A worker that's gone goes back through pick, dispatched under a new topic with
+writes nothing: send no message and submit `sent: refused`, which goes back to
+`wait` with nothing recorded; `wait-target.sh` holds the leg as waiting until
+a question closes. A worker that's gone goes back through pick, dispatched under a new topic with
 what it pushed as what was learned.
 
 The new brief names this coordinator's address, so a delivered re-brief tells

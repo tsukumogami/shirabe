@@ -10,10 +10,23 @@
 # Usage:
 #   state-decision.sh --session S --list        print the section, and
 #       `queued`: each queued escalation {decision, identity, since,
-#       age_minutes} when there are any
+#       age_minutes} when there are any. An entry whose Updated doesn't read
+#       as a time fails the read (exit 2), never prints without its age
 #   state-decision.sh --session S --read N      print entry N; an entry held
 #       by a question also carries `content`, koto decisions content read's
 #       JSON for it (its question, options and reasons as koto holds them)
+#   state-decision.sh --session S --open-questions
+#       every question koto lists open and addressed to this session (koto
+#       decisions open --at S, the addressee this session itself), oldest
+#       first, as {questions: [{identity, raiser, raised, age_minutes,
+#       decision, state, handled}], unhandled: [<identity>...]}. decision is
+#       the entry holding the identity (null for none); handled is true when
+#       that entry is escalated, queued for escalation or held (Verdict hold).
+#       Exit 0 when every one is handled, 1 when any is not (each listed in
+#       unhandled), 2 when a read failed. Read-only: a closing step calls it
+#       to refuse while a question addressed to the coordinator waits on
+#       nothing. Its age_minutes is null for a raise time koto gives that
+#       doesn't read as a time
 #   state-decision.sh --session S <write mode>
 #   ... [--scope roadmap|discipline --name N --repo O/R]   (tests; reads only)
 #
@@ -42,7 +55,9 @@
 #       or `coordinator <topic> #<n> round <r>`, stamped
 #       `[<run> report <seq>.<index>]`; a cited question is evidence on the
 #       cited entry; a withdrawal is evidence on the entry opened from its
-#       source. An addressed question also gets the addressed mark (the
+#       source, or, when it names a question identity (report-questions.sh
+#       reads one from a withdrawal of an entry held by a question), on the
+#       entry held by that identity. An addressed question also gets the addressed mark (the
 #       state-schema.jq's d_addressed_mark) as an Evidence line with the same stamp.
 #       An item held by a question identity (report-questions.sh takes those
 #       from koto's listing) needs no wording, and a wording given for one is
@@ -56,7 +71,16 @@
 #       Settles the routed entry: Outcome `<O>; reason: <R>`, Decided by
 #       `the coordinator`, Owed reply when the Source is a worker, a
 #       coordinator or the dispatcher and the latest evidence isn't that
-#       source's withdrawal.
+#       source's withdrawal. An entry held by a question settles only from
+#       koto: while koto shows the question open --settle is refused (answer
+#       it in koto with shirabe question settle, or pass it up), and once koto
+#       shows it closed the outcome, reason and decider are koto's, as
+#       --answer takes them, and an --outcome other than koto's is refused.
+#       An entry carrying a reserved ground (contradicts-answer,
+#       changes-scope, outward-facing, reserved-step: its Grounds cell, or
+#       the ground of the latest pass-up that brought its question here, as
+#       koto decisions history records it) is never settled by the
+#       coordinator: --settle is refused and the refusal says to pass it up.
 #   --identity I                                   decision_verdict
 #       Holds the routed entry, which has no identity yet, by question I:
 #       its Source becomes `question I`, keeping its stamp. Refused unless
@@ -70,7 +94,13 @@
 #       changes-scope, outward-facing, reserved-step, outside-scope;
 #       outside-scope never to a person). Only an entry held by a question
 #       identity escalates; one with none is refused until --identity gives
-#       it one. A decision needs --attempt A (`<id>` or `<session>:<id>`):
+#       it one, and the refusal says how (raise the question with shirabe
+#       question raise, then --identity). An old-style entry already
+#       escalated or queued with no identity (a run under way when entries
+#       came to be held by identities) keeps its old path: a queued one keeps
+#       its verdict and is released as before, when no entry is escalated,
+#       or has its verdict cleared when escalation_problems no longer
+#       passes, and decision-render.sh renders it as before. A decision needs --attempt A (`<id>` or `<session>:<id>`):
 #       koto decisions attempts --in=<session> --question <identity> must
 #       list A as an undecided attempt of this session's; a missing, decided,
 #       provisional or untied attempt is refused, naming it, and nothing is
@@ -86,6 +116,15 @@
 #       not repeated, so a retry after a failed write passes nothing up
 #       twice. A release that can't pass up (no undecided attempt left, the
 #       question closed) leaves the entry queued and says why on stderr.
+#       Raise times are compared as instants, as shirabe orders them (a
+#       fraction of a second counts; one that doesn't read sorts last).
+#       Limit: only an attempt recorded in this session counts. A coordinator
+#       restarted in a new session (a successor of the same chain) holds none
+#       for a question its predecessor attempted, since koto decisions
+#       attempts reads one session and pass-up takes only the passing
+#       session's own; the refusal names the line that records one here,
+#       shirabe question attempt --in <session> --what <question> --result
+#       undecided --basis <raiser>:<decision id>.
 #   --hold --reason R                              decision_verdict
 #       Verdict hold, Reason what it waits on, a `hold` Evidence line.
 #   --evidence --source S --text T                 decision_evidence
@@ -113,7 +152,9 @@
 #       than koto's answer is refused, and a withdrawn question settles as
 #       `withdrawn`. An arrival for such an entry koto still shows open (a
 #       typed reply) adds only its stamped Evidence line: the entry stays as
-#       it is, escalated or not.
+#       it is, escalated or not. koto's answer to an entry carrying a reserved
+#       ground (as --settle reads it), given by this session, is refused: the
+#       coordinator doesn't answer what the ground keeps for the owner.
 #   --sent [--route tool|message|record]           a *_send state
 #       Marks the message the matching render state rendered as sent, when
 #       coord/decision_message.txt checks against that render's seal and the
@@ -192,6 +233,7 @@ while [ $# -gt 0 ]; do
         --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
         --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
         --list) mode list; shift ;;
+        --open-questions) mode open-questions; shift ;;
         --read) [ $# -ge 2 ] || usage; mode read; ENTRY=$2; shift 2 ;;
         --carry|--open|--open-from-report|--take|--settle|--escalate|--hold|--evidence|--answer|--sent) mode "${1#--}"; shift ;;
         --question) [ $# -ge 2 ] || usage; Q=$2; shift 2 ;;
@@ -213,7 +255,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 case "$MODE" in
-    list) ;;
+    list|open-questions) ;;
     read) [[ $ENTRY =~ ^[1-9][0-9]*$ ]] || usage ;;
     '') usage ;;
     *) [ -z "$SCOPE$NAME$REPO" ] || { echo "$PROG: the write modes take no override flags" >&2; exit 64; } ;;
@@ -243,7 +285,11 @@ read_live() {
 
 # --list and --read print from the Decisions section alone, so they read that
 # one section; a write reads the whole record it writes back (shirabe#1315).
-case "$MODE" in list|read) read_live decisions ;; *) read_live ;; esac
+case "$MODE" in list|read|open-questions) read_live decisions ;; *) read_live ;; esac
+# shirabe, as the other coordinate scripts call it: SHIRABE_BIN, else the one on PATH.
+SHIRABE=${SHIRABE_BIN:-shirabe}
+# The one question-identity pattern (state-schema.jq's re_identity).
+RE_IDENTITY='^[A-Za-z0-9][A-Za-z0-9._-]*/[0-9]{1,20}$'
 
 # --- koto's record of a question -----------------------------------------------------
 #
@@ -265,17 +311,43 @@ attempt_of() {
 }
 # unattended: shirabe's reading of the run mode.
 unattended() { [ "${KOTO_RUN_MODE:-}" = unattended ] || [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = 0 ]; }
+# attempt_line <identity>: the line that records an undecided attempt at the
+# question in this session, the one a refusal for a missing attempt names.
+attempt_line() {
+    printf "shirabe question attempt --in %s --what '<the question>' --result undecided --basis %s:%s" "$SESSION" "${1%/*}" "${1##*/}"
+}
 
 case "$MODE" in
 list)
     # A queued escalation's age runs from its entry's Updated, the time its
-    # verdict was recorded.
+    # verdict was recorded. An Updated that doesn't read as a time fails the
+    # read: an age is never left out or made up.
     jq -c -L "$HERE" 'include "state-schema"; decisions_list
       | ([.entries[] | select(.state == "coordinator-verdict" and .verdict == "escalate")
           | {decision, identity: d_identity, since: .updated,
-             age_minutes: (((now - ((.updated // "") | strptime("%Y-%m-%dT%H:%MZ") | mktime)) / 60) | floor)}]) as $q
-      | if ($q | length) > 0 then . + {queued: $q} else . end' "$WD/parsed.json"
+             age_minutes: ((.updated | age_minutes(now)) // error("entry \(.decision) has no Updated time to age its queued escalation from"))}]) as $q
+      | if ($q | length) > 0 then . + {queued: $q} else . end' "$WD/parsed.json" 2> "$WD/list.err" \
+        || { lib_scrub < "$WD/list.err" >&2; echo >&2; lib_die2 "cannot list the Decisions section"; }
     exit 0
+    ;;
+open-questions)
+    # Every question koto lists open and waiting on this session itself (not
+    # one it raised, nor one waiting below it), with the entry holding it.
+    koto_read "$WD/open.json" decisions open --at "$SESSION"
+    jq -c -L "$HERE" --arg s "$SESSION" --slurpfile o "$WD/open.json" 'include "state-schema";
+      (.decisions.entries // []) as $es
+      | [($o[0].questions // [])[] | select(.addressee.kind == "session" and .addressee.name == $s)]
+      | unique_by(.identity) | sort_by((.time | time_key), .identity)
+      | map(.identity as $q | ([$es[] | select(d_identity == $q)] | first) as $e
+          | {identity: $q, raiser: (.session // null), raised: (.time // null),
+             age_minutes: (.time | age_minutes(now)),
+             decision: ($e.decision // null), state: ($e.state // null),
+             handled: ($e != null and ($e.state == "escalated" or (($e.verdict // "") | IN("hold", "escalate"))))})
+      | {questions: ., unhandled: [.[] | select(.handled | not) | .identity]}' "$WD/parsed.json" > "$WD/oq.json" 2> "$WD/oq.err" \
+        || { lib_scrub < "$WD/oq.err" >&2; echo >&2; lib_die2 "koto's open questions are not JSON"; }
+    cat "$WD/oq.json"
+    jq -e '.unhandled == []' "$WD/oq.json" > /dev/null && exit 0
+    exit 1
     ;;
 read)
     E=$(jq -c --arg n "$ENTRY" '[(.decisions.entries // [])[] | select(.decision == $n)][0] // empty' "$WD/parsed.json")
@@ -361,12 +433,20 @@ def settle($o; $by): .state = "settled" | .verdict = "settle" | .outcome = $o | 
   | .owed = (if owes_reply then "reply" else "" end) | .updated = $now;
 def escalate_now: .state = "escalated" | .round = ((.round | tonumber) + 1 | tostring)
   | .owed = "escalation" | .target = $t | .updated = $now;
-# A queued escalation held by no question identity can never be passed up, so
-# every write clears its verdict and it is judged again. Queued entries held
-# by an identity are released by release_queued, after the program, since a
-# release is a koto write (shirabe question pass-up).
+# A queued escalation held by no question identity is an old-style one, queued
+# before entries were held by identities (a run already under way): it keeps
+# its verdict and is released as it was then. When no entry is escalated, the
+# lowest such entry is escalated, or has its verdict cleared when
+# escalation_problems no longer passes for it. Queued entries held by an
+# identity are released by release_queued, after the program, since a release
+# is a koto write (shirabe question pass-up).
 def release:
-  .entries |= map(if .state == "coordinator-verdict" and .verdict == "escalate" and d_identity == "" then .verdict = "" else . end);
+  if any(.entries[]; .state == "escalated") then .
+  else ([.entries[] | select(.state == "coordinator-verdict" and .verdict == "escalate" and d_identity == "") | .decision | tonumber] | min) as $q
+    | if $q == null then .
+      else .entries |= map(if .decision == ($q | tostring) then
+          (if (escalation_problems($t) | length) == 0 then escalate_now else .verdict = "" end) else . end) end
+  end;
 def stamped($kind; $seq): any(d_section_stamps[]; .run == $run and .kind == $kind and .seq == $seq);
 def stamped_report($seq): any(d_section_stamps[]; .run == $run and .kind == "report" and (.seq | split(".")[0]) == $seq);
 # A routed entry missing from the live record (edited by hand since the route)
@@ -422,13 +502,13 @@ passup() {
     if [ "$need" = decision ]; then
         if [ "$n" = "$ESC_N" ]; then aid=$ESC_AID; else aid=$(attempt_of "$id" ""); fi
         if [ -z "$aid" ]; then
-            echo "$PROG: entry $n (question $id) has no undecided attempt of $SESSION's behind it, so it isn't passed up" >&2
+            echo "$PROG: entry $n (question $id) has no undecided attempt of $SESSION's behind it, so it isn't passed up; record one here with: $(attempt_line "$id")" >&2
             return 1
         fi
         args+=(--attempt "$aid")
     fi
     [ "$TARGET" = "a person" ] && args+=(--to person:owner)
-    shirabe question pass-up "$id" --in "$SESSION" "${args[@]}" > "$WD/passup.json" 2> "$WD/passup.err"
+    "$SHIRABE" question pass-up "$id" --in "$SESSION" "${args[@]}" > "$WD/passup.json" 2> "$WD/passup.err"
     rc=$?
     [ "$rc" = 0 ] && return 0
     echo "$PROG: shirabe question pass-up of question $id (entry $n) exited $rc: $(lib_scrub < "$WD/passup.err" | head -3)" >&2
@@ -451,12 +531,14 @@ release_queued() {
     if [ "$(jq 'length' "$WD/queued.json")" -gt "$free" ]; then
         # Only a choice needs the order: shirabe question pending's waiting
         # count and raise time for each identity it lists. One it doesn't
-        # list counts no waiting work items and sorts last.
-        shirabe question pending --in "$SESSION" > "$WD/pending.json" 2> "$WD/pending.err" \
+        # list counts no waiting work items and sorts last. Raise times are
+        # compared as instants (state-schema.jq's time_key), as shirabe
+        # orders them, never as strings.
+        "$SHIRABE" question pending --in "$SESSION" > "$WD/pending.json" 2> "$WD/pending.err" \
             || { lib_scrub < "$WD/pending.err" >&2; echo >&2; lib_die2 "cannot read shirabe question pending"; }
-        jq -c --slurpfile p "$WD/pending.json" '($p[0].questions // []) as $pq
+        jq -c -L "$HERE" --slurpfile p "$WD/pending.json" 'include "state-schema"; ($p[0].questions // []) as $pq
           | map(. as $c | ([$pq[] | select(.identity == $c.id)] | first // {}) as $r
-                | . + {w: ($r.waiting // 0), r: ($r.raised // "~")})
+                | . + {w: ($r.waiting // 0), r: ($r.raised // null | time_key)})
           | sort_by(-.w, .r, .id)' "$WD/queued.json" > "$WD/queued.sorted" || lib_die2 "cannot order the queued escalations"
         mv "$WD/queued.sorted" "$WD/queued.json"
     fi
@@ -494,6 +576,56 @@ has_entry() { # has_entry <n> <jq test over the entry>
     SEC | jq -e --arg n "$1" '[.entries[] | select(.decision == $n) | '"$2"'] | any' >/dev/null
 }
 is_archived() { SEC | jq -e --argjson n "$1" '(.archived // []) | index($n) != null' >/dev/null; }
+# reserved_ground <n> [<identity>]: the reserved ground entry n carries, ""
+# for none: its Grounds cell, else, for an entry held by a question, the
+# ground of the latest pass-up by another session in koto's history of it
+# (pass-up records `ground: <ground>` as the readdress's reason). With an
+# identity, $WD/history.json must hold that question's history already.
+reserved_ground() {
+    local g
+    g=$(SEC | jq -r -L "$HERE" --arg n "$1" 'include "state-schema";
+        [.entries[] | select(.decision == $n) | (.grounds // "") | split(", ")[] | select(IN(d_reserved_grounds[]))] | first // ""') \
+        || lib_die2 "cannot read entry $1's grounds"
+    if [ -z "$g" ] && [ -n "${2:-}" ]; then
+        g=$(jq -r -L "$HERE" --arg s "$SESSION" 'include "state-schema";
+            [(.entries // [])[] | select(.entry == "pass-up" and (.session // "") != $s)] | last // {}
+            | [((.reason // "") | capture("^ground: (?<g>[a-z-]+)") | .g) | select(IN(d_reserved_grounds[]))] | first // ""' "$WD/history.json") \
+            || lib_die2 "cannot read question $2's history"
+    fi
+    printf '%s' "$g"
+}
+# koto_facts <identity>: koto's answer to a question it shows closed, into
+# KO_AS, KO_AID (the answer's session and id), KO_O (its text, or
+# `withdrawn`), KO_WHY (its reason) and KO_BY (its decider, as the record
+# writes it), and KO_BYS (the deciding session, "" when a person decided).
+# Reads koto decisions history into $WD/history.json, then show.
+koto_facts() {
+    local id=$1
+    history_of "$id"
+    [ "$(jq -r '.open' "$WD/history.json")" = false ] || return 1
+    KO_AS=$(jq -r '.answer.session // ""' "$WD/history.json")
+    KO_AID=$(jq -r '.answer.id // ""' "$WD/history.json")
+    local outk
+    outk=$(jq -r '.answer.outcome // ""' "$WD/history.json")
+    [ -n "$KO_AS" ] && [ -n "$KO_AID" ] || lib_die2 "koto shows question $id closed with no answer"
+    koto_read "$WD/show.json" decisions show "$KO_AS" "$KO_AID"
+    if [ "$outk" = withdrawn ]; then KO_O=withdrawn; else KO_O=$(jq -r '.answer.text // ""' "$WD/history.json"); fi
+    [ -n "$KO_O" ] || lib_die2 "koto's answer to question $id has no text"
+    KO_WHY=$(jq -r '.decision.reason // "" | if . == "" then "none given in koto" else . end' "$WD/show.json")
+    KO_BY=$(jq -r '.decision.decider // {} | (if .kind == "session" then "session \(.session.value // .session // "")"
+          elif .kind == "person" then "person \(.handle.value // .handle // .person.value // .person // "")"
+          else (.kind // "unknown") end) | gsub("[\\[\\]]"; "") | gsub("@"; "&#64;")' "$WD/show.json")
+    KO_BYS=$(jq -r '.decision.decider // {} | if .kind == "session" then (.session.value // .session // "") else "" end' "$WD/show.json")
+    case "$KO_O$KO_WHY" in *$'\n'*|*$'\r'*) KO_O=$(printf '%s' "$KO_O" | tr '\r\n' '  '); KO_WHY=$(printf '%s' "$KO_WHY" | tr '\r\n' '  ') ;; esac
+    return 0
+}
+# refuse_reserved <n> <identity or ""> <what>: refused when entry n carries a
+# reserved ground, which keeps it for the owner: the coordinator passes it up.
+refuse_reserved() {
+    local g
+    g=$(reserved_ground "$1" "$2") || exit 2
+    [ -z "$g" ] || refuse "entry $1 carries the reserved ground $g, so the coordinator doesn't $3 it: pass it up (--escalate --grounds $g)"
+}
 # restore <n>...: the archived entries back into the section this write starts
 # from, each from the latest unedited `decisions` entry holding its row.
 restore() {
@@ -576,7 +708,14 @@ open-from-report)
       | reduce $items[] as $i (.;
           "\($run) report \($seq).\($i.index)" as $st
           | ($words[($i.index | tostring)] // {}) as $wd
-          | if ($i.identity // "") != "" then
+          | if $i.kind == "withdrawal" then
+              # A withdrawal naming a question identity reaches the entry held
+              # by it; any other, the entry opened from its source.
+              (($i.identity // "") as $wid | if $wid != "" then [.entries[] | select(d_identity == $wid)] else [.entries[] | select(.source | startswith("\($i.source) ["))] end) as $hits
+              | if ($hits | length) == 0 then error("item \($i.index) withdraws an entry the record lacks") else . end
+              | .entries |= map(if (if ($i.identity // "") != "" then d_identity == $i.identity else (.source | startswith("\($i.source) [")) end)
+                  then evidence($i.source; $st; "withdrawn: decision \($i.n) round \($i.round)") else . end)
+            elif ($i.identity // "") != "" then
               # One entry per identity: a re-report, or the same question
               # arriving twice, is a stamped line on the entry it already has.
               if any(.entries[]; d_identity == $i.identity) then
@@ -589,9 +728,6 @@ open-from-report)
                     source: "question \($i.identity) [\($st)]", updated: $now}]
                 | .next += 1
               end
-            elif $i.kind == "withdrawal" then
-              if any(.entries[]; .source | startswith("\($i.source) [")) | not then error("item \($i.index) withdraws an entry the record lacks") else . end
-              | .entries |= map(if (.source | startswith("\($i.source) [")) then evidence($i.source; $st; "withdrawn: decision \($i.n) round \($i.round)") else . end)
             elif ($i.cite // null) != null then
               if any(.entries[]; .decision == ($i.cite | tostring)) | not then error("item \($i.index) cites an entry the record lacks") else . end
               | .entries |= map(if .decision == ($i.cite | tostring) then
@@ -622,11 +758,27 @@ settle|escalate|hold|identity)
     has_entry "$N" '.state == "coordinator-verdict" and ((.verdict // "") == "")' || refuse "entry $N isn't awaiting a verdict"
     case "$MODE" in
     settle)
-        [ -n "$OUTC" ] && [ -n "$REASON" ] || refuse "a settle needs an outcome and its reason"
-        change '.entries |= map(if .decision == $n then settle("\($o); reason: \($r)"; "the coordinator") else . end) | release | compact_except($n)' \
-            --arg n "$N" --arg o "$OUTC" --arg r "$REASON" ;;
+        ID=$(SEC | jq -r -L "$HERE" --arg n "$N" 'include "state-schema"; .entries[] | select(.decision == $n) | d_identity')
+        if [ -n "$ID" ]; then
+            # Held by a question: settled only from koto's record of it. While
+            # koto shows it open, settling here would leave the question open
+            # in koto, the worker waiting on it, and nothing routing it again.
+            if ! koto_facts "$ID"; then
+                refuse_reserved "$N" "$ID" settle
+                refuse "koto shows question $ID open, so entry $N settles only from koto's answer: answer it there (shirabe question settle $ID --in $SESSION --chosen <choice> --reason <why>) or pass it up (--escalate)"
+            fi
+            [ "$KO_O" = withdrawn ] || [ "$KO_BYS" != "$SESSION" ] || refuse_reserved "$N" "$ID" settle
+            [ -z "$OUTC" ] || [ "$OUTC" = "$KO_O" ] || refuse "--outcome \`$OUTC\` is not koto's answer to question $ID (\`$KO_O\`)"
+            change '.entries |= map(if .decision == $n then settle("\($o); reason: \($why)"; $by) else . end) | release | compact_except($n)' \
+                --arg n "$N" --arg o "$KO_O" --arg why "$KO_WHY" --arg by "$KO_BY"
+        else
+            [ -n "$OUTC" ] && [ -n "$REASON" ] || refuse "a settle needs an outcome and its reason"
+            refuse_reserved "$N" "" settle
+            change '.entries |= map(if .decision == $n then settle("\($o); reason: \($r)"; "the coordinator") else . end) | release | compact_except($n)' \
+                --arg n "$N" --arg o "$OUTC" --arg r "$REASON"
+        fi ;;
     identity)
-        [[ $QID =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/[0-9]+$ ]] || refuse "\`$QID\` is not a question identity (<session id>/<decision id>)"
+        [[ $QID =~ $RE_IDENTITY ]] || refuse "\`$QID\` is not a question identity (<session id>/<decision id>)"
         ID=$(SEC | jq -r -L "$HERE" --arg n "$N" 'include "state-schema"; .entries[] | select(.decision == $n) | d_identity')
         [ -z "$ID" ] || refuse "entry $N is already held by question $ID"
         SEC | jq -e -L "$HERE" --arg q "$QID" 'include "state-schema"; any(.entries[]; d_identity == $q)' > /dev/null \
@@ -641,7 +793,7 @@ settle|escalate|hold|identity)
     escalate)
         # Only a question identity escalates; its wording is koto's.
         ID=$(SEC | jq -r -L "$HERE" --arg n "$N" 'include "state-schema"; .entries[] | select(.decision == $n) | d_identity')
-        [ -n "$ID" ] || refuse "entry $N holds no question identity: give it one this session raised (--identity), then escalate"
+        [ -n "$ID" ] || refuse "entry $N holds no question identity: raise its question in this session (shirabe question raise --in $SESSION --content <file> --attempt <id>), hold the entry by it (--identity <identity>), then escalate"
         [ -z "$REC$CTX$PROB" ] && [ ${#OPTS[@]} -eq 0 ] \
             || refuse "entry $N is worded by question $ID's content in koto; --recommendation, --context, --problem and --option don't apply"
         case "$GROUNDS" in
@@ -653,11 +805,11 @@ settle|escalate|hold|identity)
         [ "$(jq -r '.open' "$WD/history.json")" = true ] || refuse "koto shows question $ID closed; it settles from koto's record"
         NEED=$(jq -r '.question.need // "decision"' "$WD/history.json")
         if [ "$NEED" = decision ]; then
-            [ -n "$ATTEMPT" ] || refuse "escalating question $ID needs --attempt: an undecided attempt of $SESSION's at it"
+            [ -n "$ATTEMPT" ] || refuse "escalating question $ID needs --attempt: an undecided attempt of $SESSION's at it, which $(attempt_line "$ID") records"
             A=$ATTEMPT
             case "$A" in *:*) [ "${A%%:*}" = "$SESSION" ] || refuse "attempt $ATTEMPT is not $SESSION's"; A=${A#*:} ;; esac
             ESC_AID=$(attempt_of "$ID" "$A")
-            [ -n "$ESC_AID" ] || refuse "attempt $ATTEMPT is not an undecided attempt of $SESSION's tied to question $ID (koto decisions attempts --in=$SESSION --question $ID)"
+            [ -n "$ESC_AID" ] || refuse "attempt $ATTEMPT is not an undecided attempt of $SESSION's tied to question $ID (koto decisions attempts --in=$SESSION --question $ID); record one here with: $(attempt_line "$ID")"
         else
             [ -z "$ATTEMPT" ] || refuse "question $ID is a need; it is passed up with no attempt"
         fi
@@ -699,28 +851,18 @@ evidence|answer)
     # of its closed question: the answer's text (or `withdrawn`), the reason and
     # the decider koto decisions show gives for it. Writes and exits.
     koto_settle() {
-        local n=$1 id=$2 seq=$3 asess aid outk o why by
-        history_of "$id"
-        [ "$(jq -r '.open' "$WD/history.json")" = false ] || refuse "koto shows question $id open; entry $n settles only from koto's answer"
-        asess=$(jq -r '.answer.session // ""' "$WD/history.json")
-        aid=$(jq -r '.answer.id // ""' "$WD/history.json")
-        outk=$(jq -r '.answer.outcome // ""' "$WD/history.json")
-        [ -n "$asess" ] && [ -n "$aid" ] || lib_die2 "koto shows question $id closed with no answer"
-        koto_read "$WD/show.json" decisions show "$asess" "$aid"
-        if [ "$outk" = withdrawn ]; then o=withdrawn; else o=$(jq -r '.answer.text // ""' "$WD/history.json"); fi
-        [ -n "$o" ] || lib_die2 "koto's answer to question $id has no text"
-        [ -z "$OUTC" ] || [ "$OUTC" = "$o" ] || refuse "--outcome \`$OUTC\` is not koto's answer to question $id (\`$o\`)"
-        why=$(jq -r '.decision.reason // "" | if . == "" then "none given in koto" else . end' "$WD/show.json")
-        by=$(jq -r '.decision.decider // {} | (if .kind == "session" then "session \(.session.value // .session // "")"
-              elif .kind == "person" then "person \(.handle.value // .handle // .person.value // .person // "")"
-              else (.kind // "unknown") end) | gsub("[\\[\\]]"; "") | gsub("@"; "&#64;")' "$WD/show.json")
-        case "$o$why" in *$'\n'*|*$'\r'*) o=$(printf '%s' "$o" | tr '\r\n' '  '); why=$(printf '%s' "$why" | tr '\r\n' '  ') ;; esac
+        local n=$1 id=$2 seq=$3
+        koto_facts "$id" || refuse "koto shows question $id open; entry $n settles only from koto's answer"
+        [ -z "$OUTC" ] || [ "$OUTC" = "$KO_O" ] || refuse "--outcome \`$OUTC\` is not koto's answer to question $id (\`$KO_O\`)"
+        # This session's own answer to a question a reserved ground keeps for
+        # the owner is refused; a withdrawal, or another's answer, settles it.
+        [ "$KO_O" = withdrawn ] || [ "$KO_BYS" != "$SESSION" ] || refuse_reserved "$n" "$id" answer
         change 'if stamped("wait"; $seq) then error("this answer is already recorded") else . end
           | .entries |= map(if .decision == $n then
               add_ev(ev_line($by; "\($run) wait \($seq)"; "koto answer \($as):\($aid): \($o)"))
               | (if .state == "settled" then . else settle("\($o); reason: \($why)"; $by) end) else . end)
           | release | compact_except($n)' \
-            --arg n "$n" --arg o "$o" --arg why "$why" --arg by "$by" --arg seq "$seq" --arg as "$asess" --arg aid "$aid"
+            --arg n "$n" --arg o "$KO_O" --arg why "$KO_WHY" --arg by "$KO_BY" --arg seq "$seq" --arg as "$KO_AS" --arg aid "$KO_AID"
         write
     }
     # decision_next routed `unrecorded-answer <n> koto`: koto shows entry n's

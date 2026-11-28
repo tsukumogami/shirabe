@@ -384,6 +384,14 @@ eq "with two closed, the lowest entry first" "unrecorded-answer 5 koto" "$(next)
 held_run "$(held 5 settled "$QA")" "$(held 6 escalated "$QB")"
 KH "$QA" false; KH "$QB" false
 eq "a settled entry's closed question owes nothing" "unrecorded-answer 6 koto" "$(next)"
+# A worker's withdrawal of its question is koto's withdrawn outcome: the entry
+# held by it, escalated or still awaiting a verdict, is owed its settle the
+# same way, from koto, never from the report's text.
+held_run "$(held 5 coordinator-verdict "$QA")"
+KH "$QA" false
+f="$KOTO_STORE/decisions/history/$(printf '%s' "$QA" | tr '/' '_').json"
+jq -c '.answer = {session: "w1", id: "000000000004", outcome: "withdrawn", text: null}' "$f" > "$f.new" && mv "$f.new" "$f"
+eq "a question its raiser withdrew routes its entry to decision_answer, though no verdict was given" "unrecorded-answer 5 koto" "$(next)"
 held_run "$(held 5 escalated "$QA")"
 eq "a history koto can't give is an error, not an open question" "2|" "$(bash "$DN" --session "$S" > "$T/out" 2>"$T/err"; echo "$?|$(cat "$T/out")")"
 build take

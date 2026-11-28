@@ -149,7 +149,6 @@ pre_closed() { pre; : > "$KOTO_STORE/decisions/render-closed"; }
 PRE=pre_closed
 refused "escalation: a question render finds closed is refused" "[$(HELD 3 "$QA")]" "escalate 3" escalate escalation
 PRE=pre
-refused "escalation: an entry holding no question identity is refused" "[$ESC]" "escalate 3" escalate escalation
 refused "escalation: a ground that isn't pass-up's is refused" "[$(HELD 3 "$QA" '.grounds = "scope"')]" "escalate 3" escalate escalation
 refused "escalation: a target other than the run's is refused" "[$(HELD 3 "$QA")]" "escalate 3" escalate escalation ws
 refused "escalation: an entry that owes no escalation is refused" "[$(HELD 3 "$QA" '.owed = ""')]" "escalate 3" escalate escalation
@@ -161,6 +160,66 @@ case_run "[$(HELD 3 "$QA" '.target = "coordinator ws"'), $(HELD 4 "$QB" '.target
 eq "escalation: to a coordinator, when the run reports to it" "0 message" "$RC $(word)"
 eq "escalation: to a coordinator, the message names each identity and nothing else" "$(printf 'Passed up to you in koto, by identity:\n\n%s\n%s' "$QA" "$QB")" "$(msg)"
 eq "  ... with no prompt and no render" "|" "$(koto context exists "$S" coord/decision_question.json && echo prompt)|$(calls render)"
+PRE_IDS=
+
+# An old-style escalation: an entry held by no question identity, escalated in
+# a run already under way when entries came to be held by identities, is
+# rendered alone and as it was before (the base's fixture and expectations),
+# with no shirabe call.
+PRE_IDS=$QA NO_ATTEMPT=1
+case_run "[$ESC, $(HELD 4 "$QA")]" "escalate 3" escalate escalation
+eq "old-style escalation: rendered" "0 message" "$RC $(word)"
+eq "old-style escalation: the verdict names the kind, entry and round, and lists no entries" "message escalation 3 1|" \
+    "$(printf '%s' "$OUT" | cut -d' ' -f1-4)|$(printf '%s' "$OUT" | tr ' ' '\n' | grep '^entries:')"
+cat > "$T/want" <<'WANT'
+Decision 3 round 1.
+
+The migration rewrites the lockfile format, and the release on Friday is the next time users upgrade.
+
+Shipping it now splits users across two formats for a week; waiting holds two other features behind it.
+
+Ship the migration before the release?
+1. wait for the release (recommended: the release is Friday and the migration rides it)
+   one upgrade carries both changes
+2. ship now
+   users get the new format this week
+3. split it
+   the reader ships now, the writer on Friday
+
+Answer naming decision 3 round 1 and an option, or give another outcome with its reason.
+WANT
+eq "old-style escalation: context, problem, the question with the recommendation first, every option explained, the answer line" "$(cat "$T/want")" "$(msg | sed '$d')"
+msg | sed '$d' > "$T/above"
+if command -v sha256sum >/dev/null 2>&1; then D=$(sha256sum < "$T/above" | cut -d' ' -f1); else D=$(shasum -a 256 < "$T/above" | cut -d' ' -f1); fi
+eq "old-style escalation: the last line is the digest of every byte above it" "Digest: $D" "$(msg | tail -1)"
+eq "old-style escalation: one decision in the message" 1 "$(msg | grep -c '^Decision ')"
+eq "old-style escalation: the structured form, the recommended option first with every explanation" \
+    'wait for the release:true:one upgrade carries both changes|ship now:false:users get the new format this week|split it:false:the reader ships now, the writer on Friday' \
+    "$(qform | jq -r '[.options[] | "\(.label):\(.recommended):\(.explanation)"] | join("|")')"
+eq "old-style escalation: the structured form checks against its seal" "$(qform)" \
+    "$(bash "$HERE/coord-log.sh" check --session "$S" --state escalate --sealed "$(printf '%s' "$OUT" | tr ' ' '\n' | sed -n 's/^qseal:/sealed:/p')" --key coord/decision_question.json)"
+eq "old-style escalation: no shirabe call" "" "$(cat "$KOTO_STORE/shirabe-calls" 2>/dev/null)"
+NO_ATTEMPT=
+PRE_IDS=
+refused "old-style escalation: a blank context is refused, as before" "[$(without '.context = "  "')]" "escalate 3" escalate escalation
+refused "old-style escalation: a recommendation outside the options is refused, as before" "[$(without '.recommendation = "ship later"')]" "escalate 3" escalate escalation
+refused "old-style escalation: an option without its explanation is refused, as before" \
+    "[$(without '.options = "ship now\nwait for the release -- one upgrade carries both changes"')]" "escalate 3" escalate escalation
+refused "old-style escalation: a target other than the run's is refused, as before" "[$ESC]" "escalate 3" escalate escalation ws
+
+# A coordinator restarted in a new session holds no attempt for a question its
+# predecessor attempted: the refusal names the line that records one here.
+PRE_IDS=$QA NO_ATTEMPT=1
+refused "escalation: with no attempt in this session, refused" "[$(HELD 3 "$QA")]" "escalate 3" escalate escalation
+grep -qF "shirabe question attempt --in $S --what '<the question>' --result undecided --basis ${QA%/*}:${QA##*/}" "$T/err" \
+    && ok "  ... naming the shirabe question attempt line for this session" || bad "  ... naming the shirabe question attempt line for this session" "$(cat "$T/err")"
+NO_ATTEMPT=
+# shirabe is SHIRABE_BIN when it is set, as state-handover.sh calls it.
+printf '#!/usr/bin/env bash\nprintf "via SHIRABE_BIN\\n" >> "$KOTO_STORE/shirabe-bin-calls"\nexec "%s/testdata/question-stand-in/shirabe" "$@"\n' "$HERE" > "$T/shirabe-bin"
+chmod +x "$T/shirabe-bin"
+rm -f "$KOTO_STORE/shirabe-bin-calls"
+SHIRABE_BIN="$T/shirabe-bin" case_run "[$(HELD 3 "$QA")]" "escalate 3" escalate escalation
+eq "escalation: shirabe is called as SHIRABE_BIN when it is set (pending and render)" "0 message|2" "$RC $(word)|$(wc -l < "$KOTO_STORE/shirabe-bin-calls" | tr -d ' ')"
 PRE_IDS=
 
 

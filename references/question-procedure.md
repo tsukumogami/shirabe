@@ -102,8 +102,19 @@ shirabe question settle <identity> --in <session> --chosen <choice> \
 which records an `answered` entry by the session when the question waits on
 it, and a `settled` one when the session raised it (koto then takes the
 settle only on a basis it accepts: for a question waiting on the owner, an
-owner answer in effect with the same label). Deciding that an answer covers
-the case is the session's own judgment; reusing it binds nobody else.
+owner answer in effect with the same label). A `--basis` that names an owner
+answer is checked before koto is asked: the precedent read above has to list
+it in the session's chain, reading `verified`, or the settle is refused. A
+basis naming the session's own decision is checked for its shape only.
+Deciding that an answer covers the case is the session's own judgment;
+reusing it binds nobody else.
+
+`settle` also refuses a question whose history holds one of the grounds in
+step 3, recorded by the settling session or a session below it in an attempt
+or a pass-up: that question is the owner's and is passed up (step 4). Only a
+recorded ground is found. A ground nobody wrote down, or one recorded only
+above the settling session, doesn't stop the settle, so the sorting in step 3
+still rests on the session applying it.
 
 ### 3. Sort the question by who it belongs to
 
@@ -148,9 +159,12 @@ shirabe question pass-up <identity> --in <session> --ground <ground> \
 
 A decision question passes up only on the session's own undecided attempt
 tied to that question (`shirabe question attempt --in <session> --result
-undecided --basis <raiser>:<question id>`): the raiser's attempt does not
-count for the session passing it up, and an attempt that decided is settled
-with `settle`, not passed up. A need passes up with no attempt. The recipient
+undecided --basis <raiser>:<question id>`), one koto still lists in effect:
+the raiser's attempt does not count for the session passing it up, a
+reversed attempt doesn't count, and an attempt that decided is settled with
+`settle`, not passed up. When the raiser's run already holds twenty open
+questions waiting on a person, koto refuses a pass-up to `person:owner`, and
+the refusal comes back as exit 4 with koto's own code and message. A need passes up with no attempt. The recipient
 is the session's own dispatcher, the default, or `person:owner`, and nothing
 else. `--ground` is one of the four grounds above (`contradicts-answer`,
 `changes-scope`, `outward-facing`, `reserved-step`), or `outside-scope` when
@@ -236,4 +250,10 @@ which records one judgment citing the answer and changes nothing else: the
 answer was in effect before it, a second `seen` adds nothing, and the listing
 in a session above the coordinator still shows it until that session marks it
 too. `seen` refuses an entry that is not an owner answer, an answer outside
-the session's chain and one that reads as a remote session's.
+the session's chain, one given above the session (it takes exactly what
+`unseen` lists) and one that reads as a remote session's.
+
+When koto's precedent read fails, `pending` still lists the open questions,
+with `unseen` null and `unseen_error` saying why. Treat that as "the owner's
+answers are unknown", not "there are none", and read again before acting on
+an answer.

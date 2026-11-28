@@ -4,6 +4,8 @@
 # as fixture files under $KOTO_STORE/decisions/, an identity's `/` written as
 # `_` in a file name:
 #   open/<session>.json        `decisions open --at <session>`; none: no questions
+#   open-fail                  `decisions open` fails, as koto does on a
+#                              store it can't read (exit 2)
 #   history/<identity>.json    `decisions history <identity>`; none: koto's
 #                              decision_not_found (exit 2)
 #   content/<identity>.json    `decisions content read <identity>`, printed
@@ -21,6 +23,7 @@ case "${1:-}" in
     open)
         at=
         while [ $# -gt 0 ]; do case "$1" in --at) at=${2:-}; shift ;; --at=*) at=${1#--at=} ;; esac; shift; done
+        [ ! -e "$D/open-fail" ] || { jq -nc '{code: "invalid_decision", command: "decisions open", error: "cannot read the store"}' >&2; exit 2; }
         if [ -f "$D/open/$at.json" ]; then cat "$D/open/$at.json"
         else jq -nc --arg a "$at" '{at: $a, questions: [], v: 1}'; fi
         ;;

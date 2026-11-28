@@ -730,4 +730,27 @@ eq "a write changing a section another writer owns is refused" 65 "$rc"
 grep -q 'Holds section changes only through state-hold.sh' "$T/err" && ok "  ... by the owner check" || bad "  ... by the owner check" "$(cat "$T/err")"
 eq "  ... and no key changed" "$SNAP" "$(session_snapshot "$SW")"
 
+echo "== question identities, times, old entries' escalation =="
+sj() { jq -nc -L "$HERE" "include \"state-schema\"; $1"; }
+eq "identity: one pattern, a decision id of 1 to 20 digits" "true|true|false|false" \
+    "$(sj '["w1/1", "work-on.w1_x/12345678901234567890", "w1/123456789012345678901", "-w1/2"] | map(test("^" + re_identity + "$")) | map(tostring) | join("|")' | jq -r .)"
+eq "identity: d_identity reads it from a question source" "w1/000000000002|" \
+    "$(sj '[{source: "question w1/000000000002 [20260926T070000Z report 3.1]"}, {source: "worker w1 [20260926T070000Z report 3.1]"}] | map(d_identity) | join("|")' | jq -r .)"
+eq "time_key: raise and record times as instants, a fraction after its whole second, an unreadable one last" \
+    '["2026-09-26T06:00:00Z","2026-09-26T06:00Z","2026-09-26T06:00:00.5Z","2026-09-26T06:00:01Z","soon"]' \
+    "$(sj '["soon", "2026-09-26T06:00:01Z", "2026-09-26T06:00:00.5Z", "2026-09-26T06:00:00Z", "2026-09-26T06:00Z"] | sort_by(time_key, .)')"
+eq "age_minutes: whole minutes since, null when the time doesn't read" "[90,null,null]" \
+    "$(sj '["2026-09-26T06:00Z", "", null] | map(age_minutes("2026-09-26T07:30:30Z" | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime))')"
+# An entry with no identity keeps the checks it was escalated under.
+probs() { jq -nc -L "$HERE" --argjson e "$1" --arg t "${2:-a person}" "include \"state-schema\"; \$e | escalation_problems(\$t) | length"; }
+eq "escalation_problems: an old entry passing the old checks passes" 0 "$(probs "$(entry 1 coordinator-verdict "$ESC")")"
+for k in recommendation reason context problem grounds; do
+    eq "escalation_problems: an old entry with a blank $k fails, as before" true "$(probs "$(entry 1 coordinator-verdict "$ESC + {$k: \" \"}")" | jq '. > 0')"
+done
+eq "escalation_problems: an old entry whose recommendation isn't an option fails" true "$(probs "$(entry 1 coordinator-verdict "$ESC + {recommendation: \"ship later\"}")" | jq '. > 0')"
+eq "escalation_problems: an old entry with an option unexplained fails" true "$(probs "$(entry 1 coordinator-verdict "$ESC + {options: \"keep option d and ship\nswitch to option c -- versions pin\"}")" | jq '. > 0')"
+eq "escalation_problems: an old entry for another target fails" true "$(probs "$(entry 1 coordinator-verdict "$ESC")" "coordinator ws" | jq '. > 0')"
+eq "escalation_problems: a held entry needs only its pass-up ground and target" "0|true" \
+    "$(probs "$(entry 1 coordinator-verdict "$ESC + {source: \"question w1/000000000002 [20260926T070000Z report 3.1]\", options: \"\", recommendation: \"\", context: \"\", grounds: \"changes-scope\"}")")|$(probs "$(entry 1 coordinator-verdict "$ESC + {source: \"question w1/000000000002 [20260926T070000Z report 3.1]\", grounds: \"scope\"}")" | jq '. > 0')"
+
 done_tests state-schema

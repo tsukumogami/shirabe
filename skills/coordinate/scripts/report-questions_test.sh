@@ -388,6 +388,22 @@ eq "round trip: decision-render.sh's escalation reads back as the question it pa
 PRE=round_pre OPEN="$QA:w7"
 run "holding none w1" "Done." "$WORKER"
 eq "identity: a nested pass-up counts only for a coordinator's holding" "0 none" "$RC $(word)"
+# Only a line naming an identity (<session>/<1 to 20 digits>, standing alone)
+# is dropped, and every dropped line is counted in the verdict.
+dropped() { printf '%s' "$OUT" | tr ' ' '\n' | grep '^dropped:'; }
+PRE=open_pre OPEN=
+run "holding none w1" "Should we rerun https://github.com/o/r/actions/runs/123456789 before merging?" "$WORKER"
+eq "identity: a line with a CI run link is a question, not dropped" "0 questions 1|" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1-2)|$(dropped)"
+run "holding none w1" "$(printf 'Should we settle %s?\nAnd %s?\nShould the second half wait?\n' "$QB" "$QA")" "$WORKER"
+eq "identity: each line naming an identity is dropped and counted" "0 questions 1|dropped:2" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1-2)|$(dropped)"
+# A withdrawal of an entry held by a question names its identity on the
+# question line, and reaches that entry by it.
+HELD_UP=$(printf '%s' "$OPEN_UP" | jq -c --arg q "$QA" '.[0].source = "question \($q) [20260926T070000Z report 3.1]" | .[0].options = "" | .[0].grounds = "changes-scope"')
+run "holding none rr" "$(withdrawal 4 1 | sed "3s#.*#$QA#")" "$COORD" "$HELD_UP"
+eq "withdrawal: one naming an identity an entry holds is matched by identity" "0 withdrawal|withdrawal|$QA" \
+    "$RC $(word)|$(list | jq -r '.[0] | "\(.kind)|\(.identity)"')"
+run "holding none rr" "$(withdrawal 4 1 | sed "3s#.*#$QB#")" "$COORD" "$HELD_UP"
+eq "withdrawal: one naming an identity no entry holds falls back to its source, which opened nothing" "0 none" "$RC $(word)"
 PRE= OPEN=
 rm -rf "$KOTO_STORE/decisions"
 
