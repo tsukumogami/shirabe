@@ -18,6 +18,9 @@ skills/scope/scripts/publish-scoping-pr_test.sh
 skills/scope/scripts/print-scope-exit_test.sh
 skills/scope/scripts/check-hop-document_test.sh
 skills/scope/scripts/scope-check-exit_test.sh
+# decide_first's routes: every case skips without koto, the "as before"
+# ones without the base branch.
+skills/scope/scripts/decide-first-routes_test.sh
 # The document check and event scripts share the hop gate's validator
 # library; their stub validator and stub koto run every case on the floor.
 scripts/doc-check_test.sh

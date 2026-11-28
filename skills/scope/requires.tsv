@@ -82,3 +82,21 @@ gh	-	-	mode:coordinated
 # section verifies it with `skill-preflight.sh scope --mode intent` before
 # any work when the intent is set.
 gh	-	-	mode:intent
+#
+# The unsettled exits in front of bail and exit_abandonment: decide_first and
+# waiting_record run /work-on's decide-first-gate.sh, which reads `koto
+# decisions attempts --in`, `history`, `list --format` and `show` for the
+# attempts and the answers they cite, and `koto session origin` and `session
+# hierarchy --json` for the sessions the run answers to and continues; the
+# directive names the shirabe question commands. scope-open.sh continues a
+# waiting run: it reads the question's `koto decisions history` and takes the
+# session back with `koto rewind --rationale`.
+koto	rewind	--rationale	always
+koto	decisions history	-	always
+koto	decisions attempts	--in	always
+koto	decisions list	--format	always
+koto	decisions show	-	always
+shirabe	question precedent	--in,--label	always
+shirabe	question attempt	--in,--state,--result,--basis	always
+shirabe	question raise	--in,--attempt,--state,--to	always
+shirabe	question withdraw	--in,--reason	always

@@ -47,6 +47,8 @@ on:
       # The publish and executed-report scripts call /execute's shared
       # ownership filter unchanged, and startable-issues.sh wraps /plan's
       # task-graph parser.
+      # decide_first's gates and arrival run /work-on's decide-first-gate.sh.
+      - 'skills/work-on/scripts/decide-first-gate.sh'
       - 'skills/execute/scripts/owned-pr.sh'
       - 'skills/execute/scripts/run-id.sh'
       - 'skills/plan/scripts/plan-to-tasks.sh'
@@ -121,6 +123,8 @@ on:
       - 'scripts/skill-session.sh'
       - 'koto-templates/skill-session.md'
       - 'skills/plan/scripts/resolve-split-mode.sh'
+      # decide_first's gates and arrival run /work-on's decide-first-gate.sh.
+      - 'skills/work-on/scripts/decide-first-gate.sh'
       - 'skills/execute/scripts/owned-pr.sh'
       - 'skills/execute/scripts/run-id.sh'
       - 'skills/plan/scripts/plan-to-tasks.sh'
@@ -419,6 +423,14 @@ jobs:
           bash skills/scope/scripts/scope-open_test.sh
           bash skills/scope/scripts/run-intake_test.sh
           bash skills/scope/scripts/scope-template_test.sh
+
+      # decide_first's routes against the compiled template, and every other
+      # state against the merge-base with the base branch, which the shallow
+      # checkout lacks until it is fetched.
+      - name: Run decide-first routes
+        run: |
+          git fetch --no-tags --depth=1 origin "${GITHUB_BASE_REF:-main}"
+          bash skills/scope/scripts/decide-first-routes_test.sh
 
       # The probe's Slot 6 reads the children's sessions; the Linux job above
       # skips those cases without koto, so they run here against the real one.

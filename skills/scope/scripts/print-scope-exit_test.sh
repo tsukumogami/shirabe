@@ -7,7 +7,7 @@
 # asserts the whole printed block. Covers every terminal in scope.md
 # (done_full_run by mode with and without intent, done_republished,
 # done_executed, done_re_evaluation, done_abandonment, done_cancelled,
-# done_refused, done_error), asserts no terminal ever prints outcome=refused,
+# done_refused, done_error, done_waiting), asserts no terminal ever prints outcome=refused,
 # and that values outside their closed patterns are dropped rather than
 # printed. Through --session, against a stand-in koto, it pins that a session
 # koto removed at its terminal prints its block from the record koto answers
@@ -131,6 +131,16 @@ done
 render done_cancelled '{"outcome":"cancelled","intent":"none","via":"bail"}'
 eq "cancelled" "/scope cancelled: no exit was recorded and nothing was force-materialized
 intent=none" "$OUT"
+
+echo "== waiting =="
+render done_waiting '{"outcome":"waiting","intent":"none","question":"q1-aaaa/000000000001"}'
+eq "a run waiting on its question" "/scope waiting: nothing was written for an exit
+intent=none
+outcome=waiting
+question=q1-aaaa/000000000001
+next=/scope t" "$OUT"
+render done_waiting '{"outcome":"waiting","intent":"none","question":"q1 aaaa; rm -rf /"}'
+case "$OUT" in *question=*) bad "a question outside its pattern is dropped" "$OUT" ;; *) ok "a question outside its pattern is dropped" ;; esac
 
 echo "== refusals and errors =="
 render done_refused '{"outcome":"refused","reason":"upstream-wip","step":"scope:refused","intent":"none","recorded":"","requested":""}'
