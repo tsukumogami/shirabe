@@ -49,14 +49,14 @@
 #                 raised question and `raised` end at done_waiting with
 #                 outcome waiting and the question; the work tree and HEAD
 #                 are as before the bail, no forced_artifact is recorded,
-#                 and no document carries the abandonment marker. Two
-#                 rewinds by the open land at waiting_record, then
-#                 decide_first, so the run never stood at bail.
+#                 and no document carries the abandonment marker. The
+#                 open's one rewind lands at waiting_record, and the next
+#                 tick at decide_first, so the run never stood at bail.
 #                 A second open while the question is open prints waiting=
 #                 and exit 3, and the session stays at done_waiting.
 #                 Once manager answers, the open prints continued=waiting
-#                 and no replacement, the session stands at decide_first,
-#                 the first tick carries `questions`, and `decided` is held
+#                 and no replacement, the first tick takes the session to
+#                 decide_first and carries `questions`, and `decided` is held
 #                 until an attempt citing the answer is recorded. Then
 #                 `resume` delivers hop_design's own directive again, and in
 #                 a second topic `stop` reaches bail.

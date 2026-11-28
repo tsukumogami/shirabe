@@ -770,7 +770,7 @@ case "${1-} ${2-}" in
         noquestion) echo '{"name":"scope-wait","current_state":"done_waiting","is_terminal":true,"result":{"status":"failure","payload":{"outcome":"waiting"}}}'; exit 0 ;;
     esac
     if grep -q '^rewind ' "$KOTO_STUB_LOG"; then
-        echo '{"name":"scope-wait","current_state":"decide_first","is_terminal":false}'
+        echo '{"name":"scope-wait","current_state":"waiting_record","is_terminal":false}'
     else
         echo '{"name":"scope-wait","current_state":"done_waiting","is_terminal":true,"result":{"status":"failure","payload":{"outcome":"waiting","question":"q1-aaaa/000000000001"}}}'
     fi
@@ -778,9 +778,7 @@ case "${1-} ${2-}" in
 "decisions history")
     if [ -n "${KOTO_STUB_OPEN-}" ]; then echo '{"open":true}'; else echo '{"open":false}'; fi
     exit 0 ;;
-"rewind scope-wait")
-    if [ "$(grep -c '^rewind ' "$KOTO_STUB_LOG")" -le 1 ]; then exit "${KOTO_STUB_REWIND_RC:-0}"; fi
-    exit "${KOTO_STUB_REWIND2_RC:-0}" ;;
+"rewind scope-wait") exit "${KOTO_STUB_REWIND_RC:-0}" ;;
 "init "*) exit 1 ;;
 esac
 exec "${SCOPE_TEST_REAL_KOTO:?}" "$@"
@@ -810,18 +808,15 @@ hasnt "a waiting run whose question is open: no koto init" "init " "$(cat "$T/wa
 
 wait_scope
 eq "a waiting run whose question is closed: continued=waiting first" "continued=waiting" "$(printf '%s\n' "$STDOUT" | head -n 1)"
-eq "a waiting run whose question is closed: rewound twice, to decide_first" "2" "$(rewinds)"
+eq "a waiting run whose question is closed: rewound once, to waiting_record" "1" "$(rewinds)"
+has "a waiting run whose question is closed: attached as a live session" "--attach-live" "$(grep '^init ' "$T/wait.log")"
 hasnt "a waiting run whose question is closed: the session is never replaced" "--replace-terminal" "$(cat "$T/wait.log")"
 hasnt "a waiting run whose question is closed: no moved_to" "moved_to=" "$STDOUT"
 
 wait_scope KOTO_STUB_REWIND_RC=1
-eq "a first rewind koto refuses: exit 70" "70" "$RC"
-eq "a first rewind koto refuses: failed=waiting" "failed=waiting" "$STDOUT"
-hasnt "a first rewind koto refuses: no koto init" "init " "$(cat "$T/wait.log")"
-
-wait_scope KOTO_STUB_REWIND2_RC=1
-eq "a second rewind koto refuses: exit 70" "70" "$RC"
-eq "a second rewind koto refuses: failed=waiting" "failed=waiting" "$STDOUT"
+eq "a rewind koto refuses: exit 70" "70" "$RC"
+eq "a rewind koto refuses: failed=waiting" "failed=waiting" "$STDOUT"
+hasnt "a rewind koto refuses: no koto init" "init " "$(cat "$T/wait.log")"
 
 wait_scope KOTO_STUB_STATUS=broken
 eq "a status koto fails to read: exit 70, fail closed" "70" "$RC"

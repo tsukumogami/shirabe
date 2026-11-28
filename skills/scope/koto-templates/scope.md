@@ -2,14 +2,15 @@
 name: scope
 version: "1.0"
 description: >
-  Tactical-chain orchestrator for /scope. Forty-one states across five phases:
+  Tactical-chain orchestrator for /scope. Forty-four states across five phases:
   setup (intake, the branch check, resume routing and its five ladder
   prompts, setup), discovery and the chain proposal, four hop states, the
   shared fold state, the check_exit marker a document gate's named exit
   passes through, and the hop selector a resume enters the chain through,
-  six exit states, three publish states, three cleanup states, the two intent
-  shortcuts and the record state behind one of them, and eight terminals,
-  each declaring its result. Each hop delivers its own directive on
+  decide_first and the waiting_record state behind it, six exit states,
+  three publish states, three cleanup states, the two intent shortcuts and
+  the record state behind one of them, and nine terminals, each declaring
+  its result. Each hop delivers its own directive on
   entry and carries a command gate that decides completion from the artifact
   tree through skills/scope/scripts/hop-complete.sh; the full-run exit re-runs
   that predicate for every hop and refuses unless each one has either its
@@ -2357,7 +2358,8 @@ states:
   # as they were: nothing was written for an abandonment. failure is true so
   # a caller not taught this terminal reads it as it reads a blocked run,
   # never as success. /scope invoked again continues this session in place
-  # (scope-open.sh rewinds it to decide_first once the question is closed);
+  # (scope-open.sh rewinds it to waiting_record once the question is closed,
+  # and waiting_record goes on to decide_first);
   # it is never replaced while the question is open.
   done_waiting:
     # phase: 4
