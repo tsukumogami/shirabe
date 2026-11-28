@@ -247,9 +247,34 @@
 #     across a lineage that names one dispatcher, so the refusal keeps a
 #     continuation from changing whose answer counts.
 #
-# --continue-waiting with --koto-leg is this script's usage refusal: koto's
-# succession can't be combined with --koto-leg or --attach-live, so a run
-# bound to a leg is not continued here.
+# --continue-waiting with --koto-leg continues a run that answered an earlier
+# leg and ended at done_waiting. koto's succession can't be combined with
+# --koto-leg or --attach-live, so the waiting session itself is continued:
+# the walk, the open-question report (exit 3), the withdrawn refusal and the
+# dispatcher check are the ones above. Then:
+#
+#   - decide-first-gate.sh --answer <newest> <identity> must print the
+#     answer: an answer with no authority over the run (its own, or a
+#     session's that is not its dispatcher linked before the raise) prints
+#     `refused=answer_without_authority`, `question=` and `session=` and
+#     exits 2, with nothing changed;
+#   - `koto rewind <newest>` moves it from done_waiting back to
+#     waiting_record, the state it waited from. koto rewinds one step; a
+#     second rewind would return to done_waiting;
+#   - the script prints `continued=waiting` and `question=<identity>`, then
+#     attaches the session under the new leg through koto-open.sh
+#     (`--attach-live --koto-leg`), whose lines follow, then `session=`.
+#     waiting_record's action runs again on the next tick and keeps the
+#     closed question in decide_question, so decide_first requires the
+#     deciding attempt to cite its answer;
+#   - koto refuses the attach while the request the run answered is still
+#     open (a session answers one live leg: child_bound_to_different_leg),
+#     and records that refusal on the new leg. The dispatcher closes or
+#     abandons the earlier request first (/deliver abandons it when it opens
+#     the new one). On a refused attach the script rewinds the session again,
+#     back to done_waiting, and prints `restored=done_waiting` (or
+#     `failed=restore` when koto leaves it elsewhere), exiting koto-open.sh's
+#     code, 2 at least.
 #
 # Output: koto-open.sh's lines (opened=..., rebound=..., leg=..., refused=...,
 # failed=...), then `session=<name>` when a session was opened or attached,
@@ -420,7 +445,6 @@ if [ -n "$LEG" ]; then
     fi
     PLAN=$(plan_among "$REST")
     [ -z "$PLAN" ] || own_refusal "--koto-leg does not apply to a PLAN ($PLAN): one leg answers one issue's run"
-    [ "$CONTINUE" -eq 0 ] || own_refusal "--continue-waiting does not apply under --koto-leg: koto's succession can't be combined with a leg"
 fi
 
 # A deferral to hosted CI needs its reason (shared with /execute's opener).
@@ -595,6 +619,58 @@ if [ "$CONTINUE" -eq 1 ]; then
             echo "$PROG: $HEAD was dispatched by ${WAS:-no session}, not $DISPATCHER: a continuation keeps the waiting run's dispatcher" >&2
             finish_continue 2
         fi
+    fi
+    if [ -n "$LEG" ]; then
+        # A leg-bound run (see the header): the waiting session itself is
+        # rewound and attached under the new leg.
+        ARC=0
+        ANSWER=$(bash "$SELF_DIR/decide-first-gate.sh" --answer "$HEAD" "$QID") || ARC=$?
+        [ "$ARC" -eq 0 ] \
+            || { printf 'failed=question_unreadable\n'; echo "$PROG: could not read whose answer closed $QID (decide-first-gate.sh exit $ARC)" >&2; finish_continue 2; }
+        if [ -z "$ANSWER" ]; then
+            printf 'refused=answer_without_authority\nquestion=%s\nsession=%s\n' "$QID" "$HEAD"
+            echo "$PROG: the answer that closed $QID carries no authority over $HEAD (its own, or from a session that is not its dispatcher linked before the raise): raise the question again" >&2
+            finish_continue 2
+        fi
+        RW=$("$KOTO" rewind "$HEAD" --rationale "continued under the leg $LEG on the answer $ANSWER to $QID")
+        RW_RC=$?
+        RW_STATE=$(printf '%s' "$RW" | jq -r '.state // empty' 2>/dev/null)
+        if [ "$RW_RC" -ne 0 ] || [ "$RW_STATE" != waiting_record ]; then
+            printf 'failed=rewind\nsession=%s\n' "$HEAD"
+            echo "$PROG: koto rewind $HEAD (exit $RW_RC) left it at ${RW_STATE:-no readable state}, not waiting_record: $RW" >&2
+            finish_continue 2
+        fi
+        printf 'continued=waiting\nquestion=%s\n' "$QID"
+        OUT=$(bash "$KOTO_OPEN" "$HEAD" "$TEMPLATE" "$PAIRS_FILE" --attach-live --koto-leg "$LEG" \
+            --event-field "unit.mode=$MODE")
+        RC=$?
+        [ -n "$OUT" ] && printf '%s\n' "$OUT"
+        case "$OUT" in
+            opened=attached*)
+                printf 'session=%s\n' "$HEAD"
+                if [ "$HAVE_DISPATCHER" -eq 1 ] && [ "$RC" -eq 0 ]; then
+                    dl_link "$KOTO" "$HEAD" "$DISPATCHER" || true
+                fi
+                ;;
+            *)
+                # The attach was refused (most often because the request the
+                # run answered is still open: a session answers one live leg).
+                # A second rewind puts the session back at done_waiting, so the
+                # waiting run reads as it did before this call.
+                RB=$("$KOTO" rewind "$HEAD" --rationale "restored: the attach under $LEG was refused")
+                RB_STATE=$(printf '%s' "$RB" | jq -r '.state // empty' 2>/dev/null)
+                if [ "$RB_STATE" = done_waiting ]; then
+                    printf 'restored=done_waiting\nsession=%s\n' "$HEAD"
+                else
+                    printf 'failed=restore\nsession=%s\n' "$HEAD"
+                    echo "$PROG: the attach under $LEG was refused and koto rewind left $HEAD at ${RB_STATE:-no readable state}, not done_waiting: $RB" >&2
+                fi
+                [ "$RC" -ne 0 ] || RC=2
+                ;;
+        esac
+        rm -f -- "$PAIRS_FILE"
+        remove_tokens
+        exit "$RC"
     fi
     N=""
     case "$HEAD" in *-r[0-9]*) N=${HEAD##*-r} ;; esac

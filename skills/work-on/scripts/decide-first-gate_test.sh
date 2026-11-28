@@ -453,6 +453,31 @@ gate --recorded worker1b
 expect "--recorded once the question was answered since it was raised" 1
 finding_says "--recorded once the question was answered since it was raised" "back to decide_first"
 
+# A leg-bound run continued under a new leg is rewound from done_waiting to
+# waiting_record, whose action runs again: the question it waited on is kept
+# once closed, so decide_first still requires its answer to be cited.
+open worker1c --dispatched-by manager
+at worker1c implementation implementation:1
+attempt worker1c --result undecided --state implementation:1
+raise worker1c --content "$T/q.json" --attempt "$A" --state implementation:1
+Q1C=$Q
+gate --record-question worker1c
+expect "--record-question before the rewind" 0
+manager_answers worker1c "$Q1C"
+gate --record-question worker1c
+expect "--record-question in a rewound session whose question has closed" 0
+[ "$(koto context get worker1c decide_question)" = "$Q1C" ] && pass "--record-question keeps the closed question a rewound session waited on" \
+    || fail "decide_question is [$(koto context get worker1c decide_question)], want $Q1C"
+gate --recorded worker1c
+expect "--recorded in a rewound session whose question has closed" 1
+attempt worker1c --result decided --chosen SQLite --state implementation:1
+gate worker1c
+expect "a rewound session deciding without citing the answer" 1
+finding_says "a rewound session deciding without citing the answer" "was answered"
+attempt worker1c --result decided --chosen SQLite --basis "manager:$ANS" --state implementation:1
+gate worker1c
+expect "a rewound session deciding on the answer it waited for" 0
+
 open worker2 --dispatched-by manager
 at worker2 implementation implementation:1
 attempt worker2 --result undecided --state implementation:1

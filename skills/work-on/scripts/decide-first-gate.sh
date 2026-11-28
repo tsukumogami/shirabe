@@ -68,7 +68,10 @@
 # is not open and does not count.
 #
 # --record-question removes decide_question, then writes the identity of the
-# open question for the arrival into it, and exits 0 whether or not one is
+# open question for the arrival into it; when none is open and the value it
+# removed names one of the arrival's questions (a session rewound from
+# done_waiting), it writes that value back, so decide_first still requires
+# the answer to be cited. It exits 0 whether or not one is
 # open: koto judges no gate after a failed action, so a question answered or
 # withdrawn since `raised` must not hold the run here. 2 when the record
 # cannot be read.
@@ -533,8 +536,12 @@ check|record-question|recorded)
     [ -n "$arrival" ] || unreadable "no arrival is recorded at decide_first"
     mine=$(printf '%s\n' "$ALL" | jq -c --arg a "$arrival" 'select(.state == $a)') || unreadable "could not read the attempts"
     # The key is cleared before the questions are read, so an earlier value,
-    # whatever it holds, is never read as one of them.
+    # whatever it holds, is never read as one of them. The one exception is
+    # below: an earlier value that koto's record lists as a question of this
+    # arrival is kept once that question has closed.
+    prior=""
     if [ "$MODE" = record-question ]; then
+        prior=$(ctx decide_question) || exit 2
         rc=0
         koto context exists "$WF" decide_question > /dev/null || rc=$?
         case "$rc" in
@@ -550,6 +557,16 @@ check|record-question|recorded)
     done
     if [ "$MODE" = record-question ]; then
         if [ -z "$open" ]; then
+            # A session rewound from done_waiting to this state (a leg-bound
+            # run continued under a new leg, work-on-open.sh --continue-waiting)
+            # held the question it waited on. Kept, it is what decide_first
+            # reads to require that the deciding attempt cite its answer;
+            # cleared, the run could decide around the answer it waited for.
+            if [ -n "$prior" ] && in_lines "$prior" "$qs"; then
+                put decide_question "$prior"
+                echo "decide-first-gate: $prior, the question $arrival waited on, has closed; decide_question keeps it and waiting_record's gate sends the run back to decide_first"
+                exit 0
+            fi
             echo "decide-first-gate: no open question names $arrival now; waiting_record's gate sends the run back to decide_first"
             exit 0
         fi
