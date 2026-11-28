@@ -99,6 +99,7 @@ cost	state-write_test.sh	57
 cost	dispatch-worker_test.sh	56
 cost	coordinate-outcome_engine_test.sh	56
 cost	teardown-pass_engine_test.sh	55
+cost	question-ladder_engine_test.sh	55
 cost	discipline-session_engine_test.sh	55
 cost	land-merge_test.sh	53
 cost	holding-link_test.sh	48
