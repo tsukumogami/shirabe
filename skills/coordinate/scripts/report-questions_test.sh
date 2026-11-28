@@ -368,6 +368,8 @@ eq "identity: one that already has an entry adds none" "0 none" "$RC $(word)"
 LOW="coordinate-roadmap-rr-$RUNSTAMP"
 OPEN=
 open_pre
+# The renderer reads the entry, and koto's content for its question with it.
+printf '%s' "$CONTENT" > "$(KD content)/$(qkey "$QA").json"
 found_session "$LOW" "$(roadmap_vars rr | jq -c '.REPORTS_TO = "ws"')"
 seed_session "$LOW" "$(record_json roadmap rr | jq -c --argjson e "[$(printf '%s' "$RENDERED_ESC" | jq -c --arg q "$QA" '.source = "question \($q) [20260926T080000Z report 2.1]" | .options = "" | .grounds = "changes-scope"')]" '.decisions = {next: 5, entries: $e}')"
 log_to "$LOW" reconcile decision_next

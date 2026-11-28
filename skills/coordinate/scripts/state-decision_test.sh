@@ -46,8 +46,11 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 RD="$HERE/state-decision.sh"
 CL="$HERE/coord-log.sh"
 RUN=20260926T080000Z
-# The shirabe question stand-in, for pass-up, pending and render.
+# The shirabe question stand-in, for pass-up, pending and render. A
+# SHIRABE_BIN the caller set (CI sets one to the branch's build) would take
+# the scripts past it, so it is cleared; the SHIRABE_BIN case sets its own.
 PATH="$HERE/testdata/question-stand-in:$PATH"
+unset SHIRABE_BIN
 
 # --- koto's record of a question (testdata/koto-decisions' fixtures) ---------------
 QA=0a1b2c3d-a/000000000002
@@ -308,6 +311,9 @@ route "verdict 1" decision_verdict
 rd --escalate "${ESC_ARGS[@]}"
 eq "--escalate: once it holds the identity, the entry escalates" "escalated" "$(f 1 state)"
 
+# ev: evidence on entry 1 from a wait visit, which clears its verdict and
+# frees its place. The release cases below and the --evidence cases use it.
+ev() { arrive decision_evidence '{"event":"evidence","decision":"1"}'; rd --evidence --source dispatcher --text "the check came back mixed"; }
 # Four at a time per target, then by most waiting work items, oldest, identity.
 QN() { printf 'w%s-0000/00000000000%s' "$1" "$1"; }
 HELDN() { printf '{source: "question %s [20260926T070000Z report 3.%s]", options: "", grounds: "changes-scope", target: "a person"}' "$(QN "$1")" "$1"; }
@@ -319,7 +325,7 @@ four_and_two() { # four_and_two <pending-json>: entries 1-4 escalated, 5 and 6 q
     mkdir -p "$KOTO_STORE/decisions/pending"; printf '%s' "$1" > "$KOTO_STORE/decisions/pending/$S.json"
 }
 four_and_two "{\"questions\":[{\"identity\":\"$(QN 5)\",\"waiting\":1,\"raised\":\"2026-09-26T06:00:00Z\"},{\"identity\":\"$(QN 6)\",\"waiting\":3,\"raised\":\"2026-09-26T06:30:00Z\"}]}"
-eq "--list: each queued entry with its age" "5|$(QN 5)|2026-09-26T07:00Z|yes,6" \
+eq "--list: each queued entry with its age" "5|$(QN 5)|2026-09-26T07:00Z|true,6" \
     "$(sec | jq -r '.queued | "\(.[0].decision)|\(.[0].identity)|\(.[0].since)|\(.[0].age_minutes > 0),\(.[1].decision)"')"
 ev
 eq "release: four at a time, the freed place goes to the entry with the most waiting work items" "coordinator-verdict|coordinator-verdict|escalated" "$(f 1 state)|$(f 5 state)|$(f 6 state)"
@@ -357,7 +363,6 @@ refused "--hold: an empty reason is refused" --hold --reason ""
 # --- --evidence -----------------------------------------------------------------------------
 
 echo "== --evidence =="
-ev() { arrive decision_evidence '{"event":"evidence","decision":"1"}'; rd --evidence --source dispatcher --text "the check came back mixed"; }
 setup "[$(E 1 proposed)]"; ev
 eq "evidence on a proposed entry: awaiting a verdict" "coordinator-verdict" "$(f 1 state)"
 eq "evidence: the line is last, with its time, source and wait stamp" "dispatcher [$RUN wait $(bash "$CL" evidence --session "$S" --state wait | jq -r .seq)]: the check came back mixed" \

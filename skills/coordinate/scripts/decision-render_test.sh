@@ -65,6 +65,9 @@ keyseal() { printf '%s' "$OUT" | tr ' ' '\n' | sed -n 's/^keyseal:/sealed:/p'; }
 # prompts carry none of the question's content). The content koto holds is
 # marked, so any field this script laid out itself would show in the message.
 PATH="$HERE/testdata/question-stand-in:$PATH"
+# A SHIRABE_BIN the caller set (CI sets one to the branch's build) would take
+# the renderer past the stand-in; the SHIRABE_BIN case below sets its own.
+unset SHIRABE_BIN
 QA=0a1b2c3d-a/000000000002
 QB=0a1b2c3d-b/000000000003
 QC=0a1b2c3d-c/000000000004

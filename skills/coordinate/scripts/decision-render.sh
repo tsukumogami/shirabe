@@ -273,7 +273,7 @@ elif [ "$KIND" = escalation ]; then
         "$SHIRABE" question pending --in "$SESSION" > "$T/pending.json" 2> "$T/shirabe.err" \
             || { lib_scrub < "$T/shirabe.err" >&2; echo >&2; lib_die2 "cannot read shirabe question pending"; }
         jq -r --slurpfile p "$T/pending.json" '[($p[0].questions // [])[].identity] as $o
-            | sort_by((($o | index(.id)) // 1000000), .id) | .[].id' "$T/batch.json" > "$T/ordered" \
+            | sort_by(.id as $i | (($o | index($i)) // 1000000), .id) | .[].id' "$T/batch.json" > "$T/ordered" \
             || lib_die2 "cannot order the escalated questions"
         IDS=()
         while read -r bid; do IDS+=("$bid"); done < "$T/ordered"

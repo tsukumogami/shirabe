@@ -3140,13 +3140,8 @@ what it resumes to, and tick `leg` once if a leg was passed over while paused
 isn't offered by pick: tick `redispatch` with its unit, and submit `move:
 redispatch` again at `failure`.
 
-**Questions addressed here.** `wait_target`'s `unentered` lists every question
-koto shows open and addressed to this session with no Decisions entry, with
-its raiser and its age in minutes. A leg-bound worker's question there brings
-its leg back on the next `leg` tick, so tick `leg`. One from a message-path
-worker opens its entry when that worker's report comes in; until it has one,
-the handover gate at `reconcile` holds on it (`question-unhandled`). Dispatching
-other units goes on meanwhile: one open question never stalls the rest.
+**Questions addressed here** (`wait_target`'s `unentered`): tick `leg` for a
+leg-bound worker's; `references/loop.md`, "Questions Addressed to This Run".
 
 **Waking.** Ask for no wake you don't need. The wakes are a worker's message
 (a checkpoint, a ready report, a question, a blocker) and your teardown
@@ -3176,9 +3171,10 @@ nothing more, write nothing, and don't re-arm the watch or arm a new one. Report
 the newest session's name to whoever launched this session, and end your turn.
 Nothing is lost: the newest session holds the record and the legs.
 
-**Handing over:** `dispatch-worker.sh --session {{SESSION_NAME}} --successor`,
-needing no unit (see Roles). The successor's input carries the owner answers
-you haven't marked seen, as `rotation_end` says; they don't hold the handover.
+**Handing over:** add `successor_input.json` (a brief input with its `topic`
+and no role, scope or repository; unseen owner answers too, as `rotation_end`
+says) to the run's context and run `dispatch-worker.sh --session
+{{SESSION_NAME}} --successor`, needing no unit.
 
 **A usage-limit stop is not a pause.** Nobody sets it and nobody resumes it:
 the account's reset does, so write no Standing row for one. It shows as a
@@ -3190,8 +3186,8 @@ worker to continue from its last checkpoint and re-run whatever executed
 nothing.
 
 Arriving here from `report_questions` with a checkpoint report whose questions
-were over the bound (`overflow`), message the worker to record and raise them
-as its brief says and name their identities; nothing else asks it to.
+were over the bound (`overflow`), message the worker to raise them as its
+brief says; nothing else asks it to.
 
 Arriving here straight after `surface` with a blocker means `surface_check`
 accepted the need (its worded cell is in `coord/need.json`): before anything
@@ -3213,12 +3209,8 @@ never stands in for a leg's result, which is still read only through
 or blocked, is a `report`. koto 0.14.0 records a wake when a leg this session
 requested resolves (koto#250); the leg watch above is how you hear it.
 
-Each wake counts for the record: a holding's Work row carries its Wakes, which
-`state-stored-set.sh --work` brings up to date from this run's log at each write
-(the events report, progress, leg, quiet, merged and resume, each counted for
-the worker it names, the leg it read or the topics a quiet sweep named), and
-the final count goes into an entry when the holding's row leaves Work. Name
-the `unit` on each event when there is one.
+Each wake counts for its holding's Work row (`references/loop.md`, "Counting
+Wakes"): name the `unit` on each event when there is one.
 ## leg_pick
 
 Picking the request leg to read. koto runs this itself; tick with no evidence

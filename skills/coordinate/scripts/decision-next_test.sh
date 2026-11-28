@@ -366,8 +366,8 @@ KH() { # KH <identity> <true|false>: koto's history of the question, open or clo
     jq -nc --arg q "$1" --argjson o "$2" '{identity: $q, open: $o, answer: null, entries: []}' \
         > "$KOTO_STORE/decisions/history/$(printf '%s' "$1" | tr '/' '_').json"
 }
-held() { # held <n> <state> <identity>: an entry held by the question, escalated and sent
-    E "$1" "$2" "\"round\": \"1\", \"source\": \"question $3 [20260926T070000Z report 3.$1]\", \"grounds\": \"changes-scope\", \"target\": \"a person\", \"verdict\": \"escalate\", \"asked\": \"2026-09-26T07:30Z\""
+held() { # held <n> <state> <identity> [extra members]: an entry held by the question, escalated and sent
+    E "$1" "$2" "\"round\": \"1\", \"source\": \"question $3 [20260926T070000Z report 3.$1]\", \"grounds\": \"changes-scope\", \"target\": \"a person\", \"verdict\": \"escalate\", \"asked\": \"2026-09-26T07:30Z\"${4:+, $4}"
 }
 held_run() { # held_run <entries...>: a run owing nothing else, its record those entries
     rm -rf "$KOTO_STORE/decisions"
@@ -381,7 +381,7 @@ KH "$QB" false
 eq "a closed question routes its entry to decision_answer" "unrecorded-answer 6 koto" "$(next)"
 KH "$QA" false
 eq "with two closed, the lowest entry first" "unrecorded-answer 5 koto" "$(next)"
-held_run "$(held 5 settled "$QA")" "$(held 6 escalated "$QB")"
+held_run "$(held 5 settled "$QA" '"outcome": "ship; reason: koto answer", "decided_by": "a person"')" "$(held 6 escalated "$QB")"
 KH "$QA" false; KH "$QB" false
 eq "a settled entry's closed question owes nothing" "unrecorded-answer 6 koto" "$(next)"
 # A worker's withdrawal of its question is koto's withdrawn outcome: the entry
