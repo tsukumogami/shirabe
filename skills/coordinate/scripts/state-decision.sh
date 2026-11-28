@@ -11,7 +11,7 @@
 #   state-decision.sh --session S --list        print the section, and
 #       `queued`: each queued escalation {decision, identity, since,
 #       age_minutes} when there are any. An entry whose Updated doesn't read
-#       as a time fails the read (exit 2), never prints without its age
+#       as a time is refused by the record schema (exit 10), never printed without its age
 #   state-decision.sh --session S --read N      print entry N; an entry held
 #       by a question also carries `content`, koto decisions content read's
 #       JSON for it (its question, options and reasons as koto holds them)
@@ -333,8 +333,11 @@ list)
 open-questions)
     # Every question koto lists open and waiting on this session itself (not
     # one it raised, nor one waiting below it), with the entry holding it.
-    koto_read "$WD/open.json" decisions open --at "$SESSION"
-    jq -c -L "$HERE" --arg s "$SESSION" --slurpfile o "$WD/open.json" 'include "state-schema";
+    # Under the test flags the run's session is RS_SESSION, as for the record.
+    AT=${RS_SESSION:-$SESSION}
+    [ -n "$AT" ] || lib_die2 "no session to read the open questions at"
+    koto_read "$WD/open.json" decisions open --at "$AT"
+    jq -c -L "$HERE" --arg s "$AT" --slurpfile o "$WD/open.json" 'include "state-schema";
       (.decisions.entries // []) as $es
       | [($o[0].questions // [])[] | select(.addressee.kind == "session" and .addressee.name == $s)]
       | unique_by(.identity) | sort_by((.time | time_key), .identity)

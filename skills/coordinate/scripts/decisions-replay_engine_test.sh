@@ -443,6 +443,7 @@ verdict_for() {
     case "$1:$2:$(field "$1" "$2" question)" in
         *:Merge*) echo "escalate|changes-scope|the release is Friday and the migration rides it" ;;
         "$LR":*:Pin*) if field "$LR" "$2" evidence | grep -q "release moved"; then
+                          owner_answers "$(ident "$LR" "$2")" "don't pin"
                           echo "settle|don't pin|the release moved, so the question is moot"
                       else echo "escalate|changes-scope|the bug fix lands next week"; fi ;;
         "$LW":*:Pin*) if field "$LW" "$2" evidence | grep -q "withdrawn:"; then
@@ -451,6 +452,14 @@ verdict_for() {
     esac
 }
 ident() { field "$1" "$2" source | sed -n 's/^question \([^ ]*\) .*/\1/p'; }   # ident <session> <n>
+# owner_answers <identity> <choice>: the owner answers the question in koto
+# from its own session, once; a later call finds it closed and adds nothing.
+# A reserved ground keeps such a question for the owner: the coordinators
+# then settle their entries from koto's answer, never on their own word.
+owner_answers() {
+    [ "$(q_open "$T/ws" "$1")" = true ] || return 0
+    q_answer "$T/ws" "$1" "$2" owner-desk || bad "levels: the owner's answer to $1 is recorded in koto" "$(cat "$T/q.err")"
+}
 # addressee <identity>: who koto shows the question waiting on, as <kind>:<name>.
 addressee() {
     koto decisions history "$1" > "$T/addr.json" 2> "$T/addr.err" || { cat "$T/addr.err"; return 1; }
@@ -511,15 +520,19 @@ arrive_evidence "$LR" 2 dispatcher "the release moved a week"
 back_to_wait "$LR"
 eq "levels: evidence on R's sent escalation renders a withdrawal" "withdrawal|Withdrawn: decision 2 round 1." \
     "$(sed -n "$((R_BEFORE + 1))p" "$T/$LR.sent" | jq -r .kind)|$(sed -n "$((R_BEFORE + 1))p" "$T/$LR.sent" | jq -r '.text | split("\n")[0]')"
-eq "levels: R settles it itself afterwards, owing nothing" 'settled|' "$(field "$LR" 2 state)|$(field "$LR" 2 owed)"
+eq "levels: R settles it afterwards from the owner's answer in koto, owing nothing" 'settled||person owner' \
+    "$(field "$LR" 2 state)|$(field "$LR" 2 owed)|$(field "$LR" 2 decided_by)"
 W_BEFORE=$(sent_count "$LW")
+# The owner's answer to Pin reaches W as an answer too: its outcome is koto's.
+PEND_OUT="don't pin" PEND_REASON= PEND_FINAL=
 arrive_report "$LW" rr "$(sed -n "$((R_BEFORE + 1))p" "$T/$LR.sent" | jq -r .text)"
 case "$(field "$LW" 2 evidence)" in *"withdrawn: decision 2 round 1"*) ok "levels: the withdrawal is evidence on W's entry" ;;
     *) bad "levels: the withdrawal is evidence on W's entry" "$(field "$LW" 2 evidence)" ;; esac
-eq "levels: W withdraws its own escalation from the person" "withdrawal" "$(sed -n "$((W_BEFORE + 1))p" "$T/$LW.sent" | jq -r .kind)"
-eq "levels: W's entry settles on a new verdict and owes nothing" 'settled|' "$(field "$LW" 2 state)|$(field "$LW" 2 owed)"
-eq "levels: nothing goes back down to R after the withdrawal" "withdrawal" \
-    "$(tail -n +"$((W_BEFORE + 1))" "$T/$LW.sent" | jq -r .kind | tr '\n' ' ' | sed 's/ $//')"
+eq "levels: W's entry settles from the owner's answer in koto and owes nothing" 'settled||person owner' \
+    "$(field "$LW" 2 state)|$(field "$LW" 2 owed)|$(field "$LW" 2 decided_by)"
+# The owner has answered Pin, so W has no escalation left to withdraw: it
+# sends the person nothing, and nothing goes back down to R.
+eq "levels: W sends nothing after R's withdrawal, the owner having answered" "$W_BEFORE" "$(sent_count "$LW")"
 [ ! -e "$T/$LW.bad-table" ] && ok "levels: no read of W's section showed a person an escalation not held by a question" ||
     bad "levels: no read of W's section showed a person an escalation not held by a question"
 

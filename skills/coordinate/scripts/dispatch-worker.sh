@@ -1653,7 +1653,7 @@ rebrief_waiting() {
     done
     [ -n "$closed" ] ||
         die 9 "$TOPIC waits on question $q, still open: nothing re-briefed (the workflow submits sent: refused and waits); wait-target.sh offers its leg again once one is closed"
-    jq --argjson row "$ROW" --arg q "$closed" '.repo = $row.repo | .entry_point = $row.entry_point
+    jq --argjson row "$ROW" --arg q "$closed" '.repo = $row.repo | .entry_point = ($row.entry_point // "" | ltrimstr("/shirabe:"))
         | .run_mode = $row.mode | .entry_args = [.entry_args[0]]
         | del(.role, .role_change_by, .held_rerender, .role_change)
         | .answered_question = $q' "$INPUT" >"$WORK/answered.json" ||

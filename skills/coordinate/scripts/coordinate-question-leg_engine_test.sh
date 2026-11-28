@@ -101,6 +101,9 @@ name: deliver
 version: "1.0"
 description: a stand-in worker for coordinate-question-leg_engine_test.sh
 initial_state: work
+variables:
+  TOPIC:
+    required: true
 states:
   work:
     accepts:
@@ -229,9 +232,9 @@ from_to rebrief rebrief_record && ok "4: sent goes on to rebrief_record" || bad 
 echo "== 5. the unit finishes on its new leg =="
 [ "$(now_at)" = wait ] || at > /dev/null
 eq "5: back at wait" wait "$(now_at)"
-(cd "$T" && koto init deliver-feat-1-r --template "$T/tpl/deliver.md" --koto-leg "$NEWRP" > /dev/null 2> "$T/child.err" \
-    && koto next deliver-feat-1-r --with-data '{"finish":"go"}' > /dev/null 2>> "$T/child.err") \
-    || bad "5: the re-briefed worker binds to the new leg and finishes" "$(cat "$T/child.err")"
+(cd "$T" && koto init deliver-feat-1-r --template "$T/tpl/deliver.md" --var TOPIC=feat-1 --koto-leg "$NEWRP" > "$T/child.out" 2> "$T/child.err" \
+    && koto next deliver-feat-1-r --no-cleanup --with-data '{"finish":"go"}' >> "$T/child.out" 2>> "$T/child.err") \
+    || bad "5: the re-briefed worker binds to the new leg and finishes" "$(cat "$T/child.out" "$T/child.err")"
 eq "5: its result carrying pr goes to report_link" report_link "$(at --with-data '{"event":"leg"}')"
 eq "  ... offered as a resolved leg" "resolved ${NEWRP%%:*}" "$(target '"\(.disposition) \(.request)"')"
 

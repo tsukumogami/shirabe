@@ -402,7 +402,7 @@ eq "identity: each line naming an identity is dropped and counted" "0 questions 
 # question line, and reaches that entry by it.
 HELD_UP=$(printf '%s' "$OPEN_UP" | jq -c --arg q "$QA" '.[0].source = "question \($q) [20260926T070000Z report 3.1]" | .[0].options = "" | .[0].grounds = "changes-scope"')
 run "holding none rr" "$(withdrawal 4 1 | sed "3s#.*#$QA#")" "$COORD" "$HELD_UP"
-eq "withdrawal: one naming an identity an entry holds is matched by identity" "0 withdrawal|withdrawal|$QA" \
+eq "withdrawal: one naming an identity an entry holds is matched by identity" "0 questions|withdrawal|$QA" \
     "$RC $(word)|$(list | jq -r '.[0] | "\(.kind)|\(.identity)"')"
 run "holding none rr" "$(withdrawal 4 1 | sed "3s#.*#$QB#")" "$COORD" "$HELD_UP"
 eq "withdrawal: one naming an identity no entry holds falls back to its source, which opened nothing" "0 none" "$RC $(word)"

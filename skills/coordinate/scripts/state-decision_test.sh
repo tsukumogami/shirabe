@@ -691,7 +691,7 @@ eq "--escalate: shirabe is SHIRABE_BIN when it is set" "0 escalated|1" "$RC $(f 
 echo "== ages and --open-questions =="
 setup "[$(E 1 escalated "$ESCALATED"), $(E 2 coordinator-verdict "$QUEUED + {updated: \"\"}")]"
 bash "$RD" --session "$S" --list > "$T/list.out" 2> "$T/err"; RC=$?
-eq "--list: a queued entry with no Updated time fails the read, never prints without its age" "2|" "$RC|$(cat "$T/list.out")"
+eq "--list: a queued entry with no Updated time is refused by the schema, never printed without its age" "10|" "$RC|$(cat "$T/list.out")"
 # Raise times are instants: 06:00:00.5 is after 06:00:00, though it sorts first as a string.
 four_and_two "{\"questions\":[{\"identity\":\"$(QN 5)\",\"waiting\":2,\"raised\":\"2026-09-26T06:00:00.500Z\"},{\"identity\":\"$(QN 6)\",\"waiting\":2,\"raised\":\"2026-09-26T06:00:00Z\"}]}"
 ev
