@@ -949,6 +949,44 @@ if [ "$run_real" -eq 1 ]; then
     expect "(b) and (c) fixed: no finding" 0
 fi
 
+# shirabe#2229. The work directory removed after a document's violations were
+# selected into it and before they are read back: hits that can't be read are
+# not an empty list, so the gate could not decide and never says the document
+# passes. The jq stub fires on the selector's call for a document (--arg sel,
+# its last argument <n>.json in the work directory; the canary's is
+# canary.json), runs the real jq, then removes that file's directory; every
+# other call is the real jq. The validator is the stub, so this runs
+# everywhere.
+REAL_JQ=$(command -v jq)
+VANISH_BIN="$WORKDIR/vanish-bin"
+mkdir -p "$VANISH_BIN"
+printf '%s\n' '#!/bin/sh' 'case " $* " in *" --arg sel "*) ;; *) exec "'"$REAL_JQ"'" "$@" ;; esac' \
+    'for last; do :; done' 'case "${last##*/}" in [0-9]*.json) ;; *) exec "'"$REAL_JQ"'" "$@" ;; esac' \
+    '"'"$REAL_JQ"'" "$@"' 'rc=$?' 'rm -rf "$(dirname "$last")"' 'exit $rc' > "$VANISH_BIN/jq"
+chmod +x "$VANISH_BIN/jq"
+fixture vanish
+fx_prd t | put docs/prds/PRD-t.md
+commit_all
+stub_json "$CLEAN_ENVELOPE"; STUB_RC=0
+: > "$STUB_LOG"
+(cd "$REPO" && PATH="$VANISH_BIN:$STUB_BIN:$ORIG_PATH" "$CHECK" --topic t --hop prd) > "$OUT" 2> "$ERR"
+RC=$?
+if [ "$RC" -eq 2 ]; then
+    pass "a temporary directory lost mid-run is an environment error (2)"
+else
+    fail "a temporary directory lost mid-run exited $RC, expected 2: $(cat "$OUT" "$ERR")"
+fi
+if grep -qF "is gone or unreadable" "$OUT" "$ERR"; then
+    pass "  ... that names the cause"
+else
+    fail "  ... that names the cause: $(cat "$OUT" "$ERR")"
+fi
+if grep -qE '^check-hop-document: .* pass(;|$)' "$ERR"; then
+    fail "  ... and never prints that the documents pass: $(cat "$ERR")"
+else
+    pass "  ... and never prints that the documents pass"
+fi
+
 rf_test_verify "check-hop-document"
 
 echo

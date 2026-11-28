@@ -332,6 +332,43 @@ yq --front-matter=process -i 'del(.states[].accepts[]?.decider)' "$ROOT/$TPL_REL
 run_check
 expect_pass "a tree with no declarations and an empty table passes"
 
+# -- a work directory lost mid-run (shirabe#2229) -----------------------------
+
+# Unchecked, every write into the vanished directory and every read back
+# failed, the table and the declarations came back empty, the failure count
+# stayed 0, and the check printed PASS and exited 0. The seam: a mktemp that
+# hands out a known directory, and a jq that removes it on the @tsv call that
+# writes declared.tsv -- after declarations.jsonl is written -- and then runs
+# the real jq. Every other jq call goes straight to the real one. Both sit in
+# front of the recording stubs, which stay on PATH. The tree passes when the
+# run finishes.
+REAL_JQ=$(command -v jq)
+VANISH="$T/vanish-scratch"
+VANISH_BIN="$T/vanish-bin"
+mkdir -p "$VANISH_BIN"
+printf '#!/bin/sh\nmkdir -p "%s" || exit 1\necho "%s"\n' "$VANISH" "$VANISH" > "$VANISH_BIN/mktemp"
+printf '#!/bin/sh\ncase "$*" in\n    *@tsv*) rm -rf "%s" ;;\nesac\nexec "%s" "$@"\n' "$VANISH" "$REAL_JQ" > "$VANISH_BIN/jq"
+chmod +x "$VANISH_BIN/mktemp" "$VANISH_BIN/jq"
+new_tree
+fixture 10 10 20
+OUT=$(env -u KOTO_DECIDER_API_KEY PATH="$VANISH_BIN:$STUBS:$PATH" "$BASH" "$CHECK" --root "$ROOT" --table "$TABLE" 2>&1)
+RC=$?
+if [ "$RC" -eq 2 ]; then
+    pass "a temporary directory lost mid-run is an environment error (2)"
+else
+    fail "a temporary directory lost mid-run exited $RC, expected 2" "[$OUT]"
+fi
+if grep -Fq "is gone or unreadable" <<<"$OUT"; then
+    pass "  ... that names the cause"
+else
+    fail "  ... that names the cause" "[$OUT]"
+fi
+if grep -Fq "check-decider-declarations: PASS" <<<"$OUT"; then
+    fail "  ... and never prints check-decider-declarations: PASS" "[$OUT]"
+else
+    pass "  ... and never prints check-decider-declarations: PASS"
+fi
+
 # -- no network ---------------------------------------------------------------
 
 if [ ! -e "$CALLS" ]; then

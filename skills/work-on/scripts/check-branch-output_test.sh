@@ -647,6 +647,59 @@ else
     echo "SKIP: shirabe not on PATH -- the --docs-visibility validator cases did not run"
 fi
 
+# --- --docs-visibility: a temporary directory lost mid-run (shirabe#2229) ---------
+# The visibility codes are filtered into $WORK/hits and the findings read back
+# with `done < "$WORK/hits"`. A directory removed in between made that read
+# fail, the loop ran zero times, and the script printed its pass line and
+# exited 0 over a finding at block (exit 1 when the run finishes). The seams
+# are stand-ins on PATH for this case only, so it runs with or without a real
+# shirabe: a shirabe that answers with one R7 finding, and a jq that, on the
+# call filtering the visibility codes out of the validator's out file, runs the
+# real jq and then removes the directory holding that file. Every other jq call
+# goes straight to the real one, found before the stand-ins go on PATH.
+REAL_JQ=$(command -v jq)
+VANISH_BIN="$WORKDIR/vanish-bin"
+mkdir -p "$VANISH_BIN"
+cat > "$VANISH_BIN/shirabe" <<'SHIM'
+#!/bin/sh
+printf '%s\n' '{"schema_version":"shirabe-validate/v1","summary":{"outcome":"violations","errors":1,"notices":0},"findings":[{"code":"R7","severity":"error","message":"[R7] public VISION contains prohibited section: Competitive Positioning","file":"docs/visions/VISION-x.md","line":17}]}'
+exit 2
+SHIM
+cat > "$VANISH_BIN/jq" <<SHIM
+#!/bin/sh
+last=""
+r7=0
+for a in "\$@"; do
+    case "\$a" in *'"R7"'*) r7=1 ;; esac
+    last=\$a
+done
+if [ "\$r7" = 1 ]; then
+    case "\$last" in
+        */out)
+            "$REAL_JQ" "\$@"
+            st=\$?
+            rm -rf "\$(dirname "\$last")"
+            exit "\$st"
+            ;;
+    esac
+fi
+exec "$REAL_JQ" "\$@"
+SHIM
+chmod +x "$VANISH_BIN/shirabe" "$VANISH_BIN/jq"
+fixture vanished-work "## Repo Visibility: Public"
+printf '%s\n' "$VISION" | write_doc docs/visions/VISION-x.md
+git -C "$REPO" add -A && git -C "$REPO" commit -qm "docs: add a vision"
+out=$(cd "$REPO" && PATH="$VANISH_BIN:$PATH" "$CHECK" --docs-visibility --base-ref origin/main 2>&1); rc=$?
+if [ "$rc" -eq 2 ]; then pass "a temporary directory lost mid-run is undecided (2)"; else fail "a temporary directory lost mid-run exited $rc, expected 2: $out"; fi
+case "$out" in
+  *"is gone or unreadable"*) pass "  ... that names the cause" ;;
+  *) fail "  ... that names the cause: $out" ;;
+esac
+case "$out" in
+  *"pass the visibility checks"*) fail "  ... and never passes: $out" ;;
+  *) pass "  ... and never passes" ;;
+esac
+
 rf_test_verify "check-branch-output"
 
 echo

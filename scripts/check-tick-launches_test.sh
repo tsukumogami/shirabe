@@ -318,6 +318,38 @@ if [ "$RC" -eq 2 ]; then pass "an unknown option exits 2"; else fail "an unknown
 run "$T/no-such-template.md"
 if [ "$RC" -eq 2 ]; then pass "a missing template exits 2"; else fail "a missing template: exit $RC"; fi
 
+# --- a work directory lost mid-run (shirabe#2229) ---------------------------
+
+# Unchecked, the awk that splits a template's commands into files could not
+# write them, the loop over the files found none, nothing was counted, and the
+# check printed OK and exited 0. The seam: an awk first on PATH that, only on
+# the call `awk -v out=<dir>/cmds ...`, removes <dir> -- the work directory,
+# after the allow file and cmds/ are made in it -- and then runs the real awk.
+# Every other awk call goes straight to the real one. One template with one
+# gate command, so a run that finished would check something and pass.
+REAL_AWK=$(command -v awk)
+mkdir -p "$T/vanish-bin"
+printf '#!/bin/sh\nif [ "$1" = "-v" ]; then\n    case "$2" in\n        out=*/cmds) rm -rf "$(dirname "${2#out=}")" ;;\n    esac\nfi\nexec "%s" "$@"\n' "$REAL_AWK" >"$T/vanish-bin/awk"
+chmod +x "$T/vanish-bin/awk"
+fresh
+template "$F/koto-templates/e.md" <<'EOF'
+    gates:
+      go:
+        type: command
+        command: 'true'
+EOF
+OUT=$(PATH="$T/vanish-bin:$PATH" "$BASH_BIN" "$CHECK" --root "$F" "$F/koto-templates/e.md" 2>&1)
+RC=$?
+if [ "$RC" -eq 2 ]; then pass "a temporary directory lost mid-run is an environment error (2)"; else fail "a temporary directory lost mid-run exited $RC, expected 2: $OUT"; fi
+case "$OUT" in
+    *"is gone or unreadable"*) pass "  ... that names the cause" ;;
+    *) fail "  ... that names the cause: $OUT" ;;
+esac
+case "$OUT" in
+    *"check-tick-launches: OK"*) fail "  ... and never prints check-tick-launches: OK: $OUT" ;;
+    *) pass "  ... and never prints check-tick-launches: OK" ;;
+esac
+
 echo
 echo "check-tick-launches_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"
 [ "$FAIL_COUNT" -eq 0 ]

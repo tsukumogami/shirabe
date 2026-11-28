@@ -278,5 +278,35 @@ case "$STATUS:$OUT" in
     *) fail "with the allowlist disabled the same file is refused" "status $STATUS: $(head -3 <<<"$OUT")" ;;
 esac
 
+# shirabe#2229. The scratch directory removed before the pattern scan reads
+# the text column back: a scan that can't read its input found nothing only
+# by not looking, so a home path is never waved through. The grep stub fires
+# on the scan's call (grep -nE, its last argument the text column), removes
+# that file's directory and then runs the real grep; every other call is the
+# real grep. No --denylist here: with one, the list check would fail on the
+# missing rows first.
+REAL_GREP=$(command -v grep)
+VANISH_BIN="$TEST_DIR/vanish-bin"
+mkdir -p "$VANISH_BIN"
+printf '%s\n' '#!/bin/sh' 'if [ "$1" = -nE ]; then' '    for last; do :; done' \
+    '    rm -rf "$(dirname "$last")"' 'fi' "exec \"$REAL_GREP\" \"\$@\"" > "$VANISH_BIN/grep"
+chmod +x "$VANISH_BIN/grep"
+printf 'clean first line\n%s\n' "see /ho""me/someone/dev/x" > "$TEST_DIR/vanish.txt"
+STATUS=0
+OUT=$(PATH="$VANISH_BIN:$PATH" "$SUT" "$TEST_DIR/vanish.txt" 2>&1) || STATUS=$?
+if [ "$STATUS" -eq 2 ]; then
+    pass "a temporary directory lost mid-run is an environment error (2)"
+else
+    fail "a temporary directory lost mid-run exited $STATUS, expected 2" "$OUT"
+fi
+case "$OUT" in
+    *"is gone or unreadable"*) pass "  ... that names the cause" ;;
+    *) fail "  ... that names the cause" "$OUT" ;;
+esac
+case "$OUT" in
+    *"checked home-directory paths"*) fail "  ... and never prints that it checked home-directory paths and the rest" "$OUT" ;;
+    *) pass "  ... and never prints that it checked home-directory paths and the rest" ;;
+esac
+
 echo "check-public-content_test: $PASS_COUNT passed, $FAIL_COUNT failed" >&2
 [ "$FAIL_COUNT" -eq 0 ]

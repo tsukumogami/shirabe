@@ -66,6 +66,34 @@ fi
 chmod 755 "$S/skills/unreadable"
 rmdir "$S/skills/unreadable"
 
+# shirabe#2229. The scratch directory removed after the gates check wrote its
+# problems and before report() read them back: an unread file is not an empty
+# one, so the run is exit 2 and never ok. The awk stub runs the real awk on the
+# gates check's call (its last argument the registry's gate list), then
+# removes that file's directory; every other call is the real awk.
+REAL_AWK=$(command -v awk)
+mkdir -p "$WORK/vanish-gates-bin"
+printf '%s\n' '#!/bin/sh' 'for last; do :; done' 'case "$last" in' \
+    "    */gates) \"$REAL_AWK\" \"\$@\"; rc=\$?; rm -rf \"\$(dirname \"\$last\")\"; exit \$rc ;;" \
+    'esac' "exec \"$REAL_AWK\" \"\$@\"" > "$WORK/vanish-gates-bin/awk"
+chmod +x "$WORK/vanish-gates-bin/awk"
+OUT=$(PATH="$WORK/vanish-gates-bin:$PATH" "$CHECK" --root "$S" 2>&1); RC=$?
+if [ "$RC" = 2 ]; then
+    pass "a temporary directory lost mid-run is an environment error (2)"
+else
+    fail "a temporary directory lost mid-run exited $RC, expected 2" "$OUT"
+fi
+if grep -qF "is gone or unreadable" <<<"$OUT"; then
+    pass "  ... that names the cause"
+else
+    fail "  ... that names the cause" "$OUT"
+fi
+if grep -qF "check-rule-registry: ok" <<<"$OUT"; then
+    fail "  ... and never prints ok" "$OUT"
+else
+    pass "  ... and never prints ok"
+fi
+
 # ---------------------------------------------------------------- stage transitions
 
 # base_commit: a commit of the copy, on its HEAD, whose registry is standard
@@ -304,6 +332,37 @@ expect_adopt "adoption: test_review_shadow.py changed" 1 "test_review_shadow.py 
 
 printf '{"criteria":[{"rule_id":"rs-001","rule_ref":"CLAUDE.md"}],"x":1}\n' > "$A/scripts/review-shadow/criteria.json"
 expect_adopt "adoption: criteria.json changed" 1 "criteria.json differs from the base"
+
+# shirabe#2229. The scratch directory removed while the span paths are cut:
+# the list it can't read back is not an empty one, so a line removed from a
+# loaded file is never waved through as ok. The cut stub fires on the call
+# that cuts the spans file, removes that file's directory (twice, in case the
+# sort beside it in the pipeline creates its output in between) and then runs
+# the real cut; every other call is the real cut.
+REAL_CUT=$(command -v cut)
+mkdir -p "$WORK/vanish-spans-bin"
+printf '%s\n' '#!/bin/sh' 'for last; do :; done' 'case "$1:$last" in' \
+    '    -f1:*/spans) rm -rf "$(dirname "$last")"; rm -rf "$(dirname "$last")" ;;' \
+    'esac' "exec \"$REAL_CUT\" \"\$@\"" > "$WORK/vanish-spans-bin/cut"
+chmod +x "$WORK/vanish-spans-bin/cut"
+drop_line docs/loaded.md "loaded two"
+OUT=$(PATH="$WORK/vanish-spans-bin:$PATH" "$ADOPT" --root "$A" "$BASE" 2>&1); RC=$?
+if [ "$RC" = 2 ]; then
+    pass "adoption: a temporary directory lost mid-run is an environment error (2)"
+else
+    fail "adoption: a temporary directory lost mid-run exited $RC, expected 2" "$OUT"
+fi
+if grep -qF "is gone or unreadable" <<<"$OUT"; then
+    pass "  ... that names the cause"
+else
+    fail "  ... that names the cause" "$OUT"
+fi
+if grep -qF "check-rule-registry-adoption: ok" <<<"$OUT"; then
+    fail "  ... and never prints ok" "$OUT"
+else
+    pass "  ... and never prints ok"
+fi
+reset_adopt
 
 echo
 echo "check-rule-registry_4_test: $PASS passed, $FAIL failed"

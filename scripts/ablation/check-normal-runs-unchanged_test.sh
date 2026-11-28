@@ -115,5 +115,34 @@ case "$STATUS:$ERR" in
     *) fail "an unknown base is refused" "status $STATUS: $ERR" ;;
 esac
 
+# shirabe#2229. The path list removed before it is read back: a list that
+# can't be read is not an empty one, so a changed manifest path is never
+# waved through as unchanged. The sort stub fires on the call that sorts the
+# list (sort -u and one file), removes that file and then runs the real sort;
+# every other call is the real sort.
+REAL_SORT=$(command -v sort)
+VANISH_BIN="$TEST_DIR/vanish-bin"
+mkdir -p "$VANISH_BIN"
+printf '%s\n' '#!/bin/sh' 'if [ "$#" -eq 2 ] && [ "$1" = -u ]; then' '    rm -f "$2"' 'fi' \
+    "exec \"$REAL_SORT\" \"\$@\"" > "$VANISH_BIN/sort"
+chmod +x "$VANISH_BIN/sort"
+commit_change skills/work-on/SKILL.md
+rc=0
+out=$(cd "$FIX" && PATH="$VANISH_BIN:$PATH" "$SUT" "$BASE" 2>&1) || rc=$?
+if [ "$rc" -eq 2 ]; then
+    pass "a temporary directory or file lost mid-run is an environment error (2)"
+else
+    fail "a temporary directory or file lost mid-run exited $rc, expected 2" "$out"
+fi
+case "$out" in
+    *"is gone or unreadable"*) pass "  ... that names the cause" ;;
+    *) fail "  ... that names the cause" "$out" ;;
+esac
+case "$out" in
+    *"nothing a normal run loads differs"*) fail "  ... and never prints that nothing a normal run loads differs" "$out" ;;
+    *) pass "  ... and never prints that nothing a normal run loads differs" ;;
+esac
+reset_to_base
+
 echo "check-normal-runs-unchanged_test: $PASS_COUNT passed, $FAIL_COUNT failed" >&2
 [ "$FAIL_COUNT" -eq 0 ]
