@@ -205,6 +205,20 @@
 # file first, and only an input's role_change puts a role, with the change
 # flags, on its invocation line.
 #
+# A waiting unit is the exception (rebrief_waiting). When the holding's leg
+# holds the worker's promoted result and its payload's `question` names one
+# question or several (a run stopped at its waiting terminal), --rebrief
+# reads each with koto decisions history. All still open: exit 9, nothing
+# written, since the unit waits on them and is neither re-briefed nor redone.
+# Any closed: the unit's entry point is run again under a new leg, as --releg
+# replaces one: the request is opened, the brief is rendered with the new
+# --koto-leg and `answered_question` naming the closed questions
+# (render-brief.sh puts them in the Goal), and the holding's return path and
+# date are rewritten, so the worker's next invocation continues its waiting
+# run with the answer. It prints brief=, leg= and, when the listing finds the worker,
+# session=. The input's own `answered_question` is never used: this script
+# deletes it from every input and writes it only here, from koto.
+#
 # send_execution. A topic held `dispatched` at phase `scoping-ahead`, reached
 # from a pick whose choice is send_execution for that topic (the latest
 # `pick` evidence in the session log), is sent its execution rather than
@@ -351,8 +365,8 @@
 # successor (and `taken_over=<successor run>` after it when the successor's
 # confirm met a takeover's fence), or
 # `brief=<path>` for --rebrief, or `brief=<path>` and `leg=<request>:<leg>`
-# (and `session=<name>` when the listing finds it) for --releg and a sent
-# execution, or `leg=<request>:<leg>` and `child=<session>` for
+# (and `session=<name>` when the listing finds it) for --releg, a sent
+# execution and a --rebrief of a waiting unit whose question was answered, or `leg=<request>:<leg>` and `child=<session>` for
 # --releg-imported; reasons on stderr.
 #
 # Exit codes:
@@ -378,7 +392,8 @@
 #      worker's promoted result, or resolved by hand as a success), on a
 #      holding that links a pull request, or for an entry point that takes no
 #      leg; a send_execution whose scoping leg a worker is still bound to;
-#      nothing written. --releg-imported refused: the holding isn't
+#      a --rebrief of a unit whose leg's result waits on a question koto
+#      still reads open; nothing written. --releg-imported refused: the holding isn't
 #      dispatched on a leg, its leg key is missing, names another worker or
 #      is in no state to re-leg, its request is held on this host, no child
 #      is recorded, the child's name fails the grammar, it isn't on this
@@ -491,7 +506,9 @@ read_inputs() {
     # or once a carried or imported run has taken over, it names the run that
     # rendered the new brief, whatever an older input said. A new leg's
     # --requested-by is read from the same field, so it names this run too.
-    jq --arg a "$ADDRESS" --arg s "$SESSION" '.reports_to = $a | .dispatcher_session = $s' "$INPUT" >"$WORK/in.json" \
+    # answered_question is this script's alone (rebrief_waiting, from koto),
+    # so an input's own is deleted.
+    jq --arg a "$ADDRESS" --arg s "$SESSION" '.reports_to = $a | .dispatcher_session = $s | del(.answered_question)' "$INPUT" >"$WORK/in.json" \
         && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
     input_role
 }
@@ -1594,6 +1611,57 @@ fi
 
 # --- --rebrief --------------------------------------------------------------------------------
 
+# rebrief_waiting <request> <leg>: returns when the holding's leg holds no
+# waiting result, and otherwise never returns. A waiting result is the
+# worker's promoted result whose payload's `question` names one question
+# identity (<raiser session id>/<decision id>) or several separated by
+# spaces. koto decisions history reads each: every one open, exit 9 with
+# nothing written, since the unit waits on them; any closed, the unit's entry
+# point runs again on a new leg (rebind, as --releg does), its brief input
+# taking the holding's repository, entry point and flags and
+# `answered_question` set to the closed identities, so the brief names them.
+# A request or a history koto can't read exits 2, never read as no question
+# or as an answer.
+rebrief_waiting() {
+    local view rc q id h st closed=""
+    # The one identity shape (wait-target.sh RE_ID): the session id in koto's
+    # name characters, its length unbounded as in state-decision.sh's
+    # RE_IDENTITY, the decision id 1 to 20 digits.
+    local re_id='[A-Za-z0-9][A-Za-z0-9._-]*/[0-9]{1,20}'
+    view=$("$KOTO" request get "$1" </dev/null)
+    rc=$?
+    [ "$rc" = 2 ] && return 0
+    [ "$rc" = 0 ] || die 2 "cannot read request $1 for $TOPIC"
+    q=$(jq -r --arg l "$2" '(.request // .) | (.legs[$l] // {})
+        | select(.disposition == "resolved" and .result_source == "promoted")
+        | (.result.payload // {}) | if type == "object" then (.question // "") else "" end | strings' <<<"$view") ||
+        die 2 "koto's record of request $1 is not JSON"
+    [ -n "$q" ] || return 0
+    if ! grep -Eq "^$re_id( $re_id)*\$" <<<"$q"; then
+        printf '%s: the result on %s:%s names a question that is not an identity; re-briefed as any other\n' "$PROG" "$1" "$2" >&2
+        return 0
+    fi
+    for id in $q; do
+        h=$("$KOTO" decisions history "$id" </dev/null) ||
+            die 2 "cannot read the history of question $id, which $TOPIC's result names: nothing re-briefed"
+        st=$(jq -r 'if .open == true then "open" elif .open == false then "closed" else "" end' <<<"$h") || st=""
+        case "$st" in
+            open) ;;
+            closed) closed="${closed:+$closed }$id" ;;
+            *) die 2 "the history of question $id says neither open nor closed: nothing re-briefed" ;;
+        esac
+    done
+    [ -n "$closed" ] ||
+        die 9 "$TOPIC waits on question $q, still open: nothing re-briefed (the workflow submits sent: refused and waits); wait-target.sh offers its leg again once one is closed"
+    jq --argjson row "$ROW" --arg q "$closed" '.repo = $row.repo | .entry_point = ($row.entry_point // "" | ltrimstr("/shirabe:"))
+        | .run_mode = $row.mode | .entry_args = [.entry_args[0]]
+        | del(.role, .role_change_by, .held_rerender, .role_change)
+        | .answered_question = $q' "$INPUT" >"$WORK/answered.json" ||
+        die 2 "cannot build the brief input for $TOPIC's answered question"
+    rebind "$WORK/answered.json" "$TOPIC's question $closed was answered; its waiting run continues on a new leg" \
+        '.return_path = $rp | .dispatched = $d' yes
+}
+
 if [ "$REBRIEF" = 1 ]; then
     [ "$HAVE_ROW" = 1 ] || die 2 "no holding for $TOPIC to re-brief"
     [ "$STATUS" = dispatched ] || die 2 "the holding for $TOPIC is $STATUS, not dispatched"
@@ -1624,11 +1692,19 @@ if [ "$REBRIEF" = 1 ]; then
           else del(.role, .role_change_by, .held_rerender) end
         | del(.role_change)' "$INPUT" >"$WORK/rebrief.json" ||
         die 2 "cannot build the re-brief input"
+    ROW_RP=$(dc_rp_from_row "$(printf '%s' "$ROW" | jq -r '.return_path // "message" | strings')")
+    # A waiting run: the leg holds the worker's promoted result naming the
+    # question it raised. While koto reads that question open the unit waits
+    # on it and nothing is re-briefed; once it is closed the unit's skill runs
+    # again under a new leg, the brief naming the answered question.
+    case "$ROW_RP" in
+        message | '') ;;
+        *) rebrief_waiting "${ROW_RP%%:*}" "${ROW_RP#*:}" ;;
+    esac
     # A worker's leg carries one result, and the fix comes after it, so a
     # re-briefed worker reports by message: the holding moves to the message
     # path and the spent request is abandoned. The brief says so by showing
     # the invocation without --koto-leg.
-    ROW_RP=$(dc_rp_from_row "$(printf '%s' "$ROW" | jq -r '.return_path // "message" | strings')")
     BRIEF=$(bash "$HERE/render-brief.sh" --input "$WORK/rebrief.json" --workspace-root "$ROOT" --return-path message)
     case "$?" in
         0) ;;

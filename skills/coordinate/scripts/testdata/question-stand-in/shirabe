@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# A shirabe stand-in for the decision scripts' tests: the `shirabe question`
+# commands they call. Not shipped behaviour. It lives in a directory of its
+# own, which a suite puts first on PATH only where it needs it, so no other
+# suite's `shirabe` is shadowed. Every call is appended to
+# $KOTO_STORE/shirabe-calls. Fixtures are the koto stand-in's, under
+# $KOTO_STORE/decisions/ (testdata/koto-decisions):
+#   question pass-up <identity> --in S --ground G [--attempt A] [--to T]
+#       Exit 4 (koto refused) when passup-fail exists; otherwise a pass-up
+#       entry of S's is added to history/<identity>.json, as koto records it.
+#   question pending --in S
+#       pending/<S>.json; none: no questions.
+#   question render <identity>... --in S
+#       Exit 8 when render-closed exists. Otherwise a prompt that holds none
+#       of the question's own content: its text names only the identities, so
+#       a suite can tell the prompt came from here and from nowhere else.
+set -uo pipefail
+[ -n "${KOTO_STORE:-}" ] || { echo "shirabe stub: KOTO_STORE is not set" >&2; exit 9; }
+printf '%s\n' "$*" >> "$KOTO_STORE/shirabe-calls"
+D="$KOTO_STORE/decisions"
+[ "${1:-}" = question ] || { echo "shirabe stub: unexpected: $*" >&2; exit 9; }
+case "${2:-}" in
+    pass-up)
+        id=${3:-} in= g=
+        shift 3
+        while [ $# -gt 0 ]; do case "$1" in --in) in=${2:-}; shift ;; --ground) g=${2:-}; shift ;; --attempt|--to) shift ;; esac; shift; done
+        [ ! -e "$D/passup-fail" ] || { echo "shirabe question pass-up: koto refused the pass-up" >&2; exit 4; }
+        f="$D/history/$(printf '%s' "$id" | tr '/' '_').json"
+        [ -f "$f" ] || { echo "shirabe question pass-up: no question $id" >&2; exit 1; }
+        jq -c --arg s "$in" '.entries = ((.entries // []) + [{entry: "pass-up", session: $s, outcome: "passed"}])' "$f" > "$f.new" && mv "$f.new" "$f"
+        jq -nc --arg q "$id" --arg s "$in" --arg g "$g" '{v: 1, identity: $q, session: $s, ground: $g}'
+        ;;
+    pending)
+        in=
+        shift 2
+        while [ $# -gt 0 ]; do case "$1" in --in) in=${2:-}; shift ;; esac; shift; done
+        if [ -f "$D/pending/$in.json" ]; then cat "$D/pending/$in.json"
+        else jq -nc --arg i "$in" '{answered: [], held: [], in: $i, incomplete: [], questions: [], v: 1}'; fi
+        ;;
+    render)
+        [ ! -e "$D/render-closed" ] || { echo "shirabe question render: a question is no longer open" >&2; exit 8; }
+        shift 2
+        ids=()
+        while [ $# -gt 0 ]; do case "$1" in --in) shift ;; *) ids+=("$1") ;; esac; shift; done
+        jq -nc '$ARGS.positional as $i | {held: [], prompts: [{identities: $i[0:4],
+            questions: [$i[0:4] | to_entries[] | {header: "#stand-in-\(.key + 1)", multiSelect: false,
+              options: [{description: "Recommended. stand-in", label: "stand-in option"}], question: "stand-in prompt \(.key + 1)"}],
+            text: ("stand-in render of " + ($i[0:4] | join(" ")))}], requests: [], v: 1}' --args -- "${ids[@]}"
+        ;;
+    *) echo "shirabe stub: unexpected: $*" >&2; exit 9 ;;
+esac

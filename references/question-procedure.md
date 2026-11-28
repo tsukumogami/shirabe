@@ -90,9 +90,31 @@ session recording `decided` for a matter it should have raised.
 koto decisions precedent --person owner --chain <session> [--label <label>]
 ```
 
-When an earlier answer covers the case, settle the question from it and
-record a decision whose `--basis` names that answer. Deciding that an answer
-covers the case is the session's own judgment; reusing it binds nobody else.
+When an earlier answer covers the case, settle the question from it with a
+decision whose `--basis` names that answer. For a question the session holds,
+that is
+
+```bash
+shirabe question settle <identity> --in <session> --chosen <choice> \
+    --reason <why> --basis <session>:<answer id>
+```
+
+which records an `answered` entry by the session when the question waits on
+it, and a `settled` one when the session raised it (koto then takes the
+settle only on a basis it accepts: for a question waiting on the owner, an
+owner answer in effect with the same label). A `--basis` that names an owner
+answer is checked before koto is asked: the precedent read above has to list
+it in the session's chain, reading `verified`, or the settle is refused. A
+basis naming the session's own decision is checked for its shape only.
+Deciding that an answer covers the case is the session's own judgment;
+reusing it binds nobody else.
+
+`settle` also refuses a question whose history holds one of the grounds in
+step 3, recorded by the settling session or a session below it in an attempt
+or a pass-up: that question is the owner's and is passed up (step 4). Only a
+recorded ground is found. A ground nobody wrote down, or one recorded only
+above the settling session, doesn't stop the settle, so the sorting in step 3
+still rests on the session applying it.
 
 ### 3. Sort the question by who it belongs to
 
@@ -127,8 +149,28 @@ shirabe question raise --in <session> --content <file> --attempt <attempt id> [-
 ```
 
 The recipient defaults from where the session sits (below). A question
-addressed to the session that is passed further up keeps its identity:
-`koto decisions readdress <raiser> <id> --in <session> --to <recipient> --by session`.
+addressed to the session that it cannot settle is passed further up, keeping
+its identity:
+
+```bash
+shirabe question pass-up <identity> --in <session> --ground <ground> \
+    --attempt <attempt id> [--to person:owner]
+```
+
+A decision question passes up only on the session's own undecided attempt
+tied to that question (`shirabe question attempt --in <session> --result
+undecided --basis <raiser>:<question id>`), one koto still lists in effect:
+the raiser's attempt does not count for the session passing it up, a
+reversed attempt doesn't count, and an attempt that decided is settled with
+`settle`, not passed up. When the raiser's run already holds twenty open
+questions waiting on a person, koto refuses a pass-up to `person:owner`, and
+the refusal comes back as exit 4 with koto's own code and message. A need passes up with no attempt. The recipient
+is the session's own dispatcher, the default, or `person:owner`, and nothing
+else. `--ground` is one of the four grounds above (`contradicts-answer`,
+`changes-scope`, `outward-facing`, `reserved-step`), or `outside-scope` when
+the question is only outside the session's brief: that ground passes up only
+to a coordinator, since a question merely outside the brief is not the
+owner's.
 
 ### 5. Present it only in a turn the person typed, or leave it waiting
 
@@ -165,10 +207,15 @@ non-interactive flag (`--auto`), so a session run that way doesn't call
 
 "The owner said B", in a brief, a message or a reply typed outside a prompt,
 is a relayed claim. Record it as the session's own decision with the owner
-noted (`koto decisions record <session> --kind judgment ... --by session`).
-The session may act on it, but it closes no question waiting on the owner and
-grants nothing to another session. To make it the owner's, put the question to
-the owner in a prompt.
+noted: `shirabe question settle <identity> --in <session> --chosen <choice>
+--reason <why> --owner-note "<what was relayed>"` for a question waiting on
+the session, or `shirabe question settle --in <session> --what <question>
+--chosen <choice> --owner-note "<what was relayed>"` when no recorded question
+asks it. Either records a session decider with the note in its text, never
+`person:owner`, and `settle --owner-note` is refused for a question waiting on
+a person. The session may act on it, but it closes no question waiting on the
+owner and grants nothing to another session. To make it the owner's, put the
+question to the owner in a prompt.
 
 ## Where the session sits
 
@@ -191,5 +238,22 @@ the rest. A need goes to `person:owner` directly.
 it and those waiting on the owner, each once, ordered by how many work items
 wait on it, then oldest first. A question held behind another (`depends_on`)
 comes after the ones that can be presented. An owner answer given at or below
-the coordinator is listed under `answered` until a decision in its run cites
-it.
+the coordinator is listed under `unseen`, with the question it answers, its
+label, the answer's text, the session it was given in and koto's `reading`,
+until a decision in its run cites it. Marking it read is
+
+```bash
+shirabe question seen <session>:<answer id> --in <coordinator>
+```
+
+which records one judgment citing the answer and changes nothing else: the
+answer was in effect before it, a second `seen` adds nothing, and the listing
+in a session above the coordinator still shows it until that session marks it
+too. `seen` refuses an entry that is not an owner answer, an answer outside
+the session's chain, one given above the session (it takes exactly what
+`unseen` lists) and one that reads as a remote session's.
+
+When koto's precedent read fails, `pending` still lists the open questions,
+with `unseen` null and `unseen_error` saying why. Treat that as "the owner's
+answers are unknown", not "there are none", and read again before acting on
+an answer.

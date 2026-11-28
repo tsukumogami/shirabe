@@ -435,14 +435,15 @@
       "id": 22,
       "name": "worker-asks-the-human-opened-as-an-entry",
       "prompt": "You are coordinating ROADMAP-plugin-system in acme/widgets. The worker `plugin-loader` sent this report, and the session is now in decision_open:\n\nVerdict: the loader is done and PR #41 is green.\nThe check we skipped came back mixed on arm64.\nPlease decide whether to ship with the arm64 gap or wait for the fix.\n\n`koto context get <session> coord/questions.json` returns:\n\n[{\"index\":1,\"kind\":\"question\",\"text\":\"Please decide whether to ship with the arm64 gap or wait for the fix.\",\"source\":\"worker plugin-loader\",\"addressed\":true,\"cite\":null}]\n\nDo what the state asks.",
-      "expected_output": "The coordinator words the question for the public record in its own words, with options, writes the text file mapping index 1 to that wording, and runs state-decision.sh --open-from-report --text-file <file>, then submits opened: opened. It does not put the question in front of the human, does not send it up, and does not paste the worker's text into the record. It notes that the question was addressed to a person, so a redirect to the worker is owed, and that the coordinator will take the entry up and give it a verdict.",
+      "expected_output": "The item carries no identity, so koto holds no question for it and the coordinator words it for the public record in its own words, with options, writes the text file mapping index 1 to that wording, and runs state-decision.sh --open-from-report --text-file <file>, then submits opened: opened. It does not put the question in front of the human, does not send it up, and does not paste the worker's text into the record. It notes that the question was addressed to a person, so a redirect to the worker is owed, and that the coordinator will take the entry up and give it a verdict.",
       "files": [],
       "expectations": [
         "The question is opened as a decision entry through state-decision.sh --open-from-report, with a text file mapping index 1 to a question and options",
         "The wording in the file is the coordinator's own, a single line with options, not the worker's sentence pasted",
         "The question is not put to the human or escalated at this step, and no AskUserQuestion is used",
         "The evidence submitted is opened: opened",
-        "The coordinator says the worker's questions come to it, so a redirect to the worker is owed, and that the entry gets its verdict next"
+        "The coordinator says the worker's questions come to it, so a redirect to the worker is owed, and that the entry gets its verdict next",
+        "The coordinator words item 1 because it has no identity; it does not treat the wording as something it would do for a question koto holds by identity"
       ],
       "requirements": [
         "decisions R15",
@@ -453,15 +454,15 @@
     {
       "id": 23,
       "name": "escalation-to-a-person-in-conversation-uses-the-question-tool",
-      "prompt": "The person who dispatched you just wrote to you in this session: \"How are things going? Anything you need from me?\" You ticked, and the session is in escalate_send for decision 4, round 1, escalated to a person. `koto context get <session> coord/decision_question.json` returns:\n\n{\"decision\":4,\"round\":1,\"question\":\"Ship the plugin loader without the arm64 build this week?\",\"context\":\"The loader is done and green on x86_64. The arm64 check came back mixed.\",\"problem\":\"Shipping without arm64 reverses the release requirement you set, so it is yours to decide.\",\"recommendation\":\"wait for the arm64 fix\",\"reason\":\"the release requires arm64\",\"options\":[{\"label\":\"wait for the arm64 fix\",\"explanation\":\"the release slips about three days\",\"recommended\":true},{\"label\":\"ship without arm64\",\"explanation\":\"x86_64 users get it this week; arm64 follows in a patch\",\"recommended\":false}]}\n\n`coord/decision_message.txt` holds the same escalation as rendered text. Do what the state asks.",
-      "expected_output": "Because this turn was started by a message from the person, the coordinator asks with the AskUserQuestion tool. It first prints the context and the problem in chat, then asks the question with the recommended option (wait for the arm64 fix) first and each option's explanation. After the answer it runs state-decision.sh --sent --route tool and submits sent: answered with decision 4 and round 1, which takes the answer to decision_answer.",
+      "prompt": "The person who dispatched you just wrote to you in this session: \"How are things going? Anything you need from me?\" You ticked, and the session is in escalate_send for decision 4, escalated to a person, with decision 5 passed up to the same person beside it. `koto context get <session> coord/decision_question.json` returns the first prompt `shirabe question render` gave:\n\n{\"identities\":[\"9b1c0d2e-m/000000000004\",\"9b1c0d2e-m/000000000007\"],\"text\":\"...\",\"questions\":[{\"header\":\"arm64 build\",\"question\":\"The loader is done and green on x86_64. The arm64 check came back mixed.\\n\\nShipping without arm64 reverses the release requirement you set.\\n\\nShip the plugin loader without the arm64 build this week?\",\"multiSelect\":false,\"options\":[{\"label\":\"wait for the arm64 fix\",\"description\":\"Recommended. The release slips about three days.\"},{\"label\":\"ship without arm64\",\"description\":\"x86_64 users get it this week; arm64 follows in a patch.\"}]},{\"header\":\"docs host\",\"question\":\"The docs site needs a host before the release.\\n\\nPicking one commits the team to running it.\\n\\nHost the plugin docs on the project site or a separate one?\",\"multiSelect\":false,\"options\":[{\"label\":\"project site\",\"description\":\"Recommended. Nothing new to run.\"},{\"label\":\"separate site\",\"description\":\"Its own release cadence, one more thing to keep up.\"}]}]}\n\n`coord/decision_message.txt` holds the same prompt as plain text. Do what the state asks.",
+      "expected_output": "Because this turn was started by a message from the person, the coordinator opens a prompt: it puts the two `questions` to the AskUserQuestion tool as they stand, unchanged and in one call. It records each reply with `shirabe question answer <identity> --in <session>` for each of the two identities, runs state-decision.sh --sent --route tool and submits sent: sent. decision_next then sends each answered entry to decision_answer to settle from koto, in the same turn.",
       "files": [],
       "expectations": [
         "The coordinator uses AskUserQuestion, because the turn was started by the person's own message",
-        "The context and the problem are printed before the question",
-        "The recommended option, wait for the arm64 fix, is first, and every option carries its explanation",
+        "Both questions go in one prompt, as they stand: the headers, the composed question text, the option labels and their descriptions are not rewritten or reordered",
+        "Each reply is recorded with `shirabe question answer` for its identity, not typed into the record by the coordinator",
         "state-decision.sh --sent --route tool is run",
-        "The evidence submitted is sent: answered with decision 4 and round 1, not sent: sent"
+        "The evidence submitted is sent: sent, and the entries settle from koto's answers at decision_answer"
       ],
       "requirements": [
         "decisions person route",
@@ -470,16 +471,16 @@
     },
     {
       "id": 24,
-      "name": "escalation-to-a-person-not-in-conversation-is-a-message",
-      "prompt": "This turn was started by a report from the worker `plugin-docs`, not by the person who dispatched you. The workflow routed you to escalate_send for decision 4, round 1, escalated to a person. `koto context get <session> coord/decision_question.json` returns:\n\n{\"decision\":4,\"round\":1,\"question\":\"Ship the plugin loader without the arm64 build this week?\",\"context\":\"The loader is done and green on x86_64. The arm64 check came back mixed.\",\"problem\":\"Shipping without arm64 reverses the release requirement you set, so it is yours to decide.\",\"recommendation\":\"wait for the arm64 fix\",\"reason\":\"the release requires arm64\",\"options\":[{\"label\":\"wait for the arm64 fix\",\"explanation\":\"the release slips about three days\",\"recommended\":true},{\"label\":\"ship without arm64\",\"explanation\":\"x86_64 users get it this week; arm64 follows in a patch\",\"recommended\":false}]}\n\n`coord/decision_message.txt` holds the rendered escalation, starting `Decision 4 round 1.` and ending with its Digest line. Do what the state asks.",
-      "expected_output": "Because nobody from the person's side started this turn, the coordinator does not use the question tool. It sends the rendered text from coord/decision_message.txt as a message to the person, exactly as rendered, runs state-decision.sh --sent --route message, submits sent: sent, and keeps coordinating: the loop goes on, and the person's answer will arrive later at wait as an answer event naming decision 4 and round 1.",
+      "name": "escalation-to-a-person-not-in-conversation-waits-on-the-record",
+      "prompt": "This turn was started by a report from the worker `plugin-docs`, not by the person who dispatched you. The workflow routed you to escalate_send for decision 4, escalated to a person. `coord/decision_question.json` holds the prompt `shirabe question render` gave for its question, with one identity, and `coord/decision_message.txt` that prompt's plain text. Do what the state asks.",
+      "expected_output": "Because nobody from the person's side started this turn, the coordinator opens no prompt and sends the person no message. It runs state-decision.sh --sent --route record, submits sent: sent, and keeps coordinating: the question waits in koto for the owner's next turn, and decision_next routes the entry to decision_answer once koto shows the question closed.",
       "files": [],
       "expectations": [
         "AskUserQuestion is not used, because the turn was started by a worker's report",
-        "The message sent is the rendered text from coord/decision_message.txt, unedited",
-        "state-decision.sh --sent --route message is run",
+        "No message carrying the question is sent to the person",
+        "state-decision.sh --sent --route record is run",
         "The evidence submitted is sent: sent",
-        "The coordinator keeps coordinating instead of waiting on the answer, which is expected back at wait as an answer event"
+        "The coordinator keeps coordinating instead of waiting on the answer, which comes back through koto"
       ],
       "requirements": [
         "decisions person route",
@@ -1456,6 +1457,109 @@
         "It doesn't write the briefs: host row by hand on a start that printed no brief-unrecorded warning",
         "It reads the opener's stderr rather than discarding it",
         "It takes the brief's rules in through the intake, not by writing them as rows"
+      ]
+    },
+    {
+      "id": 78,
+      "name": "a-pass-up-with-no-attempt-is-refused",
+      "prompt": "You are coordinating ROADMAP-plugin-system as a manager; the director dispatched you. Decision 3 is held by the question `9b1c0d2e-m/000000000004` that the worker `plugin-loader` raised: \"Drop the arm64 build from the 1.4 release?\" It changes the release's scope, so you decide to escalate it. You run `state-decision.sh --session <session> --escalate --grounds changes-scope --reason \"the release requires arm64\"` and it exits 1 with: `state-decision.sh: escalating question 9b1c0d2e-m/000000000004 needs --attempt: an undecided attempt of <session>'s at it`. What do you do?",
+      "expected_output": "The refusal wrote nothing, so the entry is still where it was. The coordinator records its own undecided attempt at the question with `shirabe question attempt --in <session> --what <the question> --result undecided --basis <raiser session>:000000000004`, reading the raiser's session and the question's id from `koto decisions history <identity>`, and runs the escalate again with `--attempt <the id it printed>`. It does not pass the worker's own attempt, does not drop the ground, and does not answer the question itself.",
+      "files": [],
+      "expectations": [
+        "The coordinator reads the exit 1 as a refusal that recorded nothing, not as a partial escalation",
+        "It records its own attempt with `shirabe question attempt` in its own session, with `--result undecided` and a `--basis` naming the raiser's session and the question's id",
+        "It runs the escalate again with `--attempt` set to the id that attempt printed, keeping the ground changes-scope",
+        "It does not offer the worker's attempt as its own, and does not settle the question itself to get past the refusal"
+      ],
+      "requirements": [
+        "decisions R16",
+        "question ladder pass-up"
+      ]
+    },
+    {
+      "id": 79,
+      "name": "a-worker-question-held-by-identity-is-not-reworded",
+      "prompt": "You are coordinating ROADMAP-plugin-system in acme/widgets. The worker `plugin-loader` reported, and the session is now in decision_open. `koto context get <session> coord/questions.json` returns:\n\n[{\"index\":1,\"kind\":\"question\",\"text\":\"Ship with the arm64 gap or wait for the fix?\",\"source\":\"worker plugin-loader\",\"addressed\":false,\"cite\":null,\"identity\":\"9b1c0d2e-m/000000000004\"},{\"index\":2,\"kind\":\"question\",\"text\":\"Should the loader log to stderr or to a file?\",\"source\":\"worker plugin-loader\",\"addressed\":false,\"cite\":null}]\n\nDo what the state asks.",
+      "expected_output": "Item 1 carries an identity: koto holds that question, so it opens from koto's content with Source `question <identity>` and the coordinator writes no wording for it. Item 2 has none, so the coordinator words it in its own words with options. The text file maps only index 2; the coordinator runs state-decision.sh --open-from-report --text-file <file> and submits opened: opened.",
+      "files": [],
+      "expectations": [
+        "The text file maps index 2 to a question and options in the coordinator's own words",
+        "The text file has no entry for index 1, and the coordinator says why: the question is held in koto by its identity and is never re-worded",
+        "state-decision.sh --open-from-report --text-file <file> is run once for both items",
+        "The evidence submitted is opened: opened",
+        "Nothing is put to the human at this step"
+      ],
+      "requirements": [
+        "decisions R15",
+        "question ladder identity"
+      ]
+    },
+    {
+      "id": 80,
+      "name": "a-question-reported-again-opens-nothing-new",
+      "prompt": "You are coordinating ROADMAP-plugin-system. Decision 6 is already open, held by the question `9b1c0d2e-m/000000000004` that the worker `plugin-loader` raised. Its next report repeats the question, and `coord/questions.json` lists it again as item 1 with that identity, plus nothing else. The session is in decision_open. Do what the state asks.",
+      "expected_output": "The question already has an entry, so opening from the report adds only a `reported again` line to decision 6 and opens no second entry. The coordinator writes no wording for item 1, runs state-decision.sh --open-from-report (with an empty text file or none needed), and submits opened: opened. It does not escalate the question a second time or raise it again.",
+      "files": [],
+      "expectations": [
+        "The coordinator does not open a new entry or write a wording for the identity it already holds",
+        "It says the write only notes on decision 6 that the question was reported again",
+        "It does not escalate, pass up or raise the question a second time",
+        "The evidence submitted is opened: opened"
+      ],
+      "requirements": [
+        "question ladder identity"
+      ]
+    },
+    {
+      "id": 81,
+      "name": "six-escalations-release-four-at-a-time",
+      "prompt": "You are a manager coordinating ROADMAP-plugin-system; the director dispatched you. In one turn you gave escalate verdicts to six entries, decisions 2 through 7, each held by a worker's question and passed up to the director. `state-decision.sh --list` shows decisions 2, 3, 4 and 5 escalated and decisions 6 and 7 queued, with their ages. How many go to the director now, and what happens to 6 and 7?",
+      "expected_output": "Four are released together: decisions 2 to 5 go to the director in one rendered message that names each question's identity. Decisions 6 and 7 stay queued; nothing is lost and nothing more is sent for them now. When a place frees (one of the four is answered or withdrawn), the next write releases the waiting ones: most waiting work items first, then the oldest, then the identity. The coordinator keeps coordinating meanwhile.",
+      "files": [],
+      "expectations": [
+        "It says four go now, in one message, not one at a time",
+        "The message names the questions by their identities, without laying out their fields",
+        "Decisions 6 and 7 stay queued and are not sent or reworded now",
+        "It says the queued ones are released when a place frees, ordered by waiting work items, then age, then identity",
+        "It does not stop coordinating to wait for the director's answers"
+      ],
+      "requirements": [
+        "question ladder release"
+      ]
+    },
+    {
+      "id": 82,
+      "name": "an-unattended-tick-opens-no-prompt",
+      "prompt": "This turn was started by a scheduled wake; nobody from the person's side wrote. The workflow routed you to escalate_send for decision 4, escalated to a person. `coord/decision_question.json` holds a prompt with two questions under `questions` and their two `identities`, and `coord/decision_message.txt` its plain text. Do what the state asks.",
+      "expected_output": "A scheduled wake is not a turn the person started, so the coordinator opens no prompt: it does not call AskUserQuestion and sends no message to the person. It runs state-decision.sh --sent --route record, submits sent: sent and keeps coordinating. The questions wait in koto for the owner's next turn, and decision_next settles each entry once koto shows its question closed.",
+      "files": [],
+      "expectations": [
+        "AskUserQuestion is not used",
+        "state-decision.sh --sent --route record is run, not --route tool",
+        "The evidence submitted is sent: sent",
+        "The coordinator keeps coordinating and doesn't wait on the answer",
+        "It says the answer arrives through koto, and a reply typed into the session later is not taken as the owner's answer"
+      ],
+      "requirements": [
+        "decisions person route",
+        "question ladder unattended"
+      ]
+    },
+    {
+      "id": 83,
+      "name": "an-owner-answer-below-is-unseen-and-settles-a-sibling",
+      "prompt": "You are a manager coordinating ROADMAP-plugin-system. `shirabe question pending --in <session>` lists under `unseen` the owner's answer `plugin-cache:000000000009` to a worker's question labelled `cache-store`, answered `SQLite`, which you never saw. Decision 8 is held by another worker's question with the same label, still open at your session. What do you do?",
+      "expected_output": "The coordinator reads the owner's answer and marks it seen with `shirabe question seen plugin-cache:000000000009 --in <session>`, which adds one judgment to its own session and changes nothing in the answer. It checks the precedent with `koto decisions precedent --person owner --chain <session> --label cache-store`, and since the answer covers decision 8 it settles that entry without asking again: `shirabe question settle <identity> --in <session> --chosen SQLite --reason <why> --basis plugin-cache:000000000009`, then state-decision.sh --settle with the same outcome. No prompt goes to the owner for it.",
+      "files": [],
+      "expectations": [
+        "The answer is marked seen with `shirabe question seen` in the coordinator's own session",
+        "It confirms the precedent covers decision 8 (the same label, the owner's answer) before reusing it",
+        "Decision 8 is settled with `--basis` naming the owner's answer, not escalated to the owner again",
+        "It does not edit or re-record the owner's answer, and does not present it as the coordinator's own call"
+      ],
+      "requirements": [
+        "question ladder unseen",
+        "question ladder precedent"
       ]
     }
   ]

@@ -634,6 +634,16 @@ pending or missing worker doesn't hold the gate; it is told when it can be,
 and a missing one's report reaching the run turns it told. A record with no
 `pending` or `missing` row reads, checks and hands over as it did before the
 row existed.
+Without `--check` it also prints `unseen`: the owner answers given at or below
+the run that no decision in it cites yet, as `shirabe question pending` lists
+them, each with the question's `identity`, its `question`, `label`, the
+answer's `text`, `session`, `id`, `answer` (`<session>:<id>`), `reading` and
+`time`. The key appears only when there is one; a listing that fails gives
+`unseen_error` instead, never an empty list. An unseen answer never holds the
+handover, since `--check` doesn't read it. A successor's brief input carries
+them as `unseen_answers` (each `identity`, `answer`, `text` and `label`),
+which `render-brief.sh` lists under "Owner answers not yet marked seen", and
+`shirabe question seen <session>:<id> --in <session>` marks one read.
 A record written before these sections existed
 has every gap at its first start under this version; fill them once. A
 rotation's carry copies the three sections into the next rotation as they
@@ -650,11 +660,11 @@ item a line:
 {"decisions": {"next": 1,
   "entries": [{"decision": "<n>", "round": "<times escalated>", "question": "<one line>",
                "options": "<one per line>", "state": "<proposed, coordinator-verdict, escalated or settled>",
-               "source": "<worker <topic>, coordinator <topic> #<n> round <r>, dispatcher or self, then a stamp>",
+               "source": "<worker <topic>, coordinator <topic> #<n> round <r>, dispatcher, self or question <identity>, then a stamp>",
                "verdict": "<empty, settle, escalate or hold>", "recommendation": "<one of the options>",
                "reason": "<its reason, or what a hold waits on>", "context": "<what is being decided and why now>",
                "problem": "<what is unresolved and why the coordinator can't settle it>",
-               "grounds": "<scope, supplied-decision, reserved-step, outside-scope>",
+               "grounds": "<contradicts-answer, changes-scope, outward-facing, reserved-step or outside-scope; scope or supplied-decision on an older entry>",
                "target": "<a person or coordinator <topic>>", "owed": "<empty, escalation, withdrawal or reply>",
                "asked": "<YYYY-MM-DDTHH:MMZ>", "evidence": "<one line per item: <time> <source> <stamp>: <text>>",
                "outcome": "<outcome and reason>", "decided_by": "<who decided>", "updated": "<YYYY-MM-DDTHH:MMZ>"}]}}
@@ -665,14 +675,41 @@ each state means, and what else it requires:
 
 | State | Means | Also requires | Reached by |
 |---|---|---|---|
-| `proposed` | Opened, not yet taken up | Options | `--open`, `--open-from-report` |
-| `coordinator-verdict` | With the coordinator for a verdict; a Verdict of `hold` waits on the fact in Reason, and `escalate` is queued behind the escalated entry | Reason, when the Verdict is `hold` | `--take`; any evidence, from any state |
-| `escalated` | Asked of the run's target, one entry at a time | Options (each `<option> -- <explanation>`), Recommendation, Reason, Context, Problem, Grounds, Target | `--escalate`, or the release of a queued verdict |
+| `proposed` | Opened, not yet taken up | Options, unless held by a question | `--open`, `--open-from-report` |
+| `coordinator-verdict` | With the coordinator for a verdict; a Verdict of `hold` waits on the fact in Reason, and `escalate` waits queued until its target has a free place | Reason, when the Verdict is `hold` | `--take`; any evidence, from any state |
+| `escalated` | Passed up to the run's target, up to four entries per target at a time | Grounds and Target; an entry not held by a question also Options (each `<option> -- <explanation>`), Recommendation, Reason, Context and Problem | `--escalate`, or the release of a queued verdict |
 | `settled` | Decided | Outcome (`<outcome>; reason: <reason>`), Decided by | `--settle`, `--answer` |
 
 Owed says which message the entry still owes (an escalation, a withdrawal
 after new evidence on a sent escalation, or a reply to the source that asked),
 and clears when `--sent` marks it. Asked is when the escalation went out.
+To a person, `--sent` also records its route in an `ask` Evidence line:
+`tool` when the owner was asked in a prompt, `message`, or `record` when the
+question waits on the record and no one is asked now. A session read as
+unattended can't take `tool`.
+
+**Entries held by a question.** An entry whose Source is `question
+<identity>` (`<raiser's session id>/<decision id>`, as koto names it) is held
+by a question koto holds: its wording, options and reasons are koto's content,
+and `--read <n>` adds that content as `content`. `--open-from-report` opens
+one from each question koto lists as open at the session and raised by the
+reporting worker, never from an identity in the report's text alone, and a
+question that already has an entry adds only a `reported again` Evidence
+line. `--identity <identity>` holds an entry that has none by a question this
+session raised itself. Only such an entry can be passed up: `--escalate
+--grounds <one ground> --attempt <id>` runs `shirabe question pass-up`, and a
+decision needs `--attempt`, an undecided attempt of this session's tied to
+that question (`koto decisions attempts --in=<session> --question
+<identity>`); a need takes none. It owes no reply message, since its answer
+is koto's: `--answer` settles it from koto's answer and decider, and refuses
+an `--outcome` that differs.
+
+**The release.** Up to four entries are in State `escalated` for one target at a time.
+Each write releases queued entries held by a question into free places, most
+waiting work items first (the `waiting` count `shirabe question pending`
+gives), then the oldest raise, then the identity; one whose pass-up can't land
+stays queued. `--list` adds `queued`, each queued entry's `decision`,
+`identity`, `since` (its Updated) and `age_minutes`.
 
 A record written before the section existed has no key. The key appears at
 the first decision and stays: `next` only goes up, so an identifier is never
@@ -940,6 +977,26 @@ marks the old key `releg-pending` and then `relegged`, naming the new request,
 and writes the new request's key `open` with `from` naming the old one; or
 `unwatchable`, its holding moved to message. dispatch-common.sh lists the
 states and their meaning.
+
+A leg's result whose payload carries `question` (one question identity, or
+several separated by spaces) is a worker's run waiting on the questions it
+raised. `wait-target.sh` offers it once with disposition `question` and the
+identities in `wait_target`'s `question`, so its report reaches
+`report_questions`, which opens an entry for each; the leg mode puts it in
+the context key `question_legs` (`<request>:<leg>` lines), never in
+`taken_legs`. From then on, while koto reads every one of them open,
+`wait-target.sh` passes the leg over without marking it taken and lists it
+under `waiting` in `wait_target` (`{topic, request, leg, question}`), unless
+one of its questions is listed under `wait_target`'s `unentered`: every
+question koto shows open and addressed to this session with no Decisions
+entry (`state-decision.sh --open-questions`), as `{identity, raiser, raised,
+age_minutes}`, which offers the leg as `question` again. Once koto reads one closed,
+the leg is offered with disposition `answered` and the closed identities in
+`wait_target`'s `question`, and `dispatch-worker.sh --rebrief` runs the unit's
+entry point again on a new leg, its brief input's `answered_question` naming
+those identities; it exits 9 and writes nothing while they are all still open.
+Only the script writes `answered_question`, from koto: one in an input is
+deleted.
 
 A coordinator's state lives outside any directory the workspace manager
 converges, in two places: the koto session's journal on this host, and the

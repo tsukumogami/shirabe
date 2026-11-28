@@ -62,7 +62,8 @@ writes both into the input (`dispatcher_session` as the run rendering the
 brief), so leave them out. `phase` is
 `scoping` (the unit is its scoping alone, from pick's `scope`),
 `scoping-ahead` or `executing`. No checkpoint
-may wait on an approval, and no value may carry a session id.
+may wait on an approval, and no value may carry a session id; a question's
+identity, in the two fields below, is the one exception.
 `standing_rules` is where the workspace's own rules for workers go, such as
 where to start a koto session; they come from the workspace, and the brief
 carries them verbatim under a Workspace rules heading.
@@ -87,6 +88,25 @@ topic, so a dispatch without `continues` names and retires no stranded row,
 even one on the same unit. A `continues` that isn't a valid topic, is the
 dispatch's own topic, or names no stranded holding of the unit is refused
 with nothing written.
+
+`answered_question` is never given by hand. `dispatch-worker.sh --rebrief`
+writes it, from koto, when the unit's leg holds the worker's waiting result
+(its promoted payload names the question it raised, or several separated by
+spaces) and koto reads one of them closed: the unit's entry point then runs
+again under a new leg, with the closed identities in this field, and the
+Goal says the invocation continues the waiting run and that
+`koto decisions history <identity>` reads the answer. While every question
+named is still open the re-brief is refused (exit 9) and nothing is
+written; the unit waits on them. An input's own value is deleted.
+
+`unseen_answers`, on a coordinate brief only, lists the owner answers in
+effect at or below the run that no decision in it cites yet, as
+`state-handover.sh` prints them under `unseen`: each `{identity, answer,
+text, label}`, the label optional. A successor's brief carries them so the
+run that takes over reads them; they render as an "Owner answers not yet
+marked seen" section before Keep-alive, which tells the successor to mark
+each with `shirabe question seen <answer> --in <its session>` once it has
+acted on it. Empty or absent, the brief has no such section.
 
 `grant` is what the worker is dispatched holding: the named authorities for
 the landing steps the brief hands it to take itself (`merge-pr`,
@@ -288,6 +308,10 @@ entry point to run, for example `/shirabe:deliver <topic> --auto`.>
 with `--dispatched-by <your run>` filled in (see The Dispatcher on the Message
 Path).>
 
+<For a waiting unit whose question was answered: one line saying this
+invocation continues the waiting run, naming the question's identity and
+how to read the answer.>
+
 Run mode: `--auto` unless the human's decisions say otherwise. A
 background worker can't answer the confirmation `--interactive` waits for.
 
@@ -386,10 +410,28 @@ to the coordinator above.
 
 Each report leads with the verdict, then the paths or pull requests it
 concerns, then its claims, each marked measured, verified by reading, or
-inferred, then numbered questions. Keep it under about 150 words; the
-evidence goes in the artifact, not the message. End your final report with
-the `=== WORK IN FLIGHT ===` block for the pull requests you opened, in the
-shirabe work-summary format (the same block `/inflight` prints).
+inferred, then the identity of each question it raised. Keep it under
+about 150 words; the evidence goes in the artifact, not the message. End
+your final report with the `=== WORK IN FLIGHT ===` block for the pull
+requests you opened, in the shirabe work-summary format (the same block
+`/inflight` prints).
+
+A question you can't settle on your own evidence goes on the record, not
+into a message. Record your attempt to decide it with `shirabe question
+attempt --in <your session> --what "<the question>" --result undecided`
+(with `--undo cheap|costly --undo-reason "..."` in an unattended run), then
+raise it with `shirabe question raise --in <your session> --content <file>
+--attempt <that id>`, following `references/question-procedure.md`. It goes
+to whoever dispatched you and prints the question's identity; your report
+names that identity and doesn't restate the question. A need that isn't a
+choice (a credential, or a step reserved to the owner) takes no attempt and
+goes to whoever can meet it: `raise` addresses it to the owner. Carry on
+with the work that doesn't depend on the answer; it reaches your session on
+its next `koto next`. Name, in each report, the identity of every question
+you raised that is still open.
+
+<On a successor's coordinate brief with unseen owner answers: an "Owner
+answers not yet marked seen" section, one line per answer.>
 
 Report tooling or workspace problems unrelated to this work (a tool that
 misbehaved, a check that couldn't run, friction in the workspace) by

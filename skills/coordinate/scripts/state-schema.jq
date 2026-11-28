@@ -889,7 +889,31 @@ def decisions_cols: [
   ["updated", "Updated"]];
 
 def d_states: ["proposed", "coordinator-verdict", "escalated", "settled"];
-def d_grounds: ["scope", "supplied-decision", "reserved-step", "outside-scope"];
+# The legacy grounds, then shirabe question pass-up's own: an entry held by a
+# question identity is passed up on exactly one of d_passup_grounds.
+def d_grounds: ["scope", "supplied-decision", "reserved-step", "outside-scope",
+  "contradicts-answer", "changes-scope", "outward-facing"];
+def d_passup_grounds: ["contradicts-answer", "changes-scope", "outward-facing", "reserved-step", "outside-scope"];
+# A question's identity, `<raiser's session id>/<decision id>`: the session
+# part in koto's session-name shape (shirabe's name_ok), the decision id one
+# to twenty digits (its decision_id_ok). The one pattern every script uses.
+def re_identity: "[A-Za-z0-9][A-Za-z0-9._-]*/[0-9]{1,20}";
+# The pass-up grounds that reserve a question for the owner: an entry carrying
+# one is never answered or settled by the coordinator; it is passed up.
+def d_reserved_grounds: ["contradicts-answer", "changes-scope", "outward-facing", "reserved-step"];
+# time_key: a koto time (`YYYY-MM-DDTHH:MM:SS[.fraction]Z`) as an ordering key
+# that orders by the instant it names, as shirabe's own ordering does (its
+# epoch_order): [0, seconds, nanoseconds], and [1, 0, 0] for a time that does
+# not parse, which sorts last. A record time (`YYYY-MM-DDTHH:MMZ`) reads too.
+def time_key:
+  if type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\\.[0-9]{1,9})?)?Z$") then
+    ((capture("\\.(?<f>[0-9]+)Z$").f // "") + "000000000")[0:9] as $f
+    | (if test("T[0-9]{2}:[0-9]{2}Z$") then sub("Z$"; ":00Z") else sub("\\.[0-9]+Z$"; "Z") end) as $t
+    | [0, ($t | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime), ($f | tonumber)]
+  else [1, 0, 0] end;
+# age_minutes($now): whole minutes since a time time_key reads, null for one
+# it doesn't.
+def age_minutes($now): time_key as $k | if $k[0] == 0 then ((($now - $k[1]) / 60) | floor) else null end;
 # The columns a person or the coordinator writes in words: a public host's
 # check reads them, and `@` is encoded in them so a record never mentions
 # anyone.
@@ -910,7 +934,7 @@ def check_dcell($key; $private):
     elif $key == "decision" then (if test("^[1-9][0-9]*$") then . else refuse("decisions.decision: not a positive integer") end)
     elif $key == "round" then (if test("^(0|[1-9][0-9]*)$") then . else refuse("decisions.round: not a count") end)
     elif $key == "state" then (if any(d_states[]; . == $v) then . else refuse("decisions.state: not proposed, coordinator-verdict, escalated or settled") end)
-    elif $key == "source" then (if test("^(worker [A-Za-z0-9][A-Za-z0-9._-]*|coordinator [A-Za-z0-9][A-Za-z0-9._-]* #[1-9][0-9]* round [1-9][0-9]*|dispatcher|self) " + re_stamp + "$") then . else refuse("decisions.source: not `worker <topic>`, `coordinator <topic> #<n> round <r>`, `dispatcher` or `self`, then a stamp") end)
+    elif $key == "source" then (if test("^(worker [A-Za-z0-9][A-Za-z0-9._-]*|coordinator [A-Za-z0-9][A-Za-z0-9._-]* #[1-9][0-9]* round [1-9][0-9]*|dispatcher|self|question " + re_identity + ") " + re_stamp + "$") then . else refuse("decisions.source: not `worker <topic>`, `coordinator <topic> #<n> round <r>`, `dispatcher`, `self` or `question <identity>`, then a stamp") end)
     elif $key == "verdict" then (if test("^(settle|escalate|hold)$") then . else refuse("decisions.verdict: not settle, escalate or hold") end)
     elif $key == "grounds" then (if (split(", ") | all(. as $g | any(d_grounds[]; . == $g))) then . else refuse("decisions.grounds: not a comma list of \(d_grounds | join(", "))") end)
     elif $key == "target" then (if test("^(a person|coordinator [A-Za-z0-9][A-Za-z0-9._-]*)$") then . else refuse("decisions.target: not `a person` or `coordinator <topic>`") end)
@@ -936,9 +960,14 @@ def check_drow($private):
   | def need($ks; $why): ($ks | map(select(($r[.] // "") == "")) | first) as $m
       | if $m != null then refuse("decisions: entry \($r.decision): \($m) is empty, and \($why)") else . end;
     ($r | need(["decision", "round", "question", "state", "source", "updated"]; "every entry needs it"))
-  | if $r.state == "escalated" then need(["options", "recommendation", "reason", "context", "problem", "grounds", "target"]; "an escalated entry needs it")
+  # An entry held by a question identity keeps its options and wording in
+  # koto, so it needs no columns of its own for them.
+  | ($r.source | startswith("question ")) as $held
+  | if $r.state == "escalated" then
+      (if $held then need(["grounds", "target"]; "an escalated entry needs it")
+       else need(["options", "recommendation", "reason", "context", "problem", "grounds", "target"]; "an escalated entry needs it") end)
     elif $r.state == "settled" then need(["outcome", "decided_by"]; "a settled entry needs it")
-    elif $r.state == "proposed" then need(["options"]; "a proposed entry needs it")
+    elif $r.state == "proposed" and ($held | not) then need(["options"]; "a proposed entry needs it")
     elif $r.verdict == "hold" then need(["reason"]; "a held verdict needs what it waits on")
     else . end
   | if $r.state == "proposed" and $r.verdict != ""
@@ -1063,16 +1092,37 @@ def normalize_state($private):
 def d_options:
   (.options // "") | split("\n") | map(select(length > 0)
     | split(" -- ") as $p | {label: $p[0], explanation: ($p[1:] | join(" -- "))});
+# d_identity: the question identity an entry is held by, "" for none. Only a
+# Source `question <identity>` holds one.
+def d_identity: [(.source // "") | capture("^question (?<id>" + re_identity + ") ") | .id] | first // "";
+# An entry is escalated only by its question identity: what the target is
+# shown is the question's own content in koto (shirabe question render), so an
+# entry with no identity can't be escalated, and one with an identity needs
+# exactly one pass-up ground and the run's target. The attempt behind it is
+# checked against koto by state-decision.sh and decision-render.sh, not here.
+#
+# An entry held by no identity is an old-style escalation, recorded before
+# entries were held by question identities (a run already under way): it is
+# checked as it was then, its recommendation one of its options, every option
+# explained, reason, context and problem non-empty after trimming, a ground,
+# and the run's target. Such an entry is released and rendered as it was then
+# (state-decision.sh, decision-render.sh); a new escalation of one is refused
+# until the coordinator raises its question and holds it by --identity.
 def escalation_problems($target):
   def blank: (. // "") | gsub("^\\s+|\\s+$"; "") | . == "";
   . as $e
-  | [ (if ([$e | d_options[].label] | index($e.recommendation // "")) == null then "the recommendation is not one of the options" else empty end),
-      (if any($e | d_options[]; .explanation | blank) then "an option has no explanation" else empty end),
-      (if ($e.reason | blank) then "the reason is empty" else empty end),
-      (if ($e.context | blank) then "the context is empty" else empty end),
-      (if ($e.problem | blank) then "the problem is empty" else empty end),
-      (if ($e.grounds | blank) then "no ground" else empty end),
-      (if ($e.target // "") != $target then "the target is not the run's (\($target))" else empty end) ];
+  | if ($e | d_identity) == "" then
+      [ (if ([$e | d_options[].label] | index($e.recommendation // "")) == null then "the recommendation is not one of the options" else empty end),
+        (if any($e | d_options[]; .explanation | blank) then "an option has no explanation" else empty end),
+        (if ($e.reason | blank) then "the reason is empty" else empty end),
+        (if ($e.context | blank) then "the context is empty" else empty end),
+        (if ($e.problem | blank) then "the problem is empty" else empty end),
+        (if ($e.grounds | blank) then "no ground" else empty end),
+        (if ($e.target // "") != $target then "the target is not the run's (\($target))" else empty end) ]
+    else [ (if any(d_passup_grounds[]; . == ($e.grounds // "")) | not
+              then "the ground is not one of \(d_passup_grounds | join(", "))" else empty end),
+           (if ($e.target // "") != $target then "the target is not the run's (\($target))" else empty end) ]
+    end;
 
 # The stamps an entry carries, by position: the one ending its Source, and the
 # one after each Evidence line's source. A stamp-like string inside a line's

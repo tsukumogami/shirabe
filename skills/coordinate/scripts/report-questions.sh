@@ -49,12 +49,22 @@
 # Without a holding every citation is dropped and no first line is honored;
 # the source is the topic the report named.
 #
+# Before any of that, the questions koto lists as open at this session and
+# raised by the reporting worker (see "questions held by identity" below) are
+# items whatever the text says, and a text line naming a question identity
+# (`<session>/<decision id>`, state-schema.jq's re_identity, standing as a
+# word of its own, so a link to a CI run is not one) opens nothing. Every line
+# left out that way is counted: the verdict ends `dropped:<n>` when n > 0.
+# A withdrawal whose question line is an identity that an entry here holds
+# carries that identity, and reaches that entry whatever its source.
+#
 # Each item: {index, kind: question|escalation|withdrawal, text, source,
-# addressed, cite}, plus options and recommended for an escalation, and n and
-# round for a coordinator's escalation or withdrawal. The source has no stamp;
+# addressed, cite}, plus options and recommended for an escalation, n and
+# round for a coordinator's escalation or withdrawal, and identity and
+# options for a question held by identity. The source has no stamp;
 # state-decision.sh --open-from-report adds it.
 #
-# Verdicts (sealed to this visit):
+# Verdicts (sealed to this visit; each may end `dropped:<n>`, see above):
 #   questions <count> keyseal:<seq>:<sha256>   the list is in coord/questions.json,
 #       stored with coord-log.sh seal --file --key; keyseal is that key's seal,
 #       carried in the engine-written capture so a reader can check the key
@@ -101,7 +111,21 @@ trap 'rm -rf "$T"' EXIT
 # One record read for the step: the holding row and the Decisions section
 # come from one read of those two sections (shirabe#1315).
 rs_once_begin "$T/once" "holdings decisions" || lib_die2 "cannot make a temporary directory"
-verdict() { bash "$HERE/coord-log.sh" seal --session "$SESSION" --state report_questions --token "$1" || lib_die2 "cannot seal the verdict"; exit 0; }
+# DROPPED: the report lines left out for naming a question identity, counted
+# in every verdict as `dropped:<n>` when there are any, so no line goes
+# unaccounted for.
+DROPPED=0
+verdict() {
+    local t=$1
+    [ "$DROPPED" -gt 0 ] && t="$t dropped:$DROPPED"
+    bash "$HERE/coord-log.sh" seal --session "$SESSION" --state report_questions --token "$t" || lib_die2 "cannot seal the verdict"
+    exit 0
+}
+# A question identity (state-schema.jq's re_identity), standing as a word of
+# its own: not inside a longer path such as a link to a CI run
+# (.../actions/runs/<id>), whose last two parts have the same shape.
+RE_IDENT='(^|[^A-Za-z0-9._/-])[A-Za-z0-9][A-Za-z0-9._-]*/[0-9]{1,20}([^A-Za-z0-9/]|$)'
+RE_IDENT_LINE='^[A-Za-z0-9][A-Za-z0-9._-]*/[0-9]{1,20}$'
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
 
 # The report and its holding.
@@ -143,18 +167,64 @@ fi
 # from an argument: a long-running record's section outgrows the 128 KiB one
 # argument may hold on Linux, and jq would not start (shirabe#2042).
 printf '%s' "$SECTION" > "$T/section.json" || lib_die2 "cannot write the Decisions section"
+
+# --- questions held by identity -----------------------------------------------------------
+# The questions koto lists as open and addressed to this session
+# (koto decisions open --at <session>) whose raiser is the reporting worker:
+# its session is the topic or `<skill>-<topic>` (scripts/skill-session.sh's
+# naming, the skill read from the holding's entry point), or, for a nested
+# coordinator's holding, the latest pass-up of it was recorded by a
+# coordinator session for the topic (`coordinate-...-<topic>-<stamp>`, read
+# from koto decisions history). Each is an item {kind: question, identity,
+# text: its ask, options: its labels, source: `question <identity>`} read from
+# koto decisions content read, whatever the report text says; an identity
+# that already has an entry, or that koto listed twice, adds nothing. These
+# items don't count toward the caps. Limit: a worker session named any other
+# way is not matched, and its questions open nothing until it reports them.
+SKILL=${EP#/shirabe:}
+koto_json() { # koto_json <file> <args...>: a failed koto read stops the run
+    local f=$1; shift
+    "$KOTO" "$@" > "$f" 2> "$T/koto.err" || { lib_scrub < "$T/koto.err" >&2; echo >&2; lib_die2 "cannot read koto ($1 $2)"; }
+}
+koto_json "$T/open.json" decisions open --at "$SESSION"
+jq -r --arg s "$SESSION" --arg w1 "$TOPIC" --arg w2 "$SKILL-$TOPIC" '[(.questions // [])[]
+    | select(.addressee.kind == "session" and .addressee.name == $s)
+    | [.identity, (if .session == $w1 or .session == $w2 then "raised" else "other" end)]]
+    | unique_by(.[0]) | .[] | @tsv' "$T/open.json" > "$T/open.tsv" || lib_die2 "koto's open questions are not JSON"
+: > "$T/kitems"
+if [ -s "$T/open.tsv" ]; then
+    [ "$HOLDING" = 1 ] || { SECTION=$(bash "$HERE/state-decision.sh" --session "$SESSION" --list) || lib_die2 "cannot read the Decisions section"
+                            printf '%s' "$SECTION" > "$T/section.json" || lib_die2 "cannot write the Decisions section"; }
+    while IFS=$'\t' read -r qid how; do
+        if [ "$how" != raised ]; then
+            [ "$EP" = /shirabe:coordinate ] || continue
+            koto_json "$T/history.json" decisions history "$qid"
+            jq -e --arg t "$TOPIC" '[(.entries // [])[] | select(.entry == "pass-up")] | last // {} | (.session // "")
+                | test("^coordinate-.*-" + ($t | gsub("[.]"; "\\\\.")) + "-[0-9]{8}T[0-9]{6}Z$")' "$T/history.json" > /dev/null || continue
+        fi
+        jq -e -L "$HERE" --arg q "$qid" 'include "state-schema"; any(.entries[]; d_identity == $q)' "$T/section.json" > /dev/null && continue
+        koto_json "$T/content.json" decisions content read "$qid"
+        jq -c --arg q "$qid" '{kind: "question", identity: $q,
+            text: ((.ask // .question // $q) | gsub("[\r\n]+"; " ") | gsub("@"; "&#64;")),
+            options: [(.options // [])[] | .label | gsub("[\r\n]+"; " ") | gsub("@"; "&#64;")],
+            source: "question \($q)", addressed: false, cite: null}' "$T/content.json" >> "$T/kitems" \
+            || lib_die2 "koto's content for $qid is not JSON"
+    done < "$T/open.tsv"
+fi
 # Whether an entry was opened from <source> (a source without its stamp), settled or not.
 opened_from() { printf '%s' "$SECTION" | jq -e --arg p "$1 [" 'any(.entries[]; .source | startswith($p))' >/dev/null; }
 
 # write_list <file of JSON items, one per line>: cap, store, seal.
 write_list() {
     local n
-    n=$(jq -s 'length' "$1")
+    # koto's items come first; only the text's own count toward the caps.
+    cat "$T/kitems" "$1" > "$T/merged" || lib_die2 "cannot build the list"
+    n=$(jq -s 'length' "$T/merged")
     [ "$n" -gt 0 ] || verdict none
-    if [ "$n" -gt "$MAX_ITEMS" ] || jq -s -e --argjson m "$MAX_LEN" 'any(.[]; .kind == "question" and (.text | length) > $m)' "$1" >/dev/null; then
+    if [ "$(jq -s 'length' "$1")" -gt "$MAX_ITEMS" ] || jq -s -e --argjson m "$MAX_LEN" 'any(.[]; .kind == "question" and (.text | length) > $m)' "$1" >/dev/null; then
         verdict overflow
     fi
-    jq -s 'to_entries | map(.value + {index: (.key + 1)})' "$1" > "$T/questions.json" || lib_die2 "cannot build the list"
+    jq -s 'to_entries | map(.value + {index: (.key + 1)})' "$T/merged" > "$T/questions.json" || lib_die2 "cannot build the list"
     local keyseal
     keyseal=$(bash "$HERE/coord-log.sh" seal --session "$SESSION" --state report_questions --file "$T/questions.json" --key coord/questions.json) \
         || lib_die2 "cannot store the question list"
@@ -240,9 +310,19 @@ if [ "$HOLDING" = 1 ] && [ "$EP" = /shirabe:coordinate ]; then
     elif [[ $FIRST =~ $RE_WDR ]]; then
         N=${BASH_REMATCH[1]} R=${BASH_REMATCH[2]}
         SRC="coordinator $TOPIC #$N round $R"
-        opened_from "$SRC" || verdict none
-        jq -nc --arg t "$FIRST" --arg s "$SRC" --argjson n "$N" --argjson r "$R" \
-            '{kind: "withdrawal", text: $t, source: $s, addressed: false, cite: null, n: $n, round: $r}' > "$T/items"
+        # A withdrawal of an entry held by a question names its identity
+        # where the question would be (decision-render.sh): it reaches the
+        # entry held by that identity here, whatever its source.
+        WID=$(sed -n 3p "$T/report")
+        if [[ $WID =~ $RE_IDENT_LINE ]] && printf '%s' "$SECTION" | jq -e -L "$HERE" --arg q "$WID" 'include "state-schema"; any(.entries[]; d_identity == $q)' > /dev/null; then
+            :
+        else
+            WID=
+            opened_from "$SRC" || verdict none
+        fi
+        jq -nc --arg t "$FIRST" --arg s "$SRC" --argjson n "$N" --argjson r "$R" --arg id "$WID" \
+            '{kind: "withdrawal", text: $t, source: $s, addressed: false, cite: null, n: $n, round: $r}
+             + (if $id == "" then {} else {identity: $id} end)' > "$T/items"
         write_list "$T/items"
     fi
 fi
@@ -293,7 +373,14 @@ cut -f3- "$T/cand" > "$T/cand.txt"
 phrase_lines decision "$T/cand.txt" > "$T/cand.hit" || lib_die2 "the phrasing list can't be read"
 { awk -F'\t' '$2 != "line"' "$T/classified"
   awk 'NR == FNR { hit[$1] = 1; next } hit[FNR]' "$T/cand.hit" "$T/cand"
-} | sort -n > "$T/all"
+} | sort -n > "$T/all.raw"
+# A line naming a question identity opens nothing from the text: a question
+# held by identity is read from koto's listing above, and one koto doesn't
+# list (an identity in the text alone) opens no entry. Each line left out is
+# counted (DROPPED), and the verdict says how many.
+grep -vE "$RE_IDENT" "$T/all.raw" > "$T/all"
+case $? in 0|1) ;; *) lib_die2 "cannot read the report's lines" ;; esac
+DROPPED=$(( $(wc -l < "$T/all.raw") - $(wc -l < "$T/all") ))
 
 # Over the cap is decided before anything else is read. A leg report can't be
 # rebriefed by message (its worker answers only through the leg), so one over
@@ -307,7 +394,7 @@ if [ "$N_ITEMS" -gt "$MAX_ITEMS" ] || jq -R -s -e --argjson m "$MAX_LEN" \
     [ "$VIA" = leg ] && { echo "$PROG: a leg report over the cap can't be rebriefed" >&2; verdict unreadable; }
     verdict overflow
 fi
-[ "$N_ITEMS" -gt 0 ] || verdict none
+if [ "$N_ITEMS" = 0 ]; then : > "$T/none"; write_list "$T/none"; fi
 
 cut -f3- "$T/all" > "$T/all.txt"
 phrase_lines addressed "$T/all.txt" > "$T/addressed" || lib_die2 "the phrasing list can't be read"

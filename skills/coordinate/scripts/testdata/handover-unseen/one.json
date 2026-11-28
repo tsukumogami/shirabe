@@ -1,0 +1,28 @@
+{
+  "v": 1,
+  "in": "coordinate-roadmap-plugin-system-20260926T070000Z",
+  "questions": [],
+  "held": [],
+  "incomplete": [],
+  "answered": [
+    {
+      "text": "Pin v2.1.0.",
+      "decider": "person:owner",
+      "session": "coordinate-roadmap-plugin-system-20260926T070000Z",
+      "reading": "verified"
+    }
+  ],
+  "unseen": [
+    {
+      "identity": "dfff1914-r/7",
+      "question": "Should the loader pin v2.1.0 or track main?",
+      "label": "loader-pin",
+      "text": "Pin v2.1.0.",
+      "session": "coordinate-roadmap-plugin-system-20260926T070000Z",
+      "id": "12",
+      "answer": "coordinate-roadmap-plugin-system-20260926T070000Z:12",
+      "reading": "verified",
+      "time": "2026-09-26T09:00:00Z"
+    }
+  ]
+}

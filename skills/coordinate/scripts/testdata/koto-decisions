@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# The `koto decisions` part of the koto stand-in (testdata/koto hands every
+# `decisions` call here). Not shipped behaviour. A test writes koto's answers
+# as fixture files under $KOTO_STORE/decisions/, an identity's `/` written as
+# `_` in a file name:
+#   open/<session>.json        `decisions open --at <session>`; none: no questions
+#   open-fail                  `decisions open` fails, as koto does on a
+#                              store it can't read (exit 2)
+#   history/<identity>.json    `decisions history <identity>`; none: koto's
+#                              decision_not_found (exit 2)
+#   content/<identity>.json    `decisions content read <identity>`, printed
+#                              byte for byte; none: exit 2
+#   attempts/<session>.json    `decisions attempts --in=<session>`, its rows
+#                              kept to those tied to --question when given;
+#                              none: no attempts
+#   show/<session>_<id>.json   `decisions show <session> <id>`; none: exit 2
+# Anything else exits 9. Every call is already in $KOTO_STORE/calls.
+set -uo pipefail
+D="$KOTO_STORE/decisions"
+key() { printf '%s' "$1" | tr '/' '_'; }
+shift # decisions
+case "${1:-}" in
+    open)
+        at=
+        while [ $# -gt 0 ]; do case "$1" in --at) at=${2:-}; shift ;; --at=*) at=${1#--at=} ;; esac; shift; done
+        [ ! -e "$D/open-fail" ] || { jq -nc '{code: "invalid_decision", command: "decisions open", error: "cannot read the store"}' >&2; exit 2; }
+        if [ -f "$D/open/$at.json" ]; then cat "$D/open/$at.json"
+        else jq -nc --arg a "$at" '{at: $a, questions: [], v: 1}'; fi
+        ;;
+    history)
+        f="$D/history/$(key "${2:-}").json"
+        [ -f "$f" ] || { jq -nc --arg q "${2:-}" '{code: "decision_not_found", command: "decisions history", error: "no session in the local store holds question \($q)"}' >&2; exit 2; }
+        cat "$f"
+        ;;
+    content)
+        [ "${2:-}" = read ] || { echo "koto stub: unexpected: decisions $*" >&2; exit 9; }
+        f="$D/content/$(key "${3:-}").json"
+        [ -f "$f" ] || { echo "koto stub: no content for ${3:-}" >&2; exit 2; }
+        cat "$f"
+        ;;
+    attempts)
+        in= q=
+        shift
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --in=*) in=${1#--in=} ;; --in) in=${2:-}; shift ;;
+                --question=*) q=${1#--question=} ;; --question) q=${2:-}; shift ;;
+            esac
+            shift
+        done
+        f="$D/attempts/$in.json"
+        if [ -f "$f" ]; then jq -c --arg q "$q" '.attempts |= map(select($q == "" or ((.questions // []) | index($q)) != null))' "$f"
+        else jq -nc --arg i "$in" '{attempts: [], in: $i, unreadable: [], v: 1}'; fi
+        ;;
+    show)
+        f="$D/show/${2:-}_${3:-}.json"
+        [ -f "$f" ] || { echo "koto stub: no decision ${2:-} ${3:-}" >&2; exit 2; }
+        cat "$f"
+        ;;
+    *) echo "koto stub: unexpected: decisions $*" >&2; exit 9 ;;
+esac

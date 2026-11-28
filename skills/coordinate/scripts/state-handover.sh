@@ -113,6 +113,15 @@
 #                                            brought) acknowledges it; printed
 #                                            as carry: {carried, start,
 #                                            acknowledged}
+#   question-unhandled <identity>            a question koto lists open and
+#                                            addressed to this run's session
+#                                            (state-decision.sh
+#                                            --open-questions) that no
+#                                            Decisions entry holds, or whose
+#                                            entry is neither escalated,
+#                                            queued for escalation nor held;
+#                                            its fix opens the entry or names
+#                                            it for the decision flow
 # A live holding is one dispatched and not merged and waiting for its
 # teardown: a row whose Dispatch status is `dispatched`, unless it carries a
 # Verified head with a blank Pull request (state-common.sh lib_row_merged)
@@ -146,8 +155,30 @@
 #                                            since the row may have come
 #                                            through the shared bucket
 #
-# With --check nothing is printed on success but a report; the gaps and the
-# reports go to stderr, and only a gap fails the check.
+# Without --check it also prints unseen: the owner answers in effect at or
+# below the run that no decision in its run cites yet, as `shirabe question
+# pending --in <the run's session>` lists them under `unseen` (RS_SESSION
+# under the test flags), each {identity, question, label, text, session, id,
+# answer, reading, time}: identity names the question it answers, answer is
+# the <session>:<id> to mark seen with `shirabe question seen`. The key is
+# printed only when there is one, so a run with none reads as it did before
+# the field existed. A listing that fails, or prints no `unseen` array, gives
+# unseen_error, the reason in one line, and no unseen key; it is never a gap
+# and never read as an empty list. shirabe is SHIRABE_BIN, else shirabe on
+# PATH. An unseen answer never holds the handover: --check doesn't read it.
+#
+# It prints open_questions, every question open and addressed to this run's
+# session, oldest first, each {identity, raiser, raised, age_minutes,
+# decision, state, handled} as state-decision.sh --open-questions gives it,
+# only when there is one, so a run with none reads as it did before. A read
+# of them that fails exits 2, never read as none open. Under the test flags
+# the read is state-decision.sh's under the same flags.
+#
+# With --check nothing is printed on success but a report and a line per
+# open question, with its age and its entry; the gaps, the reports and those
+# lines go to stderr, and only a gap fails the check. The gate holds only at
+# reconcile: a run that stops by `end` (done_stopped) passes no handover
+# gate, and SKILL.md says so.
 #
 # Exit codes: 0 no gaps (or printed, without --check); 1 --check found gaps;
 # 2 a read failed; 10 the run has no found record, or the target isn't a
@@ -161,7 +192,9 @@
 # each brief file record/host names (briefs:<label>) for its digest and its
 # text, and never edits one, and the Claude job directory (DC_CLAUDE_HOME,
 # default $HOME/.claude) for a merged holding on the message path. It reads
-# nothing on GitHub.
+# nothing on GitHub. Without --check it also runs shirabe question pending
+# (above), which reads koto itself; with or without it, state-decision.sh
+# --open-questions, which reads koto decisions open --at the session.
 set -uo pipefail
 
 PROG=state-handover
@@ -291,7 +324,41 @@ if [ -n "$SESSION" ] && [ "$SCOPE" = discipline ]; then
     fi
 fi
 
-jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
+# The owner answers not yet marked seen, read only when the set is printed:
+# the check never waits on them (see the header).
+echo null > "$WD/unseen.json"
+UERR=""
+US=${RS_SESSION:-$SESSION}
+if [ "$CHECK" = 0 ] && [ -n "$US" ]; then
+    if "${SHIRABE_BIN:-shirabe}" question pending --in "$US" < /dev/null > "$WD/pending.json" 2> "$WD/pending.err"; then
+        jq -c 'if (.unseen | type) == "array"
+               then [.unseen[] | {identity, question, label, text, session, id, answer, reading, time}]
+               else error("no unseen list") end' "$WD/pending.json" > "$WD/unseen.json" 2> "$WD/unseen.err" || {
+            echo null > "$WD/unseen.json"
+            UERR="shirabe question pending printed no unseen list: $(head -n 1 "$WD/unseen.err" | lib_scrub)"
+        }
+    else
+        UERR="shirabe question pending failed: $(head -n 1 "$WD/pending.err" | lib_scrub)"
+    fi
+fi
+
+# The questions open and addressed to this run's session, with the entry that
+# holds each (state-decision.sh --open-questions: exit 0 every one handled, 1
+# one not, 2 a failed read). Read with and without --check: an unhandled one
+# is a gap, and a failed read is a failed read, never "none open".
+if [ -n "$SESSION" ]; then
+    OQ_ARGS=(--session "$SESSION")
+else
+    OQ_ARGS=(--scope "$SCOPE" --name "$NAME" --repo "$REPO")
+fi
+bash "$HERE/state-decision.sh" "${OQ_ARGS[@]}" --open-questions > "$WD/oq.json" 2> "$WD/oq.err"
+case $? in
+    0 | 1) jq -e '(.questions | type) == "array" and (.unhandled | type) == "array"' "$WD/oq.json" > /dev/null \
+               || lib_die2 "state-decision.sh --open-questions printed no list" ;;
+    *) lib_die2 "cannot read the questions open at this run: $(head -n 1 "$WD/oq.err" | lib_scrub)" ;;
+esac
+
+jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile oq "$WD/oq.json" --slurpfile unseen "$WD/unseen.json" --arg uerr "$UERR" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
     --slurpfile carry "$WD/carry.json" --slurpfile dby "$WD/dispatched-by.json" --slurpfile briefs "$WD/briefs.json" '
     include "state-schema";
     def runval($k): [(.run // [])[] | select(.key == $k) | .value][0];
@@ -386,8 +453,20 @@ jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile host "$WD/host.
         (.workers as $ws | .workers[] | select(.next == null) | .unit as $u
          | {gap: ("no-next-step \(.unit)" + (if ([$ws[] | select(.unit == $u)] | length) > 1 then " (\(.worker))" else "" end)), fix: "state-stored-set.sh --work \"\(.unit)\" --kind holding --who \(.worker) --next \"<what happens next>\""}),
         ($unc[0][] | {gap: "leg-unclassified \(.worker)", fix: "reconcile-legs.sh --session <this run> --topic \(.worker) --return-path \"leg \(.leg)\" (the reconcile pass runs it; run it by hand when the pass reported it not verified)"}),
-        (if .coordinator != null then (.workers[] | select((.told or .pending or .missing) | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then state-stored-set.sh --told \(.worker) --by <you>; when its session is gone and its instance still exists, state-stored-set.sh --pending \(.worker) --by <you>; when niwa lists no instance for it, state-stored-set.sh --missing \(.worker) --by <you> (handover-classify.sh records pending and missing workers)"}) else empty end)
+        (if .coordinator != null then (.workers[] | select((.told or .pending or .missing) | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then state-stored-set.sh --told \(.worker) --by <you>; when its session is gone and its instance still exists, state-stored-set.sh --pending \(.worker) --by <you>; when niwa lists no instance for it, state-stored-set.sh --missing \(.worker) --by <you> (handover-classify.sh records pending and missing workers)"}) else empty end),
+        # A question addressed to this run that no entry holds, or whose
+        # entry is neither escalated, queued for escalation nor held.
+        ($oq[0].questions[] | select(.handled | not)
+         | {gap: "question-unhandled \(.identity)",
+            fix: (if .decision == null
+                  then "open its entry (state-decision.sh --open-from-report; report_questions does it when its raiser'"'"'s report comes in), then settle, escalate or hold it through the decision flow"
+                  else "settle, escalate or hold Decisions entry \(.decision) through the decision flow" end)})
       ])
+    # Every question open and addressed here, with its age; printed only when
+    # there is one, so a run with none reads as it did before.
+    | if ($oq[0].questions | length) > 0
+      then .open_questions = [$oq[0].questions[] | {identity, raiser, raised, age_minutes, decision, state, handled}]
+      else . end
     # A reports-to row sourced from a dispatcher (its address one of the
     # run'"'"'s dispatched-by links) with no briefs: key in record/host: the run
     # was dispatched from a brief nobody recorded. A report, never a gap: the
@@ -399,11 +478,18 @@ jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile host "$WD/host.
       then .reports = [{report: "brief-unrecorded",
                         fix: "record the brief this run was dispatched with: state-stored-set.sh --host briefs:<label> <its absolute path> (the --brief path on the brief'"'"'s opener line when it has one; when it has none, ask whoever dispatched you for the file'"'"'s path, and a brief with no file stays unrecorded), then state-stored-set.sh --intake <label> --by <you>; this is a report and holds nothing, and the reports-to row stays as it is"}]
       else . end
-    | if any($rows[]; .kind == "rule") then .rule_lists = rule_lists($rows) else . end' "$WD/parsed.json" > "$WD/out.json" || lib_die2 "jq failed"
+    | if any($rows[]; .kind == "rule") then .rule_lists = rule_lists($rows) else . end
+    | if ($unseen[0] | type) == "array" and ($unseen[0] | length) > 0 then .unseen = $unseen[0] else . end
+    | if $uerr != "" then .unseen_error = $uerr else . end' "$WD/parsed.json" > "$WD/out.json" || lib_die2 "jq failed"
 
 if [ "$CHECK" = 1 ]; then
     # A report holds nothing: it is printed, and only the gaps decide the exit.
     jq -r '(.reports // [])[] | "\(.report): \(.fix)"' "$WD/out.json" | sed "s/^/$PROG: report, holds nothing: /" >&2
+    # Each question open here, with its age, whether or not it holds.
+    jq -r '(.open_questions // [])[]
+        | "question \(.identity) from \(.raiser // "an unknown raiser"), open \(if .age_minutes == null then "for an unknown time" else "\(.age_minutes) min" end): "
+          + (if .decision == null then "no entry" else "entry \(.decision)\(if .handled then ", handled" else ", not handled" end)" end)' \
+        "$WD/out.json" | sed "s/^/$PROG: open /" >&2
     N=$(jq '.gaps | length' "$WD/out.json")
     [ "$N" = 0 ] && exit 0
     echo "$PROG: the record can't hand this run over yet; $N gap(s):" >&2

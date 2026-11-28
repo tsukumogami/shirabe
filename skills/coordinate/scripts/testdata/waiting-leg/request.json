@@ -1,0 +1,1 @@
+{"request_id":"req_w","request_state":"open","legs":{"work-on":{"name":"work-on","disposition":"resolved","result_source":"promoted","result_final_state":"done_waiting","bound_child":"work-on-w1","result":{"status":"success","payload":{"outcome":"waiting","question":"5b0e7a52-w/4"}}}}}

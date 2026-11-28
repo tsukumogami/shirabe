@@ -41,7 +41,7 @@
 #   a twenty-first question for the owner is refused by koto
 #
 # Usage: bash scripts/question-commands_test.sh
-#   shirabe from PATH, or SHIRABE_BIN; koto 0.42.0 or later on PATH; jq.
+#   shirabe from SHIRABE_BIN, or PATH; koto 0.42.0 or later on PATH; jq.
 #
 # Exit codes:
 #   0 -- all cases pass
@@ -72,10 +72,12 @@ finish() {
     exit $?
 }
 
-SHIRABE=$(command -v shirabe 2>/dev/null)
-case "$SHIRABE" in /*) ;; *) SHIRABE="${SHIRABE_BIN:-}" ;; esac
+# SHIRABE_BIN first, as the coordinate scripts read it, so a host with an
+# older shirabe installed on PATH still tests the build it was handed.
+SHIRABE=${SHIRABE_BIN:-}
+[ -n "$SHIRABE" ] || SHIRABE=$(command -v shirabe) || SHIRABE=
 if [ -z "$SHIRABE" ] || [ ! -x "$SHIRABE" ]; then
-    fail "no shirabe on PATH (or in SHIRABE_BIN); put target/release first (cargo build --release)"
+    fail "no shirabe in SHIRABE_BIN (or on PATH); build one first (cargo build --release)"
     finish
 fi
 for tool in koto jq; do

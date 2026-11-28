@@ -199,13 +199,14 @@ mrun() {
             [ "$(at --with-data '{"raised":"raised"}')" = decision_take ] &&
             write_as_agent state-decision.sh --take &&
             [ "$(at --with-data '{"taken":"taken"}')" = decision_verdict ] &&
-            write_as_agent state-decision.sh --escalate --recommendation installed --reason "the users asked for their own list" \
-                --context "MV1 can't be scoped until its list is chosen." --problem "It changes the milestone's scope, which is the human's." \
-                --grounds scope --option "installed -- what the user has" --option "known -- every plugin the registry names" &&
+            q_own "$WD" "$S" "MV1: list installed plugins only, or every known one?" "mv1-list" \
+                "installed -- what the user has" "known -- every plugin the registry names" &&
+            write_as_agent state-decision.sh --identity "$QI" &&
+            write_as_agent state-decision.sh --escalate --grounds changes-scope --attempt "$QA" --reason "the users asked for their own list" &&
             [ "$(at --with-data '{"verdict":"escalate","rationale":"a scope call"}')" = escalate_send ] &&
             write_as_agent state-decision.sh --sent --route message &&
             [ "$(at --with-data '{"sent":"sent"}')" = pick ] \
-            || { bad "$1: MV1 is parked on decision 1" "$(cat "$T/w.err" "$T/tick.err")"; return 1; }
+            || { bad "$1: MV1 is parked on decision 1" "$(cat "$T/w.err" "$T/tick.err" "$T/q.err")"; return 1; }
     fi
     [ "$(at --with-data '{"choice":"hold"}')" = wait ] || { bad "$1: the run reaches wait" "$(cat "$T/tick.err")"; return 1; }
 }
@@ -458,13 +459,14 @@ drun() {
             [ "$(at --with-data '{"raised":"raised"}')" = decision_take ] &&
             write_as_agent state-decision.sh --take &&
             [ "$(at --with-data '{"taken":"taken"}')" = decision_verdict ] &&
-            write_as_agent state-decision.sh --escalate --recommendation pin --reason "a pinned image flakes less" \
-                --context "#12 can't be fixed until the approach is chosen." --problem "It changes the pipeline, which is the human's." \
-                --grounds scope --option "retry -- run it again on failure" --option "pin -- one runner image" &&
+            q_own "$WD" "$S" "#12: retry the deploy job, or pin its runner?" "deploy-12-fix" \
+                "retry -- run it again on failure" "pin -- one runner image" &&
+            write_as_agent state-decision.sh --identity "$QI" &&
+            write_as_agent state-decision.sh --escalate --grounds changes-scope --attempt "$QA" --reason "a pinned image flakes less" &&
             [ "$(at --with-data '{"verdict":"escalate","rationale":"a scope call"}')" = escalate_send ] &&
             write_as_agent state-decision.sh --sent --route message &&
             [ "$(at --with-data '{"sent":"sent"}')" = pick ] \
-            || { bad "$1: #12 is parked on decision 1" "$(cat "$T/w.err" "$T/tick.err")"; return 1; }
+            || { bad "$1: #12 is parked on decision 1" "$(cat "$T/w.err" "$T/tick.err" "$T/q.err")"; return 1; }
     fi
     [ "$(at --with-data '{"choice":"hold"}')" = wait ] || { bad "$1: the run reaches wait" "$(cat "$T/tick.err")"; return 1; }
 }

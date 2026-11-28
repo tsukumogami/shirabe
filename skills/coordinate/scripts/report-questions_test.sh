@@ -3,8 +3,11 @@
 # stand-ins: the Questions part and its citations, question-shaped and
 # phrasing-matched lines, fenced and quoted lines skipped, the caps, a report
 # with no holding, a coordinator's escalation (its digest checked) and
-# withdrawal (its whole rendered shape checked), each round-tripped through
-# decision-render.sh, and the sealed list.
+# withdrawal (its whole rendered shape checked), questions held by identity
+# (taken from koto decisions open, filtered by raiser, read from koto's
+# content, an identity only in the text opening nothing), an escalation by
+# identity and a withdrawal each round-tripped through decision-render.sh,
+# and the sealed list.
 #
 # testdata/report-questions/questions-shape.txt is the contract fixture: a
 # report written to the exact Questions: shape a worker's report is asked to
@@ -46,6 +49,7 @@ run() {
     S="coordinate-roadmap-feat-q$N-$RUNSTAMP"
     found_session "$S" "$(roadmap_vars feat)"
     seed_session "$S" "$rec"
+    [ -z "${PRE:-}" ] || "$PRE" # koto's decisions fixtures for this session
     log_to "$S" wait take_report
     printf '%s' "$2" > "$T/report"
     koto context add "$S" worker_report --from-file "$T/report"
@@ -224,24 +228,12 @@ eq "escalation: one item from a coordinator holding" "0 questions 1" "$RC $(prin
 eq "escalation: its question, options, recommendation and source" \
     'escalation|Merge before the release?|wait -- one upgrade carries both,merge now -- the format lands this week|wait|coordinator rr #4 round 1|4 1' \
     "$(list | jq -r '.[0] | "\(.kind)|\(.text)|\(.options | join(","))|\(.recommended)|\(.source)|\(.n) \(.round)"')"
-# The contract with decision-render.sh: an escalation it renders, relayed as a
-# report, reads back as the same question, options and recommendation.
+# A coordinator's escalation as decision-render.sh renders it now names its
+# questions by identity; it is read back in the next section.
 RENDERED_ESC='{"decision":"4","round":"1","question":"Merge before the release?",
   "options":"merge now -- the format lands this week\nwait -- one upgrade carries both","state":"escalated",
   "source":"self [20260926T080000Z raise 2]","verdict":"escalate","recommendation":"wait","reason":"the release is Friday",
   "context":"The context.","problem":"The problem.","grounds":"scope","target":"coordinator ws","owed":"escalation","updated":"2026-09-26T09:00Z"}'
-LOW="coordinate-roadmap-low-$RUNSTAMP"
-found_session "$LOW" "$(roadmap_vars low | jq -c '.REPORTS_TO = "ws"')"
-seed_session "$LOW" "$(record_json roadmap low | jq -c --argjson e "[$RENDERED_ESC]" '.decisions = {next: 5, entries: $e}')"
-log_to "$LOW" reconcile decision_next
-log_capture "$LOW" DECISION_NEXT "$(bash "$HERE/coord-log.sh" seal --session "$LOW" --state decision_next --token "escalate 4")"
-log_to "$LOW" decision_next escalate
-bash "$HERE/decision-render.sh" --session "$LOW" --state escalate --kind escalation > /dev/null 2> "$T/render.err" ||
-    bad "the round trip renders an escalation" "$(cat "$T/render.err")"
-run "holding none rr" "$(koto context get "$LOW" coord/decision_message.txt)" "$COORD"
-eq "round trip: decision-render.sh's escalation reads back as the same question, options and recommendation" \
-    'Merge before the release?|wait -- one upgrade carries both,merge now -- the format lands this week|wait|coordinator rr #4 round 1' \
-    "$(list | jq -r '.[0] | "\(.text)|\(.options | join(","))|\(.recommended)|\(.source)"')"
 
 run "holding none rr" "$(escalation 4 1 | sed 's/The problem./A changed problem./')" "$COORD"
 eq "escalation: a body that doesn't hash to its digest is unreadable" "0 unreadable" "$RC $(word)"
@@ -321,6 +313,101 @@ run "holding none rr" "$(escalation 4 1 "Merge $(printf '%420s' '' | tr ' ' x) b
 eq "a coordinator's escalation isn't held to the 400-character cap" "0 questions 1" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1-2)"
 run "holding none rr" "$(printf 'Answer: decision 4 round 1.\n\nOutcome: wait\n')" "$COORD" "$OPEN_UP"
 eq "an Answer: first line is ordinary text" "0 none" "$RC $(word)"
+
+# --- questions held by identity -----------------------------------------------------------
+# Questions koto lists open at this session (koto decisions open --at), raised
+# by the reporting worker, are items whatever the report says; a text line
+# naming an identity opens nothing. Fixtures for the koto stand-in
+# (testdata/koto-decisions), written for each run's session by PRE.
+QA=0a1b2c3d-a/000000000002
+QB=0a1b2c3d-b/000000000003
+qkey() { printf '%s' "$1" | tr '/' '_'; }
+KD() { mkdir -p "$KOTO_STORE/decisions/$1"; printf '%s' "$KOTO_STORE/decisions/$1"; }
+CONTENT='{"context":"CTX","problem":"PROB","ask":"Which store, @alice?","question":"CTX\n\nPROB\n\nWhich store, @alice?","options":[{"label":"SQLite","reason":"one file"},{"label":"Postgres","reason":"shared"}],"ground":"G","waiting":[],"label":"cache"}'
+# OPEN: "<identity>:<raiser session>" pairs koto lists open at the run's session.
+OPEN=
+open_pre() {
+    local p q='[]'
+    rm -rf "$KOTO_STORE/decisions"
+    for p in $OPEN; do
+        q=$(printf '%s' "$q" | jq -c --arg i "${p%%:*}" --arg r "${p#*:}" --arg s "$S" \
+            '. + [{addressee: {kind: "session", name: $s}, identity: $i, session: $r, text: "Which store?", need: "decision"}]')
+        printf '%s' "$CONTENT" > "$(KD content)/$(qkey "${p%%:*}").json"
+    done
+    printf '{"at":"%s","questions":%s,"v":1}' "$S" "$q" > "$(KD open)/$S.json"
+}
+PRE=open_pre
+OPEN="$QA:work-on-w1"
+run "holding none w1" "Done with the first half." "$WORKER"
+eq "identity: a question the worker raised is an item, though the report asks nothing" "0 questions 1" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1-2)"
+eq "identity: its identity, ask, labels and source, read from koto" "question|$QA|Which store, &#64;alice?|SQLite,Postgres|question $QA|null" \
+    "$(list | jq -r '.[0] | "\(.kind)|\(.identity)|\(.text)|\(.options | join(","))|\(.source)|\(.cite)"')"
+OPEN="$QA:w1"
+run "holding none w1" "Should the second half wait for the release?" "$WORKER"
+eq "identity: a session named by the topic alone is the worker's too, and a bare question line still opens" "question|$QA question|" \
+    "$(list | jq -r '[.[] | "\(.kind)|\(.identity // "")"] | join(" ")')"
+OPEN=
+run "holding none w1" "$(printf 'Should we settle %s?\n' "$QB")" "$WORKER"
+eq "identity: an identity found only in the text opens nothing" "0 none" "$RC $(word)"
+OPEN="$QA:w1"
+run "holding none w1" "$(printf 'Done.\nShould we settle %s?\n' "$QB")" "$WORKER"
+eq "identity: only koto's listing opens; the line naming another identity is dropped" "1 $QA" "$(list | jq -r '"\(length) \(.[0].identity)"')"
+OPEN="$QA:work-on-w9"
+run "holding none w1" "Done." "$WORKER"
+eq "identity: a question another session raised is no item" "0 none" "$RC $(word)"
+OPEN="$QA:w1 $QA:w1"
+run "holding none w1" "Done." "$WORKER"
+eq "identity: one koto lists twice is one item" "0 questions 1" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1-2)"
+OPEN="$QA:w1"
+run "holding none w1" "Done." "$WORKER" \
+    "[{\"decision\":\"2\",\"round\":\"0\",\"question\":\"Which store?\",\"options\":\"\",\"state\":\"proposed\",\"source\":\"question $QA [20260926T070000Z report 3.1]\",\"updated\":\"2026-09-26T09:00Z\"}]"
+eq "identity: one that already has an entry adds none" "0 none" "$RC $(word)"
+# The contract with decision-render.sh: an escalation it renders to this
+# coordinator names each identity; the question the lower coordinator passed
+# up is read back from koto, not from the message's text.
+LOW="coordinate-roadmap-rr-$RUNSTAMP"
+OPEN=
+open_pre
+# The renderer reads the entry, and koto's content for its question with it.
+printf '%s' "$CONTENT" > "$(KD content)/$(qkey "$QA").json"
+found_session "$LOW" "$(roadmap_vars rr | jq -c '.REPORTS_TO = "ws"')"
+seed_session "$LOW" "$(record_json roadmap rr | jq -c --argjson e "[$(printf '%s' "$RENDERED_ESC" | jq -c --arg q "$QA" '.source = "question \($q) [20260926T080000Z report 2.1]" | .options = "" | .grounds = "changes-scope"')]" '.decisions = {next: 5, entries: $e}')"
+log_to "$LOW" reconcile decision_next
+log_capture "$LOW" DECISION_NEXT "$(bash "$HERE/coord-log.sh" seal --session "$LOW" --state decision_next --token "escalate 4")"
+log_to "$LOW" decision_next escalate
+bash "$HERE/decision-render.sh" --session "$LOW" --state escalate --kind escalation > /dev/null 2> "$T/render.err" ||
+    bad "the round trip renders an escalation" "$(cat "$T/render.err")"
+koto context get "$LOW" coord/decision_message.txt > "$T/low.msg"
+round_pre() {
+    open_pre
+    jq -nc --arg q "$QA" --arg l "$LOW" '{identity: $q, open: true, raiser: {name: "w7"}, entries: [{entry: "raise", session: "w7"}, {entry: "pass-up", session: $l}]}' \
+        > "$(KD history)/$(qkey "$QA").json"
+}
+PRE=round_pre OPEN="$QA:w7"
+run "holding none rr" "$(cat "$T/low.msg")" "$COORD"
+eq "round trip: decision-render.sh's escalation reads back as the question it passed up, from koto" "0 1|$QA|Which store, &#64;alice?|question $QA" \
+    "$RC $(list | jq -r '"\(length)|\(.[0].identity)|\(.[0].text)|\(.[0].source)"')"
+PRE=round_pre OPEN="$QA:w7"
+run "holding none w1" "Done." "$WORKER"
+eq "identity: a nested pass-up counts only for a coordinator's holding" "0 none" "$RC $(word)"
+# Only a line naming an identity (<session>/<1 to 20 digits>, standing alone)
+# is dropped, and every dropped line is counted in the verdict.
+dropped() { printf '%s' "$OUT" | tr ' ' '\n' | grep '^dropped:'; }
+PRE=open_pre OPEN=
+run "holding none w1" "Should we rerun https://github.com/o/r/actions/runs/123456789 before merging?" "$WORKER"
+eq "identity: a line with a CI run link is a question, not dropped" "0 questions 1|" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1-2)|$(dropped)"
+run "holding none w1" "$(printf 'Should we settle %s?\nAnd %s?\nShould the second half wait?\n' "$QB" "$QA")" "$WORKER"
+eq "identity: each line naming an identity is dropped and counted" "0 questions 1|dropped:2" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1-2)|$(dropped)"
+# A withdrawal of an entry held by a question names its identity on the
+# question line, and reaches that entry by it.
+HELD_UP=$(printf '%s' "$OPEN_UP" | jq -c --arg q "$QA" '.[0].source = "question \($q) [20260926T070000Z report 3.1]" | .[0].options = "" | .[0].grounds = "changes-scope"')
+run "holding none rr" "$(withdrawal 4 1 | sed "3s#.*#$QA#")" "$COORD" "$HELD_UP"
+eq "withdrawal: one naming an identity an entry holds is matched by identity" "0 questions|withdrawal|$QA" \
+    "$RC $(word)|$(list | jq -r '.[0] | "\(.kind)|\(.identity)"')"
+run "holding none rr" "$(withdrawal 4 1 | sed "3s#.*#$QB#")" "$COORD" "$HELD_UP"
+eq "withdrawal: one naming an identity no entry holds falls back to its source, which opened nothing" "0 none" "$RC $(word)"
+PRE= OPEN=
+rm -rf "$KOTO_STORE/decisions"
 
 # --- robustness ------------------------------------------------------------------------
 

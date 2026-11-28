@@ -54,6 +54,35 @@ shirabe	validate	--pr-body,--pr-title,--format	always
 # roadmap-status.sh regenerates a roadmap's generated sections after it
 # writes a landed feature's Status and Delivered line.
 shirabe	roadmap populate	-	always
+# Questions travel by identity (references/question-procedure.md).
+# state-decision.sh passes an escalated entry's question up with `shirabe
+# question pass-up` and orders the queued ones by `shirabe question pending`;
+# decision-render.sh renders a person's prompt with `shirabe question render`;
+# state-handover.sh lists the owner answers not yet seen with `pending`. The
+# agent records its attempt, raises its own question, settles one (on the
+# owner's precedent with --basis, or a relayed claim as its own word with
+# --owner-note), records the owner's answer from the prompt, and marks an
+# answer seen, as coordinate.md's directives say.
+shirabe	question attempt	--in,--what,--result,--basis,--undo,--undo-reason	always
+shirabe	question raise	--in,--content,--attempt	always
+shirabe	question pass-up	--in,--ground,--attempt,--to	always
+shirabe	question pending	--in	always
+shirabe	question render	--in	always
+shirabe	question answer	--in	always
+shirabe	question settle	--in,--chosen,--reason,--basis,--owner-note	always
+shirabe	question seen	--in	always
+# The scripts read a question's state, content and attempts from koto
+# (state-decision.sh, decision-next.sh, decision-render.sh,
+# report-questions.sh, wait-target.sh, dispatch-worker.sh), an answer's
+# decider with `decisions show`, and the questions open at the session with
+# `decisions open --at`; the agent reads an owner's precedent before it
+# settles on one.
+koto	decisions history	-	always
+koto	decisions attempts	--in,--question	always
+koto	decisions content read	-	always
+koto	decisions open	--at	always
+koto	decisions show	-	always
+koto	decisions precedent	--person,--chain,--label	always
 # The reconcile pass. reconcile-pass.sh lists its reconcile/ keys once a pass
 # (`context list --prefix`, in koto's minimum), removes only those present and
 # writes the rest, and reconcile-check.sh stops a read's children at its
@@ -105,6 +134,8 @@ koto	request attach	--session	always
 #not-a-call-site	skills/coordinate/scripts/coordinate-open.sh	koto	--to	named in the bound-elsewhere refusal as the rebind the operator runs; the script never runs it
 #not-a-call-site	skills/coordinate/koto-templates/coordinate.md	koto	--to	named only to forbid it and to explain the seal
 #not-a-call-site	skills/coordinate/references/state-keys.md	koto	--to	named only as a write the session store refuses after it
+#not-a-call-site	skills/coordinate/scripts/state-decision.sh	koto	--chosen	the --settle refusal names the shirabe question settle the operator runs; the script never runs it
+#not-a-call-site	skills/coordinate/scripts/state-decision.sh	koto	--reason	the --settle refusal names the shirabe question settle the operator runs; the script never runs it
 # The session store (docs/designs/current/DESIGN-coordinator-record-teardown.md):
 # the coordinator's record is always its koto session. coordinate-open.sh
 # probes at every start, by feature from each subcommand's own `--help`,
@@ -151,3 +182,5 @@ koto	session flush	-	mode:carry
 # The engine suites' floor-koto check reads `koto init --help` from a test
 # fixture under scripts/testdata/, which only *_test.sh suites source.
 #not-a-call-site	skills/coordinate/scripts/testdata/takeover-flags.sh	koto	--help	a test fixture the engine suites source; the skill never runs it
+# state-handover.sh's `head -n 1` reads shirabe's error text; it passes shirabe no -n.
+#not-a-call-site	skills/coordinate/scripts/state-handover.sh	shirabe	-n	head -n 1 on shirabe question pending's stderr, not a shirabe flag

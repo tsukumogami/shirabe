@@ -123,15 +123,24 @@ fn secret_patterns() -> &'static [Regex] {
     })
 }
 
+/// Whether `s` holds text shaped like a secret. The match itself is never
+/// returned, so a caller can refuse the value without printing it.
+pub fn holds_secret(s: &str) -> bool {
+    secret_patterns().iter().any(|re| re.is_match(s))
+}
+
 /// The number of secret shapes the binary holds.
 #[cfg(test)]
 pub fn secret_shape_count() -> usize {
     secret_patterns().len()
 }
 
+/// A question identity: the raiser's session id, then `/`, then koto's
+/// twelve-digit decision id. The coordinator's scripts match the same
+/// pattern.
 fn identity_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^[0-9A-Za-z][0-9A-Za-z-]*/[0-9]+$").unwrap())
+    RE.get_or_init(|| Regex::new(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[0-9]{12}$").unwrap())
 }
 
 /// Whether `s` has the shape of a question identity,

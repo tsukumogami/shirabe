@@ -107,6 +107,7 @@ impl Standin {
                 l.starts_with("decisions record")
                     || l.starts_with("decisions content write")
                     || l.starts_with("decisions answer")
+                    || l.starts_with("decisions readdress")
                     || l.starts_with("next")
             })
             .collect()

@@ -500,7 +500,12 @@ the prompt the owner answered. It never takes the answer as text.
 `undecided` or `provisional`. It takes `provisional` only from a session that
 declares itself unattended and calls the choice cheap to undo; it checks that
 those declarations are consistent, not that they are true. An undecided attempt is what `raise --attempt` rests a question
-on. The
+on. A session holding a question has three more: `question pass-up` hands it
+to the session's own dispatcher or the owner, keeping its identity, and only
+on that session's own undecided attempt at it; `question settle` answers it as
+the session, and records a relayed "the owner said" as the session's own
+decision with `--owner-note`, never as the owner's; and `question seen` marks
+an owner's answer given below the session as read. The
 arguments, output fields, exit codes and stored format are in
 [docs/guides/question-commands.md](docs/guides/question-commands.md), and
 what a session does with a question is in
