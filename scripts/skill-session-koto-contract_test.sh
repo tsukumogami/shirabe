@@ -55,7 +55,9 @@
 #   held elsewhere, sweep finishes    a KNOWN GAP: printed, not failed (koto
 #                                     refuses where the plan expects a state)
 #   held elsewhere, sweep can't finish  not a parent here: adopted=none
-#   own prefix failing, whole bucket failing, on both parents
+#   own prefix failing, whole bucket failing, on both parents; with every
+#                                     request failing, adopt of the parent
+#                                     held here fails closed (koto_error)
 #   reads write nothing               no PUT, POST or DELETE from a read-only
 #                                     call, adopt's writes to its own child
 #                                     excepted
@@ -795,8 +797,21 @@ case_widened() {
     fi
     expect_rc 0 "koto status scope-$TH"
     sread "design-$TH" "design-$TH" adopt design "$TH"
-    expect_rc 0 "skill-session.sh adopt design $TH"
-    expect_line "adopted=scope-$TH" "skill-session.sh adopt design $TH"
+    if [ "$1" = all ]; then
+        # The proxy's `all` mode fails every request, object writes included,
+        # so adopt's write of chain/parent can't land. koto refuses a context
+        # write whose upload isn't confirmed since 0.39.0 (koto#730), where 0.37.x
+        # warned and exited 0, and adopt then fails closed rather than report
+        # a parent it never recorded.
+        expect_rc 1 "skill-session.sh adopt design $TH"
+        expect_line "failed=koto_error" "skill-session.sh adopt design $TH"
+        if grep -q '^adopted=' <<<"$OUT"; then
+            bad "skill-session.sh adopt design $TH: printed an adopted= line with every request failing; stdout [$(oneline "$OUT")]"
+        fi
+    else
+        expect_rc 0 "skill-session.sh adopt design $TH"
+        expect_line "adopted=scope-$TH" "skill-session.sh adopt design $TH"
+    fi
     sread "" "scope-$TH" status "scope-$TH"
     expect_not_absent "skill-session.sh status scope-$TH"
     set_mode pass
