@@ -333,20 +333,24 @@ expect_adopt "adoption: test_review_shadow.py changed" 1 "test_review_shadow.py 
 printf '{"criteria":[{"rule_id":"rs-001","rule_ref":"CLAUDE.md"}],"x":1}\n' > "$A/scripts/review-shadow/criteria.json"
 expect_adopt "adoption: criteria.json changed" 1 "criteria.json differs from the base"
 
-# shirabe#2229. The scratch directory removed while the span paths are cut:
+# shirabe#2229. The scratch directory removed once the span paths are written:
 # the list it can't read back is not an empty one, so a line removed from a
-# loaded file is never waved through as ok. The cut stub fires on the call
-# that cuts the spans file, removes that file's directory (twice, in case the
-# sort beside it in the pipeline creates its output in between) and then runs
-# the real cut; every other call is the real cut.
-REAL_CUT=$(command -v cut)
-mkdir -p "$WORK/vanish-spans-bin"
-printf '%s\n' '#!/bin/sh' 'for last; do :; done' 'case "$1:$last" in' \
-    '    -f1:*/spans) rm -rf "$(dirname "$last")"; rm -rf "$(dirname "$last")" ;;' \
-    'esac' "exec \"$REAL_CUT\" \"\$@\"" > "$WORK/vanish-spans-bin/cut"
-chmod +x "$WORK/vanish-spans-bin/cut"
+# loaded file is never waved through as ok. The run gets a TMPDIR of its own,
+# so its scratch directory is the one check-rule-registry-adoption.* there.
+# The sort stub fires on a bare `sort -u` once span-paths exists in that
+# directory: the shell creates span-paths for the sort's output before the
+# sort starts, and the earlier `sort -u` into spans runs before span-paths
+# exists, so the removal always follows the file's creation. It removes the
+# directory and then runs the real sort; every other call is the real sort.
+REAL_SORT=$(command -v sort)
+mkdir -p "$WORK/vanish-spans-bin" "$WORK/vanish-spans-tmp"
+printf '%s\n' '#!/bin/sh' 'if [ "$*" = -u ]; then' \
+    '    for d in "$TMPDIR"/check-rule-registry-adoption.*; do' \
+    '        if [ -e "$d/span-paths" ]; then rm -rf "$d"; fi' \
+    '    done' 'fi' "exec \"$REAL_SORT\" \"\$@\"" > "$WORK/vanish-spans-bin/sort"
+chmod +x "$WORK/vanish-spans-bin/sort"
 drop_line docs/loaded.md "loaded two"
-OUT=$(PATH="$WORK/vanish-spans-bin:$PATH" "$ADOPT" --root "$A" "$BASE" 2>&1); RC=$?
+OUT=$(TMPDIR="$WORK/vanish-spans-tmp" PATH="$WORK/vanish-spans-bin:$PATH" "$ADOPT" --root "$A" "$BASE" 2>&1); RC=$?
 if [ "$RC" = 2 ]; then
     pass "adoption: a temporary directory lost mid-run is an environment error (2)"
 else
