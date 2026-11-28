@@ -91,6 +91,7 @@ jobs:
       - name: Install project tools
         env:
           TSUKU_TELEMETRY: "0"
+          GITHUB_TOKEN: ${{ github.token }}
         run: tsuku install -y
 
       - name: Assert koto meets the floor
