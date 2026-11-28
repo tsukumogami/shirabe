@@ -40,7 +40,13 @@ fn att(id: &str, session: &str, result: &str, question: &str) -> String {
 
 /// An attempt row as `koto decisions attempts` prints it, with the `status`
 /// given (left out with `None`).
-fn att_status(id: &str, session: &str, result: &str, question: &str, status: Option<&str>) -> String {
+fn att_status(
+    id: &str,
+    session: &str,
+    result: &str,
+    question: &str,
+    status: Option<&str>,
+) -> String {
     let status = status
         .map(|st| format!(r#","status":"{st}""#))
         .unwrap_or_default();
@@ -87,7 +93,12 @@ fn the_raisers_own_attempt_does_not_count_for_the_coordinator() {
 #[test]
 fn an_attempt_by_the_session_at_another_question_is_refused() {
     let s = setup(
-        &att("000000000001", "manager", "undecided", "sid-w2/000000000007"),
+        &att(
+            "000000000001",
+            "manager",
+            "undecided",
+            "sid-w2/000000000007",
+        ),
         "decision",
     );
     let j = refused(

@@ -272,7 +272,10 @@ pub fn pass_up(i: &PassUp) -> Result<Value, Failure> {
         if i.attempt.is_some() {
             return Err(Failure::refused(
                 "attempt",
-                format!("{} is a {need} need, which rests on no attempt; leave --attempt out", i.identity),
+                format!(
+                    "{} is a {need} need, which rests on no attempt; leave --attempt out",
+                    i.identity
+                ),
             ));
         }
         None
@@ -645,7 +648,11 @@ pub fn seen(i: &Seen) -> Result<Value, Failure> {
     let decider = d.pointer("/decider/kind").and_then(Value::as_str);
     let handle = d.pointer("/decider/handle/value").and_then(Value::as_str);
     let outcome = d.get("outcome").and_then(Value::as_str);
-    if kind != "answer" || decider != Some("person") || handle != Some(OWNER) || outcome != Some("answered") {
+    if kind != "answer"
+        || decider != Some("person")
+        || handle != Some(OWNER)
+        || outcome != Some("answered")
+    {
         return Err(Failure::refused(
             "answer",
             format!(
@@ -664,7 +671,8 @@ pub fn seen(i: &Seen) -> Result<Value, Failure> {
         .to_string();
     if reading != "verified" {
         let why = if reading.contains("remote") {
-            "it reads as a remote session's answer, whose prompt this host did not check".to_string()
+            "it reads as a remote session's answer, whose prompt this host did not check"
+                .to_string()
         } else if reading.is_empty() {
             "koto gives it no reading".to_string()
         } else {

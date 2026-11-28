@@ -132,7 +132,10 @@ fn kotos_refusal_of_a_settle_passes_through_as_exit_4() {
         .code(4)
         .get_output()
         .clone();
-    assert_eq!(json(&out.stdout)["error"]["code"], json!("invalid_decision"));
+    assert_eq!(
+        json(&out.stdout)["error"]["code"],
+        json!("invalid_decision")
+    );
 }
 
 #[test]
@@ -276,7 +279,9 @@ fn a_claim_with_no_question_needs_what_and_owner_note() {
         .clone();
     refused(&out, "what");
     let out = s
-        .cmd(&["settle", "--in", "manager", "--what", "licence", "--chosen", "MIT"])
+        .cmd(&[
+            "settle", "--in", "manager", "--what", "licence", "--chosen", "MIT",
+        ])
         .assert()
         .code(1)
         .get_output()
@@ -501,9 +506,24 @@ fn grounds_that_do_not_reserve_the_question_leave_the_settle_to_koto() {
     // outside-scope ground (a coordinator's to settle), a reversed attempt,
     // and an attempt with no ground at all.
     let cases: [(&str, &str, &str, &str); 4] = [
-        ("pass-up", "director", "000000000007", "ground: changes-scope"),
-        ("pass-up", "manager", "000000000006", "ground: outside-scope"),
-        ("reversed-attempt", "w2", "000000000004", "ground: changes-scope"),
+        (
+            "pass-up",
+            "director",
+            "000000000007",
+            "ground: changes-scope",
+        ),
+        (
+            "pass-up",
+            "manager",
+            "000000000006",
+            "ground: outside-scope",
+        ),
+        (
+            "reversed-attempt",
+            "w2",
+            "000000000004",
+            "ground: changes-scope",
+        ),
         ("attempt", "w2", "000000000004", "chosen: SQLite"),
     ];
     for (kind, session, id, reason) in cases {

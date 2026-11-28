@@ -19,9 +19,9 @@ fn show(decider: &str, kind: &str, reading: &str) -> String {
     )
 }
 
-const OWNER: &str = r#"{"kind":"person","handle":{"source":"handed","value":"owner"},"surface":"terminal"}"#;
-const SESSION: &str =
-    r#"{"kind":"session","session":{"source":"observed","value":"w1"}}"#;
+const OWNER: &str =
+    r#"{"kind":"person","handle":{"source":"handed","value":"owner"},"surface":"terminal"}"#;
+const SESSION: &str = r#"{"kind":"session","session":{"source":"observed","value":"w1"}}"#;
 
 fn precedent(cited: bool) -> String {
     format!(
@@ -167,5 +167,7 @@ fn an_answer_koto_does_not_hold_exits_4_decision_not_found() {
 fn a_malformed_answer_is_a_usage_error() {
     let s = Standin::new();
     s.cmd(&["seen", "w1", "--in", "manager"]).assert().code(2);
-    s.cmd(&["seen", "w1:abc", "--in", "manager"]).assert().code(2);
+    s.cmd(&["seen", "w1:abc", "--in", "manager"])
+        .assert()
+        .code(2);
 }
