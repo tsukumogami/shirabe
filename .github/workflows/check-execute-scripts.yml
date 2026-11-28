@@ -248,13 +248,11 @@ jobs:
 
       # decide_first's routes, park.sh and the parked-state table. Its "as
       # before" cases compare the shipped templates with the pull request's
-      # base branch at their merge-base, so the shallow checkout is deepened
-      # and the base branch fetched first; a depth-1 fetch has no merge-base.
+      # base branch at their merge-base; the suite fetches that one ref
+      # itself, since this checkout is one commit deep.
       - name: Run decide-first routes tests (Linux)
         if: runner.os == 'Linux'
-        run: |
-          git fetch --no-tags --unshallow origin "+refs/heads/${GITHUB_BASE_REF:-main}:refs/remotes/origin/${GITHUB_BASE_REF:-main}"
-          bash skills/execute/scripts/decide-first-routes_test.sh
+        run: bash skills/execute/scripts/decide-first-routes_test.sh
 
       # The output gates on the engine: the owned-PR lookups, the PR body and
       # branch checks, the pause, and the cascade verdict route every shipped

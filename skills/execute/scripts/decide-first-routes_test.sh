@@ -88,6 +88,18 @@ BASE_REF="${DECIDE_FIRST_BASE:-}"
 [ -n "$BASE_REF" ] || BASE_REF=origin/main
 BASE_DIR="$WORK/base"
 BASE_WHY=""
+# Under CI the checkout is one commit deep, which has no merge-base with
+# anything. The suite fetches the one ref it compares against, with the
+# history a merge-base needs, before looking; nowhere else does it fetch.
+if [ "${GITHUB_ACTIONS:-}" = true ] && [ -z "${DECIDE_FIRST_BASE:-}" ] && command -v git > /dev/null \
+    && ! git -C "$SRC_ROOT" merge-base HEAD "$BASE_REF" > /dev/null 2>&1; then
+    FETCH_REF="${BASE_REF#origin/}"
+    if [ "$(git -C "$SRC_ROOT" rev-parse --is-shallow-repository 2> /dev/null)" = true ]; then
+        git -C "$SRC_ROOT" fetch --no-tags --unshallow origin "+refs/heads/$FETCH_REF:refs/remotes/origin/$FETCH_REF" > "$WORK/fetch.out" 2>&1
+    else
+        git -C "$SRC_ROOT" fetch --no-tags origin "+refs/heads/$FETCH_REF:refs/remotes/origin/$FETCH_REF" > "$WORK/fetch.out" 2>&1
+    fi || echo "note: fetching $BASE_REF failed: $(tail -2 "$WORK/fetch.out")"
+fi
 if ! command -v git > /dev/null; then
     BASE_WHY="git is not on PATH"
 elif ! BASE_SHA=$(git -C "$SRC_ROOT" merge-base HEAD "$BASE_REF" 2> "$WORK/base.err"); then

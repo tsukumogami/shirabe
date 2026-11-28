@@ -27,10 +27,13 @@
 #                   pr_finalization.
 #   the refusals    a second run with independent steps x and y, each parked.
 #                   x's question answered by the run itself and y's by an
-#                   unrelated session: park.sh list names each unauthorized,
-#                   clear refuses each and cited answers 1, and the batch
-#                   holds. Where koto itself refuses one of those answers,
-#                   the case says so and passes on koto's refusal.
+#                   unrelated session: koto refuses both (exit 2,
+#                   invalid_decision), the run still waits, park.sh list
+#                   shows both open and cited answers 1. A third run's step
+#                   z links a dispatcher after its raise and passes the
+#                   question up to it; koto records that dispatcher's
+#                   answer, and park.sh list names it unauthorized, clear
+#                   refuses it, cited answers 1 and the batch holds.
 #   no covered exit execute.md's states from worktree_discipline_check to
 #                   pr_finalization, cut from the template before decide_first
 #                   was added and from the branch's, each driven the same way
@@ -556,49 +559,72 @@ done
 tick "$RUN"
 eq "with both parked, the run ends at done_waiting" done_waiting "$(state "$RUN")"
 
-# answered_by <answerer> <child> <identity> <label>
-answered_by() {
+# refused_by <answerer> <child> <identity> <label>: koto refuses the answer
+# itself, exit 2 with invalid_decision on field `in` (not the addressee) or
+# `by` (the question waits on a person), and records nothing.
+refused_by() {
+    local rc code field
     koto decisions answer --in="$1" --text=SQLite --by=session -- "$2" "${3##*/}" > "$T/ans.out" 2> "$T/ans.err"
-    if [ "$?" -ne 0 ]; then
-        local m
-        m=$(cat "$T/ans.out" "$T/ans.err")
-        pass "$4: koto refuses the answer itself (${m:0:200})"
-        return 1
+    rc=$?
+    code=$(jq -r '.code // empty' "$T/ans.out" 2> /dev/null)
+    field=$(jq -r '.field // empty' "$T/ans.out" 2> /dev/null)
+    if [ "$rc" = 2 ] && [ "$code" = invalid_decision ] && { [ "$field" = in ] || [ "$field" = by ]; }; then
+        pass "$4: koto refuses it, invalid_decision on --$field"
+    else
+        fail "$4: want exit 2, invalid_decision on --in or --by; got exit $rc: $(cat "$T/ans.out" "$T/ans.err")"
     fi
-    return 0
 }
-REFUSED=""
-answered_by "$RUN" "$RUN.x" "$Q_x" "the run's own answer to its step's question" || REFUSED="$REFUSED x"
-answered_by stranger "$RUN.y" "$Q_y" "an unrelated session's answer" || REFUSED="$REFUSED y"
+refused_by "$RUN" "$RUN.x" "$Q_x" "the run's own answer to its step's question"
+refused_by stranger "$RUN.y" "$Q_y" "an unrelated session's answer"
+eq "with both answers refused, the run still waits" done_waiting "$(state "$RUN")"
+park list "$RUN"
+for s in x y; do
+    grep -q "^$s .* open\$" "$T/park.out" && pass "park.sh list: $s stays parked, its question open" \
+        || fail "park.sh list, $s: $(cat "$T/park.out" "$T/park.err")"
+done
+park cited "$RUN"
+eq "park.sh cited finds no answer with authority" 1 "$PARK_RC"
 
+# The route koto allows: the step's run links a dispatcher only after the
+# raise and passes the question up to it, so the dispatcher is the addressee
+# and koto records its answer. It carries no authority over the batch: the
+# dispatcher was not one the step answered to when it asked.
+RUN=execute-latelink
+printf '%s\n' '[{"name":"z","waits_on":[]}]' > "$T/PLAN-latelink.md.tasks"
+: > "$T/PLAN-latelink.md"
+jq -n --slurpfile t "$T/PLAN-latelink.md.tasks" '{tasks: $t[0]}' > "$T/latelink-tasks.json"
+koto init "$RUN" --template "$T/execute.md" --var "PLAN_DOC=$T/PLAN-latelink.md" --var PLAN_SLUG=latelink --var "PLUGIN_ROOT=$P" > "$T/init.out" 2> "$T/init.err" \
+    || { fail "koto init $RUN: $(cat "$T/init.out" "$T/init.err")"; finish; }
+koto init manager --template "$T/desk.md" > "$T/init.out" 2> "$T/init.err" || { fail "koto init manager: $(cat "$T/init.out" "$T/init.err")"; finish; }
+tick "$RUN" "$T/latelink-tasks.json"
+tick "$RUN.z"
+ask "$RUN.z"
+Q_z=$Q
+park mark "$RUN" --child "$RUN.z"
+tick "$RUN"
+eq "with z parked, the run ends at done_waiting" done_waiting "$(state "$RUN")"
+koto session link "$RUN.z" --dispatched-by manager > "$T/link.out" 2> "$T/link.err" \
+    || fail "link $RUN.z to manager after the raise: $(cat "$T/link.out" "$T/link.err")"
+koto decisions readdress --in="$RUN.z" --to=session:manager --by=session --reason "the manager decides" -- "$RUN.z" "${Q_z##*/}" \
+    > "$T/readdress.out" 2> "$T/readdress.err" \
+    || fail "readdress $Q_z to manager: $(cat "$T/readdress.out" "$T/readdress.err")"
+koto decisions answer --in=manager --text=SQLite --by=session -- "$RUN.z" "${Q_z##*/}" > "$T/ans.out" 2> "$T/ans.err" \
+    && pass "koto records the answer of a dispatcher linked after the raise" \
+    || fail "the late-linked dispatcher's answer: $(cat "$T/ans.out" "$T/ans.err")"
 koto rewind "$RUN" > "$T/rewind.out" 2> "$T/rewind.err" || fail "koto rewind $RUN: $(cat "$T/rewind.out" "$T/rewind.err")"
 tick "$RUN"
-for s in x y; do
-    case " $REFUSED " in *" $s "*) continue ;; esac
-    park list "$RUN"
-    grep -q "^$s .* unauthorized " "$T/park.out" && pass "park.sh list names $s's answer unauthorized" \
-        || fail "park.sh list: $(cat "$T/park.out" "$T/park.err")"
-    park clear "$RUN" "$s"
-    if [ "$PARK_RC" -eq 1 ] && grep -q "carries no authority" "$T/park.err" "$T/park.out"; then
-        pass "park.sh clear refuses $s's answer: no authority"
-    else
-        fail "park.sh clear $s: exit $PARK_RC: $(cat "$T/park.out" "$T/park.err")"
-    fi
-done
-# koto refuses both answers itself (a run answering its own step's question,
-# and a session that is not the addressee), so both questions stay open and
-# the rewound run waits on them again. An answer koto let through would be
-# recorded without authority, and the batch would hold on it instead.
-case "$REFUSED" in
-    *x*y*)
-        eq "with both answers refused by koto, the questions stay open and the run waits again" done_waiting "$(state "$RUN")"
-        ;;
-    *)
-        park cited "$RUN"
-        eq "park.sh cited finds no answer with authority" 1 "$PARK_RC"
-        eq "the batch holds on answers without authority" spawn_and_await "$(state "$RUN")"
-        ;;
-esac
+park list "$RUN"
+grep -q "^z .* unauthorized " "$T/park.out" && pass "park.sh list names z's answer unauthorized" \
+    || fail "park.sh list: $(cat "$T/park.out" "$T/park.err")"
+park clear "$RUN" z
+if [ "$PARK_RC" -eq 1 ] && grep -q "carries no authority" "$T/park.err" "$T/park.out"; then
+    pass "park.sh clear refuses z's answer: no authority"
+else
+    fail "park.sh clear z: exit $PARK_RC: $(cat "$T/park.out" "$T/park.err")"
+fi
+park cited "$RUN"
+eq "park.sh cited finds no answer with authority" 1 "$PARK_RC"
+eq "the batch holds on an answer without authority" spawn_and_await "$(state "$RUN")"
 
 # A history that reads neither open nor closed keeps the step parked: koto,
 # wrapped, answers x's history with no `open` field.
@@ -608,6 +634,7 @@ printf '%s\n' '#!/usr/bin/env bash' \
     "if [ \"\$1 \$2\" = 'decisions history' ]; then echo '{\"events\":[]}'; exit 0; fi" \
     "exec \"$REAL_KOTO_BIN\" \"\$@\"" > "$T/oddbin/koto"
 chmod +x "$T/oddbin/koto"
+RUN=execute-refuse
 PATH="$T/oddbin:$PATH" park clear "$RUN" x
 if [ "$PARK_RC" -eq 2 ] && grep -q "reads neither open nor closed" "$T/park.err"; then
     pass "park.sh clear keeps x parked on a history that reads neither open nor closed"

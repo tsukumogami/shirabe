@@ -1180,10 +1180,19 @@ if grep -q 'failure_policy: skip_dependents' "$WORKDIR/parent.md" \
     tick "$C" '{"verdict":"exit","rationale":"which flag name is open"}'
     attempt "$C" --result undecided --state task_validation:1
     raise "$C" --attempt "$A" --state task_validation:1
+    QP=$Q
     tick "$C" '{"decide_outcome":"raised"}'
     expect_state "the child" done_waiting
     tick par
     expect_state "a parent from execute.md, its child waiting" waiting_record
+    # waiting_record is a stand-in here, so what it would record is read from
+    # the gate that routed there: parked_state exits 3 and names a's question
+    # by its identity, and no other.
+    bash "$XP/skills/execute/scripts/parked-state.sh" par "$WORKDIR/PLAN-par.md" > "$WORKDIR/ps.out" 2> "$WORKDIR/ps.err"
+    RCP=$?
+    [ -n "$QP" ] && [ "$RCP" = 3 ] && [ "$(grep -c '^question=' "$WORKDIR/ps.out")" = 1 ] && grep -qxF "question=$QP" "$WORKDIR/ps.out" \
+        && pass "the parent waits on a's question, named by its identity" \
+        || fail "parked_state for the parent exited $RCP, want 3 naming question=$QP: $(cat "$WORKDIR/ps.out" "$WORKDIR/ps.err")"
     koto status par > "$WORKDIR/par.out" 2>"$WORKDIR/par.err"
     [ "$(jq -r '[.batch.tasks[]? | select(.task_name == "b") | .outcome] | join(",")' "$WORKDIR/par.out")" = skipped ] \
         && pass "the batch view has b skipped, not released" \

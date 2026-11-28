@@ -113,12 +113,11 @@ else
 fi
 
 # The opener adds the rest: a `["<VAR>", ...]` pair in the variables it writes,
-# on a line that isn't a comment.
+# on a line that isn't a comment. The reader counts rather than stopping at
+# the first match: under pipefail, a `grep -q` that exits early leaves the
+# writer to die of SIGPIPE, and the pipeline reads as no match.
 for var in $OPENER_ADDS; do
-    # Not `grep -q` at the end of the pipe: under pipefail it stops reading at
-    # its first match, and the first grep, killed writing the rest of an
-    # opener larger than a pipe holds, fails the pipeline.
-    if ! grep -v '^[[:space:]]*#' "$OPENER" | grep -F "[\"${var}\"," > /dev/null; then
+    if [[ "$(grep -v '^[[:space:]]*#' "$OPENER" | grep -cF "[\"${var}\",")" = 0 ]]; then
         note_failure "$OPENER no longer adds required variable $var, which the $SKILL_DOC open sites leave to it"
     fi
 done

@@ -7,8 +7,9 @@
 #   df_setup <dir>     finds the shirabe with `question precedent`
 #                      (SHIRABE_BIN, the tree's target/release/shirabe, PATH),
 #                      links it into <dir>/df-bin and puts that first on PATH,
-#                      so the gate finds it; returns 1, saying why, when none
-#                      is found
+#                      so the gate finds it, and clears the run-mode
+#                      variables the host's harness may carry; returns 1,
+#                      saying why, when none is found
 #   cite_deferral <s>  links <s> as dispatched by a manager session <s>-mgr,
 #                      takes <s>, at deferral_approval, through needs_answer
 #                      to decide_first, raises the question in <s>
@@ -49,6 +50,11 @@ df_setup() {
     ln -sf "$s" "$dir/df-bin/shirabe" || return 1
     PATH="$dir/df-bin:$PATH"
     export PATH
+    # An agent host may carry CLAUDE_CODE_SESSION_ATTENDED=0 or KOTO_RUN_MODE;
+    # shirabe then reads the fixture's run as unattended and asks its
+    # undecided attempt for --undo. A CI runner carries neither, so the
+    # fixture clears both and reads the same on every host.
+    unset CLAUDE_CODE_SESSION_ATTENDED KOTO_RUN_MODE
     printf -- '---\nname: df-toy\nversion: "1.0"\ninitial_state: a\nstates:\n  a:\n    accepts:\n      done:\n        type: enum\n        values: [yes]\n        required: true\n    transitions:\n      - target: b\n        when:\n          done: yes\n  b:\n    terminal: true\n---\n\n## a\n\nWait.\n\n## b\n\nDone.\n' \
         > "$dir/df-toy.md"
     jq -n '{
