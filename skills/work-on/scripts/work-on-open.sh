@@ -634,7 +634,7 @@ if [ "$CONTINUE" -eq 1 ]; then
         fi
         RW=$("$KOTO" rewind "$HEAD" --rationale "continued under the leg $LEG on the answer $ANSWER to $QID")
         RW_RC=$?
-        RW_STATE=$(printf '%s' "$RW" | jq -r '.state // empty' 2>/dev/null)
+        RW_STATE=$(printf '%s' "$RW" | jq -r '.state // empty')
         if [ "$RW_RC" -ne 0 ] || [ "$RW_STATE" != waiting_record ]; then
             printf 'failed=rewind\nsession=%s\n' "$HEAD"
             echo "$PROG: koto rewind $HEAD (exit $RW_RC) left it at ${RW_STATE:-no readable state}, not waiting_record: $RW" >&2
@@ -658,7 +658,7 @@ if [ "$CONTINUE" -eq 1 ]; then
                 # A second rewind puts the session back at done_waiting, so the
                 # waiting run reads as it did before this call.
                 RB=$("$KOTO" rewind "$HEAD" --rationale "restored: the attach under $LEG was refused")
-                RB_STATE=$(printf '%s' "$RB" | jq -r '.state // empty' 2>/dev/null)
+                RB_STATE=$(printf '%s' "$RB" | jq -r '.state // empty')
                 if [ "$RB_STATE" = done_waiting ]; then
                     printf 'restored=done_waiting\nsession=%s\n' "$HEAD"
                 else

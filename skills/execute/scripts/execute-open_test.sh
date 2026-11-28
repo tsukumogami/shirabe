@@ -1030,7 +1030,14 @@ WALK_ROOT="$WORK/walk-plugin"
 mkdir -p "$WALK_ROOT/skills/work-on/scripts" "$WALK_ROOT/skills/execute/scripts"
 printf '#!/usr/bin/env bash\necho https://github.com/o/r/pull/1\n' > "$WALK_ROOT/skills/work-on/scripts/check-pr-output.sh"
 printf '#!/usr/bin/env bash\necho 00112233445566778899aabbccddeeff\n' > "$WALK_ROOT/skills/execute/scripts/run-id.sh"
-chmod +x "$WALK_ROOT/skills/work-on/scripts/check-pr-output.sh" "$WALK_ROOT/skills/execute/scripts/run-id.sh"
+# spawn_and_await's parked_state and parked_stop gates are overridable: false,
+# so koto refuses the walk's directed hop out of it unless parked_state reads
+# 0 (no step parked) as an edge needs; parked_stop's park.sh cited exits 1
+# (no decision cites an answer).
+printf '#!/usr/bin/env bash\nexit 0\n' > "$WALK_ROOT/skills/execute/scripts/parked-state.sh"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$WALK_ROOT/skills/execute/scripts/park.sh"
+chmod +x "$WALK_ROOT/skills/work-on/scripts/check-pr-output.sh" "$WALK_ROOT/skills/execute/scripts/run-id.sh" \
+    "$WALK_ROOT/skills/execute/scripts/parked-state.sh" "$WALK_ROOT/skills/execute/scripts/park.sh"
 
 # session_var <session> <VAR> — the variable's effective value from the log.
 session_var() {
@@ -1553,6 +1560,10 @@ case "${1-} ${2-}" in
     case " ${KOTO_STUB_OPEN-} " in *" $q "*) echo '{"open":true}' ;; *) echo '{"open":false}' ;; esac
     exit 0 ;;
 "rewind "*) exit "${KOTO_STUB_REWIND_RC:-0}" ;;
+"init "*)
+    # The rewound session is live, so koto attaches to it.
+    printf '%s\n' '{"name":"execute-wait","outcome":"attached","rebound":{}}'
+    exit 0 ;;
 esac
 exit 1
 STUB
@@ -1580,10 +1591,12 @@ fi
 wait_open ""
 if [ "${OUT%%$'\n'*}" = "continued=waiting" ] \
     && grep -q '^rewind execute-wait --rationale ' "$WORK/wait.log" \
+    && grep -qx 'opened=attached' <<< "$OUT" \
     && ! grep -q 'replaced_result\|moved_to=' <<< "$OUT" \
-    && ! grep -q '^init ' "$WORK/wait.log" \
+    && [ "$(grep -c '^init execute-wait .*--attach-live' "$WORK/wait.log")" = 1 ] \
+    && [ "$(grep -n '^rewind ' "$WORK/wait.log" | cut -d: -f1)" -lt "$(grep -n '^init ' "$WORK/wait.log" | cut -d: -f1)" ] \
     && [ ! -s "$WORK/shirabe.log" ]; then
-    pass "done_waiting with every question closed: rewound in place, continued=waiting, no replacement, no koto init, no question tool call"
+    pass "done_waiting with every question closed: rewound in place, then attached to the live session (continued=waiting, opened=attached), no replacement, no question tool call"
 else
     fail "done_waiting, all closed: exit $RC, out [$OUT], koto [$(tr '\n' ';' < "$WORK/wait.log")], shirabe [$(cat "$WORK/shirabe.log")]"
 fi

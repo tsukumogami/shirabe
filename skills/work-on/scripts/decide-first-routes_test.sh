@@ -849,8 +849,9 @@ else
     [ "$(legof "$R1" '"\(.disposition)|\(.result.payload.question)"')" = "resolved|$QL" ] \
         && pass "the first leg keeps its waiting result" || fail "the first leg: $(legof "$R1" . | cut -c1-400)"
 
-    # An answer with no authority over the run (its own) is refused before
-    # anything is rewound.
+    # An answer with no authority over the run is refused before anything is
+    # rewound. koto refuses a run answering its own question, so the answer
+    # comes from lgw, a session that is not this run's dispatcher.
     S=lgx
     if reach "$S" analysis; then
         tick "$S" '{"plan_outcome":"blocked_missing_context","approach_summary":"no cache store is named"}'
@@ -859,13 +860,15 @@ else
         QX=$Q
         tick "$S" '{"decide_outcome":"raised"}'
         expect_state "the second run raised" done_waiting
-        answers "$S" "$S" "$QX"
+        koto decisions answer --in=lgw --text=SQLite --by=session -- "$S" "${QX##*/}" \
+            > "$WORKDIR/ans.out" 2>"$WORKDIR/ans.err" \
+            || fail "$S could not be answered by lgw: $(cat "$WORKDIR/ans.out" "$WORKDIR/ans.err")"
         newreq
         cont_leg "$S" "$REQ" manager
         [ "$RC" = 2 ] && grep -qx refused=answer_without_authority "$WORKDIR/cont.out" && [ "$(cur "$S")" = done_waiting ] \
             && [ "$(legof "$REQ" '"\(.disposition)|\(.bound_child)"')" = "open|null" ] \
             && pass "under a leg, an answer without authority is refused with nothing rewound" \
-            || fail "--continue-waiting on a self-answered question exited $RC: $(cat "$WORKDIR/cont.out" "$WORKDIR/cont.err")"
+            || fail "--continue-waiting on an answer from another run exited $RC: $(cat "$WORKDIR/cont.out" "$WORKDIR/cont.err")"
     fi
 fi
 
@@ -1119,20 +1122,28 @@ echo "--- a parent from execute.md"
 # The parent is execute.md's own spawn_and_await, read from the file, with
 # its child template pointed at the branch's work-on.md and its two ways out
 # made terminals. Child a waits on a question; b, which waits on a, must not
-# be released.
+# be released. Its ways out to a parked step's states are terminals too: this
+# child is not parked by /execute, so parked_state.sh exits 0 and the batch
+# reaches escalate as before.
 EXEC="$SRC_ROOT/skills/execute/koto-templates/execute.md"
 {
     printf '%s\n' '---' 'name: execute-parent' 'version: "1.0"' 'initial_state: spawn_and_await' \
-        'variables:' '  PLUGIN_ROOT:' '    required: true' 'states:'
-    awk '/^  spawn_and_await:$/ { f = 1 } /^  pr_finalization:$/ { f = 0 } f' "$EXEC" \
+        'variables:' '  PLUGIN_ROOT:' '    required: true' '  PLAN_DOC:' '    default: ""' '  PLAN_SLUG:' '    default: ""' 'states:'
+    awk '/^  spawn_and_await:$/ { f = 1 } /^  [a-z_]+:$/ && !/spawn_and_await/ { f = 0 } f' "$EXEC" \
         | sed "s|default_template: .*|default_template: $TEMPLATE|"
-    printf '%s\n' '  pr_finalization:' '    terminal: true' '  escalate:' '    terminal: true' '    failure: true' '---' '' \
-        '## spawn_and_await' '' 'Submit tasks.' '' '## pr_finalization' '' 'Done.' '' '## escalate' '' 'Stopped.'
+    printf '%s\n' '  pr_finalization:' '    terminal: true' '  escalate:' '    terminal: true' '    failure: true'
+    for st in escalate_parked waiting_record escalate_upstream_drift; do
+        printf '%s\n' "  $st:" '    terminal: true' '    failure: true'
+    done
+    printf '%s\n' '---' '' '## spawn_and_await' '' 'Submit tasks.' '' '## pr_finalization' '' 'Done.' '' '## escalate' '' 'Stopped.'
+    for st in escalate_parked waiting_record escalate_upstream_drift; do
+        printf '%s\n' '' "## $st" '' 'Stopped.'
+    done
 } > "$WORKDIR/parent.md"
 git checkout -q main
 git checkout -q -b case-parent
 if grep -q 'failure_policy: skip_dependents' "$WORKDIR/parent.md" \
-        && koto init par --template "$WORKDIR/parent.md" --var PLUGIN_ROOT="$PLUGIN_ROOT" > /dev/null 2>"$WORKDIR/init.err"; then
+        && koto init par --template "$WORKDIR/parent.md" --var PLUGIN_ROOT="$PLUGIN_ROOT" > "$WORKDIR/init.out" 2>"$WORKDIR/init.err"; then
     jq -cn --arg r "$PLUGIN_ROOT" '{tasks: [
         {name: "a", description: "a", vars: {PLUGIN_ROOT: $r, ARTIFACT_PREFIX: "par_a"}},
         {name: "b", description: "b", vars: {PLUGIN_ROOT: $r, ARTIFACT_PREFIX: "par_b"}, waits_on: ["a"]}]}' > "$WORKDIR/tasks.json"
@@ -1155,7 +1166,7 @@ if grep -q 'failure_policy: skip_dependents' "$WORKDIR/parent.md" \
         && pass "the batch view has b skipped, not released" \
         || fail "b in the batch view: $(cat "$WORKDIR/par.out" "$WORKDIR/par.err")"
 else
-    fail "the parent from execute.md: $(cat "$WORKDIR/init.err")"
+    fail "the parent from execute.md: $(cat "$WORKDIR/init.out" "$WORKDIR/init.err" 2>&1)"
 fi
 
 # ==============================================================================
