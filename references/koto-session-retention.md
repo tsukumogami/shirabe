@@ -38,9 +38,11 @@ A session is kept when any of these holds:
   `koto session cleanup` refuses it while a question the run raised itself is
   open; `/execute` continues it in place
   with `koto rewind` rather than a successor, since its children are named
-  after it. `/deliver` adds no terminal: it forwards the wait through
-  `done_stopped`, which its `--no-cleanup` ticks keep as they keep its
-  other stops;
+  after it. `/scope`'s `done_waiting` is a third, kept as a failure terminal;
+  `scope-open.sh` continues it in place with two `koto rewind`s, back to
+  `decide_first`, instead of replacing it. `/deliver` adds no terminal: it
+  forwards either child's wait through `done_stopped`, which its
+  `--no-cleanup` ticks keep as they keep its other stops;
 - a hierarchy still holds the session, with or without `--no-cleanup`: it has a
   live dispatcher or parent, a `chain/parent` link, or another session names
   it (koto 0.23.0 and later; on 0.22.x this case doesn't exist, and such a
@@ -238,7 +240,7 @@ the flag on each of them.
 |---|---|
 | `/work-on` | Every tick, unconditionally, whether the run is a root or a child `/execute` materialized from `work-on.md`. A run under `--koto-leg` is a root, and its result reaches the leg by promotion. |
 | `/execute` | Every tick, unconditionally. An orchestrator session is a root, including under `--koto-leg`, where its result reaches the leg by promotion. |
-| `/scope` | Every tick, unconditionally. Its session is a root, including under `--koto-leg`, where its result reaches the leg by promotion. This replaces the selective per-state form it stated before the findings above. Its entry, `scope-open.sh`, passes `--attach-live --replace-terminal`, so a re-run after a finished run gets a fresh session and never ticks the retained one. |
+| `/scope` | Every tick, unconditionally. Its session is a root, including under `--koto-leg`, where its result reaches the leg by promotion. This replaces the selective per-state form it stated before the findings above. Its entry, `scope-open.sh`, passes `--attach-live --replace-terminal`, so a re-run after a finished run gets a fresh session and never ticks the retained one. A run at `done_waiting` is the exception: `scope-open.sh` never replaces it, and rewinds it to `decide_first` once its question is closed. |
 | `/deliver` | Every tick, unconditionally. Its session is a root and a request coordinator; its children report through their legs, not through its session. Under its own `--koto-leg`, its result reaches the caller's leg by promotion. |
 | `/coordinate` | Every tick, unconditionally. Its session is a root and runs for days. Each invocation opens a fresh per-run session, `coordinate-<scope>-<stamp>`, through `coordinate-open.sh`, which cancels (never cleans up) any earlier live run of the scope, so every run's log stays readable, including the one a directed-transition scan reads. A carried run links itself to the run it carried, and a message-path worker records its dispatcher from its brief (see above). |
 

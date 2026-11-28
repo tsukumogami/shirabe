@@ -530,6 +530,18 @@
         "The run ends at done_stopped with outcome waiting, not done_error with deliver:child-outcome",
         "The report has outcome=waiting, a question= line and next="
       ]
+    },
+    {
+      "id": 37,
+      "name": "scope-leg-waiting",
+      "prompt": "/deliver some-topic --auto -- the scope leg resolves with outcome waiting and the question /scope raised at decide_first. Where does /deliver end and what does it print?",
+      "expected_output": "scope_run takes the waiting edge to done_stopped with outcome waiting, copying the question and /scope's intent, clearing pr and the PLAN keys /scope's waiting result does not carry, and setting next to /deliver some-topic; /execute never starts. deliver-report.sh prints outcome=waiting, one question= line, and next=/deliver some-topic. Invoking /deliver again re-enters through /scope, which continues its waiting session once the question is closed.",
+      "files": [],
+      "expectations": [
+        "The run ends at done_stopped with outcome waiting, not done_error with deliver:child-outcome",
+        "The execute leg is never started",
+        "The report has outcome=waiting, a question= line and next="
+      ]
     }
   ]
 }

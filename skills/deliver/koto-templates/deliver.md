@@ -194,7 +194,7 @@ states:
         request: "{{REQ}}"
         leg: scope
         expect:
-          outcome: [scoped, handed-off-multi-pr, executed, re-evaluation, abandonment, cancelled, refused, error]
+          outcome: [scoped, handed-off-multi-pr, executed, re-evaluation, abandonment, cancelled, waiting, refused, error]
         overridable: false
       scope_intent:
         type: request-leg
@@ -310,6 +310,30 @@ states:
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
           next: "${gates.scope_leg.payload.next}"
+      # /scope ended waiting on the question it raised (its done_waiting): the
+      # stop is the wait, forwarded as /execute's is, with the question. Its
+      # result carries only outcome, question and intent, so the keys it
+      # doesn't carry are cleared rather than copied, and `next` is this
+      # run's own continue: /deliver re-enters through /scope, which
+      # continues the waiting session once the question is closed.
+      - target: done_stopped
+        when:
+          gates.scope_leg.disposition: resolved
+          gates.scope_leg.source: promoted
+          gates.scope_leg.valid: true
+          gates.scope_leg.payload.outcome: waiting
+        context_assignments:
+          outcome: waiting
+          reason: waiting
+          question: "${gates.scope_leg.payload.question}"
+          scope_outcome: "${gates.scope_leg.payload.outcome}"
+          scope_intent: "${gates.scope_leg.payload.intent}"
+          plan_path: ""
+          plan_execution_mode: ""
+          pr: ""
+          pr_state: ""
+          startable: ""
+          next: "/deliver {{TOPIC}}"
       # /scope's own error, carrying its step (deliver-report.sh checks it).
       - target: done_error
         when:
@@ -1350,10 +1374,10 @@ koto status {{SESSION_NAME}} | "{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-r
 ## done_stopped
 
 The run stopped at a named point: a confirmation declined, a multi-pr PLAN
-handed off, /scope ending early, /execute pausing, or /execute waiting on open
-questions (`outcome=waiting`, one `question=` line each, and a `next=` that
-continues this run once they are answered or withdrawn; do not start the work
-again fresh). Print its report, verbatim:
+handed off, /scope ending early, /execute pausing, or /scope or /execute
+waiting on open questions (`outcome=waiting`, one `question=` line each, and a
+`next=` that continues this run once they are answered or withdrawn; do not
+start the work again fresh). Print its report, verbatim:
 
 ```bash
 koto status {{SESSION_NAME}} | "{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-report.sh"
