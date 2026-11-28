@@ -1088,7 +1088,7 @@ eq "the sealed report, its rendering and its seal are unchanged" "$SEALED_JSON|$
 # it, with its own lines after, it passes; a relay that drops the heading,
 # turns a table into a sentence or a section into a bold label names the first
 # line it lost.
-printf '%s\n' "$MD" | grep -q '^| ' && ok "  ... (the report has a table)" || bad "  ... (the report has a table)" "$MD"
+grep -q '^| ' <<< "$MD" && ok "  ... (the report has a table)" || bad "  ... (the report has a table)" "$MD"
 relay() { STUB_DIR="$CASE" PATH="$T/bin:$PATH" bash "$G" --session "$SESSION" --relay "$CASE/relay.md" 2> "$CASE/relay.err"; echo "$? $(sed -n 's/.*First missing: //p' "$CASE/relay.err" | cut -c1-2)"; }
 printf '%s\n\nI hold one unit; nothing waits on you.\n' "$MD" > "$CASE/relay.md"
 eq "--relay: the report as printed, the agent's lines after it, passes" "0 " "$(relay)"
