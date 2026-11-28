@@ -114,6 +114,53 @@ fn pending_refuses_a_person_other_than_owner() {
 }
 
 #[test]
+fn pending_reads_the_owner_precedent_once_and_marks_no_error() {
+    let s = Standin::new();
+    let out = s
+        .cmd(&["pending", "--in", "manager"])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let p = json(&out.stdout);
+    assert_eq!(p["unseen"], json!([]));
+    assert_eq!(p["unseen_error"], Value::Null);
+    assert_eq!(
+        s.log()
+            .iter()
+            .filter(|l| l.starts_with("decisions precedent"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn pending_degrades_with_a_marker_when_the_precedent_read_fails() {
+    // The open questions still list; unseen is null, not an empty list, and
+    // unseen_error carries koto's code.
+    let s = Standin::new();
+    s.write("history/sid-x_000000000001", r#"{"v":1,"raiser":{"name":"x","id":"sid-x"},"question":{"id":"000000000001","label":"other"},"open":true,"answer":null,"entries":[]}"#);
+    s.write("open-at.json", json!({"v": 1, "questions": [element("sid-x/000000000001", "x", "session:x", Some("raised"))]}).to_string());
+    s.write(
+        "fail",
+        "decisions precedent|koto_failed|the precedent read failed\n",
+    );
+    let out = s
+        .cmd(&["pending", "--in", "x", "--at", "x"])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let p = json(&out.stdout);
+    assert_eq!(p["questions"].as_array().unwrap().len(), 1, "{p}");
+    assert_eq!(p["unseen"], Value::Null, "{p}");
+    assert_eq!(p["unseen_error"]["code"], json!("koto_failed"), "{p}");
+    let msg = p["unseen_error"]["message"].as_str().unwrap();
+    assert!(msg.contains("the precedent read failed"), "{msg}");
+    assert_eq!(p["answered"], json!([]), "{p}");
+}
+
+#[test]
 fn question_usage_errors_exit_2() {
     let s = Standin::new();
     s.cmd(&["raise"]).assert().code(2);
@@ -233,7 +280,7 @@ fn answer_with_no_matching_call_exits_4_check_call_with_the_relayed_claim_messag
     assert_eq!(j["error"]["check"], json!("call"));
     let msg = j["error"]["message"].as_str().unwrap();
     assert!(
-        msg.contains("koto decisions record")
+        msg.contains("shirabe question settle")
             && msg.contains("closes no question")
             && msg.contains("grants nothing")
     );

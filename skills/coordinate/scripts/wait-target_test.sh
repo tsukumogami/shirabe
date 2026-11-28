@@ -24,7 +24,12 @@
 # can't read holds it too. Once the history reads closed it is offered with
 # disposition `answered` and the question, and the leg mode marks it taken.
 # A value that isn't an identity is taken as any resolved result; of two
-# questions, only the closed one is named answered.
+# questions, only the closed one is named answered. Before it waits, the unit
+# is offered once with disposition `question` (the leg mode puts it in
+# question_legs, never taken_legs). The hold: select offers it again while
+# the record's --open-questions read (a stand-in) shows its question with no
+# entry, lists such questions under `unentered` with their age, and fails on
+# a read that fails. A raiser name with `.` and `_` is an identity.
 #
 # Each section names the hand-offs it walks: `deliver`, `execute`, `scope` or
 # `work-on`. wait-target.sh and report-source.sh never read an entry point: a
@@ -127,9 +132,21 @@ cat >"$T/state-stored-set.sh" <<'EOF'
 #!/usr/bin/env bash
 if [ -f "$ST/state.json" ]; then cat "$ST/state.json"; else echo '{"run":[],"standing":[],"work":[]}'; fi
 EOF
-chmod +x "$BIN/koto" "$T/state-holding.sh" "$T/state-stored-set.sh"
+# The record's decision script: --open-questions prints $ST/oq.json (no
+# question open when there is none) and exits with $ST/oq.rc, as
+# state-decision.sh does (0 all handled, 1 one unhandled, 2 a failed read).
+cat >"$T/state-decision.sh" <<'EOF'
+#!/usr/bin/env bash
+case " $* " in *" --open-questions "*) ;; *) exit 64 ;; esac
+echo "open-questions" >>"$ST/calls.log"
+rc=0; [ -f "$ST/oq.rc" ] && rc=$(cat "$ST/oq.rc")
+[ "$rc" = 2 ] && { echo "koto: the store is locked" >&2; exit 2; }
+if [ -f "$ST/oq.json" ]; then cat "$ST/oq.json"; else echo '{"questions":[],"unhandled":[]}'; fi
+exit "$rc"
+EOF
+chmod +x "$BIN/koto" "$T/state-holding.sh" "$T/state-stored-set.sh" "$T/state-decision.sh"
 export PATH="$BIN:$PATH"
-export DC_RECORD_HOLDING="$T/state-holding.sh" DC_RECORD_STATE="$T/state-stored-set.sh"
+export DC_RECORD_HOLDING="$T/state-holding.sh" DC_RECORD_STATE="$T/state-stored-set.sh" DC_RECORD_DECISION="$T/state-decision.sh"
 
 reset() {
     rm -rf "$ST"
@@ -257,7 +274,7 @@ fi
 
 if section "deliver execute scope work-on" "a waiting run"; then
 WL="$HERE/testdata/waiting-leg"
-Q1=5b0e7a52-6c1d-4f3e-9a7b-2d8c1e4f6a90/4
+Q1=5b0e7a52-w/4
 # qstate <identity> open|closed|fail: what koto decisions history answers.
 qstate() {
     mkdir -p "$(dirname "$ST/q/$1")"
@@ -273,14 +290,32 @@ WROWS='[
  {"worker":"alpha","dispatch_status":"dispatched","return_path":"leg req_a:scope"}
 ]'
 WONLY='[{"worker":"gamma","dispatch_status":"dispatched","return_path":"leg req_w:work-on"}]'
+# asked: the unit already went through for its question (question_legs).
+asked() { printf 'req_w:work-on\n' >"$ST/ctx/question_legs"; }
+# oq <identity> <decision|null>: koto lists <identity> open here, the record
+# holding it under entry <decision>, or under none.
+oq() {
+    jq -nc --arg q "$1" --argjson d "$2" '{questions: [{identity: $q, raiser: "work-on-w1", raised: "2026-11-28T08:00:00Z",
+        age_minutes: 12, decision: $d, state: (if $d == null then null else "open" end), handled: false}], unhandled: [$q]}' >"$ST/oq.json"
+    echo 1 >"$ST/oq.rc"
+}
 reset "$WROWS"
 cp "$WL/request.json" "$ST/req/req_w.json"; req req_a scope open; qstate "$Q1" open
+eq  "question: a result waiting on an open question is offered once, over an open leg" req_w "$(sel)"
+eq  "  ... with disposition question and the question" "question $Q1 0" "$(target '"\(.disposition) \(.question) \(.waiting | length)"')"
+eq  "  ... nothing taken by select" "" "$(cat "$ST/ctx/taken_legs" 2>/dev/null)"
+eq  "question: the leg mode on it prints its leg" work-on "$(bash "$S" leg --session coord)"
+eq  "  ... joins question_legs, never taken_legs" "req_w:work-on|" "$(cat "$ST/ctx/question_legs")|$(cat "$ST/ctx/taken_legs" 2>/dev/null)"
+echo yes >"$ST/ctx/leg_consumed"
+sel >/dev/null
+eq  "question: the gate's consumed mark adds it no second time" "req_w:work-on" "$(cat "$ST/ctx/question_legs")"
+: >"$ST/calls.log"
 eq  "waiting: an open leg is picked over a result waiting on an open question" req_a "$(sel)"
 eq  "  ... the waiting unit named under waiting, with its question" \
     "[{\"topic\":\"gamma\",\"request\":\"req_w\",\"leg\":\"work-on\",\"question\":\"$Q1\"}]" "$(target '.waiting | tojson')"
 eq  "  ... koto read the question's history" "history $Q1" "$(grep '^history' "$ST/calls.log")"
 reset "$WONLY"
-cp "$WL/request.json" "$ST/req/req_w.json"; qstate "$Q1" open
+cp "$WL/request.json" "$ST/req/req_w.json"; qstate "$Q1" open; asked
 eq  "waiting: alone, nothing is picked" none "$(sel)"
 eq  "  ... wait_target path none, the unit still named waiting" "none gamma" "$(target '"\(.path) \(.waiting[0].topic)"')"
 eq  "  ... nothing taken" "" "$(cat "$ST/ctx/taken_legs" 2>/dev/null)"
@@ -307,7 +342,7 @@ eq  "waiting: a question that isn't an identity is taken as any resolved result"
 grep -q "not an identity" "$ST/err" && ok "  ... and says so" || bad "  ... and says so" "$(cat "$ST/err")"
 reset "$WONLY"
 jq -c --arg q "$Q1 w2/5" '.legs["work-on"].result.payload.question = $q' "$WL/request.json" >"$ST/req/req_w.json"
-qstate "$Q1" open; qstate w2/5 open
+qstate "$Q1" open; qstate w2/5 open; asked
 eq  "waiting: two questions, both open, hold the unit" none "$(sel)"
 eq  "  ... both named" "$Q1 w2/5" "$(target '.waiting[0].question')"
 qstate w2/5 closed
@@ -317,6 +352,31 @@ reset "$ROWS"
 req req_g execute resolved
 sel >/dev/null
 eq  "a result with no question carries no question field" false "$(target 'has("question")')"
+
+# The hold: a question addressed here with no entry brings its leg back.
+reset "$WONLY"
+cp "$WL/request.json" "$ST/req/req_w.json"; qstate "$Q1" open; asked; oq "$Q1" null
+eq  "hold: a unit whose question has no entry is offered again" "req_w question" "$(sel) $(target .disposition)"
+eq  "  ... wait_target lists the question unentered, with its age" "$Q1 12" "$(target '.unentered[0] | "\(.identity) \(.age_minutes)"')"
+eq  "  ... read once per select" 1 "$(grep -c '^open-questions' "$ST/calls.log")"
+oq "$Q1" 4
+eq  "hold: once its entry exists the unit waits again" "none 0" "$(sel) $(target '.unentered | length')"
+oq w9/2 null
+eq  "hold: a question on no leg is listed unentered and holds no leg" "none w9/2" "$(sel) $(target '.unentered[0].identity')"
+echo 2 >"$ST/oq.rc"
+sel >/dev/null 2>"$ST/err"
+eq  "hold: a listing that can't be read fails select" 2 "$?"
+grep -q "could not be read against the record" "$ST/err" && ok "  ... and says so" || bad "  ... and says so" "$(cat "$ST/err")"
+rm -f "$ST/oq.rc" "$ST/oq.json"
+reset "$ROWS"
+req req_g execute resolved
+eq  "hold: with no question open, unentered is empty" "req_g []" "$(sel) $(target '.unentered | tojson')"
+# The one identity shape: a raiser's session id may hold `.` and `_`.
+reset "$WONLY"
+jq -c '.legs["work-on"].result.payload.question = "work-on_w1.a/12"' "$WL/request.json" >"$ST/req/req_w.json"
+qstate work-on_w1.a/12 open; asked
+eq  "identity: a raiser name with . and _ is an identity" none "$(sel 2>"$ST/err")"
+eq  "  ... not refused as one" "" "$(grep 'not an identity' "$ST/err")"
 fi
 
 if section "" "usage"; then
@@ -496,7 +556,7 @@ if section "" "select: the koto calls don't grow with the entries (shirabe#1315)
 # gamma's resolved one under a pause on Feature 3, with <entries> entries.
 koto_calls() (
     . "$HERE/testdata/test-lib.sh"
-    export DC_RECORD_HOLDING="$HERE/state-holding.sh" DC_RECORD_STATE="$HERE/state-stored-set.sh"
+    export DC_RECORD_HOLDING="$HERE/state-holding.sh" DC_RECORD_STATE="$HERE/state-stored-set.sh" DC_RECORD_DECISION="$HERE/state-decision.sh"
     C=coordinate-roadmap-plugin-system-20260926T080000Z
     found_session "$C" "$(roadmap_vars plugin-system)"
     seed_session "$C" "$(record_json roadmap plugin-system | jq -c \
@@ -523,7 +583,7 @@ set -- $FEW
 eq  "select: the same request and koto calls with 3 entries and with 300 (${2:-?} calls)" "$FEW" "$MANY"
 eq  "  ... the paused holding's resolved leg passed over for alpha's open one" req_a "${1:-}"
 eq  "  ... reading no entry and never listing record/" "0 0" "${3:-} ${4:-}"
-eq  "  ... one read of the sections the two listers print, each got once" holdings,run,standing,work "${5:-}"
+eq  "  ... one read of the sections the three readers print, each got once" decisions,holdings,run,standing,work "${5:-}"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

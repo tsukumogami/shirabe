@@ -7,8 +7,9 @@
 # Files a test may write under $KOTO_STANDIN (all optional):
 #   version            the version `koto version` reports (default 0.42.0)
 #   fail               one line per call prefix that fails, e.g.
-#                      "decisions content write"; a matching call prints a
-#                      koto-shaped refusal and exits 2
+#                      "decisions content write", optionally followed by
+#                      "|<code>|<error>" and "|<field>"; a matching call
+#                      prints a koto-shaped refusal and exits 2
 #   origin/<session>   the JSON `session origin <session>` prints
 #   attempts/<session> the JSON `decisions attempts --in <session>` prints
 #   open-person.json   the JSON `decisions open --person owner` prints
@@ -64,8 +65,12 @@ if [ -f "$D/sleep" ]; then
     done < "$D/sleep"
 fi
 
-refuse() {
-    printf '{"code":"%s","command":"standin","error":"%s","field":null}\n' "$1" "$2"
+refuse() { # refuse <code> <error> [field]
+    if [ -n "${3:-}" ]; then
+        printf '{"code":"%s","command":"standin","error":"%s","field":"%s"}\n' "$1" "$2" "$3"
+    else
+        printf '{"code":"%s","command":"standin","error":"%s","field":null}\n' "$1" "$2"
+    fi
     exit 2
 }
 
@@ -75,15 +80,22 @@ if [ -f "$D/fail" ]; then
         prefix="${line%%|*}"
         code=standin_failure
         error="the stand-in fails $prefix"
+        field=""
         case "$line" in
             *"|"*)
                 rest="${line#*|}"
                 code="${rest%%|*}"
                 error="${rest#*|}"
+                case "$error" in
+                    *"|"*)
+                        field="${error#*|}"
+                        error="${error%%|*}"
+                        ;;
+                esac
                 ;;
         esac
         case "$*" in
-            "$prefix"*) refuse "$code" "$error" ;;
+            "$prefix"*) refuse "$code" "$error" "$field" ;;
         esac
     done < "$D/fail"
 fi

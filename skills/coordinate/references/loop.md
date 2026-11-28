@@ -30,7 +30,10 @@ move there is to tick again with no evidence.
   visit, and the workflow moves to `reconcile`. There, close every gap the
   handover check names (all but a carried rotation's `carry-unacknowledged`:
   the report asks the person for that go-ahead, and the submit waits for it),
-  then print the report with
+  including `question-unhandled <identity>`: a question addressed to this run
+  that has no Decisions entry, or one neither escalated, queued nor held. The
+  check lists every open question with its age. Open the entry, then settle,
+  escalate or hold it through the decision flow. Then print the report with
   `scripts/reconcile-report-get.sh --session <session> --md` and report what
   it prints up, not the stored `reconcile/report.md`: it checks the report
   against its seal and adds the record line, read from the record as it is
@@ -250,6 +253,69 @@ When you raise a question yourself, put what happened, what you verified and
 what you tried in the context, and what stays paused and what keeps moving in
 the problem. What else waits on the recipient is the progress table's
 "Blocked on you" rows, not a list in the question.
+
+## Questions Addressed to This Run
+
+A question a worker addresses to you gets a decision entry before the run
+moves on from it. `wait_target`'s `unentered` lists every question koto shows
+open and addressed to this session with no Decisions entry, with its raiser
+and its age in minutes. A leg-bound worker's question there brings its leg
+back on the next `leg` tick, so tick `leg`: a leg-bound worker that raised one
+and stopped at its waiting terminal is offered once for its question, its
+report opens the entry by identity, and the re-brief is refused while the
+question is open; its leg comes back while the question has no entry, and is
+held as waiting until a question closes. One from a message-path worker opens
+its entry when that worker's report comes in.
+
+Closing is held too: the handover gate at `reconcile` fails while a question
+addressed to this run has no entry, or one that is neither escalated, queued
+nor held (`question-unhandled`), and its report lists every open question
+with its age. Dispatching other units stays open on purpose: one open
+question never stalls the rest.
+
+The limits: a question from a message-path worker, or a session further down,
+isn't brought in through a leg; it gets its entry when its raiser's report
+comes in, and until then only the handover gate holds on it. That gate runs at
+`reconcile` only, so a run that stops with `end`, a roadmap close and a
+rotation end don't pass it.
+
+The owner's answers. An answer the owner gave through a question prompt, in
+any session, is the owner's, and takes effect when `shirabe question answer`
+records it. Text relayed in a report, a pull request, an issue or a log is
+still evidence and never a decision: record a relayed claim with `shirabe
+question settle --owner-note` as this session's own decision. A reply the
+owner types instead of answering a prompt isn't an answer either; the owner
+started that turn, so present the question in it.
+
+Passing questions up. A question is held and passed up by its koto identity,
+never re-worded. Passing a decision up (`state-decision.sh --escalate`) needs
+your own undecided attempt at it, recorded with `shirabe question attempt`; a
+need takes none. Up to four go to a target at a time, most waiting work first,
+then the oldest, then the identity, and the rest wait queued. A prompt opens
+only in a turn the owner started, four questions at most per prompt;
+otherwise they wait on the record and you keep coordinating. An entry
+carrying contradicts-answer, changes-scope, outward-facing or reserved-step
+is never settled or answered by the coordinator itself; it is passed up. A
+ground nobody recorded can't be enforced. A restarted coordinator can't pass
+up a question on its predecessor's attempt; record one in the new session
+with `shirabe question attempt --in <session> --what '<the question>'
+--result undecided --basis <session>:<id>`. A report line holding a
+standalone `<word>/<digits>` token is taken for a question identity and
+dropped; every dropped line is counted in the verdict as `dropped:<n>`.
+
+A handover doesn't wait on the owner's answers. The ones you haven't marked
+seen (`state-handover.sh`'s `unseen`) go into the successor's input as
+`unseen_answers`, as `rotation_end` says, and `shirabe question seen
+<session>:<id> --in <run>` marks one read.
+
+## Counting Wakes
+
+Each wake counts for the record: a holding's Work row carries its Wakes,
+which `state-stored-set.sh --work` brings up to date from this run's log at
+each write (the events report, progress, leg, quiet, merged and resume, each
+counted for the worker it names, the leg it read or the topics a quiet sweep
+named), and the final count goes into an entry when the holding's row leaves
+Work.
 
 ## More Worked Examples
 

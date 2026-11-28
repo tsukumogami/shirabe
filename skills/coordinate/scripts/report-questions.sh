@@ -52,7 +52,11 @@
 # Before any of that, the questions koto lists as open at this session and
 # raised by the reporting worker (see "questions held by identity" below) are
 # items whatever the text says, and a text line naming a question identity
-# opens nothing.
+# (`<session>/<decision id>`, state-schema.jq's re_identity, standing as a
+# word of its own, so a link to a CI run is not one) opens nothing. Every line
+# left out that way is counted: the verdict ends `dropped:<n>` when n > 0.
+# A withdrawal whose question line is an identity that an entry here holds
+# carries that identity, and reaches that entry whatever its source.
 #
 # Each item: {index, kind: question|escalation|withdrawal, text, source,
 # addressed, cite}, plus options and recommended for an escalation, n and
@@ -60,7 +64,7 @@
 # options for a question held by identity. The source has no stamp;
 # state-decision.sh --open-from-report adds it.
 #
-# Verdicts (sealed to this visit):
+# Verdicts (sealed to this visit; each may end `dropped:<n>`, see above):
 #   questions <count> keyseal:<seq>:<sha256>   the list is in coord/questions.json,
 #       stored with coord-log.sh seal --file --key; keyseal is that key's seal,
 #       carried in the engine-written capture so a reader can check the key
@@ -107,7 +111,21 @@ trap 'rm -rf "$T"' EXIT
 # One record read for the step: the holding row and the Decisions section
 # come from one read of those two sections (shirabe#1315).
 rs_once_begin "$T/once" "holdings decisions" || lib_die2 "cannot make a temporary directory"
-verdict() { bash "$HERE/coord-log.sh" seal --session "$SESSION" --state report_questions --token "$1" || lib_die2 "cannot seal the verdict"; exit 0; }
+# DROPPED: the report lines left out for naming a question identity, counted
+# in every verdict as `dropped:<n>` when there are any, so no line goes
+# unaccounted for.
+DROPPED=0
+verdict() {
+    local t=$1
+    [ "$DROPPED" -gt 0 ] && t="$t dropped:$DROPPED"
+    bash "$HERE/coord-log.sh" seal --session "$SESSION" --state report_questions --token "$t" || lib_die2 "cannot seal the verdict"
+    exit 0
+}
+# A question identity (state-schema.jq's re_identity), standing as a word of
+# its own: not inside a longer path such as a link to a CI run
+# (.../actions/runs/<id>), whose last two parts have the same shape.
+RE_IDENT='(^|[^A-Za-z0-9._/-])[A-Za-z0-9][A-Za-z0-9._-]*/[0-9]{1,20}([^A-Za-z0-9/]|$)'
+RE_IDENT_LINE='^[A-Za-z0-9][A-Za-z0-9._-]*/[0-9]{1,20}$'
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
 
 # The report and its holding.
@@ -292,9 +310,19 @@ if [ "$HOLDING" = 1 ] && [ "$EP" = /shirabe:coordinate ]; then
     elif [[ $FIRST =~ $RE_WDR ]]; then
         N=${BASH_REMATCH[1]} R=${BASH_REMATCH[2]}
         SRC="coordinator $TOPIC #$N round $R"
-        opened_from "$SRC" || verdict none
-        jq -nc --arg t "$FIRST" --arg s "$SRC" --argjson n "$N" --argjson r "$R" \
-            '{kind: "withdrawal", text: $t, source: $s, addressed: false, cite: null, n: $n, round: $r}' > "$T/items"
+        # A withdrawal of an entry held by a question names its identity
+        # where the question would be (decision-render.sh): it reaches the
+        # entry held by that identity here, whatever its source.
+        WID=$(sed -n 3p "$T/report")
+        if [[ $WID =~ $RE_IDENT_LINE ]] && printf '%s' "$SECTION" | jq -e -L "$HERE" --arg q "$WID" 'include "state-schema"; any(.entries[]; d_identity == $q)' > /dev/null; then
+            :
+        else
+            WID=
+            opened_from "$SRC" || verdict none
+        fi
+        jq -nc --arg t "$FIRST" --arg s "$SRC" --argjson n "$N" --argjson r "$R" --arg id "$WID" \
+            '{kind: "withdrawal", text: $t, source: $s, addressed: false, cite: null, n: $n, round: $r}
+             + (if $id == "" then {} else {identity: $id} end)' > "$T/items"
         write_list "$T/items"
     fi
 fi
@@ -348,10 +376,11 @@ phrase_lines decision "$T/cand.txt" > "$T/cand.hit" || lib_die2 "the phrasing li
 } | sort -n > "$T/all.raw"
 # A line naming a question identity opens nothing from the text: a question
 # held by identity is read from koto's listing above, and one koto doesn't
-# list (an identity in the text alone) opens no entry.
-RE_IDENT='[A-Za-z0-9][A-Za-z0-9._-]*/[0-9]{6,}'
+# list (an identity in the text alone) opens no entry. Each line left out is
+# counted (DROPPED), and the verdict says how many.
 grep -vE "$RE_IDENT" "$T/all.raw" > "$T/all"
 case $? in 0|1) ;; *) lib_die2 "cannot read the report's lines" ;; esac
+DROPPED=$(( $(wc -l < "$T/all.raw") - $(wc -l < "$T/all") ))
 
 # Over the cap is decided before anything else is read. A leg report can't be
 # rebriefed by message (its worker answers only through the leg), so one over

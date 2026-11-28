@@ -29,7 +29,13 @@
 # --open's and --escalate's options starting with a dash (-r, --flag=value)
 # stored as given, and a dash-leading decision id refused as a bad id; a write to a record past 60,000 bytes (there is no size budget); the section kept in the run's session's record/decisions, an entry moving
 # from proposed to coordinator-verdict to settled there, with nothing written
-# on GitHub.
+# on GitHub. Entries with no identity keep the escalation path they had (a
+# queued one keeps its verdict, released only when none is escalated); --settle
+# of an entry held by a question only from koto's closed answer; a reserved
+# ground refusing the coordinator's own settle or answer; a withdrawal reaching
+# the entry by its identity; --list failing on a queued entry with no time;
+# raise times ordered as instants; --open-questions; the restart's attempt
+# line; SHIRABE_BIN.
 #
 # Usage: bash skills/coordinate/scripts/state-decision_test.sh
 set -uo pipefail
@@ -40,12 +46,15 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 RD="$HERE/state-decision.sh"
 CL="$HERE/coord-log.sh"
 RUN=20260926T080000Z
-# The shirabe question stand-in, for pass-up, pending and render.
+# The shirabe question stand-in, for pass-up, pending and render. A
+# SHIRABE_BIN the caller set (CI sets one to the branch's build) would take
+# the scripts past it, so it is cleared; the SHIRABE_BIN case sets its own.
 PATH="$HERE/testdata/question-stand-in:$PATH"
+unset SHIRABE_BIN
 
 # --- koto's record of a question (testdata/koto-decisions' fixtures) ---------------
-QA=0a1b2c3d-0000-4000-8000-00000000000a/000000000002
-QB=0a1b2c3d-0000-4000-8000-00000000000b/000000000003
+QA=0a1b2c3d-a/000000000002
+QB=0a1b2c3d-b/000000000003
 qkey() { printf '%s' "$1" | tr '/' '_'; }
 KD() { mkdir -p "$KOTO_STORE/decisions/$1"; printf '%s' "$KOTO_STORE/decisions/$1"; }
 # question <identity> <true|false> [need] [raiser]: koto's history and content
@@ -95,7 +104,8 @@ UNSENT_HELD="$UNSENT + {source: \"question $QA [20260926T070000Z report 3.1]\", 
 QUEUED="$ESCALATED + {state: \"coordinator-verdict\", round: \"0\", asked: \"\"}"
 # A queued escalation held by question QB, open in koto with an attempt behind
 # it once qb_ready runs: the one a freed place releases. A queued entry with no
-# identity is never released; its verdict is cleared.
+# identity (QUEUED, a run's from before entries were held by identities) is
+# released as it was then: only when no entry is escalated.
 QUEUED_HELD="$QUEUED + {source: \"question $QB [20260926T070000Z report 3.2]\", options: \"\", grounds: \"changes-scope\"}"
 qb_ready() { question "$QB" true; attempt "$QB" 000000000006; }
 
@@ -301,6 +311,9 @@ route "verdict 1" decision_verdict
 rd --escalate "${ESC_ARGS[@]}"
 eq "--escalate: once it holds the identity, the entry escalates" "escalated" "$(f 1 state)"
 
+# ev: evidence on entry 1 from a wait visit, which clears its verdict and
+# frees its place. The release cases below and the --evidence cases use it.
+ev() { arrive decision_evidence '{"event":"evidence","decision":"1"}'; rd --evidence --source dispatcher --text "the check came back mixed"; }
 # Four at a time per target, then by most waiting work items, oldest, identity.
 QN() { printf 'w%s-0000/00000000000%s' "$1" "$1"; }
 HELDN() { printf '{source: "question %s [20260926T070000Z report 3.%s]", options: "", grounds: "changes-scope", target: "a person"}' "$(QN "$1")" "$1"; }
@@ -312,7 +325,7 @@ four_and_two() { # four_and_two <pending-json>: entries 1-4 escalated, 5 and 6 q
     mkdir -p "$KOTO_STORE/decisions/pending"; printf '%s' "$1" > "$KOTO_STORE/decisions/pending/$S.json"
 }
 four_and_two "{\"questions\":[{\"identity\":\"$(QN 5)\",\"waiting\":1,\"raised\":\"2026-09-26T06:00:00Z\"},{\"identity\":\"$(QN 6)\",\"waiting\":3,\"raised\":\"2026-09-26T06:30:00Z\"}]}"
-eq "--list: each queued entry with its age" "5|$(QN 5)|2026-09-26T07:00Z|yes,6" \
+eq "--list: each queued entry with its age" "5|$(QN 5)|2026-09-26T07:00Z|true,6" \
     "$(sec | jq -r '.queued | "\(.[0].decision)|\(.[0].identity)|\(.[0].since)|\(.[0].age_minutes > 0),\(.[1].decision)"')"
 ev
 eq "release: four at a time, the freed place goes to the entry with the most waiting work items" "coordinator-verdict|coordinator-verdict|escalated" "$(f 1 state)|$(f 5 state)|$(f 6 state)"
@@ -350,7 +363,6 @@ refused "--hold: an empty reason is refused" --hold --reason ""
 # --- --evidence -----------------------------------------------------------------------------
 
 echo "== --evidence =="
-ev() { arrive decision_evidence '{"event":"evidence","decision":"1"}'; rd --evidence --source dispatcher --text "the check came back mixed"; }
 setup "[$(E 1 proposed)]"; ev
 eq "evidence on a proposed entry: awaiting a verdict" "coordinator-verdict" "$(f 1 state)"
 eq "evidence: the line is last, with its time, source and wait stamp" "dispatcher [$RUN wait $(bash "$CL" evidence --session "$S" --state wait | jq -r .seq)]: the check came back mixed" \
@@ -571,6 +583,139 @@ listed "[$QITEM]"
 words '{}'
 eq "--open-from-report: an identity already held adds no entry" "1|2" "$(sec | jq -r '"\(.entries | length)|\(.next)"')"
 case "$(f 1 evidence)" in *"reported again"*) ok "  ... only a line saying it was reported again" ;; *) bad "  ... only a line saying it was reported again" "$(f 1 evidence)" ;; esac
+
+# A withdrawal naming a question identity reaches the entry held by it.
+setup "[$(E 1 escalated "$HELD_ESC")]" 2
+listed "[{\"index\":1,\"kind\":\"withdrawal\",\"text\":\"Withdrawn: decision 4 round 1.\",\"identity\":\"$QA\",\"source\":\"coordinator rr #4 round 1\",\"addressed\":false,\"cite\":null,\"n\":4,\"round\":1}]"
+words '{}'
+eq "--open-from-report: a withdrawal naming an identity reopens the entry held by it" "0 coordinator-verdict|withdrawal" "$RC $(f 1 state)|$(f 1 owed)"
+setup "[$(E 1 escalated "$HELD_ESC")]" 2
+listed "[{\"index\":1,\"kind\":\"withdrawal\",\"text\":\"Withdrawn: decision 4 round 1.\",\"identity\":\"$QB\",\"source\":\"coordinator rr #4 round 1\",\"addressed\":false,\"cite\":null,\"n\":4,\"round\":1}]"
+refused "--open-from-report: a withdrawal naming an identity no entry holds is refused" --open-from-report --text-file "$(printf '{}' > "$T/w4.json"; echo "$T/w4.json")"
+
+# --- entries from before identities: the escalation path they had ------------------------------
+
+echo "== entries with no identity =="
+# A run already under way holds queued entries with no identity: each keeps
+# its verdict, and is released as before once no entry is escalated, with no
+# pass-up (it has no question in koto).
+setup "[$(E 1 escalated "$ESCALATED"), $(E 2 coordinator-verdict "$QUEUED"), $(E 3 proposed)]"
+route "take 3" decision_take
+rd --take
+eq "an old queued entry keeps its verdict while an entry is escalated" "coordinator-verdict|escalate" "$(f 2 state)|$(f 2 verdict)"
+setup "[$(E 1 escalated "$ESCALATED"), $(E 2 coordinator-verdict "$QUEUED")]"; ev
+eq "evidence that frees the slot releases an old queued escalation, as before" "escalated|1|escalation" "$(ent 2 | jq -r '"\(.state)|\(.round)|\(.owed)"')"
+eq "  ... with no pass-up" "" "$(shirabe_calls pass-up)"
+setup "[$(E 1 escalated "$ESCALATED"), $(E 2 coordinator-verdict "$QUEUED")]"
+ans 1 --outcome wait
+eq "--answer: freeing the slot releases an old queued escalation, as before" "settled escalated" "$(f 1 state) $(f 2 state)"
+setup "[$(E 1 escalated "$ESCALATED + {source: \"coordinator rr #4 round 1 [20260926T070000Z report 3.1]\"}"), $(E 2 coordinator-verdict "$QUEUED")]" 3
+listed '[{"index":1,"kind":"withdrawal","text":"Withdrawn: decision 4 round 1.","source":"coordinator rr #4 round 1","addressed":false,"cite":null,"n":4,"round":1}]'
+words '{}'
+eq "--open-from-report: a withdrawal that frees the slot releases an old queued escalation, as before" "coordinator-verdict escalated" "$(f 1 state) $(f 2 state)"
+setup "[$(E 1 escalated "$ESCALATED"), $(E 2 coordinator-verdict "$QUEUED + {options: \"ship now\\nwait\"}"), $(E 3 coordinator-verdict "$QUEUED")]"; ev
+eq "release: the lowest old queued entry is the one, and one that no longer passes is cleared, not escalated" "coordinator-verdict||escalate" \
+    "$(f 2 state)|$(f 2 verdict)|$(f 3 verdict)"
+# An old entry escalates only once its question is raised here and held.
+setup "[$(E 1 coordinator-verdict)]"
+route "verdict 1" decision_verdict
+refused "--escalate: an old entry with no identity is refused" --escalate "${ESC_ARGS[@]}"
+grep -q "shirabe question raise --in $S" "$T/err" && grep -q -- "--identity <identity>" "$T/err" \
+    && ok "  ... naming the raise and the --identity that hold it" || bad "  ... naming the raise and the --identity that hold it" "$(cat "$T/err")"
+
+# --- --settle on an entry held by a question ---------------------------------------------------
+
+echo "== --settle by koto =="
+# by_me: the answer koto holds was decided by this session
+by_me() {
+    printf '{"decision":{"kind":"answer","reason":"mine","decider":{"kind":"session","session":{"value":"%s"}}}}' "$S" \
+        > "$(KD show)/director_000000000001.json"
+}
+setup "[$(E 1 coordinator-verdict "$HELD_A")]"
+qready
+route "verdict 1" decision_verdict
+refused "--settle: an entry held by a question koto shows open is refused" --settle --outcome SQLite --reason "one file"
+grep -q "settles only from koto's answer" "$T/err" && grep -q "shirabe question settle $QA --in $S" "$T/err" \
+    && ok "  ... naming koto's settle" || bad "  ... naming koto's settle" "$(cat "$T/err")"
+answered "$QA" answered SQLite
+refused "--settle: an --outcome other than koto's answer is refused" --settle --outcome Postgres --reason r
+rd --settle; wrote "--settle: once koto shows the question closed, the entry settles"
+eq "  ... with koto's answer, reason and decider" "settled|SQLite; reason: one file is enough|session director" "$(f 1 state)|$(f 1 outcome)|$(f 1 decided_by)"
+
+# A reserved ground keeps a decision for the owner: the coordinator passes it up.
+setup "[$(E 1 coordinator-verdict '{grounds: "changes-scope"}')]"
+route "verdict 1" decision_verdict
+refused "--settle: an entry whose Grounds hold a reserved ground is refused" --settle --outcome ship --reason r
+grep -q "reserved ground changes-scope" "$T/err" && grep -q -- "--escalate --grounds changes-scope" "$T/err" \
+    && ok "  ... naming the ground and the pass-up" || bad "  ... naming the ground and the pass-up" "$(cat "$T/err")"
+setup "[$(E 1 coordinator-verdict "$HELD_A")]"
+qready
+h="$(KD history)/$(qkey "$QA").json"
+jq -c '.entries += [{entry: "pass-up", session: "child", reason: "ground: outward-facing"}]' "$h" > "$h.new" && mv "$h.new" "$h"
+answered "$QA" answered SQLite; by_me
+route "verdict 1" decision_verdict
+refused "--settle: this session's own answer to a question passed up to it on a reserved ground is refused" --settle
+grep -q "reserved ground outward-facing" "$T/err" && ok "  ... the ground read from koto's pass-up" || bad "  ... the ground read from koto's pass-up" "$(cat "$T/err")"
+setup "[$(E 1 coordinator-verdict "$HELD_A + {grounds: \"reserved-step\"}")]"
+qready; answered "$QA" withdrawn ""; by_me
+route "verdict 1" decision_verdict
+rd --settle
+eq "--settle: a withdrawal on a reserved entry settles it" "0 settled|withdrawn; reason: mine" "$RC $(f 1 state)|$(f 1 outcome)"
+setup "[$(E 1 escalated "$HELD_ESC")]"
+qready; answered "$QA" answered SQLite; by_me
+route "unrecorded-answer 1 koto" decision_answer
+refused "--answer: koto's answer by this session on a reserved entry is refused" --answer
+grep -q "reserved ground changes-scope" "$T/err" && ok "  ... naming the ground" || bad "  ... naming the ground" "$(cat "$T/err")"
+
+# --- a restart, SHIRABE_BIN ---------------------------------------------------------------------
+
+echo "== restart and SHIRABE_BIN =="
+# A restarted coordinator's new session holds no attempt for a question its
+# predecessor attempted: the refusal names the line that records one here.
+setup "[$(E 1 coordinator-verdict "$HELD_A")]"
+question "$QA" true
+route "verdict 1" decision_verdict
+refused "--escalate: with no attempt of this session's, refused" --escalate --grounds changes-scope
+grep -qF "shirabe question attempt --in $S --what '<the question>' --result undecided --basis ${QA%/*}:${QA##*/}" "$T/err" \
+    && ok "  ... naming the shirabe question attempt line for this session" || bad "  ... naming the shirabe question attempt line for this session" "$(cat "$T/err")"
+printf '#!/usr/bin/env bash\nprintf "via SHIRABE_BIN\\n" >> "$KOTO_STORE/shirabe-bin-calls"\nexec "%s/testdata/question-stand-in/shirabe" "$@"\n' "$HERE" > "$T/shirabe-bin"
+chmod +x "$T/shirabe-bin"
+setup "[$(E 1 coordinator-verdict "$HELD_A")]"
+qready; rm -f "$KOTO_STORE/shirabe-bin-calls"
+route "verdict 1" decision_verdict
+SHIRABE_BIN="$T/shirabe-bin" rd --escalate "${ESC_ARGS[@]}"
+eq "--escalate: shirabe is SHIRABE_BIN when it is set" "0 escalated|1" "$RC $(f 1 state)|$(wc -l < "$KOTO_STORE/shirabe-bin-calls" | tr -d ' ')"
+
+# --- --list's ages, release order by time, --open-questions -------------------------------------
+
+echo "== ages and --open-questions =="
+setup "[$(E 1 escalated "$ESCALATED"), $(E 2 coordinator-verdict "$QUEUED + {updated: \"\"}")]"
+bash "$RD" --session "$S" --list > "$T/list.out" 2> "$T/err"; RC=$?
+eq "--list: a queued entry with no Updated time fails the read, never prints without its age" "2|" "$RC|$(cat "$T/list.out")"
+# Raise times are instants: 06:00:00.5 is after 06:00:00, though it sorts first as a string.
+four_and_two "{\"questions\":[{\"identity\":\"$(QN 5)\",\"waiting\":2,\"raised\":\"2026-09-26T06:00:00.500Z\"},{\"identity\":\"$(QN 6)\",\"waiting\":2,\"raised\":\"2026-09-26T06:00:00Z\"}]}"
+ev
+eq "release: raise times compared as times, a fraction of a second later is later" "coordinator-verdict|escalated" "$(f 5 state)|$(f 6 state)"
+# open/<S>.json: what koto decisions open --at S lists
+koto_open() { mkdir -p "$KOTO_STORE/decisions/open"; printf '%s' "$1" > "$KOTO_STORE/decisions/open/$S.json"; }
+oq() { OUT=$(bash "$RD" --session "$S" --open-questions 2>"$T/err"); RC=$?; }
+setup "[$(E 1 escalated "$HELD_ESC"), $(E 2 coordinator-verdict "$HELD_B + {verdict: \"hold\", reason: \"r\"}")]"
+oq
+eq "--open-questions: none open, exit 0" '0 {"questions":[],"unhandled":[]}' "$RC $OUT"
+QC=0a1b2c3d-c/000000000004
+koto_open "{\"at\":\"$S\",\"questions\":[
+  {\"identity\":\"$QC\",\"session\":\"w3\",\"time\":\"2026-09-26T06:30:00Z\",\"addressee\":{\"kind\":\"session\",\"name\":\"$S\"}},
+  {\"identity\":\"$QA\",\"session\":\"w1\",\"time\":\"2026-09-26T06:00:00.250Z\",\"addressee\":{\"kind\":\"session\",\"name\":\"$S\"}},
+  {\"identity\":\"$QB\",\"session\":\"w2\",\"time\":\"2026-09-26T06:00:00Z\",\"addressee\":{\"kind\":\"session\",\"name\":\"$S\"}},
+  {\"identity\":\"w9-0000/000000000009\",\"session\":\"$S\",\"time\":\"2026-09-26T05:00:00Z\",\"addressee\":{\"kind\":\"person\",\"name\":\"owner\"}}],\"v\":1}"
+oq
+eq "--open-questions: one no entry handles, exit 1" "1 [\"$QC\"]" "$RC $(printf '%s' "$OUT" | jq -c .unhandled)"
+eq "  ... only those addressed to this session, oldest first, each with its entry" "$QB:2:true|$QA:1:true|$QC:null:false" \
+    "$(printf '%s' "$OUT" | jq -r '[.questions[] | "\(.identity):\(.decision):\(.handled)"] | join("|")')"
+eq "  ... each with its raiser and an age in minutes" "w2|yes" "$(printf '%s' "$OUT" | jq -r '"\(.questions[0].raiser)|\(if .questions[0].age_minutes > 0 then "yes" else "no" end)"')"
+: > "$KOTO_STORE/decisions/open-fail"
+oq
+eq "--open-questions: a koto read that fails is exit 2, never none open" "2|" "$RC|$OUT"
 
 echo "== compaction =="
 setup "[$(E 1 settled '{outcome: "wait; reason: r", decided_by: "a person", verdict: "settle", evidence: "2026-09-26T07:40Z dispatcher [20260926T070000Z wait 3]: mixed"}'), $(E 2 proposed)]"

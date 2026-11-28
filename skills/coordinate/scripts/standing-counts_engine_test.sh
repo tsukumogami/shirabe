@@ -292,16 +292,18 @@ logged "$T/A.handover.log" "$A" state-handover.sh > "$T/A.handover" 2> "$T/A.han
 for l in counts rules handover; do
     [ -s "$T/A.$l.log" ] || needf "the $l read made no call through KOTO_BIN, so its log proves nothing"
 done
-# The counts and --rules reads read the one decision A's s9 row cites, a show
-# koto answers not found, so nothing more; the handover read reads none.
-for l in counts rules; do
+# Every rule read on A reads the one decision A's s9 row cites, a show koto
+# answers not found, so nothing more; the handover read also lists the
+# questions open at the run (state-decision.sh --open-questions, `decisions
+# open --at`), once.
+for l in counts rules handover; do
     need "  ... the $l read on A runs koto decisions show of the cited decision alone" \
-        "decisions show coordinate-roadmap-rules-20261001T100000Z 000000000007" "$(grep '^decisions\( \|$\)' "$T/A.$l.log")"
+        "decisions show coordinate-roadmap-rules-20261001T100000Z 000000000007" "$(grep '^decisions\( \|$\)' "$T/A.$l.log" | grep -v '^decisions open --at ')"
 done
-need "  ... the handover read on A runs no koto decisions command" 0 "$(grep -c '^decisions\( \|$\)' "$T/A.handover.log")"
+need "  ... the handover read lists the open questions once" 1 "$(grep -c '^decisions open --at ' "$T/A.handover.log")"
 need "  ... --counts lists no record/entries/ key" 0 "$(grep -c 'record/entries/' "$T/A.counts.log")"
 grep -q 'record/entries/' "$T/A.rules.log" || needf "--rules, which reads the entries, logged no record/entries/ call, so the log can't tell"
-crit "3. --rules --counts --id exits 64 with nothing on stdout; through a logging koto, --counts lists no entry, --counts and --rules on A run decisions show of the cited decision alone, and the handover read runs no koto decisions"
+crit "3. --rules --counts --id exits 64 with nothing on stdout; through a logging koto, --counts lists no entry, every rule read on A runs decisions show of the cited decision alone, and the handover read lists the open questions once"
 
 # ---- 4 ----------------------------------------------------------------------
 HEADINGS='[

@@ -12,7 +12,9 @@
 # verdict rules, M1 onward, and the store rules, S1 onward, are each named
 # exactly once by a row or a `# retired:` line, that each of the four
 # reference files is named in at least one state section of coordinate.md, and
-# that SKILL.md's Roles lists hold three, five and six items and no allowance.
+# that SKILL.md's Roles lists hold three, five and six items and no allowance,
+# and that three passages the decision ladder superseded (one entry escalated
+# at a time, "in your own words", "the dispatcher's channel only") are gone.
 # A carrier is a file a session loads or runs, so skills/coordinate/MAINTAINING.md,
 # which none loads, is refused as one.
 #
@@ -31,7 +33,7 @@ TSV="$HERE/testdata/rule-coverage.tsv"
 TEMPLATE=skills/coordinate/koto-templates/coordinate.md
 TOTAL=197
 # The decision flow's rules, added after the inventory: D1..D$DTOTAL.
-DTOTAL=16
+DTOTAL=19
 # The milestone verdict rules (docs/designs/DESIGN-milestone-verdicts.md): M1..M$MTOTAL.
 MTOTAL=20
 # The record's store and its one reader
@@ -182,6 +184,25 @@ else
     [ -z "$hits" ] && ok "Roles names no grant, merge authority, may merge or settle" \
         || bad "Roles names no grant, merge authority, may merge or settle" "$hits"
 fi
+
+# Passages the decision ladder superseded stay gone: one entry escalated at a
+# time, a question re-worded "in your own words", and an escalation carried on
+# "the dispatcher's channel only". Each grep must print nothing.
+superseded() { # superseded <label> <pattern> <file>...: no file under ROOT holds the pattern
+    local label=$1 pat=$2 hits
+    shift 2
+    hits=$(cd "$ROOT" && grep -n -e "$pat" "$@")
+    case $? in
+        1) ok "superseded: $label" ;;
+        0) bad "superseded: $label" "$(printf '%s' "$hits" | tr '\n' ' ')" ;;
+        *) bad "superseded: $label" "grep could not read the files" ;;
+    esac
+}
+superseded "no one-entry-at-a-time escalation" 'one entry at a time\|One entry is escalated at a time' \
+    skills/coordinate/SKILL.md skills/coordinate/koto-templates/coordinate.md skills/coordinate/references/state-keys.md
+superseded "no question re-worded in your own words" 'in your own words' \
+    skills/coordinate/SKILL.md skills/coordinate/koto-templates/coordinate.md
+superseded "no escalation on the dispatcher's channel only" "the dispatcher's channel only" skills/coordinate/SKILL.md
 
 # Every rule of the prose skill must be carried; a rule on the lost line fails.
 if [ "$LOST" -gt 0 ]; then bad "every rule has a carrier" "no carrier yet: $(tr '\n' ' ' < "$T/lost")"; else ok "every rule has a carrier"; fi

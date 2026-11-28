@@ -296,9 +296,9 @@ else
     fail "manager's unseen: $(jq -c .unseen "$T/pending-manager.json")"
 fi
 koto decisions show w1 "$ANS_ID" > "$T/show-before.json" 2> "$T/show.err" || fail "koto decisions show w1 $ANS_ID: $(cat "$T/show.err")"
-koto decisions list manager > "$T/list-before.json" 2> "$T/list.err" || fail "koto decisions list manager: $(cat "$T/list.err")"
+koto decisions list manager --format v1 > "$T/list-before.json" 2> "$T/list.err" || fail "koto decisions list manager: $(cat "$T/list.err")"
 run seen question seen "$ANS" --in manager
-koto decisions list manager > "$T/list-after.json" 2> "$T/list.err" || fail "koto decisions list manager: $(cat "$T/list.err")"
+koto decisions list manager --format v1 > "$T/list-after.json" 2> "$T/list.err" || fail "koto decisions list manager: $(cat "$T/list.err")"
 ADDED=$(( $(jq '.decisions | length' "$T/list-after.json") - $(jq '.decisions | length' "$T/list-before.json") ))
 if [ "$RC" -eq 0 ] && [ "$(jq -r '.recorded' "$T/seen.out")" = true ] && [ "$(jq -r '.id' "$T/seen.out")" != null ] && [ "$ADDED" = 1 ]; then
     pass "seen records one judgment in manager"
@@ -317,7 +317,7 @@ cmp -s "$T/show-before.json" "$T/show-after.json" && pass "koto decisions show p
     || fail "the answer changed: $(diff "$T/show-before.json" "$T/show-after.json" | head -5)"
 cp "$T/list-after.json" "$T/list-before.json"
 run seen question seen "$ANS" --in manager
-koto decisions list manager > "$T/list-after.json" 2> "$T/list.err" || fail "koto decisions list manager: $(cat "$T/list.err")"
+koto decisions list manager --format v1 > "$T/list-after.json" 2> "$T/list.err" || fail "koto decisions list manager: $(cat "$T/list.err")"
 if [ "$RC" -eq 0 ] && [ "$(jq -r '.id' "$T/seen.out")" = null ] && [ "$(jq -r '.recorded' "$T/seen.out")" = false ] \
     && cmp -s "$T/list-before.json" "$T/list-after.json"; then
     pass "a second seen adds nothing and exits 0"

@@ -121,6 +121,19 @@ given at or below the session that no decision in its run cites yet, each with
 `answer` (`<session>:<id>`), `reading` and `time` as koto prints them.
 `shirabe question seen` takes one off the list.
 
+`answered` and `unseen` come from one `koto decisions precedent --person owner
+--chain <session>` read. When that read fails, `pending` still exits 0 with
+the open questions listed: `unseen` is null, never an empty list, and
+`unseen_error` carries koto's `code` and a `message`; `answered` then holds
+only the answers to questions the session raised. When the read works,
+`unseen_error` is null. A caller that acts on the owner's answers checks
+`unseen_error` and treats a null `unseen` as unknown, not as none.
+
+Raise times order as instants: koto's times are parsed, their fraction
+included, so times written at different precisions compare by the moment they
+name. A time that doesn't parse sorts after every time that does; two equal
+times fall back to the identity compared as bytes.
+
 ## `shirabe question render`
 
 ```text
@@ -313,8 +326,11 @@ Passes a question the session holds up to the session's own dispatcher (the
 default, read from `koto session origin`) or to `person:owner`, as a koto
 `readdress` with outcome `passed`. The question keeps its identity. A decision
 question needs `--attempt`: the session's own attempt, listed in
-`koto decisions attempts --in <session>`, with result `undecided` and tied to
-that question (its basis names the question). The raiser's attempt is not in
+`koto decisions attempts --in <session>`, with `status` `in-effect`, result
+`undecided` and tied to that question (its basis names the question). koto
+lists a reversed attempt with its old result, so the status is checked as
+well: a reversed or refused attempt, or one listed with no status, doesn't
+count. The raiser's attempt is not in
 the passing session's run and doesn't count; an attempt at another question
 doesn't either. A need takes no attempt.
 
@@ -330,14 +346,18 @@ Refusals:
 
 - exit 1 before any koto write: no `--attempt` for a decision question, or one
   that names no attempt in the session's run, an attempt at another question,
-  or a `decided` or `provisional` attempt ("a decided question is settled, not
-  passed up"); an `--attempt` for a need; a missing or unknown `--ground`;
+  an attempt not in effect, or a `decided` or `provisional` attempt ("a
+  decided question is settled, not passed up"); an `--attempt` for a need; a missing or unknown `--ground`;
   `outside-scope` toward `person:owner`; a `--to` other than the dispatcher
   and `person:owner`; a question no longer open;
 - exit 2 on an identity not in `<raiser session id>/<decision id>` form;
 - exit 4 when koto refuses: `decision_not_found` for an identity koto doesn't
   hold, a session that is neither the question's addressee nor its raiser,
-  and the limit of twenty open questions waiting on a person.
+  and the limit of twenty open questions waiting on a person. A pass-up to
+  `person:owner` when the raiser's run already holds twenty is refused by
+  koto with code `invalid_decision` on field `to`, and its message names the
+  limit; shirabe passes the code, field and message through unchanged and
+  writes nothing else.
 
 ## `shirabe question settle`
 
@@ -352,6 +372,27 @@ from the session or anchor the question waits on now, or one continuing it),
 and `settled` when it is the raiser. A settle needs a basis koto accepts; for
 a question waiting on the owner, that is an owner answer in effect with the
 same label, and koto refuses anything else. `--chosen` is the answer's text.
+
+shirabe checks two things itself before koto is asked. First, each `--basis`
+is read with `koto decisions show`: one that names an answer by
+`person:owner` must be listed by `koto decisions precedent --person owner
+--chain <session>` (an owner answer in effect in the session's chain) with
+`reading` `verified`. A basis that names any other decision, such as the
+session's own, is checked only for its `<session>:<id>` shape, and koto
+checks only that it exists.
+
+Second, the question's history is read for a ground that reserves it for the
+owner (`contradicts-answer`, `changes-scope`, `outward-facing` or
+`reserved-step`). Each attempt tied to the question that koto lists in effect,
+and each pass-up it counts, recorded by the settling session or by a session
+dispatched below it, is read with `koto decisions show`, and a `ground: <g>`
+part in its reason refuses the settle with field `ground`, the ground and the
+entry that recorded it: the question goes up with `shirabe question pass-up`.
+`outside-scope` reserves nothing. The limit: only a ground someone recorded
+can be found. A question whose attempt and pass-ups name no ground, or one
+whose ground was recorded only by a session above the settling one, is
+settled as koto allows, and nothing checks that the matter wasn't the
+owner's.
 
 `--owner-note` records what was relayed as the owner's word inside the
 session's own decision: the text reads `<chosen> (relayed, not the owner's
@@ -369,9 +410,12 @@ Refusals:
 - exit 1 before any koto write: an empty `--chosen` or `--reason`, or a
   missing `--reason` with an identity; any value holding a control character
   or text shaped like a secret (the match isn't printed); a `--basis` not in
-  `<session>:<id>` form; `--owner-note` on a question waiting on a person;
-  `--what` with an identity, or a claim with no identity missing `--what` or
-  `--owner-note`;
+  `<session>:<id>` form; a `--basis` naming an owner answer that the
+  precedent read doesn't list in the session's chain, or that doesn't read as
+  `verified` (with koto's `reading`); a ground reserved for the owner recorded
+  at or below the session (field `ground`); `--owner-note` on a question
+  waiting on a person; `--what` with an identity, or a claim with no identity
+  missing `--what` or `--owner-note`;
 - exit 4 when koto refuses: a session that is neither the addressee nor the
   raiser, a raiser settling a need, and a settle with no basis koto accepts.
 
@@ -386,6 +430,11 @@ names the answer. The answer itself isn't touched, and it was in effect before
 the mark; `koto decisions show` prints it unchanged. The answer leaves the
 session's `unseen` listing, and stays in the listing of a session above it
 until that session marks it too. A second `seen` adds nothing and exits 0.
+`seen` takes exactly the answers `unseen` can list: one given in the session
+or below it (the precedent row's `below` is true, or its `session` is this
+one). An owner answer given above the session is in effect there as
+precedent, but it is refused: it is marked seen in the session it was given
+in, or one above that.
 
 Output: `answer`, `identity` (the question it answered), `session`, `id` (the
 judgment, null when nothing was added) and `recorded`.
@@ -395,7 +444,8 @@ Refusals:
 - exit 1: an entry that isn't an `answered` answer by `person:owner`; one that
   doesn't read as `verified` here (a remote session's answer, whose prompt
   this host didn't check, included), with koto's `reading`; an answer that
-  `koto decisions precedent --person owner --chain <session>` doesn't list;
+  `koto decisions precedent --person owner --chain <session>` doesn't list,
+  or lists as given above the session;
 - exit 2 on an answer not in `<session>:<id>` form;
 - exit 4 with `decision_not_found` for an answer koto doesn't hold.
 

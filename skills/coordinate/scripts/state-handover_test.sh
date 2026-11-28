@@ -42,6 +42,12 @@
 # --check never runs the listing and exits as it does without the answer; a
 # listing that fails, or prints no unseen list, gives unseen_error and no
 # unseen, and holds nothing.
+# And the questions open at the run (koto decisions open --at, through
+# state-decision.sh --open-questions): none open, the read's fields are as
+# before and the gate passes; one addressed here with no entry is printed
+# under open_questions with its raiser and age (one the run raised to a person
+# is not), holds the gate as question-unhandled, and --check lists it with its
+# age; a listing koto can't read stops the gate (2).
 #
 # Usage: bash skills/coordinate/scripts/state-handover_test.sh
 set -uo pipefail
@@ -318,7 +324,7 @@ eq "  ... the listing read in the run's session" "question pending --in $SR" "$(
 export UNSEEN_FIXTURE="$UNSEEN_DIR/one.json"
 H1=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "one owner answer unseen: the read prints" 0 $?
 eq "  ... it in a field of its own, with the question's identity and the answer to mark seen" \
-    "dfff1914-3843-4932-a49d-48024d22c433/7 coordinate-roadmap-plugin-system-20260926T070000Z:12 loader-pin Pin v2.1.0." \
+    "dfff1914-r/7 coordinate-roadmap-plugin-system-20260926T070000Z:12 loader-pin Pin v2.1.0." \
     "$(printf '%s' "$H1" | jq -r '.unseen[] | "\(.identity) \(.answer) \(.label) \(.text)"')"
 eq "  ... each with the listing's fields" "answer id identity label question reading session text time" \
     "$(printf '%s' "$H1" | jq -r '.unseen[0] | keys | join(" ")')"
@@ -340,6 +346,32 @@ H3=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "a listing with no unseen list (an ol
 eq "  ... unseen_error, never an empty list" "null|shirabe question pending printed no unseen list" \
     "$(printf '%s' "$H3" | jq -r '"\(.unseen)|\(.unseen_error | sub(": .*$"; ""))"')"
 export UNSEEN_FIXTURE="$UNSEEN_DIR/none.json"
+
+echo "== questions open at the run =="
+# open/<SR>.json: what koto decisions open --at <the run's session> lists.
+QO=0a1b2c3d-c/000000000004
+koto_open() { mkdir -p "$KOTO_STORE/decisions/open"; printf '%s' "$1" > "$KOTO_STORE/decisions/open/$SR.json"; }
+seed "$(record "$told_both")"
+H=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "no question open: the read prints" 0 $?
+eq "  ... with the fields as before, no open_questions key" "$OLDKEYS" "$(printf '%s' "$H" | jq -r 'keys | join(" ")')"
+gate; eq "  ... and the gate passes" "0 " "$G"
+seed "$(record "$told_both")"
+koto_open "{\"at\":\"$SR\",\"questions\":[
+  {\"identity\":\"$QO\",\"session\":\"deliver-feat-2\",\"time\":\"2026-09-26T06:30:00Z\",\"addressee\":{\"kind\":\"session\",\"name\":\"$SR\"}},
+  {\"identity\":\"w9-0000/000000000009\",\"session\":\"$SR\",\"time\":\"2026-09-26T05:00:00Z\",\"addressee\":{\"kind\":\"person\",\"name\":\"owner\"}}],\"v\":1}"
+H=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "a question addressed here with no entry: the read prints" 0 $?
+eq "  ... it under open_questions, with its raiser, no entry and an age" "$QO deliver-feat-2 null false yes" \
+    "$(printf '%s' "$H" | jq -r '.open_questions[] | "\(.identity) \(.raiser) \(.decision) \(.handled) \(if .age_minutes > 0 then "yes" else "no" end)"')"
+eq "  ... not one this run raised to a person" 1 "$(printf '%s' "$H" | jq '.open_questions | length')"
+eq "  ... and the gap question-unhandled" "question-unhandled $QO" "$(printf '%s' "$H" | jq -r '[.gaps[].gap] | join(",")')"
+gate; eq "the gate holds on it" "1 question-unhandled $QO" "$G"
+grep -q "^state-handover: open question $QO from deliver-feat-2, open [0-9]* min: no entry\$" "$T/gate" \
+    && ok "  ... and lists it with its age" || bad "  ... and lists it with its age" "$(cat "$T/gate")"
+grep -q "question-unhandled $QO: open its entry" "$T/gate" && ok "  ... its fix opening the entry" || bad "  ... its fix opening the entry" "$(cat "$T/gate")"
+: > "$KOTO_STORE/decisions/open-fail"
+bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "a listing koto can't read: the gate stops (2), never none open" 2 $?
+grep -q "cannot read the questions open at this run" "$T/err" && ok "  ... and says so" || bad "  ... and says so" "$(cat "$T/err")"
+rm -f "$KOTO_STORE/decisions/open-fail" "$KOTO_STORE/decisions/open/$SR.json"
 
 echo "== the schema =="
 state_json "$(record "[$(row told worker-f2),$(row pending worker-f2)]")" >/dev/null 2>"$T/err"

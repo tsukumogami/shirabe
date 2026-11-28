@@ -319,8 +319,8 @@ eq "an Answer: first line is ordinary text" "0 none" "$RC $(word)"
 # by the reporting worker, are items whatever the report says; a text line
 # naming an identity opens nothing. Fixtures for the koto stand-in
 # (testdata/koto-decisions), written for each run's session by PRE.
-QA=0a1b2c3d-0000-4000-8000-00000000000a/000000000002
-QB=0a1b2c3d-0000-4000-8000-00000000000b/000000000003
+QA=0a1b2c3d-a/000000000002
+QB=0a1b2c3d-b/000000000003
 qkey() { printf '%s' "$1" | tr '/' '_'; }
 KD() { mkdir -p "$KOTO_STORE/decisions/$1"; printf '%s' "$KOTO_STORE/decisions/$1"; }
 CONTENT='{"context":"CTX","problem":"PROB","ask":"Which store, @alice?","question":"CTX\n\nPROB\n\nWhich store, @alice?","options":[{"label":"SQLite","reason":"one file"},{"label":"Postgres","reason":"shared"}],"ground":"G","waiting":[],"label":"cache"}'
@@ -368,6 +368,8 @@ eq "identity: one that already has an entry adds none" "0 none" "$RC $(word)"
 LOW="coordinate-roadmap-rr-$RUNSTAMP"
 OPEN=
 open_pre
+# The renderer reads the entry, and koto's content for its question with it.
+printf '%s' "$CONTENT" > "$(KD content)/$(qkey "$QA").json"
 found_session "$LOW" "$(roadmap_vars rr | jq -c '.REPORTS_TO = "ws"')"
 seed_session "$LOW" "$(record_json roadmap rr | jq -c --argjson e "[$(printf '%s' "$RENDERED_ESC" | jq -c --arg q "$QA" '.source = "question \($q) [20260926T080000Z report 2.1]" | .options = "" | .grounds = "changes-scope"')]" '.decisions = {next: 5, entries: $e}')"
 log_to "$LOW" reconcile decision_next
@@ -388,6 +390,22 @@ eq "round trip: decision-render.sh's escalation reads back as the question it pa
 PRE=round_pre OPEN="$QA:w7"
 run "holding none w1" "Done." "$WORKER"
 eq "identity: a nested pass-up counts only for a coordinator's holding" "0 none" "$RC $(word)"
+# Only a line naming an identity (<session>/<1 to 20 digits>, standing alone)
+# is dropped, and every dropped line is counted in the verdict.
+dropped() { printf '%s' "$OUT" | tr ' ' '\n' | grep '^dropped:'; }
+PRE=open_pre OPEN=
+run "holding none w1" "Should we rerun https://github.com/o/r/actions/runs/123456789 before merging?" "$WORKER"
+eq "identity: a line with a CI run link is a question, not dropped" "0 questions 1|" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1-2)|$(dropped)"
+run "holding none w1" "$(printf 'Should we settle %s?\nAnd %s?\nShould the second half wait?\n' "$QB" "$QA")" "$WORKER"
+eq "identity: each line naming an identity is dropped and counted" "0 questions 1|dropped:2" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1-2)|$(dropped)"
+# A withdrawal of an entry held by a question names its identity on the
+# question line, and reaches that entry by it.
+HELD_UP=$(printf '%s' "$OPEN_UP" | jq -c --arg q "$QA" '.[0].source = "question \($q) [20260926T070000Z report 3.1]" | .[0].options = "" | .[0].grounds = "changes-scope"')
+run "holding none rr" "$(withdrawal 4 1 | sed "3s#.*#$QA#")" "$COORD" "$HELD_UP"
+eq "withdrawal: one naming an identity an entry holds is matched by identity" "0 withdrawal|withdrawal|$QA" \
+    "$RC $(word)|$(list | jq -r '.[0] | "\(.kind)|\(.identity)"')"
+run "holding none rr" "$(withdrawal 4 1 | sed "3s#.*#$QB#")" "$COORD" "$HELD_UP"
+eq "withdrawal: one naming an identity no entry holds falls back to its source, which opened nothing" "0 none" "$RC $(word)"
 PRE= OPEN=
 rm -rf "$KOTO_STORE/decisions"
 

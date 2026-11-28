@@ -1,6 +1,6 @@
 //! `shirabe question pass-up` against the koto stand-in: the attempt a
-//! decision question needs (the calling session's own, undecided, tied to
-//! that question), the need's exemption, the grounds and recipients it
+//! decision question needs (the calling session's own, in effect,
+//! undecided, tied to that question), the need's exemption, the grounds and recipients it
 //! takes, and koto's refusals passed through. The same rules against the
 //! real koto run in skills/coordinate/scripts/question-ladder_engine_test.sh.
 
@@ -35,8 +35,23 @@ fn setup(attempts: &str, need: &str) -> Standin {
 }
 
 fn att(id: &str, session: &str, result: &str, question: &str) -> String {
+    att_status(id, session, result, question, Some("in-effect"))
+}
+
+/// An attempt row as `koto decisions attempts` prints it, with the `status`
+/// given (left out with `None`).
+fn att_status(
+    id: &str,
+    session: &str,
+    result: &str,
+    question: &str,
+    status: Option<&str>,
+) -> String {
+    let status = status
+        .map(|st| format!(r#","status":"{st}""#))
+        .unwrap_or_default();
     format!(
-        r#"{{"id":"{id}","session":"{session}","result":"{result}","what":"cache store","question":"{question}","questions":["{question}"]}}"#
+        r#"{{"id":"{id}","session":"{session}","result":"{result}","what":"cache store","question":"{question}","questions":["{question}"]{status}}}"#
     )
 }
 
@@ -78,7 +93,12 @@ fn the_raisers_own_attempt_does_not_count_for_the_coordinator() {
 #[test]
 fn an_attempt_by_the_session_at_another_question_is_refused() {
     let s = setup(
-        &att("000000000001", "manager", "undecided", "sid-w2/000000000007"),
+        &att(
+            "000000000001",
+            "manager",
+            "undecided",
+            "sid-w2/000000000007",
+        ),
         "decision",
     );
     let j = refused(
@@ -302,4 +322,62 @@ fn a_closed_question_is_not_passed_up() {
         &["--ground", "changes-scope", "--attempt", "000000000001"],
         "identity",
     );
+}
+
+#[test]
+fn an_attempt_that_is_not_in_effect_is_refused() {
+    // koto lists a reversed attempt with its old result, so `undecided`
+    // alone would pass; its `status` is what says it no longer counts.
+    for status in [Some("reversed"), Some("refused"), None] {
+        let s = setup(
+            &att_status("000000000001", "manager", "undecided", Q, status),
+            "decision",
+        );
+        let j = refused(
+            &s,
+            &["--ground", "changes-scope", "--attempt", "000000000001"],
+            "attempt",
+        );
+        let msg = j["error"]["message"].as_str().unwrap();
+        assert!(msg.contains("not in effect"), "{status:?}: {msg}");
+    }
+}
+
+#[test]
+fn the_limit_of_twenty_passes_through_as_exit_4_with_kotos_code() {
+    // A pass-up to the owner when the raiser's run already holds twenty open
+    // questions waiting on a person: koto refuses the readdress with
+    // invalid_decision on field `to` (its check_person_limit), and shirabe
+    // passes code, field and message through.
+    let s = setup(&att("000000000001", "manager", "undecided", Q), "decision");
+    s.write(
+        "fail",
+        "decisions readdress|invalid_decision|the run of 'w1' holds 20 open questions waiting on a person, and the limit of twenty (20) is reached: one has to be answered, settled or withdrawn before another waits on a person|to\n",
+    );
+    let out = pass_up(
+        &s,
+        &[
+            "--ground",
+            "changes-scope",
+            "--attempt",
+            "000000000001",
+            "--to",
+            "person:owner",
+        ],
+    )
+    .assert()
+    .code(4)
+    .get_output()
+    .clone();
+    let j = json(&out.stdout);
+    assert_eq!(j["error"]["exit"], json!(4), "{j}");
+    assert_eq!(j["error"]["code"], json!("invalid_decision"), "{j}");
+    assert_eq!(j["error"]["field"], json!("to"), "{j}");
+    let msg = j["error"]["message"].as_str().unwrap();
+    assert!(msg.starts_with("koto refused: "), "{msg}");
+    assert!(msg.contains("the limit of twenty (20) is reached"), "{msg}");
+    // The readdress was tried once and nothing else was written.
+    let w = s.writes();
+    assert_eq!(w.len(), 1, "{w:?}");
+    assert!(w[0].starts_with("decisions readdress"), "{w:?}");
 }

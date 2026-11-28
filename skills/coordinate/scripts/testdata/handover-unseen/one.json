@@ -14,7 +14,7 @@
   ],
   "unseen": [
     {
-      "identity": "dfff1914-3843-4932-a49d-48024d22c433/7",
+      "identity": "dfff1914-r/7",
       "question": "Should the loader pin v2.1.0 or track main?",
       "label": "loader-pin",
       "text": "Pin v2.1.0.",

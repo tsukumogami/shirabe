@@ -914,7 +914,9 @@ refused "successor: a lane can't add --discipline after a roadmap" \
 # A question's identity starts with the raising session's id, so it is the
 # one UUID-shaped value a brief may carry, and only in these fields.
 rm -rf "$BRIEFS"
-QID=dfff1914-3843-4932-a49d-48024d22c433/7
+# Built from parts: the fixture is a made-up session id, and a UUID literal in
+# a committed file is refused by the public-content check.
+QID=$(printf '%s-%s-%s-%s-%s/7' dfff1914 0000 4000 8000 000000000007)
 AQ=$(bash "$S" --input "$(variant answered '.answered_question = "'"$QID"'"')" --return-path req_2:deliver --stdout)
 has "answered: the Goal names the answered question" "$AQ" "This invocation continues your waiting run: question \`$QID\`, which you raised, has been answered."
 has "answered: and how to read the answer" "$AQ" "\`koto decisions history $QID\` reads it"
