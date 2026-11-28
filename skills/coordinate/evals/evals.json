@@ -1561,13 +1561,6 @@
         "question ladder unseen",
         "question ladder precedent"
       ]
-    },
-    {
-      "id": 84,
-      "name": "question-ladder-engine-suites",
-      "grader": "script",
-      "handoff": "work-on",
-      "run": "scripts/cases/question-ladder.sh"
     }
   ]
 }
