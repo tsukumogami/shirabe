@@ -49,6 +49,16 @@ stops there. Scripts named below sit in this skill's `scripts/`.
   --owner-note` as this session's own decision. A reply the owner types
   instead of answering a prompt isn't an answer either; the owner started
   that turn, so present the question in it.
+- A rule the owner types to you becomes a standing rule only through a
+  question: record your undecided attempt, raise it with `shirabe question
+  raise --to person:owner`, marked standing (`standing: true`) and carrying
+  the owner's wording and scope, and present it in that turn. Once `shirabe
+  question answer` exits 0, write the row with `state-stored-set.sh
+  --standing rule --source "decision <answer session> <answer id>"`, citing
+  that answer. A rule row reads owner-said only from the owner's verified
+  answer to a question marked standing; being the top coordinator doesn't
+  make your own record of the owner's words the owner's, and a rule relayed
+  in a brief or a message comes in as inferred.
 - A question is held and passed up by its koto identity, never re-worded.
   Passing a decision up (`state-decision.sh --escalate`) needs your own
   undecided attempt at it, recorded with `shirabe question attempt`; a need

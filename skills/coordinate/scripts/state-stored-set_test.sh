@@ -880,6 +880,33 @@ eq "  ... its row blank in On, Until, Owner and Relayed by, and its entry kind r
 rule_case "R25. an unknown kind is still usage, 64" 64 "--standing takes pause, go-ahead, approval, answer, assignment or rule" --standing rumour --what x --owner y
 rule_case "  ... and an event row with no --owner" 64 "Usage" --standing approval --what x
 
+echo "== a decision Source: the owner's verified standing answer, read through the koto stand-in =="
+# testdata/standing-rules/cited/ holds koto's answers for two owner answers:
+# director-a 000000000004 to a question carrying the standing mark, and
+# manager-a 000000000005 to one carrying none, both reading verified.
+mkdir -p "$KOTO_STORE/decisions" && cp -R "$SD/cited/." "$KOTO_STORE/decisions/"
+rule_case "a decision citing the owner's verified answer to an unmarked question is refused, 65, as inferred" 65 \
+    "refused: standing.s4: the Source cites a decision that reads inferred, not owner-said" \
+    --standing rule --what "Use SQLite for the build cache." --source "decision manager-a 000000000005"
+rule_case "  ... and one citing a decision koto doesn't hold, as unreadable" 65 \
+    "refused: standing.s4: the Source cites a decision that reads unreadable, not owner-said" \
+    --standing rule --what "Use SQLite for the build cache." --source "decision manager-a 000000000009"
+bash "$RS" "${W[@]}" --standing rule --what "From now on, merge nothing after Friday noon." --source "decision director-a 000000000004" >/dev/null 2>"$T/err"
+eq "a decision citing the owner's verified answer to a question marked standing is written" "0 s4 decision director-a 000000000004" \
+    "$? $(live | jq -r '.standing[-1] | "\(.standing) \(.source)"')"
+: > "$KOTO_STORE/calls"
+bash "$RS" "${RM[@]}" --rules --id s4 > "$T/cited.out" 2>"$T/err"
+eq "  ... and --rules reads it owner-said, in force, nothing to confirm, pointing at the decision" \
+    "0 owner-said in-force false director-a 000000000004" "$? $(jq -r '"\(.class) \(.status) \(.confirm) \(.pointer.decision)"' "$T/cited.out")"
+eq "  ... through read calls alone: decisions show, then decisions content read of the answer's question" \
+    "decisions show director-a 000000000004|decisions content read 11111111-1111-4111-8111-111111111111/000000000002" \
+    "$(grep '^decisions' "$KOTO_STORE/calls" | tr '\n' '|' | sed 's/|$//')"
+bash "$RS" "${RM[@]}" --rules --counts > "$T/counts.out" 2>"$T/err"
+eq "  ... and --rules --counts counts it under owner-said, the two inferred rows and the Run rules row under inferred" \
+    "0 relayed 0|owner-said 1|dispatcher-said 0|inferred 3|skill-says 0|charter 1|unreadable 0" \
+    "$? $(tr '\n' '|' < "$T/counts.out" | sed 's/|$//')"
+rm -rf "$KOTO_STORE/decisions"
+
 echo "== --inferred: a worked-out reports-to or cap and its rule row =="
 # The design's Decision 5: --inferred goes only with --run reports-to and
 # --run cap, once and not empty, a usage error (64) made before anything is

@@ -209,8 +209,17 @@
 # sha256:<64 hex>]` (the coordinator's own reading). --source goes only with
 # --standing rule, and a rule takes no --on or --until (64); --owner or
 # --relayed-by on one is refused (65), since its Source says who said it. A
-# `decision <session> <id>` Source is refused (65): that form isn't written
-# before koto's decision commands, so the row is written as inferred. The
+# `decision <session> <id>` Source, the fifth form, is written only when the
+# cited decision reads owner-said: standing-provenance.sh reads it (koto's
+# `decisions show`, then `decisions content read` for an owner's answer) and
+# state-schema.jq's rule_class decides from the `reading` and `standing` it
+# prints, so only the owner's answer that koto reads verified, to a question
+# marked standing on the question or on the option chosen, is cited. Any
+# other citation (a person judgment, a remote session's answer, a session's
+# decision, an unmarked question, one that can't be read) is refused (65), and
+# the row is written as inferred. The What isn't compared with the question's
+# text: a coordinator writes the owner's wording, the text the question put
+# to the owner. The
 # checks run in this order, each refusal 65 with nothing written: the usage
 # (64); the Source's grammar and the row's columns; the What's 400 bytes; the
 # caps, at most 120 rule rows, of which at most 60 read inferred (the inferred
@@ -306,8 +315,12 @@
 # kind, class, what, owner, said, set, pointer, words, source, status,
 # reversal, confirm); a relayed row's pointer names the entry its --standing
 # wrote, read from the record's entries, or the row itself when no entry
-# matches. A `decision` Source reads class and status `unreadable` until what
-# koto recorded about the decision is read.
+# matches. A `decision` Source's decision is read once per distinct citation
+# with standing-provenance.sh, read calls only, and rule_class decides from
+# what it prints: owner-said for a person decision reading `verified` with the
+# standing mark, inferred for any other person decision, and unreadable, class
+# and status, for a session's decision or one that can't be read. Its pointer
+# is {decision: "<session> <id>"}.
 # Each object also carries under_session_grant and session_allows
 # (state-schema.jq's rule_grants). A row grants nothing: the grant is the
 # session's, and these two fields say whether the row stands under it and
@@ -351,7 +364,8 @@
 # the unsourced rules the record holds. It counts each Run `rules` row too, in
 # the class --rules gives its object, so the lines add up to the Standing rows
 # plus the Run `rules` rows. It reads the record's Standing and Run sections
-# and no entry. --counts takes no --id (64).
+# and no entry, and each cited decision as --rules does. --counts takes no
+# --id (64).
 #
 # --work writes the next step for ITEM: with --kind holding, ITEM is a
 # holding's Unit and W its Worker, and the holding's first row also records W
@@ -770,8 +784,30 @@ rules_grant_read() {
     dc_with_deadline "${NIWA_LOOKUP_SECONDS:-3}" dc_tree "$niwa" authority check -C "$root" --session "$sid" --json \
         < /dev/null > "$1" 2> /dev/null
 }
+# rules_cited: the facts of each decision the record's Standing rows cite, one
+# standing-provenance.sh read per distinct `<session> <id>`, into
+# $WD/cited.json as an object keyed "<session> <id>" (state-schema.jq's
+# rule_cite). The helper answers every failure to read as an unreadable
+# object, so a read that fails leaves its rows unreadable, as before.
+rules_cited() {
+    local s i
+    jq -r '(.standing // [])[] | (.source // "") | split(" ") | select(.[0] == "decision" and length == 3) | "\(.[1]) \(.[2])"' \
+        "$WD/parsed.json" > "$WD/cites.all" || lib_die2 "jq failed"
+    LC_ALL=C sort -u "$WD/cites.all" > "$WD/cites" || lib_die2 "cannot sort the cited decisions"
+    : > "$WD/cited.jsonl"
+    while read -r s i; do
+        bash "$HERE/standing-provenance.sh" "$s" "$i" >> "$WD/cited.jsonl" < /dev/null \
+            || lib_die2 "cannot read the decision $s $i cites"
+    done < "$WD/cites"
+    jq -s -c 'map({key: "\(.session) \(.id)", value: .}) | from_entries' "$WD/cited.jsonl" > "$WD/cited.json" \
+        || lib_die2 "jq failed"
+}
+if [ "$MODE" = rules ]; then
+    rules_cited
+fi
 if [ "$MODE" = rules ] && [ "$COUNTS" = 1 ]; then
-    jq -r -L "$HERE" 'include "state-schema"; record_rule_counts' "$WD/parsed.json" || lib_die2 "jq failed"
+    jq -r -L "$HERE" --slurpfile c "$WD/cited.json" 'include "state-schema";
+        .standing = [(.standing // [])[] | rule_cite($c[0])] | record_rule_counts' "$WD/parsed.json" || lib_die2 "jq failed"
     exit 0
 fi
 if [ "$MODE" = rules ]; then
@@ -789,9 +825,10 @@ if [ "$MODE" = rules ]; then
             bash "$HERE/state-entry.sh" --session "$SESSION" --list > "$WD/entries.json" 2> "$WD/list.err"
         fi || lib_die2 "cannot read the record's entries: $(lib_scrub < "$WD/list.err")"
     fi
-    jq -c -L "$HERE" --arg s "${RS_SESSION:-$SESSION}" --slurpfile e "$WD/entries.json" --slurpfile ids "$WD/ids.json" 'include "state-schema";
+    jq -c -L "$HERE" --arg s "${RS_SESSION:-$SESSION}" --slurpfile e "$WD/entries.json" --slurpfile ids "$WD/ids.json" \
+        --slurpfile c "$WD/cited.json" 'include "state-schema";
         (.standing // [])[] | select(($ids[0] | length) == 0 or (.standing as $i | $ids[0] | index($i)) != null)
-        | rule_view($s; $e[0])' "$WD/parsed.json" > "$WD/views.json" || lib_die2 "jq failed"
+        | rule_cite($c[0]) | rule_view($s; $e[0])' "$WD/parsed.json" > "$WD/views.json" || lib_die2 "jq failed"
     # The anchor's two repositories: the one the installed plugin's manifest
     # names as its source, and the record's host.
     PLUGIN_REPO=$(jq -r '.repository // "" | if type == "string" then . else "" end' \
@@ -907,8 +944,16 @@ rule_checks() {
         jq -e --arg v "${form[1]} ${form[2]}" 'any((.run // [])[]; (.key == "rules" or .key == "briefs") and .value == $v)' "$P" > /dev/null \
             || refuse "standing.$SID: the Source pins ${form[1]} ${form[2]}, which no Run rules or briefs row holds"
     fi
-    [ "${form[0]}" != decision ] \
-        || refuse "standing.$SID: the Source's decision form isn't written before koto's decision commands; write the row as inferred"
+    # A decision is cited only when it reads owner-said: the owner's answer,
+    # verified, to a question marked standing. Any other citation is refused.
+    if [ "${form[0]}" = decision ]; then
+        bash "$HERE/standing-provenance.sh" "${form[1]}" "${form[2]}" > "$WD/cite.json" < /dev/null \
+            || lib_die2 "cannot read the decision ${form[1]} ${form[2]}"
+        cited_class=$(jq -r -L "$HERE" --arg s "$SOURCE" 'include "state-schema"; {source: $s, cited: .} | rule_class' "$WD/cite.json") \
+            || lib_die2 "jq failed"
+        [ "$cited_class" = owner-said ] \
+            || refuse "standing.$SID: the Source cites a decision that reads $cited_class, not owner-said; only the owner's verified answer to a question marked standing is cited, so write the row as inferred"
+    fi
 
     # shellcheck source=dispatch-common.sh
     . "$HERE/dispatch-common.sh" || lib_die2 "cannot load dispatch-common.sh"

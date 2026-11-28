@@ -299,6 +299,37 @@ eq "a pinned rule reads charter, with its label and digest" \
     "$(view "$(jq -c '[.[2]]' "$SD/rule-rows.json")")"
 eq "a decision rule reads unreadable twice over, with the session and id, and no owner or time" \
     "unreadable|unreadable|false|null|null|null|null|{\"decision\":\"$SESS 000000000007\"}" "$(view "$(jq -c '[.[3]]' "$SD/rule-rows.json")")"
+# A decision row's class read from its cited decision's facts, as
+# standing-provenance.sh prints them: `reading` and `standing` decide for a
+# person decision, and where it was entered plays no part.
+# cited <kind> <reading-json> <standing> [entering]: a decision row citing such facts.
+cited() {
+    jq -c -n --arg k "$1" --argjson r "$2" --argjson st "$3" --arg e "${4:-director}" '[{standing: "s4", kind: "rule", what: "x", set: "2026-10-20T09:00Z",
+        source: "decision director 000000000004",
+        cited: {session: "director", id: "000000000004", status: "in-effect",
+            decider: (if $k == "person" then {kind: "person", entering: $e, surface: "terminal"} else {kind: "session", session: $e} end),
+            time: "2026-10-20T09:00:00.000Z", reading: $r, question: null, standing: $st, reversal: null, quoted: {}}}]'
+}
+cls() { view "$1" | cut -d'|' -f1,2,3,8; }
+DPTR="{\"decision\":\"director 000000000004\"}"
+eq "a verified owner's answer to a question marked standing, given in director, reads owner-said, in force, nothing to confirm" \
+    "owner-said|in-force|false|$DPTR" "$(cls "$(cited person '"verified"' true director)")"
+eq "  ... and given in a worker, the same" "owner-said|in-force|false|$DPTR" "$(cls "$(cited person '"verified"' true worker-a)")"
+eq "a verified owner's answer with no mark reads inferred, to confirm" "inferred|unconfirmed|true|$DPTR" "$(cls "$(cited person '"verified"' false)")"
+eq "a remote session's answer, marked, reads inferred" "inferred|unconfirmed|true|$DPTR" "$(cls "$(cited person '"a remote session'"'"'s answer"' true)")"
+eq "a person judgment with no answered prompt, in a coordinator with no dispatcher, reads inferred" "inferred|unconfirmed|true|$DPTR" \
+    "$(cls "$(cited person null false director)")"
+eq "a session's decision, a settle --owner-note among them, keeps unreadable" "unreadable|unreadable|false|$DPTR" \
+    "$(cls "$(cited session null false manager)")"
+eq "  ... even with a reading and a mark set" "unreadable|unreadable|false|$DPTR" "$(cls "$(cited session '"verified"' true manager)")"
+eq "a cited decision koto couldn't read keeps unreadable" "unreadable|unreadable|false|$DPTR" \
+    "$(cls "$(cited person '"verified"' true | jq -c '.[0].cited = {session: "director", id: "000000000004", status: "unreadable", why: "x"} | .')")"
+eq "rule_cite puts the facts on the row its Source cites, and on no other" "true false" \
+    "$(jq -nc -L "$HERE" 'include "state-schema"; {"director 000000000004": {status: "in-effect"}} as $c
+        | [({source: "decision director 000000000004"} | rule_cite($c) | has("cited")), ({source: "decision director 000000000005"} | rule_cite($c) | has("cited"))] | map(tostring) | join(" ")' | tr -d '"')"
+eq "rule_counts counts a cited owner's verified standing answer under owner-said" \
+    "relayed 0|owner-said 1|dispatcher-said 0|inferred 1|skill-says 0|charter 0|unreadable 0" \
+    "$(jq -r -L "$HERE" --argjson a "$(cited person '"verified"' true)" --argjson b "$(cited person '"verified"' false)" 'include "state-schema"; $a + $b | rule_counts' -n | tr '\n' '|' | sed 's/|$//')"
 eq "a doc rule reads charter, as a pinned one does, pointing at its repository, path and commit" \
     "charter|in-force|{\"repo\":\"acme/widgets\",\"path\":\"docs/x.md\",\"commit\":\"$SHA40\"}" \
     "$(view "$(jq -nc --arg s "doc acme/widgets docs/x.md $SHA40" '[{standing: "s4", kind: "rule", what: "x", set: "2026-10-20T09:00Z", source: $s}]')" | cut -d'|' -f1,2,8)"

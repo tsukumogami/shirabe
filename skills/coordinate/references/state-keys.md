@@ -511,13 +511,14 @@ and Relayed by, and a Source saying where its words come from, and it holds
 nothing: pick, the dispatch check, the land check and the merge read pauses,
 go-aheads and assignments only, whatever a rule's What says. `--standing rule
 --what <text> --source <form>` writes one, its What one line of at most 400
-bytes and its Source in one of four forms:
+bytes and its Source in one of five forms:
 
 ```
 skill <owner/repo> <path> <commit>         a line of a skill's text
 doc <owner/repo> <path> <commit>           a document a public host can name
 pinned <label> sha256:<64 hex>             a file a Run rules or briefs row pins with that label and digest
 inferred [brief <label> sha256:<64 hex>]   your own reading, with the brief you read it from
+decision <session> <12-digit id>           the owner's answer to a question marked standing
 ```
 
 A path is relative, with no `.` or `..` segment and no leading `-`; a commit
@@ -526,8 +527,9 @@ is 40 hex. A rule takes no `--on` or `--until` (64), and `--owner` or
 checks run in this order, each refusal 65 with nothing written: the Source's
 grammar and the row's columns; the What's 400 bytes; the caps, at most 120
 rule rows, of which at most 60 read inferred (the event kinds count against
-neither, so a pause can always be written); a `pinned` Source's Run row; then
-the forge reads. For a `skill` or `doc` Source naming repository R at commit
+neither, so a pause can always be written); a `pinned` Source's Run row; a
+`decision` Source's decision, which must read owner-said (below), so any
+other is refused and written as `inferred` instead; then the forge reads. For a `skill` or `doc` Source naming repository R at commit
 C, on a public host R must be public; R's default branch must hold C (a
 repository that doesn't exist and one that can't be read get the same
 refusal); the file must exist at C; and the What must equal one of its
@@ -545,9 +547,24 @@ it. A row with no Source, an event row, reads `relayed`; `inferred` reads
 `inferred`, with status `unconfirmed` and `confirm` true, since it waits for a
 person; `skill` reads `skill-says`; `doc` and `pinned` read `charter`. The
 Run `rules` rows read beside them: a `skill-` label `skill-says`, a
-`workspace-` label `charter`, any other label `inferred`. `owner-said`,
-`dispatcher-said` and `unreadable` belong to cited decisions, which
-`--standing rule` doesn't write.
+`workspace-` label `charter`, any other label `inferred`.
+
+A `decision` row's class is read from the decision it cites, through
+`standing-provenance.sh`, which makes read calls only (`koto decisions show`,
+then `koto decisions content read` of an owner's answer's question) and opens
+no harness record. It prints koto's `reading` of the decision and whether the
+answered question carries the standing mark, on the question or on the option
+the owner chose, and `rule_class` decides from those two fields alone:
+`owner-said` for a person decision reading `verified` with the mark;
+`inferred` for any other person decision (an unmarked question, a marked
+option not chosen, a remote session's answer, a person judgment with no
+answered prompt behind it); `unreadable` for a session's decision, a `shirabe
+question settle --owner-note` decision among them, and for one koto can't
+give. Where the decision was entered isn't read: being the top coordinator,
+with no dispatcher, makes no row the owner's. `dispatcher-said` isn't read
+yet. The What isn't compared with the question's text, so write the owner's
+wording, the text the question carried. The handover read doesn't read cited
+decisions, so a `decision` row reads `unreadable` there.
 
 `state-stored-set.sh` reads rules two ways. `--rules` prints one JSON object
 per Standing row in record order (`standing`, `kind`, `class`, `what`,
@@ -558,7 +575,7 @@ naming the `rules:<label>` host key, which isn't read). A pointer is where
 the words are: a relayed row's entry (the row itself when no entry matches),
 a `skill` or `doc` row's `{repo, path, commit}`, a `pinned` row's `{pinned,
 digest}`, an inferred brief row's `{brief, digest}`, a bare inferred row's own
-row. Each Standing object also carries `under_session_grant` and
+row, a `decision` row's `{decision: "<session> <id>"}`. Each Standing object also carries `under_session_grant` and
 `session_allows`: a row grants nothing itself, and these say whether it
 stands under the session's niwa grant and what that grant allows. A pause, an
 inferred or `pinned` row, a `skill` row citing a repository other than the

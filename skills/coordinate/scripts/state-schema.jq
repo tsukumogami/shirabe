@@ -672,11 +672,25 @@ def check_state($sec; $rows; $private):
 #   inferred    `inferred`, with or without its brief
 #   skill-says  `skill ...`
 #   charter     `doc ...` or `pinned ...`
-#   unreadable  `decision ...`: what koto recorded about the decision isn't
-#               read yet, so the row is neither the owner's word nor anyone
-#               else's until it is
-# owner-said and dispatcher-said are a cited decision's, once its decider is
-# read; until then no row reads either.
+#   owner-said  `decision ...` citing a person decision whose facts (the
+#               row's `cited`, standing-provenance.sh's object, put there by
+#               rule_cite at read and never stored) read `reading` verified
+#               and `standing` true: the owner's answer, through a prompt this
+#               host checked, to a question carrying the standing mark on the
+#               question or on the option chosen, wherever it was given
+#   inferred    also `decision ...` citing any other person decision: a
+#               verified answer to an unmarked question or with a marked
+#               option not chosen, a remote session's answer, a person
+#               judgment with no answered prompt behind it. Where it was
+#               entered isn't read, so being the top coordinator makes no row
+#               the owner's
+#   unreadable  `decision ...` with no facts read, facts koto couldn't give,
+#               or a session's decision: a session decider keeps the class it
+#               read before person decisions were read (dispatcher-said isn't
+#               read yet), so a session's decision that notes the owner
+#               (shirabe question settle --owner-note) never reads owner-said
+# For a person decision those two fields decide; rule_class checks nothing
+# against koto itself.
 # rule_status, over a class: in-force, unconfirmed (an inferred row, waiting
 # for a person to confirm it) or unreadable.
 # rule_classes: every class, in the order state-stored-set.sh --rules --counts
@@ -691,7 +705,20 @@ def rule_class:
     elif $f == "inferred" then "inferred"
     elif $f == "skill" then "skill-says"
     elif $f == "doc" or $f == "pinned" then "charter"
+    elif $f == "decision" then
+      (.cited // null) as $c
+      | if ($c | type) != "object" or $c.status == "unreadable" or ($c.decider.kind // null) != "person" then "unreadable"
+        elif $c.reading == "verified" and $c.standing == true then "owner-said"
+        else "inferred" end
     else "unreadable" end;
+# rule_cite($cited): a Standing row with its cited decision's facts as
+# `cited`, when its Source is `decision <session> <id>` and $cited (an object
+# keyed "<session> <id>", the facts state-stored-set.sh read) holds them; any
+# other row as it is.
+def rule_cite($cited):
+  ((.source // "") | split(" ")) as $p
+  | if $p[0] == "decision" and ($p | length) == 3 and ($cited | type) == "object" and $cited["\($p[1]) \($p[2])"] != null
+    then . + {cited: $cited["\($p[1]) \($p[2])"]} else . end;
 def class_counts:
   . as $c
   | rule_classes[] | . as $k | "\($k) \([$c[] | select(. == $k)] | length)";
@@ -817,7 +844,7 @@ def rule_view($session; $entries):
                  (first($entries[] | select(.kind == $r.kind and ((.text // "") | startswith($r.standing + " (")))) // null) as $e
                  | if $e == null then $self
                    else {entry: "\($session) record/entries/\("000000\($e.id)" | .[-6:])"} end
-               elif $c == "unreadable" then {decision: "\($p[1]) \($p[2])"}
+               elif $p[0] == "decision" then {decision: "\($p[1]) \($p[2])"}
                elif $p[0] == "skill" or $p[0] == "doc" then {repo: $p[1], path: $p[2], commit: $p[3]}
                elif $c == "charter" then {pinned: $p[1], digest: $p[2]}
                elif ($p | length) == 4 then {brief: $p[2], digest: $p[3]}

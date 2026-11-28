@@ -16,8 +16,9 @@
 #   the inferred, inferred brief, pinned and doc forms each write the same
 #        shape, and --rules --id reads each's class, status, confirm and
 #        pointer as step 1's reader does;
-#   R31. a decision Source is refused, 65, nothing written, and no koto
-#        decisions command is run;
+#   R31. a decision Source citing a decision koto doesn't hold is refused,
+#        65, as unreadable, nothing written, and the one koto decisions
+#        command run is the show of the cited decision;
 #   R6.  on a private host a skill row makes exactly the compare read and the
 #        contents read for its repository, and no visibility read of it;
 #   R7.  on each host, a commit the default branch doesn't hold (diverged,
@@ -282,11 +283,14 @@ before=$(snap); reset_calls
     --source "decision example 000000000007") > "$T/out" 2> "$T/err"; RC=$?
 if [ "$before" = "$(snap)" ]; then NOTHING=yes; else NOTHING=no; fi
 refused "the decision form" 65 "refused: standing.s"
-grep -qF ": the Source's decision form isn't written before koto's decision commands; write the row as inferred" "$T/err" \
+grep -qF ": the Source cites a decision that reads unreadable, not owner-said; only the owner's verified answer to a question marked standing is cited, so write the row as inferred" "$T/err" \
     || needf "the refusal reads otherwise: $(cat "$T/err")"
 [ -s "$T/koto.calls" ] || needf "the logging koto was never run"
-grep -qE '(^| )decisions?( |$)' "$T/koto.calls" && needf "a koto decision command ran: $(grep -E '(^| )decisions?( |$)' "$T/koto.calls")"
-crit "R31. a decision Source is refused, 65, telling the writer to write it inferred, nothing written, and no koto decisions command runs"
+# The cited decision is read, and koto holds none, so the one decision call
+# is its show.
+need "  ... its one koto decisions command the show of the cited decision" "decisions show example 000000000007" \
+    "$(grep -E '(^| )decisions?( |$)' "$T/koto.calls")"
+crit "R31. a decision Source citing a decision koto doesn't hold is refused, 65, as unreadable, telling the writer to write it inferred, nothing written, and its one koto decisions command the show"
 
 # ---- R6 -------------------------------------------------------------------------
 host_private true
