@@ -62,7 +62,8 @@
 # Exit codes:
 #   0 - nothing refused
 #   1 - at least one line refused; each is named on stderr as <source>:<line>: <class>
-#   2 - usage error
+#   2 - usage error, or the run's temporary files were lost mid-run ("is gone
+#       or unreadable"), so nothing was verified
 
 set -euo pipefail
 
@@ -120,8 +121,15 @@ else
 fi
 
 
-TMP=$(mktemp -d)
+TMP=$(mktemp -d) || die "cannot create a temporary directory"
 trap 'rm -rf "$TMP"' EXIT
+
+# lost <path> <what> -- a working file under $TMP that cannot be written or
+# read back ends the run (shirabe#2229). An unreadable input is not an empty
+# one, so a scan that could not look must never report that it checked.
+lost() {
+    die "temporary path $1 is gone or unreadable: cannot $2"
+}
 
 # Collect "<source>\t<line number>\t<text>" rows.
 rows="$TMP/rows"
@@ -219,13 +227,23 @@ allowed_issue() {
 
 # One grep per class over the text column; its line numbers index the rows.
 texts="$TMP/texts"
-cut -f3- "$rows" > "$texts"
+[ -r "$rows" ] || lost "$rows" "read back the rows"
+cut -f3- "$rows" > "$texts" || lost "$texts" "write the text column"
 for entry in "${patterns[@]}"; do
     id="${entry%%|*}"
     rest="${entry#*|}"
     class="${rest%%|*}"
     re="${rest#*|}"
-    while IFS= read -r idx; do
+    # grep status 1 is no match; 2 or more means the text column was lost.
+    grc=0
+    matches=$(grep -nE -- "$re" "$texts") || grc=$?
+    [ "$grc" -le 1 ] || lost "$texts" "scan the text column"
+    # The matches are fed through a pipe, not a here-string: bash 3.2 makes a
+    # here-string a temporary file, and one it can't make runs the loop zero
+    # times.
+    while IFS= read -r m; do
+        [ -n "$m" ] || continue
+        idx=${m%%:*}
         where=$(awk -F '\t' -v i="$idx" 'NR == i { print $1 "\t" $2; exit }' "$rows")
         src="${where%%$'\t'*}"
         ln="${where#*$'\t'}"
@@ -235,7 +253,7 @@ for entry in "${patterns[@]}"; do
         else
             report "$src" "$ln" "$class"
         fi
-    done < <(grep -nE -- "$re" "$texts" | cut -d: -f1 || true)
+    done < <(printf '%s\n' "$matches")
 done
 
 # Denylisted terms: every token and every '/'-suffix of it, against the list.
