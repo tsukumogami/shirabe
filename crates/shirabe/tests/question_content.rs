@@ -660,3 +660,82 @@ fn each_subcommand_names_koto_missing() {
         );
     }
 }
+
+/// A standing question whose first option sets a rule and whose others set
+/// none, the form a coordinator raises for a rule the owner typed.
+fn ruled() -> Value {
+    let mut v = good();
+    v["standing"] = json!(true);
+    v["options"][0]["rule"] = json!("Use SQLite for the build cache.");
+    v
+}
+
+#[test]
+fn an_options_rule_is_stored_after_its_reason_and_round_trips() {
+    let bytes = stored_bytes(&ruled());
+    let text = String::from_utf8(bytes.clone()).unwrap();
+    let want = "\",\"rule\":\"Use SQLite for the build cache.\"},{\"label\":\"Postgres\"";
+    assert!(text.contains(want), "{text}");
+    let stored: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        stored["options"][0]["rule"],
+        json!("Use SQLite for the build cache.")
+    );
+    // An option given no rule stores none: it sets no rule.
+    assert!(stored["options"][1].get("rule").is_none());
+    assert!(stored["options"][2].get("rule").is_none());
+    // The same content stores the same bytes however its keys are ordered.
+    let mut reordered = ruled();
+    let o = reordered["options"][0].as_object().unwrap().clone();
+    let mut back = serde_json::Map::new();
+    for k in ["rule", "reason", "label"] {
+        back.insert(k.to_string(), o[k].clone());
+    }
+    reordered["options"][0] = Value::Object(back);
+    assert_eq!(stored_bytes(&reordered), bytes);
+}
+
+#[test]
+fn an_option_marked_on_its_own_takes_a_rule() {
+    let mut v = good();
+    v["options"][1]["standing"] = json!(true);
+    v["options"][1]["rule"] = json!("Run the build cache on Postgres.");
+    let stored: Value = serde_json::from_slice(&stored_bytes(&v)).unwrap();
+    let want = json!({
+        "label": "Postgres",
+        "reason": v["options"][1]["reason"],
+        "rule": "Run the build cache on Postgres.",
+        "standing": true
+    });
+    assert_eq!(stored["options"][1], want);
+}
+
+#[test]
+fn a_rule_is_refused_on_an_unmarked_option_and_when_malformed() {
+    // No mark anywhere: a rule has no standing answer to ride on.
+    let mut v = good();
+    v["options"][0]["rule"] = json!("Use SQLite for the build cache.");
+    refused(v, "options[0].rule");
+    // Another option marked, this one not.
+    let mut v = good();
+    v["options"][1]["standing"] = json!(true);
+    v["options"][0]["rule"] = json!("Use SQLite for the build cache.");
+    refused(v, "options[0].rule");
+    // Empty, blank, not a string, a line break, over 400 bytes.
+    for bad in [
+        json!(""),
+        json!("   "),
+        json!(false),
+        json!(null),
+        json!("Use SQLite.\nAlways."),
+        json!("r".repeat(401)),
+    ] {
+        let mut v = ruled();
+        v["options"][0]["rule"] = bad;
+        refused(v, "options[0].rule");
+    }
+    // 400 bytes is taken.
+    let mut v = ruled();
+    v["options"][0]["rule"] = json!("r".repeat(400));
+    stored_bytes(&v);
+}

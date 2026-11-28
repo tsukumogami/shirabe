@@ -34,6 +34,14 @@ any other person decision reads inferred, and a cited session decision keeps
 the class it read before. The root test was never built; its unread inputs in
 `standing-provenance.sh` are removed.
 
+Amended again 2026-11-28: the evidence test also reads what the owner chose
+and whether koto still holds the answer in effect. A cited answer reads
+owner-said only when the chosen option stores a `rule` the row's What says
+under the normalized match and koto reads the answer in effect and governing;
+a reversed one keeps owner-said and reads superseded. The writer refuses any
+citation not owner-said and in effect, and every reader, the caps and the
+handover among them, reads the cited decisions the same way.
+
 ## Scope Summary
 
 The design gives a coordinator's Standing section a `rule` kind and one
@@ -256,7 +264,7 @@ The headings are fixed strings:
 
 ### Step 10: a decision row reads owner-said, dispatcher-said or inferred by the evidence and leg tests, and the writer refuses a citation that wouldn't
 
-shirabe, gated as step 9 plus the supersede hop, with only its dispatcher-said criterion also waiting on koto's cross-session decision read (with the read failing, a citation of the dispatcher's decision reads unreadable and the writer records the ruling as an `inferred` rule row quoting it, flagged for confirmation, and its tests cover both paths): the `decision` form, `rule_class`'s fixed-order tests (unreadable, person to the evidence test (the owner's answer koto reads verified, to a question marked standing on the question or on the option chosen), own run, then a leg to a coordinator outside the writer's run created before the writer), the writer's refusals (What not equal to the decision's whole reason, Owner not koto's decider, a person in Owner uncited once the koto floor is met), and the koto version-floor check that turns citations on; it ships in the same plugin release as step 14, because that refusal covers the carry acknowledgement every handover writes.
+shirabe, gated as step 9 plus the supersede hop, with only its dispatcher-said criterion also waiting on koto's cross-session decision read (with the read failing, a citation of the dispatcher's decision reads unreadable and the writer records the ruling as an `inferred` rule row quoting it, flagged for confirmation, and its tests cover both paths): the `decision` form, `rule_class`'s fixed-order tests (unreadable, person to the evidence test (the owner's answer koto reads verified, in effect and governing, to a question marked standing on the question or on the option chosen, the chosen option's rule being the row's What), own run, then a leg to a coordinator outside the writer's run created before the writer), the writer's refusals (What not equal to the decision's whole reason, Owner not koto's decider, a person in Owner uncited once the koto floor is met), and the koto version-floor check that turns citations on; it ships in the same plugin release as step 14, because that refusal covers the carry acknowledgement every handover writes.
 
 ### Step 11: a manager's row citing the owner's verified standing answer reads owner-said, and reads as a flagged inferred quote while the cross-session read fails
 
@@ -270,9 +278,9 @@ shirabe, gated as step 10: `pause-read.sh` reads uncited pauses first, consults 
 
 shirabe, gated as step 10: `--confirm` keeps id, kind, On, Until, What and Set and sets an event row's Owner to koto's decider, `--end` refuses a cited row in effect naming `koto decisions reverse` and accepts it only after a verified reversal older than this member whose words the brief no longer states, `--authorized-by` ends an unreadable or asserted row, the intake matches superseded rows, and a superseded row counts against the 120-rule cap but not the 60-inferred one, with the start report naming each superseded row `--end` would now accept.
 
-### Step 14: each kind of successor writes a carry acknowledgement that satisfies the handover gate, and only a director's taken-over successor reads owner-said
+### Step 14: each kind of successor writes a carry acknowledgement that satisfies the handover gate, and a successor reads owner-said only by the evidence test
 
-shirabe, gated on the supersede hop: a successor reads owner-said only by citing the owner's verified answer to a question marked standing (the evidence test), and a person decision a director's taken-over successor records itself reads inferred; a carried run cites one in its own session, reads inferred with `confirm` true, satisfies the gate and nothing else, and is listed for its next fenced member; a manager's successor, never a root and never entering a person decision, cites a session decision its director records acknowledging the carry, which reads dispatcher-said through a leg, and otherwise, including while koto's cross-session decision read is missing, writes today's uncited event row naming the director's session as Owner, which reads relayed.
+shirabe, gated on the supersede hop (heading replaced 2026-11-28: it read "and only a director's taken-over successor reads owner-said", the root test this plan's amendment removes): a successor reads owner-said only by citing the owner's verified answer to a question marked standing (the evidence test), and a person decision a director's taken-over successor records itself reads inferred; a carried run cites one in its own session, reads inferred with `confirm` true, satisfies the gate and nothing else, and is listed for its next fenced member; a manager's successor, never a root and never entering a person decision, cites a session decision its director records acknowledging the carry, which reads dispatcher-said through a leg, and otherwise, including while koto's cross-session decision read is missing, writes today's uncited event row naming the director's session as Owner, which reads relayed.
 
 ### Step 15: every tick's gate output lists the rule ids in force, after a reversal no tick lists the reversed rule as in force, and the gate refuses a tick from a session that isn't the record's driver
 

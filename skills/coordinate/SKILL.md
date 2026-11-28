@@ -46,12 +46,14 @@ stops there. Scripts named below sit in this skill's `scripts/`.
   on from it; a typed reply isn't the owner's answer (`references/loop.md`).
 - A rule the owner types to you becomes a standing rule only through a
   question: record your undecided attempt, raise it with `shirabe question
-  raise --to person:owner`, marked standing (`standing: true`) and carrying
-  the owner's wording and scope, and present it in that turn. Once `shirabe
-  question answer` exits 0, write the row with `state-stored-set.sh
-  --standing rule --source "decision <answer session> <answer id>"`, citing
-  that answer. A rule row reads owner-said only from the owner's verified
-  answer to a question marked standing; being the top coordinator doesn't
+  raise --to person:owner`, marked standing (`standing: true`), its option
+  that adopts the rule carrying the owner's wording and scope as its `rule`,
+  and present it in that turn. Once `shirabe question answer` exits 0 with
+  that option chosen, write the row with `state-stored-set.sh --standing rule
+  --what "<the option's rule>" --source "decision <answer session> <answer
+  id>"`, citing that answer. A rule row reads owner-said only from the
+  owner's verified answer, still in effect, choosing a marked option whose
+  rule its What says; a "No" sets no rule. Being the top coordinator doesn't
   make your own record of the owner's words the owner's, and a rule relayed
   in a brief or a message comes in as inferred.
 - Never run a cleanup or cancel verb against a session this run didn't open,

@@ -29,6 +29,9 @@ pub const MAX_OPTION_LABEL: usize = 64;
 /// The most bytes an option's description may hold. shirabe's bound; a
 /// longer reason is shortened at render, unless the question is standing.
 pub const MAX_DESCRIPTION: usize = 1024;
+/// The most bytes an option's rule text may hold: a standing rule row's What
+/// holds 400 bytes, and the row's What must equal the rule.
+pub const MAX_RULE: usize = 400;
 /// The fewest and most options a decision question offers.
 pub const MIN_OPTIONS: usize = 2;
 pub const MAX_OPTIONS: usize = 4;
@@ -60,6 +63,9 @@ const INPUT_KEYS: [&str; 11] = [
 pub struct Opt {
     pub label: String,
     pub reason: String,
+    /// The standing rule this option sets when the owner chooses it, on a
+    /// marked option only. An option without one sets no rule.
+    pub rule: Option<String>,
     pub standing: bool,
 }
 
@@ -101,8 +107,11 @@ fn refuse(field: &str, message: impl Into<String>) -> Refusal {
 }
 
 /// The phrase that opens the description and text of anything carrying the
-/// standing mark.
+/// standing mark, on a question none of whose options carries a rule text.
 pub const STANDING_PHRASE: &str = "This answer sets a standing rule. ";
+/// The phrase that opens a marked option's description when another option
+/// of its question carries a rule text and this one carries none.
+pub const NO_RULE_PHRASE: &str = "This answer sets no standing rule. ";
 /// The phrase that opens the first option's description.
 pub const RECOMMENDED_PHRASE: &str = "Recommended. ";
 
@@ -278,7 +287,7 @@ pub fn parse_input(bytes: &[u8]) -> Result<Content, Refusal> {
                 "`options` is missing (a need gives `need` and `needed` instead)",
             ))
         }
-        (true, false) => Body::Options(parse_options(obj.get("options").unwrap())?),
+        (true, false) => Body::Options(parse_options(obj.get("options").unwrap(), standing)?),
         (false, true) => {
             let kind = text_field(obj, "need", "need")?;
             if !NEED_KINDS.contains(&kind.as_str()) {
@@ -322,7 +331,7 @@ pub fn parse_input(bytes: &[u8]) -> Result<Content, Refusal> {
     Ok(content)
 }
 
-fn parse_options(v: &Value) -> Result<Vec<Opt>, Refusal> {
+fn parse_options(v: &Value, question_marked: bool) -> Result<Vec<Opt>, Refusal> {
     let items = v
         .as_array()
         .ok_or_else(|| refuse("options", "`options` must be a list"))?;
@@ -351,7 +360,7 @@ fn parse_options(v: &Value) -> Result<Vec<Opt>, Refusal> {
             .as_object()
             .ok_or_else(|| refuse(&path, format!("`{path}` must be an object")))?;
         for key in o.keys() {
-            if !["label", "reason", "standing"].contains(&key.as_str()) {
+            if !["label", "reason", "rule", "standing"].contains(&key.as_str()) {
                 return Err(refuse(
                     &format!("{path}.{key}"),
                     format!("`{path}.{key}` is not a key an option takes"),
@@ -361,9 +370,33 @@ fn parse_options(v: &Value) -> Result<Vec<Opt>, Refusal> {
         let label = plain_text(o, "label", &format!("{path}.label"))?;
         let reason = text_field(o, "reason", &format!("{path}.reason"))?;
         let standing = standing_mark(o, &format!("{path}.standing"))?;
+        let rule = match o.get("rule") {
+            None => None,
+            Some(_) => {
+                let rule_path = format!("{path}.rule");
+                if !(question_marked || standing) {
+                    return Err(refuse(
+                        &rule_path,
+                        format!("`{rule_path}` is the rule a standing answer sets: mark the question or this option standing, or leave it out"),
+                    ));
+                }
+                let r = plain_text(o, "rule", &rule_path)?;
+                if r.len() > MAX_RULE {
+                    return Err(refuse(
+                        &rule_path,
+                        format!(
+                            "`{rule_path}` is {} bytes; a rule row's What holds {MAX_RULE} bytes",
+                            r.len()
+                        ),
+                    ));
+                }
+                Some(r)
+            }
+        };
         out.push(Opt {
             label,
             reason,
+            rule,
             standing,
         });
     }
@@ -433,7 +466,7 @@ fn check_prompt_limits(c: &Content) -> Result<(), Refusal> {
             }
             let marked = c.standing || o.standing;
             if marked {
-                let full = full_description(o, i == 0, marked);
+                let full = full_description(o, i == 0, marked, c.ruled());
                 if full.len() > MAX_DESCRIPTION {
                     let mark = if c.standing {
                         "standing".to_string()
@@ -459,12 +492,24 @@ pub fn display(s: &str) -> String {
     s.chars().filter(|c| !c.is_control()).collect()
 }
 
-/// An option's description before any shortening.
-pub fn full_description(o: &Opt, first: bool, marked: bool) -> String {
-    let mut d = String::new();
-    if marked {
-        d.push_str(STANDING_PHRASE);
+/// The phrase a marked option opens with: the rule it sets, quoted, when it
+/// carries one; `NO_RULE_PHRASE` when another option of its question
+/// (`ruled`) carries one and it doesn't; `STANDING_PHRASE` on a question no
+/// option of which carries a rule. An unmarked option opens with none.
+pub fn standing_phrase(o: &Opt, marked: bool, ruled: bool) -> String {
+    if !marked {
+        return String::new();
     }
+    match &o.rule {
+        Some(r) => format!("This answer sets the standing rule \"{}\". ", display(r)),
+        None if ruled => NO_RULE_PHRASE.to_string(),
+        None => STANDING_PHRASE.to_string(),
+    }
+}
+
+/// An option's description before any shortening.
+pub fn full_description(o: &Opt, first: bool, marked: bool, ruled: bool) -> String {
+    let mut d = standing_phrase(o, marked, ruled);
     if first {
         d.push_str(RECOMMENDED_PHRASE);
     }
@@ -490,6 +535,11 @@ impl Content {
     /// Whether anything in the question carries the standing mark.
     pub fn any_standing(&self) -> bool {
         self.standing || matches!(&self.body, Body::Options(o) if o.iter().any(|o| o.standing))
+    }
+
+    /// Whether any option carries a rule text.
+    pub fn ruled(&self) -> bool {
+        matches!(&self.body, Body::Options(o) if o.iter().any(|o| o.rule.is_some()))
     }
 
     /// The stored bytes: keys in the fixed order, compact JSON.
@@ -518,6 +568,9 @@ impl Content {
                         s(&o.label),
                         s(&o.reason)
                     ));
+                    if let Some(r) = &o.rule {
+                        out.push_str(&format!(",\"rule\":{}", s(r)));
+                    }
                     if o.standing {
                         out.push_str(",\"standing\":true");
                     }

@@ -283,7 +283,7 @@ before=$(snap); reset_calls
     --source "decision example 000000000007") > "$T/out" 2> "$T/err"; RC=$?
 if [ "$before" = "$(snap)" ]; then NOTHING=yes; else NOTHING=no; fi
 refused "the decision form" 65 "refused: standing.s"
-grep -qF ": the Source cites a decision that reads unreadable, not owner-said; only the owner's verified answer to a question marked standing is cited, so write the row as inferred" "$T/err" \
+grep -qF ": the Source cites a decision that reads unreadable, not owner-said; only the owner's verified answer to a question marked standing, choosing an option whose rule the What says, is cited, so write the row as inferred (koto can't read the decision: koto exited " "$T/err" \
     || needf "the refusal reads otherwise: $(cat "$T/err")"
 [ -s "$T/koto.calls" ] || needf "the logging koto was never run"
 # The cited decision is read, and koto holds none, so the one decision call

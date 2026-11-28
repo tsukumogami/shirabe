@@ -20,9 +20,10 @@
 #      Standing rows plus the Run rules rows (these records hold no Run rules
 #      row, so the Standing row count);
 #   3. --rules --counts --id is a usage error (64, nothing on stdout), and a
-#      logging koto (KOTO_BIN) shows --counts lists no entry, --counts and
-#      --rules on A run `koto decisions show` of the decision A's row cites
-#      and no other `koto decisions` command, and the handover read none;
+#      logging koto (KOTO_BIN) shows --counts lists no entry, and --counts,
+#      --rules and the handover read on A each run `koto decisions show` of
+#      the decision A's row cites once, the handover besides listing the open
+#      questions once, and no other `koto decisions` command;
 #   4. the handover read on A prints the four rule_lists in order under their
 #      fixed headings, the inferred brief row alone awaiting confirmation;
 #   5. on I awaiting-confirmation lists the three inferred rows in record

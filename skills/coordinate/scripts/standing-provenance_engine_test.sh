@@ -12,25 +12,29 @@
 # manager) hold the questions and answers of criterion 4; cc holds text with
 # control characters. Prints one line per criterion:
 #   1. a person judgment and a session judgment read as the objects held
-#      below, koto's time in each (jq -S), reading null, question null and
-#      standing false;
+#      below, koto's time in each (jq -S), reading null, governs null,
+#      question null, standing false and rule null;
 #   2. pred's session decision, reversed by succ through the fence, reads
 #      reversed with hop true and one fence step equal to koto's marker;
 #   3. w1's decision, reversed from dir1 by its dispatched-by link, reads hop
 #      false and fence [];
-#   4. the evidence a rule row's class is read from, `reading` and
-#      `standing`, and the class state-schema.jq's rule_class gives it: the
-#      owner's verified answer to a question marked standing (given in
-#      director) and to one whose chosen option is marked (given in the
-#      worker wk) read owner-said; the owner's verified answer to an unmarked
+#   4. the evidence a rule row's class is read from, `reading`, `standing`,
+#      `governs` and `rule`, and the class state-schema.jq's rule_class gives
+#      a row whose What is the Yes option's rule: the owner's verified answer
+#      Yes to a question marked standing (given in director, and again in
+#      manager) and to one whose chosen option is marked (given in the
+#      worker wk) read owner-said, governing, with the Yes option's rule; the
+#      owner's verified answer No to the marked question (given in manager),
+#      whose option sets no rule, the owner's verified answer to an unmarked
 #      question (given in manager), one choosing an option other than the
 #      marked one, the marked answer read from a copy of the store under
 #      another KOTO_HOME (a remote session's answer), and a person judgment
-#      recorded in director, which has no dispatcher, read inferred; a
-#      session's decision recorded by `shirabe question settle --owner-note`
-#      reads unreadable, never owner-said; and with the harness records
-#      unreadable the owner's answers still read verified, so no read opens
-#      one;
+#      recorded in director, which has no dispatcher, read inferred; a row
+#      whose What is the question's own text rather than the option's rule
+#      reads inferred; a session's decision recorded by `shirabe question
+#      settle --owner-note` reads unreadable, never owner-said; and with the
+#      harness records unreadable the owner's answers still read verified, so
+#      no read opens one;
 #   5. a reason, subject field, link and handle with control characters and
 #      over 200 characters come out under quoted with neither;
 #   6. a missing decision, a missing session, five fake kotos (a non-zero
@@ -44,7 +48,15 @@
 #      arguments, `decisions content read <identity>` for an owner's answer
 #      and for nothing else, and no koto command but those two reads;
 #   8. scripts/check-template-compat.sh passes against the base branch's
-#      coordinate.compat.json, compat unchanged: no gate runs the helper.
+#      coordinate.compat.json, compat unchanged: no gate runs the helper;
+#   9. --record over a record citing three decisions through the koto
+#      stand-in (testdata/koto, the fixtures of testdata/standing-rules/
+#      cited/), one of them twice and one koto doesn't hold, prints one
+#      object keyed "<session> <id>" per distinct citation, one decisions
+#      show each, the one koto fails on unreadable with koto's why and the
+#      others as the one-decision read prints them; a record citing none
+#      makes no koto call and prints {}; a file that isn't a JSON object
+#      exits 1 with nothing on stdout.
 #
 # Every koto call runs on a store under this suite's scratch directory: the
 # guard (scripts/lib/koto-test-guard.sh) unsets every KOTO_SESSION_* variable
@@ -119,7 +131,7 @@ case "$(koto decisions --help 2>&1)" in *content*) ;; *) DEC=0 ;; esac
 case "$(koto init --help 2>&1)" in *--supersede*) ;; *) DEC=0 ;; esac
 
 # One line per criterion: need records what failed, crit keeps the line under
-# its number and report prints them, 1 to 8.
+# its number and report prints them, 1 to 9.
 WHY=
 need() { [ "$2" = "$3" ] || WHY="$WHY; $1: want [$2], got [$3]"; }
 needf() { WHY="$WHY; $1"; }
@@ -127,7 +139,7 @@ crit() { local n=${1%%.*}; printf -v "CM_$n" '%s' "$1"; printf -v "CW_$n" '%s' "
 LEFT=" "
 report() {
     local n m w
-    for n in 1 2 3 4 5 6 7 8; do
+    for n in 1 2 3 4 5 6 7 8 9; do
         case "$LEFT" in *" $n "*) echo "left out $n: this koto has no decisions show, chain, reverse or content, or no init --supersede"; continue ;; esac
         m="CM_$n" w="CW_$n"
         [ -n "${!m-}" ] || { bad "criterion $n" "no case reached it"; continue; }
@@ -200,7 +212,7 @@ fake() {
 }
 fake koto-logged "exec \"$REAL_KOTO\" \"\$@\""
 URL='https://github.com/acme/widgets/issues/1#issuecomment-1'
-NOPROMPT='"reading": null, "question": null, "standing": false'
+NOPROMPT='"reading": null, "governs": null, "question": null, "standing": false, "rule": null'
 
 if [ "$DEC" = 1 ]; then
 # ---- 1 ----------------------------------------------------------------------
@@ -255,20 +267,29 @@ crit "3. a reversal from a dispatching session, with no supersede hop, reads hop
 # The owner's answers come from recorded harness sessions (see the header).
 # director has no dispatcher, manager is dispatched by director and wk by
 # manager; every question is raised in wk.
-cls() { # cls <name>: the class rule_class gives a decision row citing $T/out/<name>
-    jq -r -L "$HERE" 'include "state-schema"; {source: "decision \(.session) \(.id)", cited: .} | rule_class' "$T/out/$1" 2>&1
+# cls <name> [what]: the class rule_class gives a decision row citing
+# $T/out/<name>, its What the Yes option's rule unless another is given.
+RULE_YES="Merge nothing after Friday noon."
+cls() {
+    jq -r -L "$HERE" --arg w "${2:-$RULE_YES}" 'include "state-schema";
+        {source: "decision \(.session) \(.id)", what: $w, cited: .} | rule_class' "$T/out/$1" 2>&1
 }
 facts() { jq -c '[.status, .decider.kind, .reading, .standing, (.question != null)]' "$T/out/$1" 2>&1; }
+# rulef <name>: koto's governs and the rule the chosen option sets.
+rulef() { jq -c '[.governs, .rule]' "$T/out/$1" 2>&1; }
 # qcontent <file> <label> <question-mark> <option-mark>: the question's content;
 # <question-mark> true marks the question, <option-mark> the label of the one
-# option marked, or "".
+# option marked, or "". A Yes the mark covers sets the rule RULE_YES; No
+# never sets one.
 qcontent() {
     jq -n --arg l "$2" --argjson q "$3" --arg o "$4" '{
         context: "Two lanes merged on a Friday evening last month.",
         problem: "Nothing says when a merge may land.",
         question: "From now on, merge nothing after Friday noon?",
         options: [
-            ({label: "Yes", reason: "Merges wait for Monday."} + (if $o == "Yes" then {standing: true} else {} end)),
+            ({label: "Yes", reason: "Merges wait for Monday."}
+                + (if $q or $o == "Yes" then {rule: "Merge nothing after Friday noon."} else {} end)
+                + (if $o == "Yes" then {standing: true} else {} end)),
             ({label: "No", reason: "Merges land whenever checks pass."} + (if $o == "No" then {standing: true} else {} end))
         ],
         ground: "It binds every lane.",
@@ -341,7 +362,26 @@ else
         need "the marked question's answer, given in director: in effect, the owner's, verified, marked, its question named" \
             '["in-effect","person","verified",true,true]' "$(facts os-question)"
         need "  ... its question the one raised" "$QID" "$(jq -r .question "$T/out/os-question")"
+        need "  ... governing its question, the Yes option's rule read" "[true,\"$RULE_YES\"]" "$(rulef os-question)"
         need "  ... and it reads owner-said" owner-said "$(cls os-question)"
+        need "  ... a row whose What is the question's text, not the option's rule, reads inferred" inferred \
+            "$(cls os-question "From now on, merge nothing after Friday noon?")"
+    fi
+    # owner-said: the question marked, answered Yes in manager.
+    if oraise marked-manager true "" --to person:owner && oanswer "$QID" Yes manager; then
+        sp os-manager "$ANS_S" "$ANS_ID"
+        need "the marked question's answer Yes, given in manager: in effect, the owner's, verified, marked" \
+            '["in-effect","person","verified",true,true]' "$(facts os-manager)"
+        need "  ... governing, the Yes option's rule read" "[true,\"$RULE_YES\"]" "$(rulef os-manager)"
+        need "  ... and it reads owner-said" owner-said "$(cls os-manager)"
+    fi
+    # inferred: the question marked, the owner choosing No, answered in manager.
+    if oraise marked-no true "" --to person:owner && oanswer "$QID" No manager; then
+        sp in-no "$ANS_S" "$ANS_ID"
+        need "the marked question's answer No, given in manager: verified and marked" \
+            '["in-effect","person","verified",true,true]' "$(facts in-no)"
+        need "  ... governing, and No sets no rule" "[true,null]" "$(rulef in-no)"
+        need "  ... and it reads inferred, whatever the row's What" "inferred inferred" "$(cls in-no) $(cls in-no "Merges land whenever checks pass.")"
     fi
     # owner-said: the option chosen is the marked one, answered in the worker.
     if oraise option-chosen false Yes --to person:owner && oanswer "$QID" Yes wk; then
@@ -410,7 +450,7 @@ else
         need "with the harness records unreadable, the marked answer reads as before" "$(jq -cS . "$T/out/os-question")" "$(jq -cS . "$T/out/os-norecord")"
     fi
 fi
-crit "4. a row reads owner-said only from a verified standing answer: the owner's verified answer to a marked question or with its marked option chosen, given in director or a worker, reads owner-said; an unmarked question, an unchosen marked option, a remote session's answer and a person judgment at a coordinator with no dispatcher read inferred; a settle --owner-note decision reads unreadable; no read opens a harness record"
+crit "4. a row reads owner-said only from a verified standing answer setting the rule its What says: the owner's verified Yes to a marked question or with its marked option chosen, given in director, manager or a worker, reads owner-said; the owner's No, a What that is the question's text, an unmarked question, an unchosen marked option, a remote session's answer and a person judgment at a coordinator with no dispatcher read inferred; a settle --owner-note decision reads unreadable; no read opens a harness record"
 
 # ---- 5 ----------------------------------------------------------------------
 LONG=$(printf '%0300d' 0 | tr 0 x)
@@ -478,7 +518,7 @@ fake koto-badcontent "case \"\$1 \$2\" in \"decisions show\") cat \"$OWNER_SHOW\
 for f in nocontent badcontent; do
     FAKE_LOG="$T/$f.log" KOTO_BIN="$T/bin/koto-$f" sp "fake-$f" director-a 000000000004
     unread_ok "fake-$f" director-a 000000000004
-    need "fake-$f: the question's content was asked for" "<decisions><content><read><11111111-1111-4111-8111-111111111111/000000000002>" \
+    need "fake-$f: the question's content was asked for" "<decisions><content><read><sid-worker-a/000000000002>" \
         "$(sed -n 2p "$T/$f.log" 2>&1)"
 done
 start=$(date +%s)
@@ -548,6 +588,31 @@ fi
 rc=$?
 [ "$rc" = 0 ] || needf "scripts/check-template-compat.sh exits $rc: $(cat "$T/compat.out")"
 crit "8. scripts/check-template-compat.sh passes against the base branch's coordinate.compat.json, compat the base's over the base's own structure: no gate runs the helper"
+
+# ---- 9 ----------------------------------------------------------------------
+# --record through the koto stand-in, over the cited fixtures.
+export KOTO_STORE="$T/stand-in"
+mkdir -p "$KOTO_STORE/decisions" && cp -R "$HERE/testdata/standing-rules/cited/." "$KOTO_STORE/decisions/"
+jq -n '{standing: [{source: "decision director-a 000000000004"}, {source: "decision manager-a 000000000099"},
+    {source: "decision director-a 000000000004"}, {source: "decision director-a 000000000006"}, {source: "inferred"}]}' > "$T/rec9.json"
+: > "$KOTO_STORE/calls"
+KOTO_BIN="$HERE/testdata/koto" bash "$SP" --record "$T/rec9.json" > "$T/out/rec9" 2> "$T/out/rec9.err"
+need "--record exits 0, one line" "0 1" "$? $(wc -l < "$T/out/rec9" | tr -d ' ')"
+need "  ... one key per distinct citation" '["director-a 000000000004","director-a 000000000006","manager-a 000000000099"]' \
+    "$(jq -c 'keys' "$T/out/rec9" 2>&1)"
+need "  ... one decisions show per distinct citation" 3 "$(grep -c '^decisions show' "$KOTO_STORE/calls")"
+need "  ... the one koto doesn't hold unreadable, with koto's why, and only it" "unreadable|koto exited 2 (decisions show)|in-effect|in-effect" \
+    "$(jq -r '[.["manager-a 000000000099"].status, .["manager-a 000000000099"].why, .["director-a 000000000004"].status, .["director-a 000000000006"].status] | join("|")' "$T/out/rec9" 2>&1)"
+KOTO_BIN="$HERE/testdata/koto" bash "$SP" director-a 000000000004 > "$T/out/one9" 2> "$T/out/one9.err"
+need "  ... each read as the one-decision read prints it" "$(jq -cS . "$T/out/one9")" "$(jq -cS '.["director-a 000000000004"]' "$T/out/rec9" 2>&1)"
+jq -n '{standing: [{source: "inferred"}, {source: "pinned charter sha256:'"$(printf '1%.0s' $(seq 64))"'"}]}' > "$T/rec9b.json"
+: > "$KOTO_STORE/calls"
+KOTO_BIN="$HERE/testdata/koto" bash "$SP" --record "$T/rec9b.json" > "$T/out/rec9b" 2> "$T/out/rec9b.err"
+need "a record citing no decision: {}, exit 0, no koto call" "0 {} 0" "$? $(cat "$T/out/rec9b") $(wc -l < "$KOTO_STORE/calls" | tr -d ' ')"
+printf '[1]\n' > "$T/rec9c.json"
+KOTO_BIN="$HERE/testdata/koto" bash "$SP" --record "$T/rec9c.json" > "$T/out/rec9c" 2> "$T/out/rec9c.err"
+need "a file that isn't a JSON object: exit 1, nothing on stdout" "1 0" "$? $(wc -c < "$T/out/rec9c" | tr -d ' ')"
+crit "9. --record prints one object keyed by citation, one decisions show per distinct citation, a decision koto can't read unreadable on its own, the rest as the one-decision read prints them; no citation, no koto call and {}; a non-object file exits 1"
 
 report
 done_tests standing-provenance-engine

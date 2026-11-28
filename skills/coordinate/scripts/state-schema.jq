@@ -674,23 +674,30 @@ def check_state($sec; $rows; $private):
 #   charter     `doc ...` or `pinned ...`
 #   owner-said  `decision ...` citing a person decision whose facts (the
 #               row's `cited`, standing-provenance.sh's object, put there by
-#               rule_cite at read and never stored) read `reading` verified
-#               and `standing` true: the owner's answer, through a prompt this
-#               host checked, to a question carrying the standing mark on the
-#               question or on the option chosen, wherever it was given
+#               rule_cite at read and never stored) owner_said_gap finds
+#               nothing wrong with: the owner's answer, through a prompt this
+#               host checked (`reading` verified), to a question carrying the
+#               standing mark on the question or on the option chosen
+#               (`standing`), the chosen option setting a rule (`rule`) that
+#               the row's What says under norm_match, and koto reading the
+#               answer in effect and governing its question, or reversed: a
+#               reversed answer keeps its class and reads superseded
+#               (rule_view). Wherever it was given
 #   inferred    also `decision ...` citing any other person decision: a
-#               verified answer to an unmarked question or with a marked
-#               option not chosen, a remote session's answer, a person
-#               judgment with no answered prompt behind it. Where it was
-#               entered isn't read, so being the top coordinator makes no row
-#               the owner's
+#               verified answer to an unmarked question, with a marked option
+#               not chosen, choosing an option that sets no rule (a "No"), or
+#               whose rule the What doesn't say; an answer koto reads refused,
+#               or one that no longer governs its question; a remote session's
+#               answer; a person judgment with no answered prompt behind it.
+#               Where it was entered isn't read, so being the top coordinator
+#               makes no row the owner's
 #   unreadable  `decision ...` with no facts read, facts koto couldn't give,
 #               or a session's decision: a session decider keeps the class it
 #               read before person decisions were read (dispatcher-said isn't
 #               read yet), so a session's decision that notes the owner
 #               (shirabe question settle --owner-note) never reads owner-said
-# For a person decision those two fields decide; rule_class checks nothing
-# against koto itself.
+# For a person decision those facts decide; rule_class checks nothing against
+# koto itself. rule_why says which test a `decision` row failed.
 # rule_status, over a class: in-force, unconfirmed (an inferred row, waiting
 # for a person to confirm it) or unreadable.
 # rule_classes: every class, in the order state-stored-set.sh --rules --counts
@@ -699,6 +706,21 @@ def check_state($sec; $rows; $private):
 # that order, a class no row reads printed with 0.
 # class_counts: the same lines over an array of class names.
 def rule_classes: ["relayed", "owner-said", "dispatcher-said", "inferred", "skill-says", "charter", "unreadable"];
+# owner_said_gap: over a `decision` row whose `cited` is a person decision's
+# facts, null when they make the row owner-said, else why not, the first test
+# failed in this order.
+def owner_said_gap:
+  .cited as $c
+  | if $c.reading != "verified" then
+      "koto doesn't read it as an answer given through a prompt this host checked (its reading: \($c.reading // "none"))"
+    elif $c.standing != true then
+      "it answers no question marked standing, or chose an option the mark doesn't cover"
+    elif ($c.rule | type) != "string" then "the option the owner chose sets no rule"
+    elif ((.what // "") | norm_match($c.rule)) | not then "the row's What isn't the rule the chosen option sets"
+    elif $c.status == "reversed" then null
+    elif $c.status != "in-effect" then "koto reads the answer \($c.status // "with no status"), never in effect"
+    elif $c.governs != true then "the answer no longer governs its question: a later answer does, or koto doesn't count it"
+    else null end;
 def rule_class:
   ((.source // "") | split(" ")[0] // "") as $f
   | if $f == "" then "relayed"
@@ -708,9 +730,31 @@ def rule_class:
     elif $f == "decision" then
       (.cited // null) as $c
       | if ($c | type) != "object" or $c.status == "unreadable" or ($c.decider.kind // null) != "person" then "unreadable"
-        elif $c.reading == "verified" and $c.standing == true then "owner-said"
+        elif owner_said_gap == null then "owner-said"
         else "inferred" end
     else "unreadable" end;
+# rule_why: over a Standing row, null for a row whose Source isn't `decision`
+# and for one that reads owner-said; else why its decision isn't the owner's
+# word: no facts read, koto couldn't read it (its own why), a session's
+# decision, or the test owner_said_gap failed.
+def rule_why:
+  if ((.source // "") | split(" ")[0]) != "decision" then null
+  else (.cited // null) as $c
+    | if ($c | type) != "object" then "no facts of the cited decision were read"
+      elif $c.status == "unreadable" then "koto can't read the decision: \($c.why // "no reason given")"
+      elif ($c.decider.kind // null) != "person" then "a session's decision, not a person's: no session's decision is the owner's word"
+      else owner_said_gap end
+  end;
+# rule_cited_status: over a Standing row, `superseded` for a `decision` row
+# whose cited decision koto reads reversed by a reversal standing verified,
+# else the status its class gives (rule_status). A reversal standing asserted
+# leaves the status its class gives; rule_view shows the reversal, and the
+# floor keeps the row from granting.
+def rule_cited_status($class):
+  if ((.source // "") | split(" ")[0]) == "decision" and (.cited | type) == "object"
+     and .cited.status == "reversed" and (.cited.reversal.standing // null) == "verified"
+  then "superseded"
+  else ($class | if . == "inferred" then "unconfirmed" elif . == "unreadable" then "unreadable" else "in-force" end) end;
 # rule_cite($cited): a Standing row with its cited decision's facts as
 # `cited`, when its Source is `decision <session> <id>` and $cited (an object
 # keyed "<session> <id>", the facts state-stored-set.sh read) holds them; any
@@ -829,11 +873,21 @@ def briefs_read_start($label; $digest; $n):
 #   words           null: only a cited decision's recorded words would go
 #                   here, and none is read yet
 #   source          the Source, or null for none
-#   reversal        null: no reversal is read yet
-#   confirm         true for an inferred row, which a person confirms
+#   status          rule_cited_status: superseded for a decision a verified
+#                   reversal reversed, else rule_status of the class
+#   reversal        for a decision koto reads reversed, the winning
+#                   reversal as standing-provenance.sh read it, with its
+#                   reason: {session, id, time, decider, standing, hop, fence,
+#                   reason}; null for any other row
+#   why             rule_why: null, or why a decision row isn't the owner's
+#                   word, which tells a koto failure from a session's
+#                   decision
+#   confirm         true for an inferred row a reversal hasn't superseded,
+#                   which a person confirms
 def rule_view($session; $entries):
   . as $r
   | rule_class as $c
+  | rule_cited_status($c) as $st
   | (($r.source // "") | split(" ")) as $p
   | {row: "\($session) record/standing \($r.standing)"} as $self
   | {standing: $r.standing, kind: $r.kind, class: $c, what: $r.what,
@@ -851,7 +905,11 @@ def rule_view($session; $entries):
                else $self end),
      words: null,
      source: (if ($r.source // "") == "" then null else $r.source end),
-     status: ($c | rule_status), reversal: null, confirm: ($c == "inferred")};
+     status: $st,
+     reversal: (if $p[0] == "decision" and ($r.cited | type) == "object" and $r.cited.status == "reversed"
+                then ($r.cited.reversal // {}) + {reason: ($r.cited.quoted.reversal_reason // null)} else null end),
+     why: rule_why,
+     confirm: ($c == "inferred" and $st != "superseded")};
 
 # Whether a row may grant, over one rule_view object
 # (docs/designs/DESIGN-coordinator-standing-rule-provenance.md). shirabe keeps

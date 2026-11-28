@@ -69,6 +69,17 @@ shirabe question raise --in <session> --content <file|-> [--to <recipient>] [--a
   `undecided`. The `escalate` names it in its `basis`. A need takes none.
 - `--state`: stored as the question's `state`.
 
+A standing rule rides on an option. The standing mark (`standing: true`, on the
+question or on one option) says the answer sets a rule; the rule itself is an
+option's `rule`, the text the owner's choosing that option sets, on a marked
+option only. An option with no `rule` sets no rule, so a question asking "From
+now on, merge nothing after Friday noon?" carries the rule on its yes option and
+none on its no option, and the owner answering no sets nothing. A rule is one
+line of plain text of at most 400 bytes, the most a standing rule row's What
+holds; the coordinator's row must say the same text (see the coordinate
+skill's `references/state-keys.md`). The prompt shows each marked option's rule
+in its description, quoted, and a marked option with none says it sets none.
+
 Output fields: `identity` (`<raiser session id>/<decision id>`), `session`,
 `id`, `recipient`, `unlinked`, `need`, `label`, `packet` (`sha256:<hex>` of the
 stored bytes), `bytes`, `prompt_header`, and `state`, `attempt` and
@@ -80,7 +91,9 @@ part; fewer than two or more than four options; an option without a `label` or
 (16,384 bytes); a label over 128 bytes; a control character in the context,
 the problem, the question or an option label; anything over the prompt limits
 in `references/decision-presentation.md`; a standing mark on content that
-would need shortening; text shaped like a secret, from the list in
+would need shortening; a `rule` on an option neither it nor its question
+marks standing, or one that is empty, holds a control character or runs over
+400 bytes; text shaped like a secret, from the list in
 `scripts/lib/secret-shapes.ere`, the same list the public-content check
 keeps (the matched text is never printed); a
 `depends_on` naming no question, or one whose chain comes back round; both
@@ -148,7 +161,9 @@ for a session that can't open a prompt. In `questions`, `header` is koto's
 question as three paragraphs), and the option labels are the stored labels in
 stored order. Each `description` carries the option's reason, the first opening
 with `Recommended.` and every marked option with `This answer sets a standing
-rule.` A prompt holds at most four questions; a need is never in one and comes
+rule.`, or, on a question whose options carry rule texts, with `This answer
+sets the standing rule "<rule>".` for an option with one and `This answer sets
+no standing rule.` for one without. A prompt holds at most four questions; a need is never in one and comes
 under `requests`.
 
 With `--person owner` the output also has `incomplete`: each open question
@@ -455,8 +470,8 @@ One JSON document, compact, keys in this order:
 
 ```text
 context, problem, ask, question, standing?,
-options[{label, reason, standing?}]   (a decision question)
-  | need, needed                      (a need)
+options[{label, reason, rule?, standing?}]   (a decision question)
+  | need, needed                             (a need)
 ground, waiting, label, depends_on?
 ```
 

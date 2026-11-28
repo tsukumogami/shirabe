@@ -267,8 +267,9 @@ question or on the option the owner chose. `standing-provenance.sh` prints
 koto's `reading` and the mark, through read calls only, and `rule_class`
 decides from those two fields. Any other person decision, a person judgment
 recorded at the top coordinator among them, reads inferred; a cited session
-decision keeps the class it read before. The bullets below record the
-replaced test.
+decision keeps the class it read before. A second amendment the same day
+adds the chosen option's rule and koto's in-effect reading to that test (see
+the Amendments). The bullets below record the replaced test.
 
 The row stores no class and the writer takes no class flag. The same
 `rule_class` function that readers use to label a row is what the writer
@@ -314,8 +315,11 @@ uses to refuse one. A cited row reads:
   writes it itself.
 - **inferred**, flagged for confirmation, for any other citation: the
   writer's own session, or a person entered in a bound run (one that wasn't
-  a root, by the test above, when it was entered). A citation that fails the test is a
-  checked claim that failed, so it is flagged rather than passed over.
+  a root, by the test above, when it was entered). (Replaced 2026-11-28, see the Amendments: a person
+  decision reads inferred when it fails the evidence test, wherever it was
+  entered; "a person entered in a bound run" is no longer read.) A citation
+  that fails the test is a checked claim that failed, so it is flagged rather
+  than passed over.
 - **unreadable** when koto can't read the decision. It never counts as the
   owner's word and is never folded into inferred.
 
@@ -325,7 +329,9 @@ their class without the successor reaching higher than its predecessor. The
 tests run in a fixed order. Unreadable comes first. A person decider then
 goes straight to the root test (owner-said, or inferred for a bound run),
 wherever it was entered, so a director citing the person decision it
-recorded itself reads owner-said. A session decider is tested against the
+recorded itself reads owner-said. (Replaced 2026-11-28, see the Amendments: a person decider goes to
+the evidence test instead, and a person decision a director records itself,
+with no answered prompt behind it, reads inferred.) A session decider is tested against the
 writer's own run first (inferred), then dispatcher-said, so a session
 decision of the writer's own predecessor never reads as its dispatcher's. A reversed
 decision keeps its class; what changes is its status, superseded.
@@ -403,7 +409,9 @@ reads every person decision below them in one listing.
   dispatcher-said.** Rejected because it weakens the owner's word one hop
   down and lets a director reverse one lane's copy alone, while citing the
   owner's decision leaves reversal with a person. Kept from it: a bound run
-  never enters a person decision of its own.
+  never enters a person decision of its own. (Replaced 2026-11-28, see the Amendments: where a person
+  decision was entered is no longer read; the owner's verified answer given
+  in a bound run reads owner-said like one given at a root.)
 
 ### Decision 3: How rows written before the change are read, and how an old lineage keeps its rules
 
@@ -1122,9 +1130,9 @@ writes `record/decisions` or `record/reversals`.
   | Source | Class |
   |---|---|
   | none (an event row) | relayed |
-  | `decision`, the owner's answer koto reads `verified`, to a question marked standing on the question or on the option chosen | owner-said |
+  | `decision`, the owner's answer koto reads `verified`, in effect and governing its question (or reversed, reading superseded), to a question marked standing on the question or on the option chosen, the chosen option's rule being the row's What | owner-said |
   | `decision`, a session decider the writer's frozen koto chain reaches through a `leg` link, or a later member of that session's run | dispatcher-said |
-  | any other `decision` (the writer's own run, a person entered in a bound run) | inferred |
+  | any other person `decision` (the writer's own run; any person decision the evidence test doesn't pass. Replaced 2026-11-28: this row once read "a person entered in a bound run") | inferred |
   | `decision`, not readable | unreadable |
   | `skill` | skill-says |
   | `doc`, `pinned` | charter |
@@ -1189,7 +1197,8 @@ writes `record/decisions` or `record/reversals`.
   writer (a manager citing a person decision entered in its own session; a
   session decision that isn't its own run's and that it doesn't reach
   through a leg, since the chain test applies only to session deciders and
-  a person decision is judged by the root test alone; its own run's session
+  a person decision is judged by the root test alone (Replaced 2026-11-28, see the Amendments: by the
+  evidence test alone); its own run's session
   decision,
   whose place is the Decisions section or an `inferred` row), or whose
   recorded words don't match What; and, once koto's decision commands are
@@ -2485,7 +2494,8 @@ the class it read before, unreadable, so a `shirabe question settle
 --owner-note` decision is never owner-said. Being the top coordinator, with
 no dispatcher, makes no decision the owner's. The writer now accepts a
 `decision` Source only when it reads owner-said; it doesn't compare the
-row's What with the question's text.
+row's What with the question's text. (Replaced the same day, below: the What
+is compared with the chosen option's rule.)
 
 `rule_class` never applied the root test: before this change every
 `decision` row read unreadable, so no rule ever read owner-said. Its inputs
@@ -2494,3 +2504,34 @@ had shipped, though: `standing-provenance.sh` printed `bound` and
 Run section, and nothing consumed them. This change removes those two fields
 and their reads; no class a reader saw changes except that a `decision` row
 can now read owner-said or inferred.
+
+## Amendment — 2026-11-28, the chosen option and the answer in effect
+
+The evidence test above read the standing mark and koto's `reading` alone.
+Two gaps followed. A mark on the question made any option the owner chose
+owner-said, a "No" among them, and the row's What could say anything. And an
+answer koto no longer held in effect, reversed, refused after a fence,
+withdrawn or replaced by a later answer, still read owner-said and in force.
+
+The test now reads what the owner chose. A question raised to set a rule
+gives the option adopting it a `rule`, at most 400 bytes of plain text,
+allowed only on an option the standing mark covers; an option with no rule
+sets none. `standing-provenance.sh` prints that chosen option's `rule`, koto's
+`status`, its `governs` for an answer, and koto's top-level `reading` only.
+`rule_class` reads owner-said when the answer is verified and marked, the
+chosen option's rule is the row's What under the normalized match, and koto
+reads the answer in effect and governing; an option with no rule, a What that
+isn't the rule, an answer koto reads refused, or one that no longer governs
+reads inferred. A reversed answer keeps its class, as Decision 1 says, and
+reads status superseded with the winning reversal and its reason when the
+reversal stands verified; one an asserted reversal names stays in force with
+the reversal shown, and grants nothing. The writer refuses any citation not
+owner-said and in effect, naming why. `--rules` prints a `why` that tells a
+decision koto can't read from a session's decision, and one citation koto
+can't read leaves only its own rows unreadable.
+
+Every read of a row's class reads the cited decisions the same way: `--rules`,
+`--counts`, the caps a write and an intake are held to, and the handover read,
+which now fills its superseded and asserted-reversal lists. The verified mark
+is local to the machine: the same answer read from a store on another host
+reads a remote session's answer, so the row reads inferred there.
