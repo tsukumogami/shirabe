@@ -429,7 +429,7 @@ EOF
             tick "$1" '{"outcome":"skipped"}'
             tick "$1" '{"outcome":"skipped"}'
             tick "$1" '{"exit":"full-run"}'
-            tick "$1" '{"exit_artifacts":"present"}'
+            tick "$1" '{"exit_artifacts":"present","plan_execution_mode":"single-pr"}'
         fi
         at "$1: reach" "$2"
         [ "$STATE" = "$2" ]
@@ -477,7 +477,7 @@ EOF
     continue_run() {
         local t=$1
         open_scope "$t"
-        eq "$t: the open continues the run" continued=waiting "$(printf '%s\n' "$OPEN_OUT" | head -n 1)"
+        eq "$t: the open continues the run" continued=waiting "${OPEN_OUT%%$'\n'*}"
         case "$OPEN_OUT" in
             *replaced*|*moved_to=*) fail "$t: the open replaced the session: $OPEN_OUT" ;;
             *) pass "$t: the open replaced nothing" ;;

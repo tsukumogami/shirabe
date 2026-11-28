@@ -136,8 +136,8 @@ The check runs the three-phase flow defined in
   were: nothing is written for an abandonment and no PLAN is
   written. Under a coordinator (a run opened with `--koto-leg`)
   the leg carries `outcome: waiting` and the question, and the
-  question goes to the session that dispatched the run. Under
-  `--auto` with no coordinator it goes to `person:owner`: nothing
+  question goes to the session that dispatched the run.
+  Under `--auto` with no coordinator it goes to `person:owner`: nothing
   is answered on the author's behalf. `/scope <topic>` run again
   after the answer continues the same session at `decide_first`,
   where an attempt citing the answer is recorded and the run goes

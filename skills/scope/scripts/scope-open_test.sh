@@ -807,7 +807,7 @@ eq "a waiting run whose question is open: no rewind" "0" "$(rewinds)"
 hasnt "a waiting run whose question is open: no koto init" "init " "$(cat "$T/wait.log")"
 
 wait_scope
-eq "a waiting run whose question is closed: continued=waiting first" "continued=waiting" "$(printf '%s\n' "$STDOUT" | head -n 1)"
+eq "a waiting run whose question is closed: continued=waiting first" "continued=waiting" "${STDOUT%%$'\n'*}"
 eq "a waiting run whose question is closed: rewound once, to waiting_record" "1" "$(rewinds)"
 has "a waiting run whose question is closed: attached as a live session" "--attach-live" "$(grep '^init ' "$T/wait.log")"
 hasnt "a waiting run whose question is closed: the session is never replaced" "--replace-terminal" "$(cat "$T/wait.log")"

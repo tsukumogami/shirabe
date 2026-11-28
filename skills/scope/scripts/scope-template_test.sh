@@ -174,7 +174,7 @@ EDGES=$(q '[.states | to_entries[] | .key as $from | (.value.transitions // [])[
 eq "every edge into a terminal assigns outcome" '[]' \
     "$(printf '%s' "$EDGES" | jq -c '[.[] | select(.outcome == "") | "\(.from)->\(.to)"]')"
 eq "every assigned outcome is in the closed set" '[]' \
-    "$(printf '%s' "$EDGES" | jq -c '[.[] | select(.outcome | IN("scoped","handed-off-multi-pr","executed","re-evaluation","abandonment","cancelled","refused","error") | not) | "\(.from)->\(.to)=\(.outcome)"]')"
+    "$(printf '%s' "$EDGES" | jq -c '[.[] | select(.outcome | IN("scoped","handed-off-multi-pr","executed","re-evaluation","abandonment","cancelled","refused","error","waiting") | not) | "\(.from)->\(.to)=\(.outcome)"]')"
 eq "each terminal receives only its own outcome" '[]' \
     "$(printf '%s' "$EDGES" | jq -c '[.[] | select(
         (.to == "done_full_run" and (.outcome | IN("scoped","handed-off-multi-pr") | not))
@@ -184,7 +184,8 @@ eq "each terminal receives only its own outcome" '[]' \
         or (.to == "done_abandonment" and .outcome != "abandonment")
         or (.to == "done_cancelled" and .outcome != "cancelled")
         or (.to == "done_refused" and .outcome != "refused")
-        or (.to == "done_error" and .outcome != "error")) | "\(.from)->\(.to)"]')"
+        or (.to == "done_error" and .outcome != "error")
+        or (.to == "done_waiting" and .outcome != "waiting")) | "\(.from)->\(.to)"]')"
 eq "every edge into done_error and done_refused assigns a step from the closed set" '[]' \
     "$(printf '%s' "$EDGES" | jq -c '[.[] | select(.to == "done_error" or .to == "done_refused")
         | select(.step | IN("scope:push","scope:pr-create","scope:intake","scope:resume-probe","scope:refused") | not) | "\(.from)->\(.to)"]')"
