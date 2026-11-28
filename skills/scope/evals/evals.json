@@ -1153,6 +1153,19 @@
         "Plan does not count the design hop as complete while the DESIGN is at Draft, and does not invoke /plan",
         "Plan does not change the DESIGN's status itself; on Continue it hands back to /design"
       ]
+    },
+    {
+      "id": 69,
+      "name": "auto-undecided-matter-not-defaulted",
+      "prompt": "/scope some-topic --auto -- a choice comes up that the evidence does not settle. Does the run take the recommended option?",
+      "expected_output": "No. Under --auto the run decides only what the evidence settles. A matter it does not settle goes through the cheap-or-costly test in references/question-procedure.md: a cheap one is decided provisionally (an assumed block, the attempt recorded provisional), a costly one is raised as a question and the run waits on it rather than taking the recommendation.",
+      "expectations": [
+        "The run does not record the recommended option as confirmed when the evidence does not settle it",
+        "A costly unsettled matter is raised as a question"
+      ],
+      "tier": 1,
+      "mode": "plan_only",
+      "files": []
     }
   ],
   "substrate_scenarios": {

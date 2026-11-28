@@ -12,6 +12,16 @@
 # record, written by the owning session between steps in both templates, is
 # `context add --from-file`.
 #
+# The covered exit in front of worktree_discipline_check and the parked
+# steps: decide_first runs /work-on's decide-first-gate.sh and the shirabe
+# question commands its directive names; park.sh and parked-state.sh read
+# `koto context list` for the parked/ keys, `koto decisions history`,
+# `content read`, `attempts --in` and `list --format` for the questions and
+# the decisions citing their answers, and `koto workflows --children` with
+# `koto status` for the children at done_waiting. execute-open.sh continues a
+# waiting run with `koto rewind --rationale`, and the hand-off reads `koto
+# session origin` for the recipient of a child's question.
+#
 # `koto workflows --children` is the owning session's in the lead shape: it
 # names each step's child from the list in spawn_and_await, and after a lost
 # context it names the children whose `koto status` it reads (SKILL.md, and
@@ -153,6 +163,17 @@ koto	session cleanup	-	always
 # koto calls (status, workflows --children, context exists/get/add) fall under
 # the records above.
 koto	session rebind	--to	always
+koto	rewind	--rationale	always
+koto	context list	-	always
+koto	decisions history	-	always
+koto	decisions content read	-	always
+koto	decisions attempts	--in	always
+koto	decisions list	--format	always
+koto	session origin	-	always
+shirabe	question precedent	--in,--label	always
+shirabe	question attempt	--in,--state,--result,--basis	always
+shirabe	question raise	--in,--attempt,--state,--to	always
+shirabe	question withdraw	--in,--reason	always
 shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--pr-body,--pr-title,--writing-style,--visibility	always
 shirabe	finalize-chain	-	always
 shirabe	transition	-	always

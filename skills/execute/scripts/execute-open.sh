@@ -192,6 +192,11 @@
 # lock's own exit trap, releases that lock too. Nothing else of the finished
 # session is carried beyond the keys named here.
 #
+# A session at done_waiting (a run whose steps wait on open questions) is
+# continued in place rather than replaced; the block after the status read
+# says how. Its lines are `waiting=<identity>` and `session=<name>` (exit 3),
+# `continued=waiting` before koto-open.sh's own, or `failed=waiting` (exit 70).
+#
 # Output: koto-open.sh's lines (opened=..., refused=..., failed=...), then
 # `carried=<n>` after a carry and `session=execute-<slug>` when a session was
 # opened, or, on a refusal, the exit lines print-exit.sh --refused prints
@@ -481,6 +486,55 @@ fi
 FINISHED=0
 if [ -n "$STATUS" ] && printf '%s' "$STATUS" | jq -e '.removed != true and .is_terminal == true' >/dev/null; then
     FINISHED=1
+fi
+
+# A run waiting on its questions. A session at done_waiting is not replaced:
+# its children are named after it, and the steps that landed and the parked
+# keys are the run. While a question its result names is open, the open
+# prints `waiting=<identity>` per open question and `session=<name>`, and
+# exits 3 with no koto init. Once every one is closed (answered or withdrawn),
+# `koto rewind` takes the session back to waiting_record, the state the tick
+# chained through, which sends it to spawn_and_await; the open then attaches
+# to it as to any live session and prints `continued=waiting` first. A read
+# or a rewind that fails is `failed=waiting`, exit 70, nothing changed.
+if [ "$FINISHED" -eq 1 ] && printf '%s' "$STATUS" | jq -e '.current_state == "done_waiting"' >/dev/null; then
+    WAITING_QS=$(printf '%s' "$STATUS" | jq -r '.result.payload.question // empty')
+    [ -n "$WAITING_QS" ] || {
+        printf 'failed=waiting\n'
+        echo "$PROG: $SESSION is at done_waiting with no question in its result" >&2
+        exit 70
+    }
+    STILL_OPEN=""
+    for q in $WAITING_QS; do
+        h=$(koto decisions history -- "$q") || {
+            printf 'failed=waiting\n'
+            echo "$PROG: could not read the question $q" >&2
+            exit 70
+        }
+        o=$(printf '%s' "$h" | jq -r '.open')
+        case "$o" in
+            true) STILL_OPEN="$STILL_OPEN $q" ;;
+            false) ;;
+            *)
+                printf 'failed=waiting\n'
+                echo "$PROG: the question $q reads neither open nor closed" >&2
+                exit 70
+                ;;
+        esac
+    done
+    if [ -n "$STILL_OPEN" ]; then
+        for q in $STILL_OPEN; do printf 'waiting=%s\n' "$q"; done
+        printf 'session=%s\n' "$SESSION"
+        echo "$PROG: $SESSION is waiting on$STILL_OPEN, still open" >&2
+        exit 3
+    fi
+    koto rewind "$SESSION" --rationale "every question the run waited on is closed" >/dev/null || {
+        printf 'failed=waiting\n'
+        echo "$PROG: koto could not rewind $SESSION from done_waiting" >&2
+        exit 70
+    }
+    printf 'continued=waiting\n'
+    FINISHED=0
 fi
 
 if [ "$COORDINATED" -eq 1 ] && [ "$NAMED" -eq 1 ]; then

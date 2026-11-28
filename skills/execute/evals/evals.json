@@ -1677,6 +1677,34 @@
         "The agent runs build-output-end.sh as the directive writes it and does not delete build output by hand",
         "A later cleanup uses the pinned run/cleanup/single base, not a merge base taken after the PR merged"
       ]
+    },
+    {
+      "id": 89,
+      "name": "intent-changing-drift-decides-first",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md --auto -- worktree_discipline_check judges main's change intent-changing. What does the run do before it may stop?",
+      "expected_output": "The intent-changing edge goes to decide_first, assigning decide_origin worktree_discipline_check and decide_fresh yes, and keeping the failure_reason with the rationale. koto names the arrival (worktree_discipline_check:1). The run follows references/question-procedure.md: it records an attempt with shirabe question attempt for that arrival. A decided attempt with decided_next resume goes back to worktree_discipline_check; with stop it goes through escalate_upstream_drift to done_blocked with step execute:re-evaluation. A matter the evidence does not settle and that is costly is raised as one question whose waiting list names the affected PLAN steps; decide_outcome raised then parks those steps (park_own) and the batch goes on with the others.",
+      "expectations": [
+        "The run does not reach done_blocked before recording an attempt for the arrival",
+        "A decided stop ends at done_blocked with step execute:re-evaluation",
+        "A raised question names PLAN steps in waiting, and only those steps are parked"
+      ],
+      "tier": 1,
+      "mode": "plan_only",
+      "files": []
+    },
+    {
+      "id": 90,
+      "name": "parked-steps-end-waiting",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md --auto -- one child raised a question at its decide_first and ended at done_waiting; every other step that does not wait on it has landed. How does the run end, and what does a second /execute invocation do while the question is open and after it is answered?",
+      "expected_output": "The owner session runs park.sh mark --child for the child, parking its step on the question. Once every step that has not landed is parked or waits on a parked step, the parked_state gate exits 3 and the run ends at done_waiting through waiting_record, a failure terminal whose result is outcome waiting and question naming the open identity; print-exit.sh prints outcome=waiting and a question= line. A second invocation while the question is open makes no koto init: execute-open.sh prints waiting=<identity> and session=, exiting 3. Once it is answered, the opener rewinds the session to waiting_record, prints continued=waiting and attaches; the next tick returns to spawn_and_await. The owner rewinds the child to its decide_first, a step agent records an attempt citing the answer, park.sh clear removes the key, and the same tasks are submitted again.",
+      "expectations": [
+        "The run ends at done_waiting, not done_blocked or escalate",
+        "No parked step is handed to a step agent while its question is open",
+        "park.sh clear refuses while the question is open and before a decision cites the answer"
+      ],
+      "tier": 1,
+      "mode": "plan_only",
+      "files": []
     }
   ]
 }

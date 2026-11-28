@@ -692,7 +692,7 @@ states:
         request: "{{REQ}}"
         leg: execute
         expect:
-          outcome: [merged, ready-awaiting-merge, paused-for-review, paused-awaiting-merges, error]
+          outcome: [merged, ready-awaiting-merge, paused-for-review, paused-awaiting-merges, waiting, error]
         overridable: false
     accepts:
       child_returned:
@@ -759,6 +759,20 @@ states:
           waiting: "${gates.exec_leg.payload.waiting}"
           reason: "${gates.exec_leg.payload.reason}"
           next: ""
+      # /execute ended at done_waiting: its parked steps wait on open
+      # questions. The questions are copied; /deliver invoked again continues
+      # the same /execute run once they are closed.
+      - target: done_waiting
+        when:
+          gates.exec_leg.disposition: resolved
+          gates.exec_leg.source: promoted
+          gates.exec_leg.valid: true
+          gates.exec_leg.payload.outcome: waiting
+        context_assignments:
+          outcome: waiting
+          question: "${gates.exec_leg.payload.question}"
+          next: "/deliver {{TOPIC}}"
+          failure_reason: "/deliver waiting: open questions"
       - target: done_error
         when:
           gates.exec_leg.disposition: resolved
@@ -1057,6 +1071,16 @@ states:
       worktree_repo: "${context.worktree_repo}"
       other_repos: "${context.other_repos}"
 
+  # The run waits on the questions a leg's run is parked on. failure is true
+  # so a caller not taught this terminal reads it as a stop, never success.
+  done_waiting:
+    terminal: true
+    failure: true
+    result:
+      outcome: "${context.outcome}"
+      question: "${context.question}"
+      next: "${context.next}"
+
   done_error:
     terminal: true
     failure: true
@@ -1333,6 +1357,18 @@ verbatim:
 ```bash
 koto status {{SESSION_NAME}} | "{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-report.sh"
 ```
+
+## done_waiting
+
+The run is waiting on open questions its /execute run's steps are parked on;
+the report lists each as `question=` and gives the command that continues the
+run once they are answered or withdrawn. Print it, verbatim:
+
+```bash
+koto status {{SESSION_NAME}} | "{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-report.sh"
+```
+
+Do not start the work again fresh: `next=` continues this run.
 
 ## done_error
 

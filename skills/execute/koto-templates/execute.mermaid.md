@@ -10,11 +10,15 @@ stateDiagram-v2
     ci_monitor --> done_blocked : ci_outcome: failing_unresolvable, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0, gates.owned_pr_merged.exit_code: 1
     ci_monitor --> done_blocked : gates.monitor_owned_pr.exit_code: 3
     ci_monitor --> done_blocked : gates.monitor_owned_pr.exit_code: 2
+    decide_first --> park_own : decide_outcome: raised, gates.attempt_recorded.exit_code: 3, gates.waiting_steps.exit_code: 0
+    decide_first --> worktree_discipline_check : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 20
+    decide_first --> escalate_upstream_drift : decide_outcome: decided, decided_next: stop, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 20
     drift_facts --> worktree_sync : gates.drift_facts_recorded.matches: true, gates.plan_intent_recorded.exists: true
     drift_facts --> worktree_sync : facts_status: override, gates.drift_facts_recorded.matches: false
     drift_facts --> done_blocked : facts_status: blocked, gates.drift_facts_recorded.matches: false
     escalate --> done_blocked
     escalate_dirty_merge_state --> done_blocked
+    escalate_parked --> escalate : gates.reason_written.matches: true
     escalate_upstream_drift --> done_blocked
     merge_attempt --> ready_awaiting_merge : gates.merge_intent.exit_code: 1
     merge_attempt --> merge_confirm : gates.merge_intent.exit_code: 0, merge_exec: called
@@ -36,6 +40,7 @@ stateDiagram-v2
     orchestrator_setup --> done_blocked : status: blocked
     orchestrator_setup --> done_blocked : gates.setup_owned_pr.exit_code: 3, status: completed
     orchestrator_setup --> done_blocked : gates.setup_owned_pr.exit_code: 2, status: completed
+    park_own --> spawn_and_await : gates.own_parked.exists: true
     plan_completion --> ci_monitor : gates.cascade_completed.matches: true, gates.cascade_partial.matches: false, gates.cascade_skipped.matches: false, gates.expected_head_recorded.matches: true, gates.ready_owned_pr.exit_code: 0, gates.shared_hosted_read.exit_code: 0, gates.shared_hosted_ready.exit_code: 0
     plan_completion --> ci_monitor : gates.cascade_completed.matches: true, gates.cascade_partial.matches: false, gates.cascade_skipped.matches: false, gates.expected_head_recorded.matches: false, gates.ready_owned_pr.exit_code: 0, gates.shared_hosted_read.exit_code: 0, gates.shared_hosted_ready.exit_code: 0
     plan_completion --> ci_monitor : gates.cascade_completed.matches: false, gates.cascade_partial.matches: false, gates.cascade_skipped.matches: true, gates.expected_head_recorded.matches: true, gates.ready_owned_pr.exit_code: 0, gates.shared_hosted_read.exit_code: 0, gates.shared_hosted_ready.exit_code: 0
@@ -52,10 +57,15 @@ stateDiagram-v2
     pr_finalization --> done_blocked : gates.final_owned_pr.exit_code: 2
     settled_branch_record --> drift_facts : gates.settled_branch_recorded.matches: true
     settled_branch_record --> done_blocked : gates.settled_branch_recorded.matches: false, status: blocked
-    spawn_and_await --> pr_finalization : gates.batch_done.all_complete: true, gates.batch_done.all_success: true, gates.steps_landed.exit_code: 0
-    spawn_and_await --> escalate : gates.batch_done.all_complete: true, gates.batch_done.all_success: false, gates.batch_done.needs_attention: true
+    spawn_and_await --> pr_finalization : gates.batch_done.all_complete: true, gates.batch_done.all_success: true, gates.parked_state.exit_code: 0, gates.steps_landed.exit_code: 0
+    spawn_and_await --> escalate : gates.batch_done.all_complete: true, gates.batch_done.all_success: false, gates.batch_done.needs_attention: true, gates.parked_state.exit_code: 0
+    spawn_and_await --> escalate_parked : gates.batch_done.all_complete: true, gates.batch_done.all_success: false, gates.batch_done.needs_attention: true, gates.parked_state.exit_code: 1
+    spawn_and_await --> waiting_record : gates.parked_state.exit_code: 3
+    spawn_and_await --> escalate_upstream_drift : gates.parked_state.exit_code: 4, gates.parked_stop.exit_code: 0, parked_next: stop
+    waiting_record --> done_waiting : gates.none_open.matches: false, gates.questions_written.exists: true
+    waiting_record --> spawn_and_await : gates.none_open.matches: true
     worktree_discipline_check --> spawn_and_await : impact: informational
-    worktree_discipline_check --> escalate_upstream_drift : impact: intent-changing
+    worktree_discipline_check --> decide_first : impact: intent-changing
     worktree_sync --> spawn_and_await : gates.current_with_main.exit_code: 0, gates.drift_clear.matches: true
     worktree_sync --> worktree_discipline_check : gates.current_with_main.exit_code: 0, gates.drift_clear.matches: false
     worktree_sync --> worktree_discipline_check : gates.current_with_main.exit_code: 1, sync_status: override
@@ -64,6 +74,7 @@ stateDiagram-v2
     write_set_record --> done_blocked : gates.repos_recorded.matches: false, write_set_status: blocked
     done --> [*]
     done_blocked --> [*]
+    done_waiting --> [*]
     merged --> [*]
     paused_for_review --> [*]
     ready_awaiting_merge --> [*]
@@ -82,11 +93,23 @@ stateDiagram-v2
     note left of ci_monitor
         gate: owned_pr_merged
     end note
+    note left of decide_first
+        gate: attempt_recorded
+    end note
+    note left of decide_first
+        gate: decide_from
+    end note
+    note left of decide_first
+        gate: waiting_steps
+    end note
     note left of drift_facts
         gate: drift_facts_recorded
     end note
     note left of drift_facts
         gate: plan_intent_recorded
+    end note
+    note left of escalate_parked
+        gate: reason_written
     end note
     note left of merge_attempt
         gate: merge_intent
@@ -117,6 +140,9 @@ stateDiagram-v2
     end note
     note left of orchestrator_setup
         gate: setup_owned_pr
+    end note
+    note left of park_own
+        gate: own_parked
     end note
     note left of plan_completion
         gate: cascade_completed
@@ -164,7 +190,19 @@ stateDiagram-v2
         gate: batch_done
     end note
     note left of spawn_and_await
+        gate: parked_state
+    end note
+    note left of spawn_and_await
+        gate: parked_stop
+    end note
+    note left of spawn_and_await
         gate: steps_landed
+    end note
+    note left of waiting_record
+        gate: none_open
+    end note
+    note left of waiting_record
+        gate: questions_written
     end note
     note left of worktree_sync
         gate: current_with_main

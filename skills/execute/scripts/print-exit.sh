@@ -20,7 +20,7 @@
 #
 # Output, one key=value per line, in this order:
 #
-#   outcome=<merged|ready-awaiting-merge|paused-for-review|paused-awaiting-merges|error>
+#   outcome=<merged|ready-awaiting-merge|paused-for-review|paused-awaiting-merges|waiting|error>
 #                                          always; an unreadable or unknown
 #                                          outcome prints error
 #   step=<execute:...>                     on error only
@@ -46,6 +46,11 @@
 #   recovered=<url>                        a coordinated run whose setup, in
 #                                          this invocation, rebuilt its lost
 #                                          record from that coordination PR
+#   question=<identity>                    on waiting, one line per question
+#                                          the run waits on (done_waiting's
+#                                          `question`, identities separated by
+#                                          a space); an identity outside
+#                                          <session>/<id> is dropped
 #   resume=<command>                       on a pause
 #   note=the PR may still be queued and may merge later
 #                                          on reason merge-not-observed
@@ -61,7 +66,8 @@ set -uo pipefail
 
 PROG=print-exit
 
-RE_OUTCOME='^(merged|ready-awaiting-merge|paused-for-review|paused-awaiting-merges|error)$'
+RE_OUTCOME='^(merged|ready-awaiting-merge|paused-for-review|paused-awaiting-merges|waiting|error)$'
+RE_QUESTION='^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$'
 RE_STEP='^execute:[a-z][a-z0-9_-]*$'
 RE_REPO_LIST='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(,[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)*$'
 RE_URL='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$'
@@ -119,6 +125,7 @@ RESUME=$(field resume)
 WAITING=$(field waiting)
 BODY=$(field body)
 RECOVERED=$(field recovered)
+QUESTIONS=$(field question)
 
 [ "$OUTCOME" = "refused" ] && refused
 
@@ -204,6 +211,11 @@ esac
 case "$OUTCOME" in
     paused-for-review|paused-awaiting-merges)
         [ -n "$RESUME" ] && printf 'resume=%s\n' "$RESUME"
+        ;;
+    waiting)
+        for q in $QUESTIONS; do
+            [[ $q =~ $RE_QUESTION ]] && printf 'question=%s\n' "$q"
+        done
         ;;
 esac
 

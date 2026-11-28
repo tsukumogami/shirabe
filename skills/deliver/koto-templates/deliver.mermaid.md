@@ -11,6 +11,7 @@ stateDiagram-v2
     execute_run --> done : gates.exec_leg.disposition: resolved, gates.exec_leg.payload.outcome: ready-awaiting-merge, gates.exec_leg.source: promoted, gates.exec_leg.valid: true
     execute_run --> done_stopped : gates.exec_leg.disposition: resolved, gates.exec_leg.payload.outcome: paused-for-review, gates.exec_leg.source: promoted, gates.exec_leg.valid: true
     execute_run --> done_stopped : gates.exec_leg.disposition: resolved, gates.exec_leg.payload.outcome: paused-awaiting-merges, gates.exec_leg.source: promoted, gates.exec_leg.valid: true
+    execute_run --> done_waiting : gates.exec_leg.disposition: resolved, gates.exec_leg.payload.outcome: waiting, gates.exec_leg.source: promoted, gates.exec_leg.valid: true
     execute_run --> done_error : gates.exec_leg.disposition: resolved, gates.exec_leg.payload.outcome: error, gates.exec_leg.source: promoted, gates.exec_leg.valid: true
     execute_run --> done_error : gates.exec_leg.disposition: resolved, gates.exec_leg.source: promoted, gates.exec_leg.valid: false
     execute_run --> execute_lost : gates.exec_leg.disposition: resolved, gates.exec_leg.source: refused
@@ -56,6 +57,7 @@ stateDiagram-v2
     done --> [*]
     done_error --> [*]
     done_stopped --> [*]
+    done_waiting --> [*]
     note left of confirm
         gate: mode_auto
     end note

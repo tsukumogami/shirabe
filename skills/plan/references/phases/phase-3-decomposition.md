@@ -813,10 +813,14 @@ Use <recommended mode>, or override?
    `work/decisions.md` before Phase 3 runs again, and when the redo reaches
    step 5a, pass `--coordinated` for it instead of asking the author again.
 
-7. **Under `--auto`** follow the recommendation and record a `confirmed` decision
-   block in key `work/decisions.md` if the rationale is clear, or
-   `assumed` at high review priority if a split was chosen without a hard
-   constraint or a clear incremental-value rationale for every unit.
+7. **Under `--auto`** decide only what the evidence settles, as
+   `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` says. When the rationale is clear (a hard
+   constraint or a clear incremental-value rationale for every unit), record
+   a `confirmed` decision block in key `work/decisions.md`. When it is not,
+   apply the cheap-or-costly test in `${CLAUDE_PLUGIN_ROOT}/references/question-procedure.md`: a
+   cheap choice is recorded as an `assumed` block at high review priority and
+   its attempt `provisional`; a costly one is raised as a question, and the
+   mode is not chosen until it is answered.
 
 8. **Record the confirmed selection** in the decomposition artifact's YAML
    frontmatter:

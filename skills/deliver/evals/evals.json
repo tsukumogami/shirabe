@@ -519,6 +519,17 @@
       "grader": "script",
       "handoff": "scope",
       "run": "scripts/check-handoff.sh deliver scope"
+    },
+    {
+      "id": 36,
+      "name": "execute-leg-waiting",
+      "prompt": "/deliver some-topic --auto -- the execute leg resolves with outcome waiting and question naming one open question. Where does /deliver end and what does it print?",
+      "expected_output": "execute_run takes the waiting edge to done_waiting, copying the question and setting next to /deliver some-topic. done_waiting is a failure terminal; deliver-report.sh prints outcome=waiting, one question= line, and next=/deliver some-topic. Invoking /deliver again continues the same /execute run once the question is closed.",
+      "files": [],
+      "expectations": [
+        "The run ends at done_waiting, not done_error with deliver:child-outcome",
+        "The report has outcome=waiting, a question= line and next="
+      ]
     }
   ]
 }

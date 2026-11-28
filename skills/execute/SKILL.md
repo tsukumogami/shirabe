@@ -759,7 +759,16 @@ Step 2's entry (`execute-open.sh`, which calls `koto init ... --attach-live
   answer `action: "done"` and report the plan complete on the strength of work
   this run did not do;
 - a live session from another template, worktree, or store is **refused**, and
-  the run ends `outcome=error`, `step=execute:refused` with nothing changed.
+  the run ends `outcome=error`, `step=execute:refused` with nothing changed;
+- a session at `done_waiting` (single-pr only: its parked steps wait on open
+  questions) is **continued in place**, never replaced, since its children are
+  named after it. While a question its result names is open, the opener prints
+  `waiting=<identity>` for each and `session=execute-<plan-slug>` and exits 3
+  with no koto init: report that the run is still waiting and stop. Once every
+  one is answered or withdrawn, it runs `koto rewind`, which takes the session
+  back to `waiting_record`, the state its last tick chained through, prints
+  `continued=waiting` and attaches. The next tick returns to `spawn_and_await`,
+  whose directive (Parked steps) says how each parked step is taken up.
 
 So retention buys a record that can be read after the fact, not a session a
 later run resumes in place: the replacement starts at `write_set_record` and
@@ -804,9 +813,13 @@ line by `print-exit.sh`:
   completed, what remains, and why it stopped.
 - **`re-evaluation`** — an **upstream-must-change boundary** found by the drift
   check before any child is dispatched: `worktree_discipline_check` judges main's
-  change `intent-changing`, and the run stops there (`escalate_upstream_drift` to
-  `done_blocked`, with the rationale in `failure_reason`) and **does NOT
-  re-execute**. A child that finds an upstream must change fails, and the batch
+  change `intent-changing`. The run first arrives at `decide_first`, where it
+  records an attempt (`references/question-procedure.md`): a decided `resume`
+  goes back to `worktree_discipline_check`, a decided `stop` takes this exit
+  (`escalate_upstream_drift` to `done_blocked`, with the rationale in
+  `failure_reason`) and **does NOT re-execute**, and a raised question parks the
+  steps it names while the others run. An answer to a parked step's question
+  that says the step must not run as the PLAN states it takes this exit too. A child that finds an upstream must change fails, and the batch
   ends through `escalate` as `abandonment-forced`.
 
 These bindings follow the blocker handling in `spawn_and_await`'s autonomy directive: an
@@ -814,6 +827,13 @@ intent-changing drift before dispatch routes to `re-evaluation`; the other genui
 (failed/blocked child needing human judgment, merge conflict, dirty or destructive
 state) route to `abandonment-forced` with the forced-stop summary; reaching the
 `merged` or `ready_awaiting_merge` terminal routes to `full-run`.
+
+A run whose steps are parked on open questions ends at `done_waiting`
+instead, a failure terminal whose result is `outcome: waiting` and `question`,
+the open questions' identities separated by a space; `print-exit.sh` prints
+`outcome=waiting` and one `question=` line each, and no `exit=` line. It is not
+one of the three exit paths: the run is not finished, and `/execute` invoked
+again on the PLAN continues it (Resume).
 
 ## Security Considerations
 

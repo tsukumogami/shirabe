@@ -31,7 +31,10 @@
 #
 # attempt_recorded (no option) exits:
 #   0  an attempt with result decided or provisional is recorded in the
-#      session for this arrival
+#      session for this arrival. In a session rewound to the arrival it
+#      waited from, whose question (decide_question, raised for this
+#      arrival) has since been answered, the attempt must also cite that
+#      answer in its basis, or the gate is at 1.
 #   3  an undecided attempt is recorded for it and an open question whose
 #      state is this arrival names it, or an open need carries this arrival's
 #      state. The question's identity is written to decide_question, which
@@ -48,8 +51,9 @@
 # --from exits with the code of the covered state named by decide_origin, so
 # decide_first's edges can pair it with the submitted outcome: 10 analysis,
 # 11 implementation, 12 introspection, 13 task_validation,
-# 14 post_research_validation, 15 plan_validation, 16 deferral_approval;
-# 2 when decide_origin is missing or names no covered state.
+# 14 post_research_validation, 15 plan_validation, 16 deferral_approval,
+# and /execute's 20 worktree_discipline_check; 2 when decide_origin is
+# missing or names no covered state.
 #
 # --approval exits 0 when the run's record holds, for the deferral_approval
 # arrival in decide_arrival, a deciding attempt whose basis names an answer in
@@ -104,6 +108,8 @@ code_of() {
         post_research_validation) echo 14 ;;
         plan_validation) echo 15 ;;
         deferral_approval) echo 16 ;;
+        # /execute's covered exit.
+        worktree_discipline_check) echo 20 ;;
         *) return 1 ;;
     esac
 }
@@ -208,6 +214,28 @@ check)
     [ -n "$arrival" ] || unreadable "no arrival is recorded at decide_first"
     mine=$(printf '%s\n' "$ALL" | jq -c --arg a "$arrival" 'select(.state == $a)') || unreadable "could not read the attempts"
     if [ -n "$(printf '%s\n' "$mine" | deciding)" ]; then
+        # A session rewound to the arrival it waited from still holds that
+        # arrival's question. Once the question is closed with an answer, the
+        # deciding attempt must cite it: the run resumes on the answer to the
+        # question it raised for this stop, not on a decision of its own
+        # made around it. A question withdrawn without an answer leaves the
+        # session's own deciding attempt standing.
+        question=$(ctx decide_question) || exit 2
+        if [ -n "$question" ]; then
+            h=$(koto decisions history -- "$question") || unreadable "koto decisions history $question failed"
+            answer=$(printf '%s\n' "$h" | jq -r --arg a "$arrival" 'select(.question.state == $a and .open != true)
+                | .answer | select(. != null and .outcome == "answered") | "\(.session):\(.id)"') \
+                || unreadable "could not read the history of $question"
+            if [ -n "$answer" ]; then
+                for a in $(printf '%s\n' "$mine" | deciding | jq -r '.id'); do
+                    bases=$(basis_of "$a") || exit 2
+                    for b in $bases; do
+                        [ "$b" = "$answer" ] && exit 0
+                    done
+                done
+                finding "the question $question raised for $arrival was answered ($answer): record shirabe question attempt --in $WF --state $arrival --result decided --basis $answer before leaving decide_first"
+            fi
+        fi
         exit 0
     fi
     # An undecided attempt and the open question that names it.

@@ -1324,6 +1324,19 @@
         "Agent says decided and raised both hold until an attempt for the arrival is recorded",
         "Agent does not try to override attempt_recorded"
       ]
+    },
+    {
+      "id": 90,
+      "name": "decide-first-gate-knows-execute-exit",
+      "prompt": "An /execute run arrives at its decide_first from worktree_discipline_check. What does decide-first-gate.sh --from answer, and what does a deciding attempt need when the run was rewound after its question was answered?",
+      "expected_output": "decide-first-gate.sh --from exits 20 for worktree_discipline_check, the code /execute's decide_first routes resume and stop on. When the session holds a question raised for the current arrival that has since been answered, the check holds the deciding attempt until one in effect cites that answer in its basis, naming the shirabe question attempt command to run.",
+      "expectations": [
+        "--from exits 20 for worktree_discipline_check",
+        "A deciding attempt that does not cite the answer is held with a finding"
+      ],
+      "tier": 1,
+      "mode": "plan_only",
+      "files": []
     }
   ]
 }

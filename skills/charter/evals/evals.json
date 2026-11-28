@@ -342,6 +342,17 @@
         "Plan surfaces the thesis-shift question verbatim as a confirmation of the handoff's pre-supplied answer and records the author's response rather than the file's, announcing the taken answer under --auto",
         "Plan reads no shape-signals block, because /charter walks no shape predicates"
       ]
+    },
+    {
+      "id": 24,
+      "name": "auto-undecided-matter-not-defaulted",
+      "prompt": "/charter some-topic --auto -- a choice comes up that the evidence does not settle. Does the run take the recommended option?",
+      "expected_output": "No. Under --auto the run decides only what the evidence settles. A matter it does not settle goes through the cheap-or-costly test in references/question-procedure.md: a cheap one is decided provisionally (an assumed block, the attempt recorded provisional), a costly one is raised as a question and the run waits on it rather than taking the recommendation.",
+      "files": [],
+      "expectations": [
+        "The run does not record the recommended option as confirmed when the evidence does not settle it",
+        "A costly unsettled matter is raised as a question"
+      ]
     }
   ]
 }
