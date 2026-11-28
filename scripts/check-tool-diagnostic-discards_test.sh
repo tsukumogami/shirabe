@@ -640,6 +640,59 @@ case "$out" in
   *) pass "  ... and never prints OK" ;;
 esac
 
+# --- Case 34: a narrowed run reads the repository's declarations ------------
+# shirabe#2221. A narrowed run over one skill read only the requires.tsv under
+# its target, so a discard of a tool another skill declares went unreported
+# there and was reported by the whole-repository run. The fixture is a
+# repository of its own: a copy of the checker sits in its scripts/, so the
+# copy's REPO_ROOT is the fixture root and the case controls every
+# declaration. The enumeration stays outside the fixture, as for every case.
+INREPO="$WORK/inrepo"
+INCHECK="$INREPO/scripts/check-tool-diagnostic-discards.sh"
+NEEDLE="discards a declared tool's diagnostics and is not enumerated"
+mkdir -p "$INREPO/scripts" "$INREPO/skills/coordinate" "$INREPO/skills/decision/scripts"
+cp "$CHECK" "$INCHECK"
+printf 'pkill\t-\t-\talways\n' > "$INREPO/skills/coordinate/requires.tsv"
+printf 'jq\t-\t-\talways\n' > "$INREPO/skills/decision/requires.tsv"
+printf '%s\n' 'pkill -P "$w" 2>/dev/null' > "$INREPO/skills/decision/scripts/reap.sh"
+ENUM="$WORK/inrepo.enum.md"
+enum_open; enum_close
+
+# The issue's reproduction: no flag, one skill, the tool declared only by
+# another skill.
+label="A narrowed run over one skill reports a discard of a tool declared only by another skill"
+out=$(bash "$INCHECK" --enumeration "$ENUM" "$INREPO/skills/decision" 2>&1); rc=$?
+case "$rc:$out" in
+  1:*"$NEEDLE"*) pass "$label" ;;
+  *) fail "$label -- expected exit 1 saying '$NEEDLE', got $rc: $out" ;;
+esac
+
+# The inside-the-repository test compares physical paths, so a target reached
+# through a symlink to the repository is still inside it.
+ln -s "$INREPO" "$WORK/inrepo-link"
+out=$(bash "$INCHECK" --enumeration "$ENUM" "$WORK/inrepo-link/skills/decision" 2>&1); rc=$?
+case "$rc:$out" in
+  1:*"$NEEDLE"*) pass "  ... and through a symlink to the repository" ;;
+  *) fail "  ... and through a symlink to the repository -- expected exit 1 saying '$NEEDLE', got $rc: $out" ;;
+esac
+
+# Mixed targets, one inside the repository and one outside, keep the
+# targets' own declarations: pkill is declared by neither.
+mkdir -p "$WORK/outside/skills/outside"
+printf 'jq\t-\t-\talways\n' > "$WORK/outside/skills/outside/requires.tsv"
+out=$(bash "$INCHECK" --enumeration "$ENUM" "$INREPO/skills/decision" "$WORK/outside" 2>&1); rc=$?
+case "$rc:$out" in
+  0:*"check-tool-diagnostic-discards: OK"*) pass "  ... but mixed targets read the targets' own declarations" ;;
+  *) fail "  ... but mixed targets read the targets' own declarations -- expected exit 0, got $rc: $out" ;;
+esac
+
+# --declarations still overrides the default.
+out=$(bash "$INCHECK" --enumeration "$ENUM" --declarations "$INREPO/skills/decision" "$INREPO/skills/decision" 2>&1); rc=$?
+case "$rc:$out" in
+  0:*"check-tool-diagnostic-discards: OK"*) pass "  ... and --declarations still overrides it" ;;
+  *) fail "  ... and --declarations still overrides it -- expected exit 0, got $rc: $out" ;;
+esac
+
 echo
 echo "check-tool-diagnostic-discards_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"
 [ "$FAIL_COUNT" -eq 0 ]
