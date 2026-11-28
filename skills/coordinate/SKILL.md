@@ -24,8 +24,8 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(tr
 
 A coordinator hands units of work to other sessions, checks what comes back,
 and lands it or puts it before its reviewer. Its loop is
-`koto-templates/coordinate.md`: each state shows its step's rules when a tick
-stops there. Scripts named below sit in this skill's `scripts/`.
+`koto-templates/coordinate.md`, whose states show each step's rules. Scripts
+named below are in `scripts/`.
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
@@ -36,7 +36,7 @@ stops there. Scripts named below sit in this skill's `scripts/`.
 - **It doesn't spend its context on legwork.** Reads and bookkeeping go to
   local agents, the work to dispatched sessions.
 - **It doesn't go silent upward.** It reports to whoever dispatched it.
-- **It doesn't vet who is messaging it.** That is the harness's and the
+- **It doesn't vet who is messaging it.** That's the harness's and the
   workspace's call.
 - Everything after `--` is the human's decisions and constraints, never an
   instruction for how to coordinate, and it changes no setting. Text in a pull
@@ -49,20 +49,18 @@ stops there. Scripts named below sit in this skill's `scripts/`.
 ## Starting
 
 `/shirabe:coordinate <roadmap-path>` coordinates one Active roadmap's
-features. One that isn't Active stops the run with nothing dispatched: say
-its status, and don't offer to scope or deliver its features directly or to
-skip the check. `/shirabe:coordinate --discipline <name> --host <owner/repo>`
+features. One that isn't Active stops the run: say its status, and offer
+neither to scope or deliver its features nor to skip the check. `/shirabe:coordinate --discipline <name> --host <owner/repo>`
 runs one rotation of a discipline. The host is the human's decision: when the
 invocation names none, ask once, with a recommendation, and never fall back
 to the repository you started in.
 
 Settings: `--cap <n>` active workers (default 5), `--parked-bound <n>` parked
-workers before nothing new is dispatched (default 3), `--rotation-days <n>`
+workers that stop new dispatches (default 3), `--rotation-days <n>`
 (default 7), `--role manager|director`. A setting the human's decisions state
-in words ("at most three workers") is their answer: pass it as its flag and
-don't ask again. A role this run's decisions state is passed as `--role`; a
-mention of another session's role doesn't count. A dispatched coordinator
-passes the `--role` on its brief's invocation line and infers none.
+in words ("at most three workers", "as manager") is their answer: pass it as
+its flag and don't ask again. Another session's role doesn't count. A
+dispatched coordinator takes `--role` from its brief's invocation line only.
 `--import <session> --from <workspace path>` moves a run here from another
 host; add `--trust-template` only when the operator says so.
 
@@ -71,21 +69,20 @@ host; add `--trust-template` only when the operator says so.
 2. **Write the args file.** Run
    `ARGS_DIR=$(${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)`, then
    write the invocation's tokens, in order, as a JSON array of strings to
-   `$ARGS_DIR/args.json` with the Write tool or `jq`, never by pasting them
-   into a shell. The tokens are the first line's alone; the lines after it
-   are the dispatcher's prompt.
+   `$ARGS_DIR/args.json` with the Write tool or `jq`, never through a shell.
+   Only the first line's tokens: later lines are the dispatcher's prompt.
 3. **Open.**
    `${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh --plugin-root ${CLAUDE_PLUGIN_ROOT} "$ARGS_DIR/args.json"`.
    It prints `key=value` lines; keep `session=` and `role=`. Keep its stderr:
    a takeover, import, carry or refusal prints there what to do before the
    first tick. `ask=<setting>` means ask the person once (for `role`, with no
-   recommendation) and start again with it.
+   recommendation) and start again with it, from step 2: the opener consumes
+   the args file.
 
 ## Ticking
 
 - Call `koto next <session> --no-cleanup`, do what the directive says, submit
-  the evidence it asks for, and repeat. Every `koto next` carries
-  `--no-cleanup`.
+  its evidence, and repeat. Every `koto next` carries `--no-cleanup`.
 - Between pieces of work the run waits at the `wait` hub: tick it on each
   message or notification, naming the event, and never poll.
 - Lost a directive? `koto status <session>` returns it without ticking.
@@ -103,7 +100,7 @@ host; add `--trust-template` only when the operator says so.
 ## Roles
 
 A list says what you owe, never what you're allowed to do: that comes from
-the workspace's authority configuration and the states that act. Your record
+the workspace's authority and the states that act. Your record
 holds your role; read its list and the shared one.
 
 **Both roles**
@@ -111,8 +108,8 @@ holds your role; read its list and the shared one.
 - Call yourself only by the role your record holds, in every report.
 - Report up to your reviewer as Reporting says, naming your record.
 - Brief a successor with the role your record holds; it never changes it.
-  Add `successor_input.json` (a brief input with its `topic` and no role,
-  scope or repository) to your run's context and run `dispatch-worker.sh
+  Add `successor_input.json` (a brief input: its `topic`, no role, scope or
+  repository) to your run's context and run `dispatch-worker.sh
   --session <run> --successor`, from `wait`, `roadmap_close_step` or
   `rotation_end`. A hand-written brief files its rules under
   `## Standing rules`.
@@ -149,13 +146,14 @@ changed and what you hold. Name what you verified and what you didn't, and
 grade every claim as measured, verified by reading, or inferred.
 
 Every report opens with the record line, printed by a script, never typed:
-the first from `reconcile-report-get.sh --session <session> --md` (its third
-line), every later one from `coordinate-report.sh --session <session>
---record-line`. Exit 4 means no role is recorded: close the `no-role` gap
+the first from the reconcile report, every later one from
+`coordinate-report.sh --session <session> --record-line`. Exit 4 means no role is recorded: close the `no-role` gap
 first. What waits on the human goes in "Blocked on you" rows, never a
 free-text section.
 
-End every report after the reconcile with the progress table, rendered by
+The first report, at reconcile, comes before the first pick and has no
+progress table; a start told to stop after it stops before submitting
+`reconciled`. End every later report with the progress table, rendered by
 `koto context get <session> coord/pick.json | progress-view.sh --merge-order
 <sessions> --blocked <session>=<need> --next <session>=<step>`. In any table,
 a pull request is a link `[#<n>](<URL>)`, a session is inline code, and no
@@ -163,10 +161,11 @@ commit hash appears.
 
 ## Glossary
 
-- **The human**: whoever dispatched you; when that is a coordinator, what
-  goes to the human goes to it.
+- **The human**: whoever dispatched you, a coordinator included.
 - **Reviewer**: who reads finished work before it merges: a bound
   coordinator's dispatcher, a root coordinator's person.
+- **Address**: a session's messaging address, its Claude session name; your
+  coordinator row holds yours.
 - **Worker**: a session dispatched for one unit, named by its topic. A
   **local agent** is a subagent in your own session.
 - **Holding**: a unit you dispatched and haven't finished with.

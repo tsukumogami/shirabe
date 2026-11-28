@@ -2534,8 +2534,9 @@ First make the record one a replacement could continue from: run
 and close every gap it names with the `state-stored-set.sh` call it gives,
 all but `carry-unacknowledged`: a person's go-ahead closes that one, and the
 first report asks for it. Write this run's arguments and the cap if the record
-has neither, and your own address (`--run coordinator`) if the record names
-another coordinator's or none. Fill
+has neither, and your own address (`--run coordinator`, this session's name,
+as the `no-coordinator` fix prints it) if the record names another
+coordinator's or none. Fill
 `no-role` with the `role=` value the opener printed or, when it printed none, by
 asking the person once with no recommendation, manager or director; the role
 is never inferred from the scope, the cap, the holdings,
@@ -2552,45 +2553,44 @@ reached you as told, then send each worker it prints as
 `live` a line naming the address and record it with `--told`. The workflow
 stays here until the check passes.
 
-Then print the report the reconcile pass sealed, checked against its seal, with
+Then print the sealed report, checked against its seal, with
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session {{SESSION_NAME}} --md`,
-and report it up. Its third line is the
+and report it up: paste it as printed, your own lines after it, and before
+sending run the same script with `--relay <your text's file>`. It sees only
+that file, not what the person gets: a guard, not proof. Its third line is the
 record line, read from the record as it is now, so it names the role the
 `no-role` fix wrote; with no role row it prints nothing and exits 4, and the
 report waits for that gap. When the check still lists `carry-unacknowledged`,
-the same report goes on, after the reconcile report, to list the holds and
+the report goes on to list the holds and
 Standing rows `coord/predecessor_carry.json` names and ask the person for a
 go-ahead on them. When they answer, record it with the gap's own
 `state-stored-set.sh --standing go-ahead` call and run the check again. Then
-submit `reconciled: reported` once the check passes. Load
+submit `reconciled: reported` once the check passes, or, told to stop after
+this report, stop before submitting. Load
 `references/loop.md`, "A Full Reconcile, in Order", for how to present it.
 
 <!-- details -->
 
 Report three things: what changed since the record was written, what you
-hold, and every open deferral, as the report's own sections give them, in its
-order, each claim with its grade (measured, verified by reading, or inferred).
+hold, and every open deferral, in the report's sections and order, each claim with its grade (measured, verified by reading, or inferred).
 What you hold is the report's one table, "Where things stand": ready to merge,
 blocked on you, ongoing, then waiting to be assigned, which you fill from the
-scope read that follows. Keep that one table, its order and its form (pull
-requests as links, sessions as code, no commit hash) when you report it up;
-its "Blocked on you" rows are what waits on the human, derived at this
-report and never stored. Pass the report's own words on for its header and
-its section names: its opening lines as written, the record line first and
-pasted as printed, then the Scope line, including where the reconcile
-scripts ran and, for a run imported from another host, the sentence naming
-the session, workspace and template it came from, which the next import needs,
-and each section under the name the report gives it, such as
-"Changed since then". The report is the reads: don't re-run them. Never average the
+scope read that follows. Keep that table, its order and its form (pull
+requests as links, sessions as code, no commit hash); its "Blocked on you"
+rows are what waits on the human, derived at this report and never stored.
+This first report has no progress table; the next one starts it.
+Pasted as printed, it keeps the record line first and the Scope line
+(where the scripts ran and, for an imported run, the sentence naming
+the session, workspace and template it came from, which the next import needs)
+and each section under its own name, such as "Changed since then". The report is the reads: don't re-run them. Never average the
 report with the record, and never keep a row "until it's confirmed". Where it
 says a worker was not found on this read, say that, never "gone" or "dead".
 At discipline scope, `reconcile/reasoning.md` is the previous rotation's
-reasoning as it wrote it: its view, not re-checked. Attribute it to the
-previous rotation and give it no grade; it isn't a claim the report measured,
-verified or inferred, and it doesn't go among the re-checked claims.
+reasoning, not re-checked: attribute it to that rotation, give
+it no grade, and keep it out of the re-checked claims.
 
-This state's gate re-checks that `reconcile/report.json` is the report the pass
-sealed in this visit; a report written or changed by anyone else holds the
+This state's gate re-checks that `reconcile/report.json` is the one the pass
+sealed in this visit; one written or changed by anyone else holds the
 workflow here. Its handover gate re-reads the record's stored set (Run, Standing,
 Work, `references/state-keys.md`) and holds the workflow while the record
 lacks the run's arguments, the cap or the coordinator's address, while a live
@@ -2604,8 +2604,7 @@ until each leg has an end (`leg-unclassified <worker>`): a live holding whose
 leg names a request this host's store doesn't hold. The pass gives each such
 leg its end, re-legging a worker whose session came along unbound and moving
 any other to the message path, and the report names each under "Changed
-since then"; tell a worker moved to message your address, which the told
-rule asks for. When the pass reported one not verified, run the fix the gap
+since then"; tell a worker moved to message your address. When the pass reported one not verified, run the fix the gap
 names. This full
 reconcile runs at every start and restart, again whenever the record is
 found anew after a conflict, and again

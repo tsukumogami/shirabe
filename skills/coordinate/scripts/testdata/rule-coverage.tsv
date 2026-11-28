@@ -189,7 +189,7 @@ C182	skills/coordinate/SKILL.md	-	Report up after each reconcile
 C183	skills/coordinate/SKILL.md	-	changed and what you hold
 C184	skills/coordinate/koto-templates/coordinate.md	record_open	record on its record line	changed: the record is the session, so its name is what is reported up, on the record line a script prints
 C185	skills/coordinate/koto-templates/coordinate.md	reconcile	rows are what waits on the human, derived at this	changed: the report's one table carries what waits on the human as its Blocked on you rows
-C186	skills/coordinate/SKILL.md	-	End every report after the reconcile with the progress
+C186	skills/coordinate/SKILL.md	-	End every later report with the progress table
 C188	skills/coordinate/koto-templates/coordinate.md	dispatch	runs the workspace manager's dispatch	changed: the dispatch path runs the workspace manager through a script and declares it in requires.tsv, so the load-time preflight checks it
 C189	skills/coordinate/scripts/reconcile-report.sh	-	pull request appeared: record said none yet
 C190	skills/coordinate/references/verification-checklist.md	-	no dependencies; others rebase onto it

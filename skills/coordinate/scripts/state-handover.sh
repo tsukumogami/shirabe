@@ -291,8 +291,13 @@ if [ -n "$SESSION" ] && [ "$SCOPE" = discipline ]; then
     fi
 fi
 
+# The no-coordinator fix names this session's own address, the name the driver
+# check and state-stored-set.sh compare a coordinator row with (lib_caller), so
+# the agent fills the row from the one source that will pass; the placeholder
+# stays when the name can't be read (shirabe#2227).
+lib_caller
 jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
-    --slurpfile carry "$WD/carry.json" --slurpfile dby "$WD/dispatched-by.json" --slurpfile briefs "$WD/briefs.json" '
+    --slurpfile carry "$WD/carry.json" --slurpfile dby "$WD/dispatched-by.json" --slurpfile briefs "$WD/briefs.json" --arg me "$LIB_CALLER_NAME" '
     include "state-schema";
     def runval($k): [(.run // [])[] | select(.key == $k) | .value][0];
     # names_word($w): does this cell name $w (case-insensitive) as a whole
@@ -365,7 +370,8 @@ jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile host "$WD/host.
          else empty end),
         (if .arguments == null then {gap: "no-arguments", fix: "state-stored-set.sh --run arguments \"<the arguments this run was started with>\" --by <who>"} else empty end),
         (if .cap == null then {gap: "no-cap", fix: "state-stored-set.sh --run cap <n> --by <who set it>"} else empty end),
-        (if .coordinator == null then {gap: "no-coordinator", fix: "state-stored-set.sh --run coordinator <your address> --by <you>"} else empty end),
+        (if .coordinator == null then {gap: "no-coordinator", fix: (if $me == "" then "state-stored-set.sh --run coordinator <your address> --by <you>"
+                                                               else "state-stored-set.sh --run coordinator \($me | if test("^[A-Za-z0-9._-]+$") then . else @sh end) --by <you> (your address, this session'"'"'s name)" end)} else empty end),
         (if .reports_to == null then {gap: "no-reports-to", fix: "state-stored-set.sh --run reports-to \"<name>[ at <address>]\" --by <who>"} else empty end),
         (unsourced_superior($rows; [$dby[0][] | ltrimstr("koto/links/dispatched-by/")]) as $a
          | if $a == null then empty

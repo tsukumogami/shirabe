@@ -24,6 +24,16 @@
 #   reconcile-report-get.sh --session S --md      the report rendered as text,
 #                                                  the record line as its third
 #                                                  line
+#   reconcile-report-get.sh --session S --relay F the agent's own relay of the
+#                                                  first report, in file F,
+#                                                  checked against --md
+#
+# --relay renders --md and requires its heading, record line, Scope line,
+# section headings and table lines in F, each verbatim and in the same order;
+# lines of the agent's own may sit between and after them. Exit 1 names the
+# first one missing. It reads only the file the agent gives it, so it can't see
+# what the person received: it is a guard against a rewritten report, not proof
+# that one reached the person intact (shirabe#2227).
 #
 # --md is what the first report takes. After the seal and import checks it reads
 # the record line live, through `coordinate-report.sh --session S --record-line`,
@@ -56,16 +66,18 @@ PROG=reconcile-report-get
 
 STATE=reconcile_pass
 KEY=reconcile/report.json
-SESSION="" MODE=json
+SESSION="" MODE=json RELAY=
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || exit 64; SESSION=$2; shift 2 ;;
         --check) MODE=check; shift ;;
         --md) MODE=md; shift ;;
+        --relay) [ $# -ge 2 ] || exit 64; MODE=relay; RELAY=$2; shift 2 ;;
         *) exit 64 ;;
     esac
 done
 [[ $SESSION =~ ^[A-Za-z][A-Za-z0-9._-]*$ ]] || exit 64
+[ "$MODE" != relay ] || [ -r "$RELAY" ] || { echo "reconcile-report-get: --relay needs a readable file, got [$RELAY]" >&2; exit 64; }
 
 fail() { echo "reconcile-report-get: $2" >&2; exit "$1"; }
 
@@ -107,7 +119,7 @@ fi
 
 case "$MODE" in
     check) exit 0 ;;
-    md)
+    md|relay)
         # The record line, read live: the role the gap fix wrote after the seal
         # is the one it names. coordinate-report.sh's stderr says why it
         # printed none.
@@ -117,7 +129,24 @@ case "$MODE" in
             4) echo "reconcile-report-get: no record line without the run's role; close the handover gap no-role, then print the report" >&2; exit 4 ;;
             *) fail 2 "the record line can't be read" ;;
         esac
-        "$BASH" "$HERE/reconcile-report.sh" md --record-line "$RL" < "$T/report.json" || fail 2 "the report could not be rendered" ;;
+        if [ "$MODE" = md ]; then
+            "$BASH" "$HERE/reconcile-report.sh" md --record-line "$RL" < "$T/report.json" || fail 2 "the report could not be rendered"
+            exit 0
+        fi
+        "$BASH" "$HERE/reconcile-report.sh" md --record-line "$RL" < "$T/report.json" > "$T/sealed.md" || fail 2 "the report could not be rendered"
+        # The lines that carry the report's form: the heading, the record and
+        # Scope lines (the third and fifth), every section heading and every
+        # table line. Each must appear in the relay as printed, in order;
+        # trailing spaces and carriage returns are ignored on both sides.
+        MISSING=$(awk 'NR == FNR {
+                sub(/[ \r]+$/, "")
+                if (FNR == 1 || FNR == 3 || FNR == 5 || /^## / || /^\|/) want[++n] = $0
+                next }
+            { sub(/[ \r]+$/, ""); if (i < n && $0 == want[i + 1]) i++ }
+            END { if (i < n) print want[i + 1] }' "$T/sealed.md" "$RELAY") || fail 2 "the relay couldn't be compared"
+        [ -z "$MISSING" ] && exit 0
+        printf 'reconcile-report-get: the relay drops or rewrites a line of the report, or moves it out of order; paste the report as --md prints it, then your own lines after it. First missing: %s\n' "$MISSING" >&2
+        exit 1 ;;
     json)
         DIRECTED=$("$BASH" "$RD_COORD_LOG" directed-since --session "$SESSION" --from 0)
         case $? in 0|1) ;; *) fail 2 "the session log can't be read" ;; esac

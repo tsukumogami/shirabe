@@ -229,7 +229,9 @@ lib_carrier_row() {
 #       refuses as (b)), and the write is refused only when the row names
 #       someone and the caller's name reads and differs from it, the opener's
 #       own test of whose run it is.
-# lib_write_guard runs it last; state-entry.sh runs it before it posts.
+# lib_write_guard runs it last; state-entry.sh runs it before it posts. A
+# refusal ends "nothing was written", or LIB_DRIVER_TAIL when the caller set
+# it: state-stored-set.sh does, for the entries it posts after its write.
 lib_driver_check() {
     local s=${SESSION:-} d drv row
     [ -n "$s" ] || { echo "$PROG: --session is required" >&2; exit 64; }
@@ -250,7 +252,7 @@ lib_driver_check() {
     if [ -n "$drv" ]; then
         rm -rf "$d"
         [ "$drv" = "$LIB_CALLER_ID" ] && return 0
-        echo "$PROG: refused: driver: $s is driven by Claude session $drv, not this one ($LIB_CALLER_ID); nothing was written" >&2
+        echo "$PROG: refused: driver: $s is driven by Claude session $drv, not this one ($LIB_CALLER_ID); ${LIB_DRIVER_TAIL:-nothing was written}" >&2
         exit 10
     fi
     rs_key "$s" record/run "$d/run"
@@ -264,14 +266,14 @@ lib_driver_check() {
     esac
     rm -rf "$d"
     [ -n "$row" ] && [ -n "$LIB_CALLER_NAME" ] && [ "$row" != "$LIB_CALLER_NAME" ] || return 0
-    echo "$PROG: refused: driver: $s has no driver and its coordinator row names $row, not this Claude session ($LIB_CALLER_NAME, $LIB_CALLER_ID); nothing was written" >&2
+    echo "$PROG: refused: driver: $s has no driver and its coordinator row names $row, not this Claude session ($LIB_CALLER_NAME, $LIB_CALLER_ID); ${LIB_DRIVER_TAIL:-nothing was written}. When this session should drive the run, take it over: run coordinate-open.sh again with the same invocation, from a new args file" >&2
     exit 10
 }
 # _lib_driver_unread <session> <reason> [<scratch dir>]: the driver check's
 # refusal of a driver it couldn't read.
 _lib_driver_unread() {
     [ -z "${3:-}" ] || rm -rf "$3"
-    echo "$PROG: refused: driver: $1's driver couldn't be read (${2%% }); nothing was written" >&2
+    echo "$PROG: refused: driver: $1's driver couldn't be read (${2%% }); ${LIB_DRIVER_TAIL:-nothing was written}" >&2
     exit 10
 }
 

@@ -157,6 +157,15 @@ eq "the cap given before -- is set" 4 "$(var "$S1" CAP)"
 eq "the rotation length defaults to seven days" 7 "$(var "$S1" ROTATION_DAYS)"
 eq "--reports-to sets the run's escalation target" ws-lead "$(var "$S1" REPORTS_TO)"
 eq "a roadmap not in the working tree is read as a feature roadmap" feature "$(var "$S1" ROADMAP_FORM)"
+# The opener consumes its args file, so the same command run again finds none
+# and says so, naming the way to start again (shirabe#2227).
+eq "the opener removes the args file it read" no "$([ -e "$T/args.json" ] && echo yes || echo no)"
+BEFORE=$(sessions)
+bash "$OPEN" --plugin-root "$T/plugin" "$T/args.json" >/dev/null 2>"$T/err"; eq "the same command run again is usage" 64 $?
+grep -q "consumes its args file" "$T/err" && grep -q -- "--alloc-dir" "$T/err" \
+    && pass "  ... saying the file was consumed and to allocate a new directory" \
+    || fail "  ... saying the file was consumed and to allocate a new directory" "$(cat "$T/err")"
+eq "  ... and opens nothing" "$BEFORE" "$(sessions)"
 
 BEFORE=$(sessions)
 open_ '["--discipline","ci-health"]' >/dev/null; eq "a discipline without --host asks" 10 $?
