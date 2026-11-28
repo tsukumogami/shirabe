@@ -4,10 +4,12 @@
 # and `raise`.
 #
 # decide-first-routes_test.sh drives the gate through work-on.md. This suite
-# runs the script on its own, in sessions from a two-state template whose
-# context holds the keys decide_first's edges and default action write
-# (decide_origin, decide_fresh, decide_arrival), so each code is reached by
-# one prepared record and nothing else.
+# runs the script on its own, in sessions from a one-state template whose
+# self-loop edges stand for the edges into decide_first: submitting
+# `arrive: <state>` assigns decide_origin, and `clear: yes` assigns
+# decide_arrival: none, as finalization's deferral edge does, so each arrival
+# is a transition koto records, and each code is reached by one prepared
+# record and nothing else.
 #
 # Sessions: `manager`, and `worker...` sessions dispatched by it, whose
 # questions go to session:manager and are answered there with `koto decisions
@@ -17,33 +19,44 @@
 # prompt, as scripts/question-commands_test.sh records one.
 #
 # Cases:
-#   --arrive  counts a fresh arrival once (implementation:1), prints the name
-#     it holds on a repeat tick, counts the next fresh one (implementation:2),
-#     and exits 2 for a decide_origin naming no covered state
+#   --arrive  names the first arrival implementation:1 and writes it to
+#     decide_arrival, prints the same name on a repeat run, names the next
+#     arrival implementation:2; an agent's write of decide_origin or
+#     decide_arrival changes neither the name nor the code; an arrival from a
+#     state no covered exit names (2); koto failing `context history` (2)
 #   --from    exits 10 to 16 for the seven covered states, 2 for none
-#   --laps  3 arrivals from one state (0), a fourth (1)
+#   --laps  3 arrivals from one state (0), a fourth (1), an agent's write of
+#     decide_origin changing nothing, and a session continuing the run going
+#     on counting (1, arrival implementation:5)
 #   the gate  no attempt (1, with one finding); an undecided attempt and no
 #     question (1); an undecided attempt and its open question (3, writing
-#     nothing; --record-question then writes decide_question); decided (0);
-#     provisional (0); a deciding attempt beside the arrival's open question
-#     (3, with a finding); an
-#     open need raised from the arrival with no attempt (3); an attempt for an
-#     earlier arrival, one with no state, one in another session and one a
-#     predecessor recorded for the arrival it waited on (1 each); a question
-#     answered since, and one withdrawn since (1 each); koto failing, koto
-#     failing only `context exists`, and a shirabe with no `question
-#     precedent` (2 each)
+#     nothing); decided (0); provisional (0); a deciding attempt beside the
+#     arrival's open question (3, with a finding); an open need raised from
+#     the arrival with no attempt (3); an attempt for an earlier arrival, one
+#     with no state, one in another session and one a predecessor recorded
+#     for the arrival it waited on (1 each); a question answered since, and
+#     one withdrawn since (1 each); koto failing, koto failing only `context
+#     exists`, and a shirabe with no `question precedent` (2 each)
+#   --record-question and --recorded  with the question open, the action
+#     writes its identity and the gate exits 0; with a stale decide_question
+#     and nothing open, the action clears the key and exits 0 and the gate
+#     exits 1; once the question is answered, the gate exits 1
 #   presenting  an owner question raised, rendered and answered from a
 #     recorded prompt: the gate exits 3 before the answer, 1 after it (so
 #     `raised` holds), and 0 once an attempt citing the answer is recorded
 #   --approval  no attempt, and a deciding attempt that cites no answer (1
-#     each); an arrival cleared to none (1); a deciding attempt citing the
-#     dispatcher's answer to the question raised for the arrival (0), and
-#     the owner's verified answer (0); the answer to a question another
-#     session raised for the same arrival name (1); the answer of a session
-#     the question was passed to that is not above the run (1); and koto's
-#     own refusals of an answer by the run itself and of a person's answer
-#     with no prompt evidence
+#     each); a deciding attempt citing the dispatcher's answer to the question
+#     raised for the arrival (0), and the owner's verified answer (0); the
+#     arrival cleared by a `clear` transition (1), and still 1 after an
+#     agent writes decide_arrival back; the answer to a question another
+#     session raised for the same arrival name (1); koto refusing to pass a
+#     question to a session that is not the dispatcher; a dispatcher linked
+#     after the question was raised, then answering it (1); a successor
+#     linked to a different dispatcher than the run it continues (1), and one
+#     linked to the same (0); a settle whose basis is a session's answer (1),
+#     and one whose basis is the owner's verified answer (0); and koto's own
+#     refusals of an answer by the run itself and of a person's answer with
+#     no prompt evidence
 #   --resume  no decide_question: 0, with no shirabe call; the question open,
 #     answered but not cited, and withdrawn (1 each); cited by a deciding
 #     attempt (11, the code of the state the question names)
@@ -115,7 +128,12 @@ mkdir -p "$T/bin"
 ln -s "$SHIRABE" "$T/bin/shirabe"
 export PATH="$T/bin:$PATH"
 
-cat > "$T/two.md" <<'EOF'
+# One edge per covered state, plus `nowhere` for a state no covered exit
+# names, each assigning decide_origin as work-on.md's edges into decide_first
+# do; `clear` assigns decide_arrival: none as finalization's deferral edge
+# does.
+{
+    cat <<'EOF'
 ---
 name: two
 version: "1.0"
@@ -126,11 +144,26 @@ states:
       done:
         type: enum
         values: [yes]
-        required: true
+      arrive:
+        type: enum
+        values: [analysis, implementation, introspection, task_validation, post_research_validation, plan_validation, deferral_approval, nowhere]
+      clear:
+        type: enum
+        values: [yes]
     transitions:
       - target: end
         when:
           done: yes
+      - target: work
+        when:
+          clear: yes
+        context_assignments:
+          decide_arrival: none
+EOF
+    for o in analysis implementation introspection task_validation post_research_validation plan_validation deferral_approval nowhere; do
+        printf '      - target: work\n        when:\n          arrive: %s\n        context_assignments:\n          decide_origin: %s\n' "$o" "$o"
+    done
+    cat <<'EOF'
   end:
     terminal: true
 ---
@@ -143,6 +176,7 @@ Do the work.
 
 Done.
 EOF
+} > "$T/two.md"
 
 # open <session> [koto init args...]
 open() {
@@ -151,21 +185,33 @@ open() {
     koto init "$s" --template "$T/two.md" "$@" > /dev/null 2>"$T/init.err" \
         || { fail "koto init $s: $(cat "$T/init.err")"; finish; }
 }
-# put <session> <key> <value>
+# put <session> <key> <value>: an agent's write, which no arrival is read from.
 put() {
     printf '%s' "$3" | koto context add "$1" "$2" > /dev/null 2>"$T/put.err" \
         || { fail "koto context add $1 $2: $(cat "$T/put.err")"; finish; }
 }
-# at <session> <origin> <arrival>: the keys decide_first holds after --arrive.
-at() {
-    put "$1" decide_origin "$2"
-    put "$1" decide_fresh no
-    put "$1" decide_arrival "$3"
+# tick <session> <evidence>
+tick() {
+    koto next "$1" --with-data "$2" --no-cleanup > "$T/tick.out" 2>"$T/tick.err" \
+        || fail "koto next $1 $2: $(cat "$T/tick.out" "$T/tick.err")"
 }
+# arrive <session> <state>: one transition assigning decide_origin.
+arrive() { tick "$1" "{\"arrive\":\"$2\"}"; }
 # gate [<mode>] <session> -> stdout in $G, exit in $RC
 gate() {
     G=$(bash "$GATE" "$@" 2>"$T/gate.err")
     RC=$?
+}
+# at <session> <origin> <origin>:<n>: n arrivals from <origin>, then the
+# default action's --arrive, which must name the n-th.
+at() {
+    local i=0 n=${3##*:}
+    while [ "$i" -lt "$n" ]; do
+        arrive "$1" "$2"
+        i=$((i + 1))
+    done
+    gate --arrive "$1"
+    [ "$RC:$G" = "0:$3" ] || fail "at $1: --arrive printed [$G], exit $RC, want $3: $(cat "$T/gate.err")"
 }
 # expect <label> <code>
 expect() {
@@ -229,11 +275,18 @@ raise() {
     Q=$(jq -r '.identity // empty' "$T/raise.out")
     [ "$RC" -eq 0 ] && [ -n "$Q" ] || fail "shirabe question raise --in $s $*: exit $RC: $(cat "$T/raise.out" "$T/raise.err")"
 }
-# manager_answers <raiser> <identity> -> the answer's id in $ANS
-manager_answers() {
-    ANS=$(koto decisions answer --in=manager --text=SQLite --by=session -- "$1" "${2##*/}" 2>"$T/ans.err" \
+# answers <answerer> <raiser> <identity> -> the answer's id in $ANS
+answers() {
+    ANS=$(koto decisions answer --in="$1" --text=SQLite --by=session -- "$2" "${3##*/}" 2>"$T/ans.err" \
         | jq -r '.decision.id // .id // empty')
-    [ -n "$ANS" ] || fail "manager could not answer $2: $(cat "$T/ans.err")"
+    [ -n "$ANS" ] || fail "$1 could not answer $3: $(cat "$T/ans.err")"
+}
+manager_answers() { answers manager "$1" "$2"; }
+# settle <raiser> <identity> <basis> -> the settle's id in $SET
+settle() {
+    SET=$(koto decisions answer --in="$1" --outcome settled --basis "$3" --text "settled on the earlier answer" -- "$1" "${2##*/}" 2>"$T/set.err" \
+        | jq -r '.decision.id // .id // empty')
+    [ -n "$SET" ] || fail "$1 could not settle $2 on $3: $(cat "$T/set.err")"
 }
 
 open manager
@@ -241,31 +294,38 @@ open manager
 # --- --arrive and --from ---------------------------------------------------------
 
 open arr
-put arr decide_origin implementation
-put arr decide_fresh yes
+arrive arr implementation
 gate --arrive arr
-[ "$RC:$G" = "0:implementation:1" ] && pass "--arrive counts a fresh arrival: implementation:1" || fail "--arrive printed [$G], exit $RC: $(cat "$T/gate.err")"
+[ "$RC:$G" = "0:implementation:1" ] && pass "--arrive names the first arrival: implementation:1" || fail "--arrive printed [$G], exit $RC: $(cat "$T/gate.err")"
+[ "$(koto context get arr decide_arrival)" = implementation:1 ] && pass "--arrive writes the name to decide_arrival" \
+    || fail "decide_arrival is [$(koto context get arr decide_arrival)]"
 gate --arrive arr
-[ "$RC:$G" = "0:implementation:1" ] && pass "--arrive on a repeat tick prints the name it holds" || fail "--arrive repeat printed [$G], exit $RC"
-put arr decide_fresh yes
+[ "$RC:$G" = "0:implementation:1" ] && pass "--arrive run again with no new arrival prints the same name" || fail "--arrive repeat printed [$G], exit $RC"
+arrive arr implementation
 gate --arrive arr
-[ "$RC:$G" = "0:implementation:2" ] && pass "the next fresh arrival is implementation:2" || fail "--arrive second printed [$G], exit $RC"
-put arr decide_origin done
-put arr decide_fresh yes
+[ "$RC:$G" = "0:implementation:2" ] && pass "the next arrival is implementation:2" || fail "--arrive second printed [$G], exit $RC"
+put arr decide_origin analysis
+put arr decide_arrival analysis:9
 gate --arrive arr
-expect "--arrive with decide_origin naming no covered state" 2
+[ "$RC:$G" = "0:implementation:2" ] && pass "an agent's writes of decide_origin and decide_arrival change no arrival" \
+    || fail "--arrive after agent writes printed [$G], exit $RC"
+gate --from arr
+expect "--from after an agent's write of decide_origin reads the transition's (implementation)" 11
+arrive arr nowhere
+gate --arrive arr
+expect "--arrive from a state no covered exit names" 2
 
 open frm
 codes=""
 for o in analysis implementation introspection task_validation post_research_validation plan_validation deferral_approval; do
-    put frm decide_origin "$o"
+    arrive frm "$o"
     gate --from frm
     codes="$codes $RC"
 done
 [ "$codes" = " 10 11 12 13 14 15 16" ] && pass "--from exits 10 to 16 for the seven covered states" || fail "--from exits [$codes]"
 open frm2
 gate --from frm2
-expect "--from with no decide_origin" 2
+expect "--from with no arrival" 2
 
 # --- the gate ----------------------------------------------------------------------
 
@@ -292,13 +352,18 @@ gate --record-question solo2
 expect "--record-question with the arrival's question open" 0
 [ "$(koto context get solo2 decide_question)" = "$Q_SOLO2" ] && pass "--record-question writes the question's identity to decide_question" \
     || fail "decide_question is [$(koto context get solo2 decide_question)], want $Q_SOLO2"
+gate --recorded solo2
+expect "--recorded with the question open" 0
 open solo2b
 at solo2b implementation implementation:1
 put solo2b decide_question stale
 gate --record-question solo2b
-expect "--record-question with no open question" 1
+expect "--record-question with no open question" 0
 koto context exists solo2b decide_question > /dev/null && fail "--record-question left a stale decide_question" \
     || pass "--record-question clears decide_question before it looks"
+gate --recorded solo2b
+expect "--recorded with nothing open" 1
+finding_says "--recorded with nothing open" "back to decide_first"
 
 open solo3
 at solo3 implementation implementation:1
@@ -357,9 +422,15 @@ open worker1b --dispatched-by manager
 at worker1b implementation implementation:1
 attempt worker1b --result undecided --state implementation:1
 raise worker1b --content "$T/q.json" --attempt "$A" --state implementation:1
+gate --record-question worker1b
+gate --recorded worker1b
+expect "--recorded while the worker's question is open" 0
 manager_answers worker1b "$Q"
 gate worker1b
 expect "a question answered since" 1
+gate --recorded worker1b
+expect "--recorded once the question was answered since it was raised" 1
+finding_says "--recorded once the question was answered since it was raised" "back to decide_first"
 
 open worker2 --dispatched-by manager
 at worker2 implementation implementation:1
@@ -382,32 +453,51 @@ G=$(PATH="$T/oldshirabe:$PATH" bash "$GATE" solo3 2>"$T/gate.err")
 RC=$?
 expect "a shirabe with no question precedent" 2
 # koto failing only `context exists`: read as trouble, never as an absent key,
-# so a continued run never routes as a fresh one.
-mkdir -p "$T/flakykoto"
+# so a continued run never routes as a fresh one; and failing only `context
+# history`, which the arrivals are read from.
+mkdir -p "$T/flakykoto" "$T/nohistory"
 {
     echo '#!/bin/sh'
     echo 'if [ "$1 $2" = "context exists" ]; then echo "koto stand-in: store unreadable" >&2; exit 3; fi'
     printf 'exec "%s" "$@"\n' "$(command -v koto)"
 } > "$T/flakykoto/koto"
-chmod +x "$T/flakykoto/koto"
+{
+    echo '#!/bin/sh'
+    echo 'if [ "$1 $2" = "context history" ]; then echo "koto stand-in: log unreadable" >&2; exit 3; fi'
+    printf 'exec "%s" "$@"\n' "$(command -v koto)"
+} > "$T/nohistory/koto"
+chmod +x "$T/flakykoto/koto" "$T/nohistory/koto"
 G=$(PATH="$T/flakykoto:$PATH" bash "$GATE" --resume solo3 2>"$T/gate.err")
 RC=$?
 expect "--resume with koto context exists failing" 2
-G=$(PATH="$T/flakykoto:$PATH" bash "$GATE" --arrive solo3 2>"$T/gate.err")
+G=$(PATH="$T/nohistory:$PATH" bash "$GATE" --arrive solo3 2>"$T/gate.err")
 RC=$?
-expect "--arrive with koto context exists failing" 2
+expect "--arrive with koto context history failing" 2
 
 # --- --laps -------------------------------------------------------------------------
 
 open lap
-put lap decide_origin implementation
-put lap decide_laps_implementation 3
+arrive lap analysis
+arrive lap implementation
+arrive lap implementation
+arrive lap implementation
 gate --laps lap
 expect "--laps at the third arrival from implementation" 0
-put lap decide_laps_implementation 4
+arrive lap implementation
 gate --laps lap
 expect "--laps at the fourth" 1
 finding_says "--laps at the fourth" "resume is refused"
+put lap decide_origin analysis
+gate --laps lap
+expect "--laps after an agent's write of decide_origin" 1
+koto next lap --with-data '{"done":"yes"}' --no-cleanup > "$T/tick.out" 2>"$T/tick.err" || fail "lap to end: $(cat "$T/tick.out" "$T/tick.err")"
+open lap2 --continues lap
+arrive lap2 implementation
+gate --arrive lap2
+[ "$RC:$G" = "0:implementation:6" ] && pass "a session continuing the run goes on counting: implementation:6" \
+    || fail "--arrive in the successor printed [$G], exit $RC: $(cat "$T/gate.err")"
+gate --laps lap2
+expect "--laps in a session continuing the run counts the predecessor's laps" 1
 
 # --- presenting: an owner question answered from a recorded prompt ---------------
 
@@ -484,17 +574,21 @@ expect "--approval with no attempt" 1
 attempt worker3 --result decided --chosen "defer it" --state deferral_approval:1
 gate --approval worker3
 expect "--approval with a deciding attempt that cites no answer" 1
-put worker3 decide_arrival deferral_approval:2
+at worker3 deferral_approval deferral_approval:2
 attempt worker3 --result undecided --state deferral_approval:2
 raise worker3 --content "$T/q.json" --attempt "$A" --state deferral_approval:2
 manager_answers worker3 "$Q"
-attempt worker3 --result decided --chosen "defer it" --basis "manager:$ANS" --state deferral_approval:2
+WORKER3_ANS="manager:$ANS"
+attempt worker3 --result decided --chosen "defer it" --basis "$WORKER3_ANS" --state deferral_approval:2
 gate --approval worker3
 expect "--approval citing the dispatcher's answer to the question raised for the arrival" 0
-put worker3 decide_arrival none
+tick worker3 '{"clear":"yes"}'
 gate --approval worker3
-expect "--approval once a new deferral cleared the arrival to none" 1
-finding_says "--approval once a new deferral cleared the arrival to none" "needs_answer"
+expect "--approval once a new deferral cleared the arrival" 1
+finding_says "--approval once a new deferral cleared the arrival" "needs_answer"
+put worker3 decide_arrival deferral_approval:2
+gate --approval worker3
+expect "--approval after an agent writes the cleared arrival back" 1
 
 # Another session's question under the same arrival name, answered by its
 # dispatcher, approves nothing here.
@@ -510,22 +604,79 @@ gate --approval worker6
 expect "--approval citing the answer to another session's question" 1
 finding_says "--approval citing the answer to another session's question" "no question is raised for deferral_approval:1"
 
-# The run's own question passed to a session outside its dispatch chain, and
-# answered there: koto accepts the addressee's answer, the gate does not.
+# koto passes a question up only to a person or the recording session's
+# dispatcher: a session outside the dispatch chain cannot be made to answer it.
 open scratch
 open worker7 --dispatched-by manager
 at worker7 deferral_approval deferral_approval:1
 attempt worker7 --result undecided --state deferral_approval:1
 raise worker7 --content "$T/q.json" --attempt "$A" --state deferral_approval:1
-Q7=$Q
-koto decisions readdress --in=worker7 --to=session:scratch --by=session --reason "a scratch session" -- worker7 "${Q7##*/}" > "$T/readdress.out" 2>"$T/readdress.err" \
-    || fail "readdress: $(cat "$T/readdress.out" "$T/readdress.err")"
-A7=$(koto decisions answer --in=scratch --text=Defer --by=session -- worker7 "${Q7##*/}" 2>"$T/ans.err" | jq -r '.decision.id // .id // empty')
-[ -n "$A7" ] || fail "scratch could not answer $Q7: $(cat "$T/ans.err")"
-attempt worker7 --result decided --chosen "defer it" --state deferral_approval:1 --basis "scratch:$A7"
-gate --approval worker7
-expect "--approval citing an answer from a session not above the run" 1
-finding_says "--approval citing an answer from a session not above the run" "approves nothing"
+koto decisions readdress --in=worker7 --to=session:scratch --by=session --reason "a scratch session" -- worker7 "${Q##*/}" > "$T/readdress.out" 2>"$T/readdress.err"
+RC=$?
+[ "$RC" -ne 0 ] && grep -q 'invalid_decision' "$T/readdress.out" "$T/readdress.err" \
+    && pass "koto refuses to pass a question to a session that is not the dispatcher" \
+    || fail "readdress to scratch exited $RC: $(cat "$T/readdress.out" "$T/readdress.err")"
+
+# A dispatcher named only after the question was raised: koto then lets the
+# question pass to it and lets it answer, and the gate counts nothing.
+open late
+at late deferral_approval deferral_approval:1
+attempt late --result undecided --state deferral_approval:1
+raise late --content "$T/q.json" --attempt "$A" --state deferral_approval:1
+Q_LATE=$Q
+koto session link late --dispatched-by manager > "$T/link.out" 2>"$T/link.err" || fail "link late: $(cat "$T/link.out" "$T/link.err")"
+koto decisions readdress --in=late --to=session:manager --by=session --reason "the manager decides" -- late "${Q_LATE##*/}" > "$T/readdress.out" 2>"$T/readdress.err" \
+    || fail "readdress late to manager: $(cat "$T/readdress.out" "$T/readdress.err")"
+manager_answers late "$Q_LATE"
+attempt late --result decided --chosen "defer it" --basis "manager:$ANS" --state deferral_approval:1
+gate --approval late
+expect "--approval citing a dispatcher linked after the question was raised" 1
+finding_says "--approval citing a dispatcher linked after the question was raised" "approves nothing"
+
+# A run continued under a different dispatcher than the one it raised under:
+# the raiser's dispatcher's answer counts only across a lineage that names it.
+open wa --dispatched-by manager
+at wa deferral_approval deferral_approval:1
+attempt wa --result undecided --state deferral_approval:1
+raise wa --content "$T/q.json" --attempt "$A" --state deferral_approval:1
+Q_WA=$Q
+manager_answers wa "$Q_WA"
+ANS_WA="manager:$ANS"
+open wb --continues wa --dispatched-by scratch
+put wb decide_question "$Q_WA"
+attempt wb --result decided --chosen "defer it" --basis "$ANS_WA" --state deferral_approval:1
+gate --approval wb
+expect "--approval in a successor linked to a different dispatcher" 1
+finding_says "--approval in a successor linked to a different dispatcher" "approves nothing"
+open wd --dispatched-by manager
+at wd deferral_approval deferral_approval:1
+attempt wd --result undecided --state deferral_approval:1
+raise wd --content "$T/q.json" --attempt "$A" --state deferral_approval:1
+Q_WD=$Q
+manager_answers wd "$Q_WD"
+open we --continues wd --dispatched-by manager
+put we decide_question "$Q_WD"
+attempt we --result decided --chosen "defer it" --basis "manager:$ANS" --state deferral_approval:1
+gate --approval we
+expect "--approval in a successor linked to the same dispatcher" 0
+
+# A settle approves only on a person's answer in its basis.
+open solo10
+at solo10 deferral_approval deferral_approval:1
+attempt solo10 --result undecided --state deferral_approval:1
+raise solo10 --content "$T/q.json" --attempt "$A" --state deferral_approval:1
+settle solo10 "$Q" "$WORKER3_ANS"
+attempt solo10 --result decided --chosen "defer it" --basis "solo10:$SET" --state deferral_approval:1
+gate --approval solo10
+expect "--approval citing a settle whose basis is a session's answer" 1
+open solo11
+at solo11 deferral_approval deferral_approval:1
+attempt solo11 --result undecided --state deferral_approval:1
+raise solo11 --content "$T/q.json" --attempt "$A" --state deferral_approval:1
+settle solo11 "$Q" "$OWNER9"
+attempt solo11 --result decided --chosen "defer it" --basis "solo11:$SET" --state deferral_approval:1
+gate --approval solo11
+expect "--approval citing a settle whose basis is the owner's verified answer" 0
 
 # koto's own refusals: the run answering itself, and a person's answer with
 # no prompt evidence.
