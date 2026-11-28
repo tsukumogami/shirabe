@@ -91,6 +91,10 @@ chmod +x "$T/bin/gh"
 # The land check runs the repository's PR-body rule through the shirabe
 # binary; the stand-in answers clean, so the run never needs a real one.
 ln -sf "$HERE/testdata/board/stand-in-shirabe" "$T/bin/shirabe"
+# The questions koto holds: the stand-in hands `shirabe question` to the
+# branch's shirabe, and the q_ helpers raise, attempt and answer them
+# (testdata/engine-questions.sh).
+. "$HERE/testdata/engine-questions.sh"
 
 # A clock the quiet case can move forward: set_clock <seconds> and clear_clock
 # (testdata/date-stand-in.sh).
@@ -329,11 +333,14 @@ with_decisions() { # with_decisions <name> <entries-json>
 
 # to_reconciled <name> <record-json>: open a run and tick past reconcile; sets
 # S and REACHED, the state it lands on. Never called in $(...), which would
-# keep S from the caller.
+# keep S from the caller. With AT_OPEN naming a function, it runs once the
+# session is open and before the first tick (a case records the run's own
+# attempt at a question there), and its failure stops the start.
 to_reconciled() {
     REACHED=
     seed_roadmap "$1"; seed_record "$1" "$2"
     open_run "$1" || return 1
+    [ -z "${AT_OPEN-}" ] || "$AT_OPEN" || return 1
     [ "$(at)" = reconcile ] || return 1
     REACHED=$(at --with-data '{"reconciled":"reported"}')
 }

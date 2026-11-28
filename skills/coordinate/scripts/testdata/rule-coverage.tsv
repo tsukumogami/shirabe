@@ -208,7 +208,7 @@ D2	skills/coordinate/koto-templates/coordinate.md	report_questions	Reading the r
 D3	skills/coordinate/koto-templates/coordinate.md	decision_verdict	question isn't obviously answerable
 D4	skills/coordinate/koto-templates/coordinate.md	decision_verdict	a fact you can find is missing
 D5	skills/coordinate/koto-templates/coordinate.md	decision_verdict	Evidence clears any verdict
-D6	skills/coordinate/koto-templates/coordinate.md	decision_verdict	One entry is escalated at a time
+D6	skills/coordinate/koto-templates/coordinate.md	decision_verdict	Up to four entries go to a target at a time	changed: up to four questions go to a target at a time, released by waiting work, then age, then identity, in place of one at a time
 D7	skills/coordinate/koto-templates/coordinate.md	escalate_send	Send exactly what was rendered
 D8	skills/coordinate/koto-templates/coordinate.md	escalate_send	only when the turn you are in was started by a message
 D9	skills/coordinate/koto-templates/coordinate.md	escalate_send	and keep coordinating.

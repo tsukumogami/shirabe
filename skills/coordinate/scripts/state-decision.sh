@@ -152,9 +152,10 @@
 # longer in the state the mode needs, and a repeat is refused (a verdict mode
 # also needs the Verdict empty, so one visit records one verdict). Any single
 # item holding a line break is refused, and a source or final decider holding
-# a bracket, which could forge the stamp after it. A write that frees the one escalated slot
-# releases the queued escalation with the lowest identifier, or clears its
-# verdict when it no longer passes. On every write but --carry (which copies
+# a bracket, which could forge the stamp after it. Up to four entries are
+# escalated to a target at a time; a write that frees one of those places
+# releases the queued entry with the most waiting work items, then the oldest,
+# then the lowest identity, or clears its verdict when it no longer passes. On every write but --carry (which copies
 # the predecessor's entries as they stand), every settled entry that owes nothing, other
 # than the one this write changed, is compacted (state-schema.jq's
 # compact_settled), keeping the Evidence lines stamped by this run for as long

@@ -15,11 +15,14 @@
 #      field and the value; the same pick with the topic goes on to dispatch.
 #  20. a unit waiting on a person (shirabe#549): pick's await_decision goes to
 #      decision_raise, which holds until state-stored-set.sh parks the unit on the
-#      entry it opened; escalated and sent, the run is back at pick with the
+#      entry it opened; held by the run's own question in koto (raised on
+#      its undecided attempt) and escalated by that identity with
+#      --escalate --attempt, then sent, the run is back at pick with the
 #      unit awaiting and no slot taken, so under a cap of one another unit is
 #      dispatched beside it; a dispatch of the parked unit submitted paused
 #      goes back to wait (dispatch-worker_test.sh proves the exit 10 refusal
-#      that sends it there); the answer settles the entry, pick lists the unit
+#      that sends it there); the owner's answer, recorded in koto from a
+#      harness record, settles the entry from koto, pick lists the unit
 #      answered, and its dispatch goes through, its holding row taking over
 #      the decision row.
 #  21. a feature whose deliverable is its scoping (shirabe#550): pick's scope
@@ -116,9 +119,14 @@ if open_run parked && [ "$(at)" = reconcile ] && [ "$(at --with-data '{"reconcil
     eq "20: once parked, the entry is taken up" decision_take "$(at --with-data '{"raised":"raised"}')"
     write_as_agent state-decision.sh --take
     eq "20: and comes up for a verdict" decision_verdict "$(at --with-data '{"taken":"taken"}')"
-    write_as_agent state-decision.sh --escalate --recommendation keep --reason "the API's users asked for the command line" \
-        --context "Feature 1 can't be scoped until its surface is chosen." --problem "It changes the feature's scope, which is the human's." \
-        --grounds scope --option "keep -- two front ends to maintain" --option "fold -- one front end, a breaking change"
+    # Only a question identity escalates: the run raises its own question in
+    # koto on its undecided attempt, holds the entry by it, and passes it up.
+    q_own "$WD" "$S" "Feature 1: keep its command-line surface, or fold it into the API?" "feature-1-surface" \
+        "keep -- two front ends to maintain" "fold -- one front end, a breaking change" \
+        || bad "20: the run raises its question in koto" "$(cat "$T/q.err")"
+    write_as_agent state-decision.sh --identity "$QI"
+    eq "20: the entry is held by the question's identity" 0 $?
+    write_as_agent state-decision.sh --escalate --grounds changes-scope --attempt "$QA" --reason "the API's users asked for the command line"
     eq "20: escalated to the person" 0 $?
     eq "20: the escalation renders" escalate_send "$(at --with-data '{"verdict":"escalate","rationale":"a scope call"}')"
     write_as_agent state-decision.sh --sent --route message
@@ -139,7 +147,9 @@ if open_run parked && [ "$(at)" = reconcile ] && [ "$(at --with-data '{"reconcil
     # dispatch-worker.sh refuses it with exit 10 and writes nothing
     # (dispatch-worker_test.sh's "park:" cases); paused takes the run back.
     eq "20: submitted paused, back to wait" wait "$(at --with-data '{"dispatched":"paused","topic":"feat-1"}')"
-    # The answer lands.
+    # The answer lands: the owner's, recorded in koto from a session of its
+    # own (koto never records an answer in the asker's session).
+    q_session "$WD" owner-desk-20 && q_answer "$WD" "$QI" keep owner-desk-20 || bad "20: the owner's answer is recorded in koto" "$(cat "$T/q.err")"
     eq "20: the person's answer reaches decision_answer" decision_answer "$(at --with-data '{"event":"answer","decision":"1","round":"1"}')"
     write_as_agent state-decision.sh --answer --outcome keep
     eq "20: recorded, the loop goes back to pick" pick "$(at --with-data '{"answered":"recorded"}')"

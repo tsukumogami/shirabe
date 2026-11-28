@@ -10,14 +10,17 @@
 #
 # Proves, one line per case:
 #  12. a restart takes over every decision entry before its first dispatch:
-#      the unsent escalation rendered once, the proposed one taken up, the
-#      unjudged one judged, a sent escalation and a held entry left alone;
+#      the unsent escalation (held by a question identity, with the run's
+#      own undecided attempt at it) rendered once from shirabe question
+#      render, the proposed one taken up, the unjudged one judged, a sent
+#      escalation and a held entry left alone;
 #  13. an answer that reverses a supplied decision passes decision_apply as a
 #      reversal, and record confirms the Reversals row;
 #  14. a close with every feature done and an escalation still out reaches
 #      roadmap_blocked, then wait;
 #  15. escalate_send to a person, both routes: the question tool's answer comes
-#      back from escalate_send, a message's from wait, each to decision_answer.
+#      back from escalate_send, a message's from wait, each to decision_answer,
+#      where the entry settles from the owner's answer koto holds.
 #  16. from a holding with Branch and Pull request empty, a message report
 #      naming its pull request and a leg result carrying `pr` each go through
 #      report_link, where holding-link.sh writes the pull request and its
@@ -246,14 +249,35 @@ ESCF='{"round": "1", "verdict": "escalate", "recommendation": "wait", "reason": 
 SENT=$(jq -nc --argjson e "$ESCF" '$e + {asked: "2026-09-26T07:30Z"}')
 UNSENT=$(jq -nc --argjson e "$ESCF" '$e + {owed: "escalation"}')
 
+# An escalation now goes out only by a question identity: qdent <n> <identity>
+# <extra> is an escalated entry held by that question (Source `question
+# <identity>`), passed up on a pass-up ground, its wording koto's.
+QESC='{"round": "1", "verdict": "escalate", "reason": "the registry lands Friday", "grounds": "changes-scope", "target": "a person"}'
+QUNSENT=$(jq -nc --argjson e "$QESC" '$e + {owed: "escalation"}')
+qdent() {
+    dent "$1" escalated "$3" | jq -c --arg q "$2" --arg n "$1" '.source = "question \($q) [20260925T080000Z raise \($n)]"'
+}
+# The question such an entry holds: raised by a session of its own and
+# already waiting on the owner, as a pass-up leaves it. A person's render
+# needs this run's own undecided attempt at it, which q_run_attempt records
+# once the run's session is open (to_reconciled's AT_OPEN).
+q_waiting() { # q_waiting <raiser>: sets QI
+    q_session "$T/work" "$1" && q_raise "$T/work" "$1" person:owner "Ship the loader first?" "loader-$1" \
+        "ship -- the loader is ready" "wait -- the registry needs it"
+}
+q_run_attempt() { q_attempt "$WD" "$S" "$QI"; }
+
 echo "== 12. a restart takes over every entry before its first dispatch =="
+q_waiting asker-12 || bad "12: the escalated entry's question is in koto" "$(cat "$T/q.err")"
 E12=$(jq -nc --argjson a "$(dent 1 proposed)" --argjson b "$(dent 2 coordinator-verdict)" \
     --argjson c "$(dent 3 escalated "$SENT")" --argjson d "$(dent 4 coordinator-verdict '{"verdict": "hold", "reason": "waits on the benchmark"}')" \
-    --argjson e "$(dent 5 escalated "$UNSENT")" '[$a, $b, $c, $d, $e]')
-to_reconciled takeover "$(with_decisions takeover "$E12")"
+    --argjson e "$(qdent 5 "$QI" "$QUNSENT")" '[$a, $b, $c, $d, $e]')
+AT_OPEN=q_run_attempt to_reconciled takeover "$(with_decisions takeover "$E12")"
 if [ "$REACHED" = escalate_send ]; then
     ok "12: the unsent escalation is rendered first, before any dispatch"
     eq "12: the render names entry 5" "message escalation 5 1" "$(bash "$PS/coord-log.sh" capture --session "$S" --name ESCALATE_MESSAGE | cut -d' ' -f1-4)"
+    eq "12: the prompt is shirabe question render's, for the entry's question" "$QI" \
+        "$(koto context get "$S" coord/decision_question.json | jq -r '.identities | join(" ")')"
     write_as_agent state-decision.sh --sent --route message
     eq "12: --sent (agent-run) marks it" 0 $?
     eq "12: then the proposed entry is taken up" decision_take "$(at --with-data '{"sent":"sent"}')"
@@ -316,22 +340,28 @@ fi
 
 echo "== 15. escalate_send's two routes to a person =="
 for route in tool message; do
-    to_reconciled "route-$route" "$(with_decisions "route-$route" "$(jq -nc --argjson a "$(dent 1 escalated "$UNSENT")" '[$a]')")"
+    q_waiting "asker-15-$route" || bad "15 $route: the escalated entry's question is in koto" "$(cat "$T/q.err")"
+    AT_OPEN=q_run_attempt to_reconciled "route-$route" "$(with_decisions "route-$route" "$(jq -nc --argjson a "$(qdent 1 "$QI" "$QUNSENT")" '[$a]')")"
     if [ "$REACHED" = escalate_send ]; then
         write_as_agent state-decision.sh --sent --route "$route"
         case "$(entry_of 1 | jq -r .evidence)" in
             *"asked by $route"*) ok "15 $route: the route is recorded on the entry" ;; *) bad "15 $route: the route is recorded on the entry" "$(cat "$T/w.err") $(entry_of 1)" ;;
         esac
+        # The owner's answer is koto's: recorded from a harness record in this
+        # run's session (not the asker's), and the entry settles from it.
         if [ "$route" = tool ]; then
+            q_answer "$WD" "$QI" wait "$S" || bad "15 tool: the owner's answer is recorded in koto" "$(cat "$T/q.err")"
             eq "15 tool: the answer comes back from escalate_send" decision_answer "$(at --with-data '{"sent":"answered","decision":"1","round":"1"}')"
         else
             eq "15 message: sent goes on, and nothing is owed" pick "$(at --with-data '{"sent":"sent"}')"
             eq "15 message: the loop goes on to wait" wait "$(at --with-data '{"choice":"hold"}')"
             eq "15 message: an answer naming no round doesn't leave wait" wait "$(at --with-data '{"event":"answer","decision":"1"}')"
+            q_answer "$WD" "$QI" wait "$S" || bad "15 message: the owner's answer is recorded in koto" "$(cat "$T/q.err")"
             eq "15 message: the answer comes back from wait" decision_answer "$(at --with-data '{"event":"answer","decision":"1","round":"1"}')"
         fi
         write_as_agent state-decision.sh --answer --outcome wait
-        eq "15 $route: --answer settles the entry" "settled a person" "$(entry_of 1 | jq -r '"\(.state) \(.decided_by)"')"
+        eq "15 $route: --answer settles the entry from koto's answer, the owner deciding" "settled person owner|wait" \
+            "$(entry_of 1 | jq -r '"\(.state) \(.decided_by)|\(.outcome | split(";")[0])"')"
         eq "15 $route: recorded goes back through decision_next to pick" pick "$(at --with-data '{"answered":"recorded"}')"
         if [ "$route" = message ]; then
             # A later answer naming nothing isn't carried by the earlier visit's fields.

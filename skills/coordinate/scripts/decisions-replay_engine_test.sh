@@ -21,17 +21,21 @@
 #      worker's "please decide whether to ship" in a report.
 #      decision_verdict is entered before any escalation, withdrawal or reply
 #      is rendered; no escalation is rendered; and no read of the section
-#      during the run shows an entry escalated to a person without its
-#      recommendation and reason. The redirect is outside the first check:
+#      during the run shows an entry escalated to a person that isn't held
+#      by a question identity with its pass-up ground (what the person is
+#      shown is that question's content in koto). The redirect is outside the first check:
 #      the DESIGN owes it per report, before the take (rule 5 before rule 7),
 #      and it asks no one anything.
 #   2. three levels (a person, a workspace coordinator W, a roadmap
-#      coordinator R reporting to W): R's escalation opens a proposed entry at
-#      W with R's entry as its source; the person's answer settles W's entry,
-#      and W's rendered reply, relayed down as R's answer, settles R's naming
-#      the final decider; a withdrawal from R reopens W's escalated entry,
-#      W withdraws it from the person, and when W settles it nothing goes back
-#      down.
+#      coordinator R reporting to W, koto recording W as R's dispatcher): R
+#      raises its own question in koto on its undecided attempt and passes it
+#      up to W by identity; R's report opens a proposed entry at W held by
+#      the same identity, with koto's option labels; W passes it up to the
+#      owner on its own attempt; the owner's answer (a recorded harness
+#      session) settles W's entry from koto, W owes R no reply, and R's entry
+#      settles from the same answer naming the owner; a withdrawal from R
+#      reopens W's escalated entry, W withdraws it from the person, and when
+#      W settles it nothing goes back down.
 #
 # Proved elsewhere, so not here: that wait's evidence edge goes to
 # decision_evidence and not straight to escalate is pinned by
@@ -71,6 +75,12 @@ unset KOTO_STORE KOTO_COMPILED_HASH
 . "$HERE/testdata/engine-session.sh"
 mkdir -p "$T/bin"
 ln -sf "$HERE/testdata/gh" "$T/bin/gh"
+# `shirabe question` goes to the branch's shirabe through the board stand-in,
+# and the q_ helpers raise, attempt and answer questions in koto
+# (testdata/engine-questions.sh).
+ln -sf "$HERE/testdata/board/stand-in-shirabe" "$T/bin/shirabe"
+REPO_ROOT=$(cd "$HERE/../../.." && pwd -P)
+. "$HERE/testdata/engine-questions.sh"
 PATH="$T/bin:$ORIG_PATH"
 export PATH HOME="$T/home" GIT_CEILING_DIRECTORIES="$T"
 mkdir -p "$HOME" "$T/ws"
@@ -178,11 +188,15 @@ ok "the skeleton compiles"
 
 # --- the fixtures: records in each run's session ---------------------------------------
 
-# new_run <session> <template> <roadmap-name> [reports-to]: a session holding
-# an empty record for the roadmap in its keys, that has found it, at wait.
+# new_run <session> <template> <roadmap-name> [reports-to [dispatcher]]: a
+# session holding an empty record for the roadmap in its keys, that has found
+# it, at wait. With a dispatcher, koto records that session as its origin, so a
+# pass-up from it goes there.
 new_run() {
+    local by=
+    [ -z "${5-}" ] || by="--dispatched-by=$5"
     # $KOTO_LEGACY_ENV_ARG: #483.
-    koto init "$1" $KOTO_LEGACY_ENV_ARG --template "$2" --var PLUGIN_ROOT="$PR" --var ROADMAP="docs/roadmaps/ROADMAP-$3.md" \
+    koto init "$1" $KOTO_LEGACY_ENV_ARG $by --template "$2" --var PLUGIN_ROOT="$PR" --var ROADMAP="docs/roadmaps/ROADMAP-$3.md" \
         --var REPORTS_TO="${4-}" >/dev/null 2>"$T/init.err" ||
         { bad "session $1 starts" "$(cat "$T/init.err")"; return 1; }
     session_seed "$1" "$(record_json roadmap "$3")" || { bad "session $1 holds its record" ""; return 1; }
@@ -218,18 +232,45 @@ visits() {
         "$(koto session dir "$1")/koto-$1.state.jsonl"
 }
 # The decision a person would be asked to make: every entry escalated to a
-# person needs its recommendation and reason. Read after every step; one bad
-# read marks the session.
+# person is held by a question identity (so what the person is shown is that
+# question's content in koto, through shirabe question render) and names its
+# pass-up ground. Read after every step; one bad read marks the session.
 table_check() {
-    section "$1" | jq -e 'all(.entries[] | select(.state == "escalated" and .target == "a person");
-        (.recommendation | test("\\S")) and (.reason | test("\\S")))' >/dev/null 2>&1 || : > "$T/$1.bad-table"
+    local rc
+    section "$1" > "$T/table.json" 2> "$T/table.err" || { : > "$T/$1.bad-table"; return 0; }
+    jq -e 'all(.entries[] | select(.state == "escalated" and .target == "a person");
+        ((.source // "") | test("^question [^ ]+/[0-9]+ ")) and ((.grounds // "") | test("\\S")))' "$T/table.json" > /dev/null
+    rc=$?
+    [ "$rc" = 0 ] || : > "$T/$1.bad-table"
 }
 # verdict_for <session> <n>: the scenario's coordinator's verdict, one of
 #   settle|<outcome>|<reason>
-#   escalate|<recommendation>|<reason>|<context>|<problem>|<grounds>
+#   escalate|<pass-up ground>|<reason>
 # Each scenario defines verdict_for before it drives; this one fails a drive
 # that reaches a verdict no scenario planned for.
 verdict_for() { echo "unplanned"; }
+# q_hold <session> <n>: entry n held by a question identity, and QA an
+# undecided attempt of the session's own tied to it, as an escalation needs.
+# An entry with none is the session's own question: raised in koto on its own
+# attempt (q_own), then held by it with --identity. One that has one gets the
+# session's own attempt at it, the raiser's never counting.
+q_hold() {
+    local s=$1 n=$2 id opts
+    id=$(field "$s" "$n" source | sed -n 's/^question \([^ ]*\) .*/\1/p')
+    if [ -n "$id" ]; then
+        q_attempt "$T/ws" "$s" "$id" || { RD_FAILED=1; bad "$s's attempt at question $id" "$(cat "$T/q.err")"; return 1; }
+        return 0
+    fi
+    opts=$(field "$s" "$n" options)
+    set --
+    while IFS= read -r o; do [ -z "$o" ] || set -- "$@" "$o"; done <<EOF
+$opts
+EOF
+    q_own "$T/ws" "$s" "$(field "$s" "$n" question)" "decision-$n" "$@" \
+        || { RD_FAILED=1; bad "$s raises entry $n's question in koto" "$(cat "$T/q.err")"; return 1; }
+    rd "$s" --identity "$QI"
+    [ "$RD_FAILED" = 0 ]
+}
 
 # What an arrival carries into the agent state it lands on.
 PEND_SRC="" PEND_TEXT="" PEND_Q="" PEND_OUT="" PEND_REASON="" PEND_FINAL=""
@@ -259,14 +300,15 @@ $(verdict_for "$s" "$n")
 EOF
                 case "$v" in
                     settle) rd "$s" --settle --outcome "$a" --reason "$b"; tick "$s" --with-data '{"verdict":"settle"}' ;;
-                    escalate) rd "$s" --escalate --recommendation "$a" --reason "$b" --context "$c" --problem "$d" --grounds "$e"
+                    escalate) q_hold "$s" "$n" && rd "$s" --escalate --grounds "$a" --attempt "$QA" --reason "$b"
                               tick "$s" --with-data '{"verdict":"escalate"}' ;;
                     *) bad "drive $s: no verdict planned for entry $n" "$v"; return 0 ;;
                 esac ;;
             decision_open)
-                # The coordinator words each extracted question for the record.
+                # The coordinator words each extracted question for the record;
+                # one held by a question identity is worded by koto alone.
                 koto context get "$s" coord/questions.json |
-                    jq '[.[] | select(.kind != "withdrawal") | {key: (.index | tostring), value: {question: .text, options: (.options // ["ship", "hold"])}}] | from_entries' \
+                    jq '[.[] | select(.kind != "withdrawal" and (.identity // "") == "") | {key: (.index | tostring), value: {question: .text, options: (.options // ["ship", "hold"])}}] | from_entries' \
                     > "$T/words.json"
                 rd "$s" --open-from-report --text-file "$T/words.json"; tick "$s" --with-data '{"opened":"opened"}' ;;
             decision_raise)
@@ -386,76 +428,91 @@ eq "replay: the run ends at the report's classification" classify_report "$(at "
 # --- 2: three levels ---------------------------------------------------------------------
 
 # W reports to a person and holds R, a coordinator, under the topic rr. R reports to W,
-# whose dispatch topic is ws.
+# whose dispatch topic is ws, and koto records W as R's dispatcher, so a pass-up from R
+# goes to W. A question travels by its identity: R raises its own and passes it up to W;
+# W reads it from koto's listing when R reports, and passes it up to the owner, whose
+# answer koto records; each entry then settles from koto's answer.
 LW=coordinate-roadmap-ws-20260928T100003Z
 LR=coordinate-roadmap-rr-20260928T100004Z
 new_run "$LW" "$TPL" ws || finish
-new_run "$LR" "$TPL" rr ws || finish
+new_run "$LR" "$TPL" rr ws "$LW" || finish
 seed_holding "$LW" "$(holding rr '{"entry_point":"/shirabe:coordinate","pull_request":""}')"
-CTX_M="The migration rewrites the lockfile format, and the release on Friday is the next time users upgrade."
-PROB_M="Shipping it now splits users across two formats for a week; waiting holds two other features behind it."
-CTX_P="The plugin floats to its latest version, and the release pins what users get for a quarter."
-PROB_P="Pinning now freezes a version with a known bug; not pinning lets a breaking release through."
+# The session the owner answers from: koto never records an answer in the asker's.
+q_session "$T/ws" owner-desk || { bad "the owner's session starts" "$(cat "$T/q.err")"; finish; }
 verdict_for() {
     case "$1:$2:$(field "$1" "$2" question)" in
-        *:Merge*) echo "escalate|wait for the release|the release is Friday and the migration rides it|$CTX_M|$PROB_M|scope" ;;
+        *:Merge*) echo "escalate|changes-scope|the release is Friday and the migration rides it" ;;
         "$LR":*:Pin*) if field "$LR" "$2" evidence | grep -q "release moved"; then
                           echo "settle|don't pin|the release moved, so the question is moot"
-                      else echo "escalate|don't pin|the bug fix lands next week|$CTX_P|$PROB_P|scope"; fi ;;
+                      else echo "escalate|changes-scope|the bug fix lands next week"; fi ;;
         "$LW":*:Pin*) if field "$LW" "$2" evidence | grep -q "withdrawn:"; then
                           echo "settle|don't pin|the question was withdrawn below"
-                      else echo "escalate|don't pin|the bug fix lands next week|$CTX_P|$PROB_P|scope"; fi ;;
+                      else echo "escalate|changes-scope|the bug fix lands next week"; fi ;;
     esac
 }
+ident() { field "$1" "$2" source | sed -n 's/^question \([^ ]*\) .*/\1/p'; }   # ident <session> <n>
+# addressee <identity>: who koto shows the question waiting on, as <kind>:<name>.
+addressee() {
+    koto decisions history "$1" > "$T/addr.json" 2> "$T/addr.err" || { cat "$T/addr.err"; return 1; }
+    jq -r '.addressee | "\(.kind):\(.name // .handle)"' "$T/addr.json"
+}
+sent_count() { echo $(( $(wc -l < "$T/$1.sent") )); }
 
 arrive_raise "$LR" "Merge the migration before the release?" "merge now -- the format lands this week" "wait for the release -- one upgrade carries both changes"
 back_to_wait "$LR"
-eq "levels: R escalates its entry to coordinator ws" 'escalated|coordinator ws' "$(field "$LR" 1 state)|$(field "$LR" 1 target)"
-eq "levels: R's escalation is rendered, naming decision 1 round 1" "escalation|Decision 1 round 1." \
-    "$(last_sent "$LR" .kind)|$(last_sent "$LR" .text | head -1)"
+Q1=$(ident "$LR" 1)
+eq "levels: R escalates its entry to coordinator ws, held by its own question" 'escalated|coordinator ws|held' \
+    "$(field "$LR" 1 state)|$(field "$LR" 1 target)|$([ -n "$Q1" ] && echo held)"
+eq "levels: koto shows R's question passed up to W" "session:$LW" "$(addressee "$Q1")"
+eq "levels: R's escalation is rendered naming the question by its identity" "escalation|Passed up to you in koto, by identity:|named" \
+    "$(last_sent "$LR" .kind)|$(last_sent "$LR" .text | head -1)|$(last_sent "$LR" .text | grep -qF "$Q1" && echo named)"
 
 arrive_report "$LW" rr "$(last_sent "$LR" .text)"
-eq "levels: W opens R's escalation as its own entry, with R's entry as its source" \
-    'coordinator rr #1 round 1' "$(field "$LW" 1 source | sed 's/ \[.*//')"
+eq "levels: W opens R's question as its own entry, held by the same identity" "question $Q1" "$(field "$LW" 1 source | sed 's/ \[.*//')"
 eq "levels: W took it up as a proposed entry" 1 "$(visits "$LW" | grep -c '^decision_take$')"
-eq "levels: W carries R's options with their explanations, the recommendation first" "wait for the release -- one upgrade carries both changes|merge now -- the format lands this week" "$(entry "$LW" 1 | jq -r '.options | split("\n") | join("|")')"
-eq "levels: W escalates it to a person with a recommendation" 'escalated|a person|wait for the release' \
-    "$(field "$LW" 1 state)|$(field "$LW" 1 target)|$(field "$LW" 1 recommendation)"
+eq "levels: W carries R's options as koto holds them" "merge now|wait for the release" "$(entry "$LW" 1 | jq -r '.options | split("\n") | join("|")')"
+eq "levels: W escalates it to a person on its pass-up ground" 'escalated|a person|changes-scope' \
+    "$(field "$LW" 1 state)|$(field "$LW" 1 target)|$(field "$LW" 1 grounds)"
+eq "levels: koto shows the question passed up again, to the owner" "person:owner" "$(addressee "$Q1")"
 back_to_wait "$LW"
 
+q_answer "$T/ws" "$Q1" "wait for the release" owner-desk || bad "levels: the owner's answer is recorded in koto" "$(cat "$T/q.err")"
+W_SENT=$(sent_count "$LW")
 arrive_answer "$LW" 1 1 "wait for the release"
-eq "levels: the person's answer settles W's entry" 'settled|a person' "$(field "$LW" 1 state)|$(field "$LW" 1 decided_by)"
-eq "levels: W's reply names R's entry and round" "reply|Answer: decision 1 round 1." "$(last_sent "$LW" .kind)|$(last_sent "$LW" .text | head -1)"
+eq "levels: the owner's answer settles W's entry from koto" 'settled|person owner|wait for the release' \
+    "$(field "$LW" 1 state)|$(field "$LW" 1 decided_by)|$(field "$LW" 1 outcome | sed 's/; reason:.*//')"
+# An entry held by a question owes no reply: R reads the answer in koto.
+eq "levels: W sends R no reply and owes none" "$W_SENT|" "$(sent_count "$LW")|$(field "$LW" 1 owed)"
 back_to_wait "$LW"
-W_SENT=$(wc -l < "$T/$LW.sent")
+W_SENT=$(sent_count "$LW")
 W_ENTRY=$(entry "$LW" 1 | jq -c 'del(.evidence, .updated)')
 arrive_answer "$LW" 1 1 "wait for the release"
 eq "levels: the same answer sent again leaves the entry as it is and sends nothing" "same $W_SENT" \
-    "$([ "$(entry "$LW" 1 | jq -c 'del(.evidence, .updated)')" = "$W_ENTRY" ] && echo same || echo changed) $(wc -l < "$T/$LW.sent")"
+    "$([ "$(entry "$LW" 1 | jq -c 'del(.evidence, .updated)')" = "$W_ENTRY" ] && echo same || echo changed) $(sent_count "$LW")"
 back_to_wait "$LW"
 
-# R's coordinator relays W's reply as an answer, from the reply's own lines.
-REPLY=$(last_sent "$LW" .text)
-arrive_answer "$LR" 1 1 "$(printf '%s\n' "$REPLY" | sed -n 's/^Outcome: //p')" \
-    "$(printf '%s\n' "$REPLY" | sed -n 's/^Reason: //p')" "$(printf '%s\n' "$REPLY" | sed -n 's/^Decided by: //p')"
-eq "levels: R's entry settles naming the final decider" 'settled|coordinator ws (final: a person)' \
+# R's entry settles from the same answer in koto, whoever relays its arrival.
+eq "levels: koto shows R's question closed" false "$(q_open "$T/ws" "$Q1")"
+arrive_answer "$LR" 1 1 "wait for the release"
+eq "levels: R's entry settles from koto, naming the owner as the decider" 'settled|person owner' \
     "$(field "$LR" 1 state)|$(field "$LR" 1 decided_by)"
 back_to_wait "$LR"
 
 # A withdrawal from below.
 arrive_raise "$LR" "Pin the plugin before the release?" "pin -- freezes a version with a known bug" "don't pin -- lets a breaking release through"
 back_to_wait "$LR"
+Q2=$(ident "$LR" 2)
 arrive_report "$LW" rr "$(last_sent "$LR" .text)"
 back_to_wait "$LW"
-eq "levels: W has R's second entry escalated to a person" 'escalated|coordinator rr #2 round 1' \
+eq "levels: W has R's second entry escalated to a person" "escalated|question $Q2" \
     "$(field "$LW" 2 state)|$(field "$LW" 2 source | sed 's/ \[.*//')"
-R_BEFORE=$(wc -l < "$T/$LR.sent")
+R_BEFORE=$(sent_count "$LR")
 arrive_evidence "$LR" 2 dispatcher "the release moved a week"
 back_to_wait "$LR"
 eq "levels: evidence on R's sent escalation renders a withdrawal" "withdrawal|Withdrawn: decision 2 round 1." \
     "$(sed -n "$((R_BEFORE + 1))p" "$T/$LR.sent" | jq -r .kind)|$(sed -n "$((R_BEFORE + 1))p" "$T/$LR.sent" | jq -r '.text | split("\n")[0]')"
 eq "levels: R settles it itself afterwards, owing nothing" 'settled|' "$(field "$LR" 2 state)|$(field "$LR" 2 owed)"
-W_BEFORE=$(wc -l < "$T/$LW.sent")
+W_BEFORE=$(sent_count "$LW")
 arrive_report "$LW" rr "$(sed -n "$((R_BEFORE + 1))p" "$T/$LR.sent" | jq -r .text)"
 case "$(field "$LW" 2 evidence)" in *"withdrawn: decision 2 round 1"*) ok "levels: the withdrawal is evidence on W's entry" ;;
     *) bad "levels: the withdrawal is evidence on W's entry" "$(field "$LW" 2 evidence)" ;; esac
@@ -463,7 +520,7 @@ eq "levels: W withdraws its own escalation from the person" "withdrawal" "$(sed 
 eq "levels: W's entry settles on a new verdict and owes nothing" 'settled|' "$(field "$LW" 2 state)|$(field "$LW" 2 owed)"
 eq "levels: nothing goes back down to R after the withdrawal" "withdrawal" \
     "$(tail -n +"$((W_BEFORE + 1))" "$T/$LW.sent" | jq -r .kind | tr '\n' ' ' | sed 's/ $//')"
-[ ! -e "$T/$LW.bad-table" ] && ok "levels: no read of W's section showed a person an escalation without its reasons" ||
-    bad "levels: no read of W's section showed a person an escalation without its reasons"
+[ ! -e "$T/$LW.bad-table" ] && ok "levels: no read of W's section showed a person an escalation not held by a question" ||
+    bad "levels: no read of W's section showed a person an escalation not held by a question"
 
 finish

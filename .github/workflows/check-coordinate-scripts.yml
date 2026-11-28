@@ -181,6 +181,20 @@ jobs:
             *) echo "::error::this koto has no init --supersede, so the takeover suites would run only their refusal"; exit 1 ;;
           esac
 
+      # The question suites and the escalation paths of the engine suites run
+      # the branch's `shirabe question` (pass-up, settle, seen), which no
+      # released shirabe has, so every slice builds it from the checkout.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Build and install shirabe
+        run: |
+          cargo build --release --bin shirabe
+          mkdir -p "$RUNNER_TEMP/coordinate-bin"
+          install -m 0755 target/release/shirabe "$RUNNER_TEMP/coordinate-bin/shirabe"
+          echo "$RUNNER_TEMP/coordinate-bin" >> "$GITHUB_PATH"
+          echo "SHIRABE_BIN=$RUNNER_TEMP/coordinate-bin/shirabe" >> "$GITHUB_ENV"
+
       - name: Run engine suites
         run: bash skills/coordinate/scripts/run-tests.sh --engine
 

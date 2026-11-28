@@ -227,34 +227,29 @@ prints (SKILL.md, "Reporting").
 
 ## The Shape of an Escalation
 
-An escalation goes to whoever dispatched you, once, and carries everything
-needed to decide without asking back. You don't write it: it is a decision
-entry you escalated at `decision_verdict`, and the `escalate` check renders it
-from the entry, which is why the verdict asks for every part of it. The
-rendered form is:
+A question goes up to whoever dispatched you, once, by its koto identity, and
+carries everything needed to decide without asking back. You don't write the
+message: the question's content is what koto holds, stored when it was raised
+(`shirabe question raise`, by the worker or by you), with its context,
+problem, question, two to four options each with its reason (the
+recommendation first), its ground, the work waiting on it and its label. At
+`decision_verdict` you pass the entry up on your own undecided attempt at it
+(`shirabe question attempt`, then `state-decision.sh --escalate --attempt`);
+a need takes no attempt.
 
-```text
-Decision <n> round <r>.
+Up to four questions go to a target at a time, most waiting work first, then
+the oldest, then the identity; the rest wait queued until a place frees. For
+a person the `escalate` state renders them with `shirabe question render`:
+`coord/decision_question.json` is its first prompt, four questions at most,
+put to the question tool as it stands, and only in a turn the owner started.
+Elsewhere the questions wait on the record. For a coordinator the message
+names each identity and nothing else, and the receiving coordinator reads the
+questions from koto.
 
-<context: what happened, what you verified and tried, each claim graded>
-
-<problem: why this is the recipient's to decide, and what stays paused
-until they answer>
-
-<question>
-1. <recommended option> (recommended: <reason>)
-   <what choosing it does>
-2. <other option>
-   <what choosing it does>
-
-Answer naming decision <n> round <r> and an option, or give another outcome with its reason.
-Digest: <sha256 of every byte above this line>
-```
-
-Put what happened, what you verified and what you tried in the context, and
-what stays paused and what keeps moving in the problem. What else waits on
-the recipient is the progress table's "Blocked on you" rows, not a list in
-the message.
+When you raise a question yourself, put what happened, what you verified and
+what you tried in the context, and what stays paused and what keeps moving in
+the problem. What else waits on the recipient is the progress table's
+"Blocked on you" rows, not a list in the question.
 
 ## More Worked Examples
 

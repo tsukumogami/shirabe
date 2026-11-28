@@ -7,6 +7,15 @@
 # BT_STATE is optional: a suite that doesn't set it (the full-template engine
 # test) gets the clean outcome and no log.
 [ -n "${BT_STATE-}" ] && printf '%s\n' "$*" >> "$BT_STATE/shirabe.calls"
+# `question ...` (the questions koto holds, which state-decision.sh,
+# decision-render.sh and state-handover.sh read and write) goes to the real
+# shirabe in SHIRABE_BIN (testdata/engine-questions.sh sets it); without one
+# it fails, naming what is missing.
+if [ "${1-}" = question ]; then
+    [ -n "${SHIRABE_BIN-}" ] && [ -x "$SHIRABE_BIN" ] && exec "$SHIRABE_BIN" "$@"
+    echo "stand-in shirabe: \`shirabe question ${2-}\` needs the branch's shirabe: set SHIRABE_BIN or build target/release/shirabe" >&2
+    exit 9
+fi
 # `roadmap populate <file>` (roadmap-status.sh) leaves the file as it is.
 if [ "${1-} ${2-}" = "roadmap populate" ]; then [ -f "${3-}" ] || exit 2; exit 0; fi
 [ "${1-} ${2-}" = "validate --pr-body" ] || { echo "stand-in shirabe: unexpected call: $*" >&2; exit 9; }
