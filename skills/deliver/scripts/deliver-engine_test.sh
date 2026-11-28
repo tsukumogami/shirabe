@@ -47,6 +47,8 @@
 #     deliver:worktree-isolated naming both repositories, with /execute never
 #     started; a single-repo PLAN there goes on to execute_run
 #   - /scope stopping early (scope-ended-early naming which), its errors, an
+#     /execute's waiting outcome forwarded through done_stopped with its question
+#     and next=/deliver <topic>, never deliver:child-outcome,
 #     unrecognised outcome (deliver:child-outcome), the multi-pr hand-off with
 #     no /execute leg bound, the interactive confirmation (stop and proceed),
 #     /execute's pauses and errors, an abandoned request
@@ -523,6 +525,13 @@ if section "execute" "/execute's other outcomes"; then
         tick
         expect "/execute paused ($which)" done_stopped "outcome=$which" "pr=$URL" "resume=/execute docs/plans/PLAN-$TOPIC.md --merge"
     done
+
+    fixture exec-waiting single-pr
+    start auto && to_execute_run
+    child execute '{"outcome":"waiting","step":"execute:waiting","reason":"open-questions","question":"q1-aaaa/000000000001 q2-bbbb/000000000002"}'
+    tick
+    expect "/execute waiting on its questions" done_stopped outcome=waiting "question=q1-aaaa/000000000001 q2-bbbb/000000000002" "next=/deliver exec-waiting"
+    eq "exec-waiting: never read as a child-outcome error" "" "$(result step | grep -x 'deliver:child-outcome')"
 
     fixture exec-error single-pr
     start auto && to_execute_run

@@ -760,9 +760,11 @@ states:
           reason: "${gates.exec_leg.payload.reason}"
           next: ""
       # /execute ended at done_waiting: its parked steps wait on open
-      # questions. The questions are copied; /deliver invoked again continues
-      # the same /execute run once they are closed.
-      - target: done_waiting
+      # questions. /deliver gains no state for it: the wait is forwarded
+      # through done_stopped with outcome waiting and the questions copied,
+      # and /deliver invoked again continues the same /execute run once they
+      # are closed.
+      - target: done_stopped
         when:
           gates.exec_leg.disposition: resolved
           gates.exec_leg.source: promoted
@@ -770,9 +772,13 @@ states:
           gates.exec_leg.payload.outcome: waiting
         context_assignments:
           outcome: waiting
+          pr: "${gates.exec_leg.payload.pr}"
+          repos: "${gates.exec_leg.payload.repos}"
+          resume: "${gates.exec_leg.payload.resume}"
+          waiting: "${gates.exec_leg.payload.waiting}"
+          reason: "${gates.exec_leg.payload.reason}"
           question: "${gates.exec_leg.payload.question}"
           next: "/deliver {{TOPIC}}"
-          failure_reason: "/deliver waiting: open questions"
       - target: done_error
         when:
           gates.exec_leg.disposition: resolved
@@ -1053,6 +1059,7 @@ states:
       execute_state: "${context.execute_state}"
       worktree_repo: "${context.worktree_repo}"
       other_repos: "${context.other_repos}"
+      question: "${context.question}"
 
   done_stopped:
     terminal: true
@@ -1070,16 +1077,7 @@ states:
       execute_state: "${context.execute_state}"
       worktree_repo: "${context.worktree_repo}"
       other_repos: "${context.other_repos}"
-
-  # The run waits on the questions a leg's run is parked on. failure is true
-  # so a caller not taught this terminal reads it as a stop, never success.
-  done_waiting:
-    terminal: true
-    failure: true
-    result:
-      outcome: "${context.outcome}"
       question: "${context.question}"
-      next: "${context.next}"
 
   done_error:
     terminal: true
@@ -1098,6 +1096,7 @@ states:
       execute_state: "${context.execute_state}"
       worktree_repo: "${context.worktree_repo}"
       other_repos: "${context.other_repos}"
+      question: "${context.question}"
 ---
 
 ## open_request
@@ -1351,24 +1350,14 @@ koto status {{SESSION_NAME}} | "{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-r
 ## done_stopped
 
 The run stopped at a named point: a confirmation declined, a multi-pr PLAN
-handed off, /scope ending early, or /execute pausing. Print its report,
-verbatim:
+handed off, /scope ending early, /execute pausing, or /execute waiting on open
+questions (`outcome=waiting`, one `question=` line each, and a `next=` that
+continues this run once they are answered or withdrawn; do not start the work
+again fresh). Print its report, verbatim:
 
 ```bash
 koto status {{SESSION_NAME}} | "{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-report.sh"
 ```
-
-## done_waiting
-
-The run is waiting on open questions its /execute run's steps are parked on;
-the report lists each as `question=` and gives the command that continues the
-run once they are answered or withdrawn. Print it, verbatim:
-
-```bash
-koto status {{SESSION_NAME}} | "{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-report.sh"
-```
-
-Do not start the work again fresh: `next=` continues this run.
 
 ## done_error
 
