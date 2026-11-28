@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# deliver-execute-leg_test.sh -- /deliver's handover and lost-leg reads, against
-# a koto stand-in (context get/add/exists from testdata/koto, and `koto status`
-# answered from a file per session) and the real scripts/plan-mode.sh over
-# fixture PLANs.
+# deliver-execute-leg_test.sh -- /deliver's handover, lost-leg and waiting
+# reads, against a koto stand-in (context get/add/exists from testdata/koto,
+# `koto status` answered from a file per session, `koto decisions history`
+# from a file per question) and the real scripts/plan-mode.sh over fixture
+# PLANs.
 #
 # Covered:
 #
@@ -18,8 +19,15 @@
 #             its state; koto's not-found answer is `absent`; garbage, a state
 #             outside the pattern, and any other failure are `unreadable`; a
 #             failed context add exits 66
-#   usage     a bad mode, topic, session or store, --store on lost, and a
-#             repeated flag each exit 64 with no koto call
+#   waiting   a session at done_waiting with outcome waiting and a question
+#             still open writes execute_waiting=yes and the open questions
+#             (closed ones left out) and prints them; every question closed,
+#             another state, no session, a question outside the identity
+#             pattern, garbage from koto status and a failed history read
+#             each write no (with no question key); an earlier yes is cleared
+#             first, so a failed write leaves the key absent and exits 66
+#   usage     a bad mode, topic, session or store, --store on lost or
+#             waiting, and a repeated flag each exit 64 with no koto call
 #
 # Usage: bash skills/deliver/scripts/deliver-execute-leg_test.sh
 # Exit codes: 0 all pass; 1 a failure. Needs bash and jq.
@@ -62,6 +70,13 @@ if [ "${1:-}" = status ]; then
     printf '{"command":"status","error":"workflow '"'"'%s'"'"' not found"}\n' "${2:-}"
     exit 2
 fi
+if [ "${1:-} ${2:-}" = "decisions history" ]; then
+    printf '%s\n' "$*" >>"$KOTO_STORE/calls"
+    f="$HISTORY_ANSWERS/$(printf '%s' "${4:-}" | tr / _)"
+    [ -f "$f" ] || { echo "no such question" >&2; exit 2; }
+    cat "$f"
+    exit 0
+fi
 if [ "${1:-} ${2:-}" = "context exists" ] && [ -n "${KOTO_FAIL_EXISTS:-}" ]; then
     printf '%s\n' "$*" >>"$KOTO_STORE/calls"
     exit 3
@@ -71,7 +86,8 @@ STUB
 chmod +x "$BIN/koto"
 export KOTO_STORE="$T/store"
 export STATUS_ANSWERS="$T/status"
-mkdir -p "$KOTO_STORE" "$STATUS_ANSWERS"
+export HISTORY_ANSWERS="$T/history"
+mkdir -p "$KOTO_STORE" "$STATUS_ANSWERS" "$HISTORY_ANSWERS"
 
 TOPIC=t1
 SESS=deliver-t1
@@ -89,7 +105,8 @@ plan() { # plan <mode|none|absent>
 }
 key() { cat "$KOTO_STORE/$SESS/$1" 2>/dev/null; }
 seed() { mkdir -p "$KOTO_STORE/$SESS"; printf '%s' "$2" >"$KOTO_STORE/$SESS/$1"; }
-reset() { rm -rf "${KOTO_STORE:?}/$SESS" "${STATUS_ANSWERS:?}"/*; mkdir -p "$KOTO_STORE/$SESS"; : >"$KOTO_STORE/calls"; }
+reset() { rm -rf "${KOTO_STORE:?}/$SESS" "${STATUS_ANSWERS:?}"/* "${HISTORY_ANSWERS:?}"/*; mkdir -p "$KOTO_STORE/$SESS"; : >"$KOTO_STORE/calls"; }
+history_answer() { printf '%s\n' "$2" >"$HISTORY_ANSWERS/$(printf '%s' "$1" | tr / _)"; }
 status_answer() { printf '%s\n%s\n' "$2" "$3" >"$STATUS_ANSWERS/$1"; }
 
 RC=0; OUT=""
@@ -190,11 +207,79 @@ reset
 OUT=$(cd "$R" && PATH="$BIN:$PATH" KOTO_TICK_SESSION= KOTO_FAIL_ADD=1 bash "$S" lost --topic "$TOPIC" --session "$SESS" 2>/dev/null)
 eq "a failed context add: exit 66" 66 "$?"
 
+echo "== waiting =="
+
+Q1=q1-aaaa/000000000001
+Q2=q2-bbbb/000000000002
+waiting_status() { status_answer execute-t1 0 "{\"name\":\"execute-t1\",\"current_state\":\"$1\",\"is_terminal\":true,\"result\":{\"status\":\"failure\",\"payload\":{\"outcome\":\"waiting\",\"question\":\"$2\"}}}"; }
+
+reset
+waiting_status done_waiting "$Q1 $Q2"
+history_answer "$Q1" '{"open":true}'
+history_answer "$Q2" '{"open":false}'
+run waiting --topic "$TOPIC" --session "$SESS"
+eq "a question still open: exit 0" 0 "$RC"
+eq "a question still open: execute_waiting is yes" yes "$(key execute_waiting)"
+eq "a question still open: only the open ones are written" "$Q1" "$(key question)"
+eq "a question still open: printed" "execute_waiting=yes
+question=$Q1" "$OUT"
+if grep -Eq '^(next|init|context (add|remove) execute-)' "$KOTO_STORE/calls"; then
+    bad "waiting writes nothing to the execute session" "$(cat "$KOTO_STORE/calls")"
+else
+    ok "waiting writes nothing to the execute session"
+fi
+
+reset
+waiting_status done_waiting "$Q1"
+history_answer "$Q1" '{"open":false}'
+run waiting --topic "$TOPIC" --session "$SESS"
+eq "every question closed: no" no "$(key execute_waiting)"
+eq "every question closed: no question key" "" "$(key question)"
+
+reset
+status_answer execute-t1 0 '{"name":"execute-t1","current_state":"spawn_and_await","is_terminal":false}'
+run waiting --topic "$TOPIC" --session "$SESS"
+eq "a session at another state: no" no "$(key execute_waiting)"
+if grep -q "^decisions history" "$KOTO_STORE/calls"; then bad "another state: no history read" "$(cat "$KOTO_STORE/calls")"; else ok "another state: no history read"; fi
+
+reset
+run waiting --topic "$TOPIC" --session "$SESS"
+eq "no execute session here: no" no "$(key execute_waiting)"
+
+reset
+waiting_status done_waiting "$Q1 not-an-id"
+history_answer "$Q1" '{"open":true}'
+run waiting --topic "$TOPIC" --session "$SESS"
+eq "a question outside the identity pattern: no" no "$(key execute_waiting)"
+eq "a question outside the identity pattern: no question key" "" "$(key question)"
+
+reset
+status_answer execute-t1 0 'not json'
+run waiting --topic "$TOPIC" --session "$SESS"
+eq "garbage from koto status: no" no "$(key execute_waiting)"
+
+reset
+waiting_status done_waiting "$Q1"
+run waiting --topic "$TOPIC" --session "$SESS"
+eq "a failed history read: no" no "$(key execute_waiting)"
+
+reset
+seed execute_waiting yes
+run waiting --topic "$TOPIC" --session "$SESS"
+eq "an earlier yes is replaced" no "$(key execute_waiting)"
+
+reset
+seed execute_waiting yes
+OUT=$(cd "$R" && PATH="$BIN:$PATH" KOTO_TICK_SESSION= KOTO_FAIL_ADD=1 bash "$S" waiting --topic "$TOPIC" --session "$SESS" 2>"$T/err")
+eq "a failed context add: exit 66" 66 "$?"
+eq "a failed context add leaves execute_waiting absent, not the earlier yes" "" "$(key execute_waiting)"
+
 echo "== usage =="
 plan coordinated
 for args in "bogus --topic t1 --session s" "handover --session s" "handover --topic -x --session s" \
     "handover --topic t1 --session bad/name" "handover --topic t1 --session s --store bogus" \
-    "lost --topic t1 --session s --store session" "handover --topic t1 --topic t1 --session s" \
+    "lost --topic t1 --session s --store session" "waiting --topic t1 --session s --store session" \
+    "handover --topic t1 --topic t1 --session s" \
     "lost --topic t1 --extra x"; do
     : >"$KOTO_STORE/calls"
     # shellcheck disable=SC2086

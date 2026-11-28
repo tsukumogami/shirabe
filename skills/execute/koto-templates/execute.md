@@ -713,14 +713,18 @@ states:
       command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --record-question "execute-{{PLAN_SLUG}}" && "{{PLUGIN_ROOT}}/skills/execute/scripts/park.sh" mark "execute-{{PLAN_SLUG}}" --own --plan "{{PLAN_DOC}}"'
       fallback: >-
         koto could not park the steps the question names. Read the command's
-        own output above: decide-first-gate.sh --record-question exits 1 when
-        no open question names the arrival, and park.sh exits 2 when koto,
-        the question's content or the PLAN could not be read. Run it again by hand with the same
-        arguments, then tick again with nothing submitted.
+        own output above: decide-first-gate.sh --record-question exits 2 when
+        koto could not be read, and park.sh exits 2 when koto, the question's
+        content or the PLAN could not be read. Run it again by hand with the
+        same arguments, then tick again with nothing submitted.
     gates:
+      # /work-on's waiting_record gate: 0 the recorded question is open, 1 it
+      # closed since (or none was recorded) with a finding, 2 unreadable (no
+      # edge: the state holds and the tick shows the gate's output).
       question_recorded:
-        type: context-exists
-        key: decide_question
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --recorded "{{SESSION_NAME}}"'
+        timeout: 120
         overridable: false
       own_parked:
         type: context-exists
@@ -729,17 +733,17 @@ states:
     transitions:
       - target: spawn_and_await
         when:
-          gates.question_recorded.exists: true
+          gates.question_recorded.exit_code: 0
           gates.own_parked.exists: true
       # The way out: the question closed (answered or withdrawn) between the
       # submission and this tick, so --record-question found none open and
-      # left decide_question unset. Nothing is parked; the run re-runs the
+      # cleared decide_question, and park.sh parked nothing. The run re-runs the
       # check, and an intent-changing verdict arrives at decide_first again
       # as a new arrival, where the answer is read as precedent. Not an edge
       # into decide_first, which only the covered exit enters.
       - target: worktree_discipline_check
         when:
-          gates.question_recorded.exists: false
+          gates.question_recorded.exit_code: 1
 
   spawn_and_await:
     gates:
@@ -887,7 +891,8 @@ states:
   # The run waits on the questions its steps are parked on. failure is true
   # so a caller not taught this terminal reads it as it reads a blocked run,
   # never as success. The session is kept while a question it raised is
-  # open; /execute invoked again rewinds it to spawn_and_await. Its result is
+  # open; /execute invoked again rewinds it, landing at waiting_record, which
+  # goes back to spawn_and_await once every question is closed. Its result is
   # every terminal's map, with question added: the open identities, separated
   # by a space.
   done_waiting:
@@ -2074,7 +2079,9 @@ nothing to submit.
 ## waiting_record
 
 koto runs this state itself: it records the questions the run waits on and
-ends it at `done_waiting`. There is nothing to submit.
+ends it at `done_waiting`, or, when none is open any more (a run rewound
+after its questions closed), goes back to `spawn_and_await`. There is nothing
+to submit.
 
 ## spawn_and_await
 
@@ -2135,12 +2142,12 @@ koto materializes one child per task using `work-on.md` with `failure_policy: sk
 
 **Parked steps.** A step is parked when its work waits on the answer to an open question: this run's own, raised at `decide_first` (`park_own` parks the steps it names), or a child's, raised at that child's `decide_first` and left at its `done_waiting` terminal. List them with `"{{PLUGIN_ROOT}}/skills/execute/scripts/park.sh" list {{SESSION_NAME}}`, one line per step: `open`, `answered <session>:<id>`, or `closed` for a question withdrawn with no answer.
 
-- **Hand no step agent a parked step.** Submit the PLAN's tasks as above, all of them: koto materializes a parked step's child, and it stays at its first state until the question is answered. A step that waits on a parked step is not started either.
+- **Hand no step agent a parked step.** Submit the PLAN's tasks as above, all of them: koto materializes the child of a step parked on this run's own question, and you leave it at its first state until the question is answered. A step that waits on a parked step is not started either. This is an instruction, not a rule koto enforces: nothing stops a tick of a parked step's child. What is enforced is the end of the batch: `parked_state` keeps it from finishing while a step's key stands (`park.sh clear` refuses while the question is open).
 - **A child at done_waiting.** Run `"{{PLUGIN_ROOT}}/skills/execute/scripts/park.sh" mark {{SESSION_NAME}} --child <child>`: it parks the child's step on the question in the child's result and prints it. It refuses a child at another state, or one whose question is closed (take that child up again instead). koto skips the steps that wait on it, and they run once it is done.
 - **A question for its owner.** A child cannot tell whom to ask, since a batch child has no origin of its own: the owner session puts `--to <recipient>` in the hand-off's brief, the recipient being where this run's own questions go: `session:<dispatcher>` when `koto session origin {{SESSION_NAME}}` reports it dispatched, `anchor:<dispatcher>` when its `dispatcher_kind` is `anchor`, and `person:owner` otherwise.
 - **The run waits.** When every step that has not landed is parked or waits on a parked step, the `parked_state` gate ends the run at `done_waiting`, whose result names each open question. The steps that did not depend on them have landed.
 - **An answered question.** Once `park.sh list` shows `answered <answer>` for a step:
-  - a child's question: `koto rewind <child>` puts the child back at its `decide_first`; hand it to a step agent, whose attempt cites `<answer>` before the child leaves. Then `"{{PLUGIN_ROOT}}/skills/execute/scripts/park.sh" clear {{SESSION_NAME}} <step>`, which refuses until a decision in the run or in the child cites the answer.
+  - a child's question: write `{"retry_failed": {"children": ["<step>"], "include_skipped": true}}` to a file and submit it with `koto next {{SESSION_NAME}} --no-cleanup --with-data @<file>`, then submit the PLAN's tasks again. koto takes the child back to its first state, keeping its context, and respawns the steps skipped behind it; a step that waited on it and never got a child is scheduled only once the tasks are submitted again. Don't `koto rewind <child>`: that leaves the skipped steps skipped. The child's entry finds its `decide_question` and goes to `resume_waiting`, which holds until an attempt in the child cites `<answer>`: hand it to a step agent, whose attempt (`shirabe question attempt --in <child> --state <arrival> --result decided --basis <answer> ...`) does that, and the child goes back to the state it raised the question from. Then `"{{PLUGIN_ROOT}}/skills/execute/scripts/park.sh" clear {{SESSION_NAME}} <step>`, which refuses until a decision in the run or in the child cites the answer.
   - this run's own question: record the attempt for the arrival it was raised at, citing the answer (`shirabe question attempt --in {{SESSION_NAME}} --state <arrival> --result decided --basis <answer> ...`). When the answer lets the steps run as the PLAN states them, `park.sh clear` each step it names. When it says they must not, submit the same tasks with `parked_next: stop`: the run takes the re-evaluation exit (`done_blocked`), and the `parked_stop` gate holds it until a decision in this run cites the answer.
 - **A withdrawn question.** `park.sh clear` removes the step's key at once and prints `withdrawn`: the step runs as the PLAN states it.
 

@@ -873,7 +873,11 @@ states:
           waiting: ""
           reason: "execute-leg-lost:request_not_found"
           next: ""
-      - target: execute_absent
+      # /execute returned with the leg still open and unbound. A run still
+      # waiting on an open question opens nothing on re-invocation, and koto
+      # can't bind a leg to a session at a terminal, so execute_returned reads
+      # the execute session before child-absent is recorded.
+      - target: execute_returned
         when:
           child_returned: "yes"
           gates.exec_leg.disposition: open
@@ -885,6 +889,42 @@ states:
           waiting: "${gates.exec_leg.payload.waiting}"
           reason: "${gates.exec_leg.payload.reason}"
           next: ""
+
+  # Writes execute_waiting (yes or no) and, on yes, question: the execute
+  # session's still-open questions. yes ends the run waiting, as /execute's
+  # own waiting outcome does; no (anything else, a failed read included)
+  # records child-absent as before. A failed write leaves the key absent:
+  # no edge matches, and the run holds here rather than guessing.
+  execute_returned:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-execute-leg.sh" waiting --topic "{{TOPIC}}" --session "{{SESSION_NAME}}"'
+      fallback: >-
+        koto could not read whether /execute is still waiting on its
+        questions. Read the command's own output above, run it again by hand
+        with the same arguments, and tick again with nothing submitted.
+    gates:
+      waiting_read:
+        type: context-exists
+        key: execute_waiting
+      still_waiting:
+        type: context-matches
+        key: execute_waiting
+        pattern: '^yes$'
+    transitions:
+      - target: done_stopped
+        when:
+          gates.waiting_read.exists: true
+          gates.still_waiting.matches: true
+        context_assignments:
+          outcome: waiting
+          step: ""
+          reason: ""
+          pr: ""
+          next: "/deliver {{TOPIC}}"
+      - target: execute_absent
+        when:
+          gates.waiting_read.exists: true
+          gates.still_waiting.matches: false
 
   execute_absent:
     # As scope_absent, for the execute leg.
@@ -1287,6 +1327,21 @@ Skill call has returned and the leg is still open. That reaches only an error,
 
 Evidence schema:
 - `child_returned`: `yes`, only in the case above
+
+## execute_returned
+
+Reading whether /execute is still waiting on open questions. koto does this
+itself; you only see this state if the action failed.
+
+<!-- details -->
+
+/execute invoked on a run that stopped at `done_waiting` opens nothing while
+a question it waits on is still open, so it returns without answering the
+execute leg. This state reads the execute session: at `done_waiting` with a
+question still open, the run ends waiting, with the questions, as it would
+had /execute answered the leg with its own waiting outcome. Otherwise it goes
+on to record that /execute returned without a result. Read the output above
+and tick again.
 
 ## execute_absent
 

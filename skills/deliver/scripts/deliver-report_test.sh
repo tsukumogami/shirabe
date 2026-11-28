@@ -71,6 +71,12 @@ question=q1-aaaa/000000000001
 question=q2-bbbb/000000000002
 next=/deliver t"
 
+case_ "waiting prints no pr= line, as /execute's print-exit.sh doesn't, even when the result names one" \
+    "{outcome: \"waiting\", pr: \"$URL\", question: \"q1-aaaa/000000000001\", next: \"/deliver t\"}" \
+    "outcome=waiting
+question=q1-aaaa/000000000001
+next=/deliver t"
+
 case_ "paused-for-review prints the PR and the resume command" \
     "{outcome: \"paused-for-review\", pr: \"$URL\", resume: \"/execute docs/plans/PLAN-t.md\"}" \
     "outcome=paused-for-review

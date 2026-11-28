@@ -14,23 +14,31 @@
 #       park_own's default action. Parks every step the run's own question
 #       (decide_question) names in its `waiting` list, and every PLAN step when
 #       it names none. Writes parked_ever. Exits 0 once the keys are written,
-#       2 when koto or the PLAN can't be read.
+#       and 0 with nothing written and `none` printed when the run holds no
+#       decide_question (--record-question found no open question and cleared
+#       it: park_own's question_recorded gate then takes the way out); 2 when
+#       koto or the PLAN can't be read.
 #   park.sh mark <run> --child <child>
 #       Parks the child's step on the question in the child's result. Prints
 #       the identity. Refuses, writing nothing (exit 1), a child that is not at
 #       done_waiting, one whose result names no question, and one whose
 #       question is closed.
 #   park.sh clear <run> <step>
-#       Removes parked/<step> once its question is closed with an answer and a
-#       decision in the run, or in the step's child run, names that answer in
-#       its basis. Exit 1, with the key kept, before that. A question
-#       withdrawn with no answer clears at once and prints `withdrawn`: the
-#       withdrawal and its reason are the decision, and the step runs as the
-#       PLAN states it.
+#       Removes parked/<step> once its question is closed with an answer that
+#       carries authority (pk_answer in park-lib.sh, which calls /work-on's
+#       decide-first-gate.sh --answer) and a decision in the run, or in the
+#       step's child run, names that answer in its basis. Exit 1, with the key
+#       kept, before that, and when the answer carries no authority: the
+#       run's own, or a session's that is not the run's dispatcher linked
+#       before the raise. A question withdrawn with no answer clears at once
+#       and prints `withdrawn`: the withdrawal and its reason are the
+#       decision, and the step runs as the PLAN states it.
 #   park.sh list <run>
 #       One line per parked step: `<step> <identity> open`,
-#       `<step> <identity> answered <session>:<id>`, or
-#       `<step> <identity> closed` for a question withdrawn with no answer.
+#       `<step> <identity> answered <session>:<id>` for an answer with
+#       authority, `<step> <identity> unauthorized <session>:<id>` for one
+#       without, or `<step> <identity> closed` for a question withdrawn with
+#       no answer.
 #   park.sh questions <run>
 #       waiting_record's default action. Writes waiting_questions: every open
 #       question the run's steps are parked on, once each, separated by a
@@ -44,8 +52,9 @@
 #       that ends at done_blocked with a step parked names the question.
 #   park.sh cited <run>
 #       spawn_and_await's parked_stop gate. Exits 0 when a parked step's
-#       question is closed with an answer and a decision recorded in the run
-#       names that answer in its basis, 1 when none is, 2 when unreadable.
+#       question is closed with an answer that carries authority (as clear
+#       reads it) and a decision recorded in the run names that answer in its
+#       basis, 1 when none is, 2 when unreadable.
 #   park.sh check <run> --plan <PLAN>
 #       decide_first's waiting_steps gate. Exits 1 with a finding when the open
 #       question raised for this arrival names in `waiting` a step the PLAN
@@ -101,12 +110,13 @@ waiting_of() {
 # at, or empty. Read from the record, not from decide_question, which
 # park_own's action writes only after decide_first's gates have run.
 own_question() {
-    local arrival all q h
+    local arrival all qs q h
     arrival=$(pk_ctx "$RUN" decide_arrival) || return 2
     [ -n "$arrival" ] || return 0
     all=$(koto decisions attempts --in="$RUN") || return 2
-    for q in $(printf '%s\n' "$all" | jq -r --arg s "$RUN" --arg a "$arrival" \
-        '.attempts[]? | select(.session == $s and .status == "in-effect" and .state == $a and .result == "undecided") | .questions[]?'); do
+    qs=$(printf '%s\n' "$all" | jq -r --arg s "$RUN" --arg a "$arrival" \
+        '.attempts[]? | select(.session == $s and .status == "in-effect" and .state == $a and .result == "undecided") | .questions[]?') || return 2
+    for q in $qs; do
         h=$(pk_history "$q") || return 2
         if printf '%s\n' "$h" | jq -e --arg a "$arrival" '.open == true and .question.state == $a' > /dev/null; then
             printf '%s\n' "$q"
@@ -129,7 +139,10 @@ mark)
         shift
         plan_arg "$@"
         q=$(pk_ctx "$RUN" decide_question) || unreadable "could not read decide_question"
-        [ -n "$q" ] || unreadable "the run holds no decide_question; park_own's action records it with decide-first-gate.sh --record-question first"
+        if [ -z "$q" ]; then
+            echo none
+            exit 0
+        fi
         steps=$(waiting_of "$q") || unreadable "could not read the content of $q"
         [ -n "$steps" ] || steps=$(printf '%s\n' "$TASKS" | jq -r '.name')
         for s in $steps; do
@@ -171,7 +184,11 @@ clear)
     [ -n "$q" ] || refuse "$step is not parked"
     h=$(pk_history "$q") || unreadable "koto decisions history $q failed"
     printf '%s\n' "$h" | jq -e '.open == true' > /dev/null && refuse "the question $q is still open; $step stays parked"
-    answer=$(pk_answer "$h") || unreadable "could not read the history of $q"
+    answer=$(pk_answer "$RUN" "$q") || unreadable "could not read the answer to $q"
+    raw=$(pk_raw_answer "$h") || unreadable "could not read the history of $q"
+    if [ -z "$answer" ] && [ -n "$raw" ]; then
+        refuse "the answer $raw to $q carries no authority over this run (the run's own, or a session's that is not its dispatcher linked before the raise); $step stays parked"
+    fi
     if [ -z "$answer" ]; then
         # Withdrawn with no answer: the withdrawal, recorded with its reason,
         # is the decision. The step runs as the PLAN states it.
@@ -210,9 +227,12 @@ list)
         if printf '%s\n' "$h" | jq -e '.open == true' > /dev/null; then
             printf '%s %s open\n' "$step" "$q"
         else
-            answer=$(pk_answer "$h") || unreadable "could not read the history of $q"
+            answer=$(pk_answer "$RUN" "$q") || unreadable "could not read the answer to $q"
+            raw=$(pk_raw_answer "$h") || unreadable "could not read the history of $q"
             if [ -n "$answer" ]; then
                 printf '%s %s answered %s\n' "$step" "$q" "$answer"
+            elif [ -n "$raw" ]; then
+                printf '%s %s unauthorized %s\n' "$step" "$q" "$raw"
             else
                 printf '%s %s closed\n' "$step" "$q"
             fi
@@ -242,7 +262,7 @@ cited)
     parked=$(pk_parked "$RUN") || unreadable "could not read the parked steps of $RUN"
     for q in $(printf '%s\n' "$parked" | awk 'NF == 2 { print $2 }'); do
         h=$(pk_history "$q") || unreadable "koto decisions history $q failed"
-        answer=$(pk_answer "$h") || unreadable "could not read the history of $q"
+        answer=$(pk_answer "$RUN" "$q") || unreadable "could not read the answer to $q"
         [ -n "$answer" ] || continue
         pk_cites "$RUN" "$answer"; rc=$?
         case "$rc" in

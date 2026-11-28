@@ -51,7 +51,9 @@
 #                        doesn't), then a fixed message built from them that
 #                        says what to do
 #   repos=<owner/repo[,owner/repo...]>
-#   pr=<url>             on merged, and on every outcome that names one PR
+#   pr=<url>             on merged, and on every outcome but waiting that
+#                        names one PR (a waiting run's PR stays a draft, and
+#                        /execute's print-exit.sh prints none either)
 #   pr=<url> waiting=<human|predecessor> [reason=<condition>]
 #                        on ready-awaiting-merge and paused-awaiting-merges,
 #                        one line per unmerged PR; a result that names a PR
@@ -235,6 +237,10 @@ case "$OUTCOME" in
             [ -n "$REASON" ] && line="$line reason=$REASON"
             printf '%s\n' "$line"
         fi
+        ;;
+    waiting)
+        # As /execute's print-exit.sh: a waiting run's draft pull request
+        # stays a draft, and a pr= line would read as one ready for a person.
         ;;
     *)
         [ -n "$PR" ] && printf 'pr=%s\n' "$PR"

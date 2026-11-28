@@ -40,8 +40,8 @@ stateDiagram-v2
     orchestrator_setup --> done_blocked : status: blocked
     orchestrator_setup --> done_blocked : gates.setup_owned_pr.exit_code: 3, status: completed
     orchestrator_setup --> done_blocked : gates.setup_owned_pr.exit_code: 2, status: completed
-    park_own --> spawn_and_await : gates.own_parked.exists: true, gates.question_recorded.exists: true
-    park_own --> worktree_discipline_check : gates.question_recorded.exists: false
+    park_own --> spawn_and_await : gates.own_parked.exists: true, gates.question_recorded.exit_code: 0
+    park_own --> worktree_discipline_check : gates.question_recorded.exit_code: 1
     plan_completion --> ci_monitor : gates.cascade_completed.matches: true, gates.cascade_partial.matches: false, gates.cascade_skipped.matches: false, gates.expected_head_recorded.matches: true, gates.ready_owned_pr.exit_code: 0, gates.shared_hosted_read.exit_code: 0, gates.shared_hosted_ready.exit_code: 0
     plan_completion --> ci_monitor : gates.cascade_completed.matches: true, gates.cascade_partial.matches: false, gates.cascade_skipped.matches: false, gates.expected_head_recorded.matches: false, gates.ready_owned_pr.exit_code: 0, gates.shared_hosted_read.exit_code: 0, gates.shared_hosted_ready.exit_code: 0
     plan_completion --> ci_monitor : gates.cascade_completed.matches: false, gates.cascade_partial.matches: false, gates.cascade_skipped.matches: true, gates.expected_head_recorded.matches: true, gates.ready_owned_pr.exit_code: 0, gates.shared_hosted_read.exit_code: 0, gates.shared_hosted_ready.exit_code: 0

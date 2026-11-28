@@ -41,6 +41,7 @@ skills/execute/scripts/execute-template-structure_test.sh
 # the template cases skip without koto, the "as before" ones without
 # the base branch.
 skills/execute/scripts/decide-first-routes_test.sh
+skills/execute/scripts/park-walk_test.sh
 # The output gates' routes need koto and skip without it; the
 # removed-value counts and the routing gates' stdout run on the
 # floor.
