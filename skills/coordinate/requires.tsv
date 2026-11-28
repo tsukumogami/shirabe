@@ -134,6 +134,8 @@ koto	request attach	--session	always
 #not-a-call-site	skills/coordinate/scripts/coordinate-open.sh	koto	--to	named in the bound-elsewhere refusal as the rebind the operator runs; the script never runs it
 #not-a-call-site	skills/coordinate/koto-templates/coordinate.md	koto	--to	named only to forbid it and to explain the seal
 #not-a-call-site	skills/coordinate/references/state-keys.md	koto	--to	named only as a write the session store refuses after it
+#not-a-call-site	skills/coordinate/scripts/state-decision.sh	koto	--chosen	the --settle refusal names the shirabe question settle the operator runs; the script never runs it
+#not-a-call-site	skills/coordinate/scripts/state-decision.sh	koto	--reason	the --settle refusal names the shirabe question settle the operator runs; the script never runs it
 # The session store (docs/designs/current/DESIGN-coordinator-record-teardown.md):
 # the coordinator's record is always its koto session. coordinate-open.sh
 # probes at every start, by feature from each subcommand's own `--help`,

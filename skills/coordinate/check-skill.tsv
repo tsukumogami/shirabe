@@ -207,3 +207,6 @@ cost	lib-status_test.sh	21
 cost	reconcile-owe_test.sh	13
 cost	roadmap-status-v4_test.sh	25
 cost	roadmap-status-v4-verdict_test.sh	37
+# coordinate-question-leg_engine_test.sh carries an estimate, the cost of
+# the nearest comparable suite (legs-move), until its first measured run.
+cost	coordinate-question-leg_engine_test.sh	40

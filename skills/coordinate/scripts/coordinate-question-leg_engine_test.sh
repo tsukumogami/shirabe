@@ -44,7 +44,7 @@ finish() {
     [ "$FAIL" -eq 0 ]
     exit
 }
-q_have || { bad "shirabe with the question ladder is at hand" "$(cat "$T/q.err" 2>/dev/null)"; finish; }
+q_have || { bad "shirabe with the question ladder is at hand" "$(cat "$T/q.err" 2>&1)"; finish; }
 
 # niwa: no session listed, so a re-brief prints no session= line.
 mkdir -p "$T/niwa-bin"
@@ -124,7 +124,7 @@ Stand-in.
 Done.
 EOF
 
-ctx() { (cd "$WD" && koto context get "$S" "$1" 2>/dev/null); }
+ctx() { (cd "$WD" && koto context get "$S" "$1" 2>>"$T/ctx.err"); }
 target() { ctx wait_target | jq -r "$1"; }
 # rebrief_as_agent: the rebrief directive, as the agent runs it: the brief
 # input in context, then dispatch-worker.sh --rebrief. RB_RC is its exit.
@@ -140,7 +140,7 @@ echo "== 1. the worker's question opens an entry by its identity =="
 REQ=$(cd "$T/work" && koto request create --role deliver --template deliver.md --inputs '{}' \
     --requested-by coord --coordinator-of-record coordinate-feat-1 | jq -r .request_id)
 if [ -z "$REQ" ] || ! empty_run qleg "leg $REQ:deliver"; then
-    bad "1: reach wait with a leg-bound holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+    bad "1: reach wait with a leg-bound holding" "$(cat "$T/open.err" "$T/tick.err" 2>&1)"
     finish
 fi
 (cd "$T" && koto init deliver-feat-1 --template "$T/tplw/deliver.md" --koto-leg "$REQ:deliver" > /dev/null 2> "$T/child.err") \
@@ -182,8 +182,8 @@ eq "  ... the leg in question_legs" "$REQ:deliver" "$(ctx question_legs)"
 eq "  ... and never in taken_legs" "" "$(ctx taken_legs | grep -Fx "$REQ:deliver")"
 (cd "$WD" && bash "$PS/state-handover.sh" --session "$S") > "$T/handover.json" 2> "$T/handover.err"
 eq "2: the handover read lists the question with its entry, held" "$QI $N true" \
-    "$(jq -r '.open_questions[] | "\(.identity) \(.decision) \(.handled)"' "$T/handover.json" 2>/dev/null)"
-eq "  ... and no question-unhandled gap" "" "$(jq -r '.gaps[].gap | select(startswith("question-unhandled"))' "$T/handover.json" 2>/dev/null)"
+    "$(jq -r '.open_questions[] | "\(.identity) \(.decision) \(.handled)"' "$T/handover.json" 2>>"$T/jq.err")"
+eq "  ... and no question-unhandled gap" "" "$(jq -r '.gaps[].gap | select(startswith("question-unhandled"))' "$T/handover.json" 2>>"$T/jq.err")"
 
 echo "== 3. the leg is held as waiting until the question closes =="
 eq "3: the next leg tick goes back to wait" wait "$(at --with-data '{"event":"leg"}')"
@@ -218,8 +218,11 @@ case "$NEWRP" in
 esac
 eq "  ... the holding on it" "leg $NEWRP" "$(live_body | jq -r '.holdings[] | select(.worker == "feat-1") | .return_path')"
 BRIEF=$(sed -n 's/^brief=//p' "$T/rb.out")
-grep -qF "question \`$QI\`, which you raised, has been answered" "$BRIEF" 2>/dev/null \
-    && ok "  ... its brief naming the answered question" || bad "  ... its brief naming the answered question" "$(cat "$BRIEF" 2>&1 | head -n 20)"
+if [ -f "$BRIEF" ] && grep -qF "question \`$QI\`, which you raised, has been answered" "$BRIEF"; then
+    ok "  ... its brief naming the answered question"
+else
+    bad "  ... its brief naming the answered question" "brief '$BRIEF': $(sed -n 1,20p "$BRIEF" 2>&1)"
+fi
 at --with-data '{"sent":"sent"}' > /dev/null
 from_to rebrief rebrief_record && ok "4: sent goes on to rebrief_record" || bad "4: sent goes on to rebrief_record" "now at $(now_at)"
 
@@ -227,7 +230,7 @@ echo "== 5. the unit finishes on its new leg =="
 [ "$(now_at)" = wait ] || at > /dev/null
 eq "5: back at wait" wait "$(now_at)"
 (cd "$T" && koto init deliver-feat-1-r --template "$T/tpl/deliver.md" --koto-leg "$NEWRP" > /dev/null 2> "$T/child.err" \
-    && koto next deliver-feat-1-r --with-data '{"finish":"go"}' > /dev/null 2>&1) \
+    && koto next deliver-feat-1-r --with-data '{"finish":"go"}' > /dev/null 2>> "$T/child.err") \
     || bad "5: the re-briefed worker binds to the new leg and finishes" "$(cat "$T/child.err")"
 eq "5: its result carrying pr goes to report_link" report_link "$(at --with-data '{"event":"leg"}')"
 eq "  ... offered as a resolved leg" "resolved ${NEWRP%%:*}" "$(target '"\(.disposition) \(.request)"')"
