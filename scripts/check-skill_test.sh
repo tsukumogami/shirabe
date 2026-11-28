@@ -1725,8 +1725,8 @@ fi
 # then every other skill's whose handoff names it.
 for c in \
     "execute|execute 86 handoff-work-on-contract;execute 91 decide-first-routes;coordinate 71 handoff-execute-contract;deliver 34 handoff-execute-contract" \
-    "work-on|work-on 86 decide-first-gate;work-on 87 decide-first-routes;coordinate 73 handoff-work-on-contract;execute 86 handoff-work-on-contract;execute 91 decide-first-routes" \
-    "scope|coordinate 72 handoff-scope-contract;deliver 35 handoff-scope-contract" \
+    "work-on|work-on 86 decide-first-gate;work-on 87 decide-first-routes;coordinate 73 handoff-work-on-contract;execute 86 handoff-work-on-contract;execute 91 decide-first-routes;scope 72 decide-first-routes" \
+    "scope|scope 72 decide-first-routes;coordinate 72 handoff-scope-contract;deliver 35 handoff-scope-contract" \
     "deliver|deliver 34 handoff-execute-contract;deliver 35 handoff-scope-contract;coordinate 70 handoff-deliver-contract" \
     "coordinate|coordinate 70 handoff-deliver-contract;coordinate 71 handoff-execute-contract;coordinate 72 handoff-scope-contract;coordinate 73 handoff-work-on-contract" \
     "plan|"; do
