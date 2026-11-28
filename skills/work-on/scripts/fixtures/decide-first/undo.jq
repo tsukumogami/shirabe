@@ -5,11 +5,14 @@
 # deferral_approval's needs_answer, which is new).
 #
 # What it undoes, and nothing else:
-#   - the states decide_first, waiting_record and done_waiting;
-#   - each edge into decide_first goes back to its old target, without the
-#     decide_origin and decide_fresh assignments;
-#   - entry's decide_resume gate, its exit_code 0 condition on the mode edges
-#     and skip_if, and the edges that route on its other codes;
+#   - the states decide_first, waiting_record, done_waiting and
+#     resume_waiting;
+#   - each edge into a decide_first from a covered state goes back to its old
+#     target, without the decide_origin assignment (waiting_record's edge back
+#     goes with the state);
+#   - entry's continues_waiting gate, its exists=false condition on the mode
+#     edges and skip_if, its edge to resume_waiting, and the paragraph its
+#     directive gives the gate;
 #   - finalization's decide_arrival and decide_question assignments on its
 #     deferral_requested edge;
 #   - deferral_approval's answer_cited gate and its conditions, the
@@ -29,23 +32,24 @@ def old_target($s):
         | ([$exits[] | select(.origin == $s and ($w[.field] == .value))] | .[0].old) as $old
         | if $old == null then error("no covered exit in the table for \($s) \($w)")
           else .target = $old
-               | .context_assignments |= ((. // {}) | drop_keys(["decide_origin", "decide_fresh"]))
+               | .context_assignments |= ((. // {}) | drop_keys(["decide_origin"]))
                | tidy
           end
     end;
 
 .states |= (
-    del(.decide_first, .waiting_record, .done_waiting)
+    del(.decide_first, .waiting_record, .done_waiting, .resume_waiting)
     | .finalization.transitions |= map(
         if (.when // {}).finalization_status == "deferral_requested"
         then .context_assignments |= ((. // {}) | drop_keys(["decide_arrival", "decide_question"])) | tidy
         else . end)
     | .entry |= (
-        del(.gates.decide_resume)
+        del(.gates.continues_waiting)
         | (if (.gates // {}) == {} then del(.gates) else . end)
-        | .transitions |= (map(select((.when // {}) | (has("gates.decide_resume.exit_code") and .["gates.decide_resume.exit_code"] != 0) | not))
-                           | map(.when |= del(.["gates.decide_resume.exit_code"])))
-        | (if has("skip_if") then .skip_if |= del(.["gates.decide_resume.exit_code"]) else . end))
+        | .transitions |= (map(select(.target != "resume_waiting"))
+                           | map(.when |= del(.["gates.continues_waiting.exists"])))
+        | (if has("skip_if") then .skip_if |= del(.["gates.continues_waiting.exists"]) else . end)
+        | .directive |= sub("\n\nThe `continues_waiting` condition (?<x>[^*]*)mode below\\.\n"; "\n"))
     | .deferral_approval |= (
         del(.gates.answer_cited, .directive)
         | (if (.gates // {}) == {} then del(.gates) else . end)

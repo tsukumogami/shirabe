@@ -9,9 +9,9 @@
 #                      links it into <dir>/df-bin and puts that first on PATH,
 #                      so the gate finds it; returns 1, saying why, when none
 #                      is found
-#   cite_deferral <s>  takes session <s>, at deferral_approval, through
-#                      needs_answer to decide_first, links <s> as dispatched
-#                      by a manager session <s>-mgr, raises the question in <s>
+#   cite_deferral <s>  links <s> as dispatched by a manager session <s>-mgr,
+#                      takes <s>, at deferral_approval, through needs_answer
+#                      to decide_first, raises the question in <s>
 #                      for the arrival, has <s>-mgr answer it, records a
 #                      decided attempt for the arrival citing that answer, and
 #                      resumes: <s> is back at
@@ -69,6 +69,11 @@ df_setup() {
 cite_deferral() {
     local s=$1 out arrival a q id
     [ -n "$DF_DIR" ] || { echo "decide-first testlib: df_setup did not succeed"; return 1; }
+    # The dispatcher is named before anything is raised: decide-first-gate.sh
+    # counts a dispatcher's answer only when the link predates the question.
+    koto init "$s-mgr" --template "$DF_DIR/df-toy.md" > "$DF_DIR/df-init.out" \
+        && koto session link "$s" --dispatched-by "$s-mgr" > "$DF_DIR/df-init.out" \
+        || { echo "decide-first testlib: koto init or link: $(cat "$DF_DIR/df-init.out")"; return 1; }
     out=$(koto next "$s" --with-data '{"approval_decision":"needs_answer"}' --no-cleanup) \
         || { echo "decide-first testlib: needs_answer on $s: $out"; return 1; }
     arrival=$(koto context get "$s" decide_arrival) || { echo "decide-first testlib: $s has no decide_arrival"; return 1; }
@@ -76,9 +81,6 @@ cite_deferral() {
         deferral_approval:*) ;;
         *) echo "decide-first testlib: $s arrived as [$arrival], not from deferral_approval"; return 1 ;;
     esac
-    koto init "$s-mgr" --template "$DF_DIR/df-toy.md" > "$DF_DIR/df-init.out" \
-        && koto session link "$s" --dispatched-by "$s-mgr" > "$DF_DIR/df-init.out" \
-        || { echo "decide-first testlib: koto init or link: $(cat "$DF_DIR/df-init.out")"; return 1; }
     a=$(shirabe question attempt --in "$s" --what "the deferral" --result undecided --state "$arrival" | jq -r '.id // empty')
     [ -n "$a" ] || { echo "decide-first testlib: the undecided attempt in $s was not recorded"; return 1; }
     q=$(shirabe question raise --in "$s" --content "$DF_DIR/df-q.json" --attempt "$a" --state "$arrival" | jq -r '.identity // empty')
