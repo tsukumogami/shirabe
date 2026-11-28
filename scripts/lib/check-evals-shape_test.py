@@ -497,7 +497,12 @@ class RealTreeTest(unittest.TestCase):
                                  "work-on.md` reference in state spawn_and_await of "
                                  "skills/execute/koto-templates/execute.md"])):
             with self.subTest(case=cid):
-                self.edit_evals(skill, lambda e: [c for c in e if c.get("id") != cid])
+                # Every case naming the same target goes, so the target is left
+                # with none: a skill may keep more than one case per target.
+                def drop(e, cid=cid):
+                    target = next(c.get("handoff") for c in e if c.get("id") == cid)
+                    return [c for c in e if c.get("handoff") != target]
+                self.edit_evals(skill, drop)
                 rc, out = self.check_copy(skill)
                 self.assertEqual(rc, 1, out)
                 self.assertIn("has no `grader: script` case naming it in `handoff`", out)

@@ -560,7 +560,9 @@ eq "with both parked, the run ends at done_waiting" done_waiting "$(state "$RUN"
 answered_by() {
     koto decisions answer --in="$1" --text=SQLite --by=session -- "$2" "${3##*/}" > "$T/ans.out" 2> "$T/ans.err"
     if [ "$?" -ne 0 ]; then
-        pass "$4: koto refuses the answer itself ($(head -c 200 "$T/ans.err"))"
+        local m
+        m=$(cat "$T/ans.out" "$T/ans.err")
+        pass "$4: koto refuses the answer itself (${m:0:200})"
         return 1
     fi
     return 0
@@ -583,14 +585,20 @@ for s in x y; do
         fail "park.sh clear $s: exit $PARK_RC: $(cat "$T/park.out" "$T/park.err")"
     fi
 done
+# koto refuses both answers itself (a run answering its own step's question,
+# and a session that is not the addressee), so both questions stay open and
+# the rewound run waits on them again. An answer koto let through would be
+# recorded without authority, and the batch would hold on it instead.
 case "$REFUSED" in
-    *x*y*) ;;
+    *x*y*)
+        eq "with both answers refused by koto, the questions stay open and the run waits again" done_waiting "$(state "$RUN")"
+        ;;
     *)
         park cited "$RUN"
         eq "park.sh cited finds no answer with authority" 1 "$PARK_RC"
+        eq "the batch holds on answers without authority" spawn_and_await "$(state "$RUN")"
         ;;
 esac
-eq "the batch holds on answers without authority" spawn_and_await "$(state "$RUN")"
 
 # A history that reads neither open nor closed keeps the step parked: koto,
 # wrapped, answers x's history with no `open` field.
