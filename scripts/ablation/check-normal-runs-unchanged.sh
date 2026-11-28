@@ -51,7 +51,8 @@ manifest="${ABLATION_MANIFEST:-$repo_root/docs/measurement/offload-baseline/load
 
 list="$(mktemp)" || die "cannot create a temporary file"
 sorted="$list.sorted"
-trap 'rm -f "$list" "$sorted"' EXIT
+trees="$list.trees"
+trap 'rm -f "$list" "$sorted" "$trees"' EXIT
 
 # The path list is the whole verdict, so a write or read-back that fails must
 # end the run (shirabe#2229): an unreadable list is not an empty one.
@@ -67,15 +68,21 @@ awk -F '\t' '
 ' "$manifest" >> "$list" || lost "write the manifest paths"
 
 # Every koto template, at HEAD and at the base, so a template added or
-# removed on either side is compared too. Status 1 is grep's no match (or an
-# append the shell couldn't open, which the read-back below catches); more
-# than that is a failed git or grep, and the list is incomplete.
+# removed on either side is compared too. Each ls-tree writes to a file and
+# its status is checked on its own, before grep reads the listing. Piped into
+# grep, a failed git can read as success: pipefail reports grep's no-match
+# status 1 over git's, and a brace group of the two reports only the second.
+git ls-tree -r --name-only "$head" -- skills > "$trees" \
+    || die "could not list the files under skills/ at $head (status $?)"
+git ls-tree -r --name-only "$fork" -- skills >> "$trees" \
+    || die "could not list the files under skills/ at $fork (status $?)"
+[ -r "$trees" ] || die "temporary file $trees is gone or unreadable: cannot read back the tree listing"
+# Status 1 is grep's no match (or an append the shell couldn't open, which
+# the read-back below catches); more than that is a failed grep, and the
+# list is incomplete.
 grc=0
-{
-    git ls-tree -r --name-only "$head" -- skills
-    git ls-tree -r --name-only "$fork" -- skills
-} | grep -E '^skills/[^/]+/koto-templates/[^/]+\.md$' >> "$list" || grc=$?
-[ "$grc" -le 1 ] || die "could not list the koto templates at $head and $fork (status $grc)"
+grep -E '^skills/[^/]+/koto-templates/[^/]+\.md$' "$trees" >> "$list" || grc=$?
+[ "$grc" -le 1 ] || die "could not read the koto templates from the tree listing (status $grc)"
 
 [ -r "$list" ] || lost "read back the path list"
 sort -u "$list" > "$sorted" || lost "sort the path list"

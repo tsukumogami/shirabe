@@ -144,5 +144,36 @@ case "$out" in
 esac
 reset_to_base
 
+# A git ls-tree that fails is an error, not an empty listing. Here the listing
+# at HEAD fails and the one at the base works, so a template added at HEAD
+# would be missing from the list and never compared. The git stub fails only
+# the ls-tree of HEAD; every other call is the real git.
+REAL_GIT=$(command -v git)
+LSTREE_BIN="$TEST_DIR/lstree-bin"
+mkdir -p "$LSTREE_BIN"
+printf '%s\n' '#!/bin/sh' 'if [ "$1" = ls-tree ] && [ "$4" = HEAD ]; then' \
+    '    echo "fatal: stub ls-tree failure" >&2' '    exit 128' 'fi' \
+    "exec \"$REAL_GIT\" \"\$@\"" > "$LSTREE_BIN/git"
+chmod +x "$LSTREE_BIN/git"
+printf 'new template\n' > "$FIX/skills/work-on/koto-templates/added.md"
+g add -A
+g commit -q -m "add a template"
+rc=0
+out=$(cd "$FIX" && PATH="$LSTREE_BIN:$PATH" "$SUT" "$BASE" 2>&1) || rc=$?
+if [ "$rc" -eq 2 ]; then
+    pass "a failed git ls-tree is an environment error (2)"
+else
+    fail "a failed git ls-tree exited $rc, expected 2" "$out"
+fi
+case "$out" in
+    *"could not list the files under skills/ at HEAD"*) pass "  ... that names the listing" ;;
+    *) fail "  ... that names the listing" "$out" ;;
+esac
+case "$out" in
+    *"nothing a normal run loads differs"*) fail "  ... and never prints that nothing a normal run loads differs" "$out" ;;
+    *) pass "  ... and never prints that nothing a normal run loads differs" ;;
+esac
+reset_to_base
+
 echo "check-normal-runs-unchanged_test: $PASS_COUNT passed, $FAIL_COUNT failed" >&2
 [ "$FAIL_COUNT" -eq 0 ]
