@@ -6,7 +6,7 @@
 # decide-first-routes_test.sh drives the gate through work-on.md. This suite
 # runs the script on its own, in sessions from a one-state template whose
 # self-loop edges stand for the edges into decide_first: submitting
-# `arrive: <state>` assigns decide_origin, and `clear: yes` assigns
+# `step: <state>` assigns decide_origin, and `step: clear` assigns
 # decide_arrival: none, as finalization's deferral edge does, so each arrival
 # is a transition koto records, and each code is reached by one prepared
 # record and nothing else.
@@ -135,10 +135,11 @@ mkdir -p "$T/bin"
 ln -s "$SHIRABE" "$T/bin/shirabe"
 export PATH="$T/bin:$PATH"
 
-# One edge per covered state, plus `nowhere` for a state no covered exit
-# names, each assigning decide_origin as work-on.md's edges into decide_first
-# do; `clear` assigns decide_arrival: none as finalization's deferral edge
-# does.
+# One `step` field, so koto sees every edge as exclusive: one edge per
+# covered state, plus `nowhere` for a state no covered exit names, each
+# assigning decide_origin as work-on.md's edges into decide_first do; `clear`
+# assigns decide_arrival: none as finalization's deferral edge does; `done`
+# ends the session.
 {
     cat <<'EOF'
 ---
@@ -148,27 +149,22 @@ initial_state: work
 states:
   work:
     accepts:
-      done:
+      step:
         type: enum
-        values: [yes]
-      arrive:
-        type: enum
-        values: [analysis, implementation, introspection, task_validation, post_research_validation, plan_validation, deferral_approval, worktree_discipline_check, nowhere]
-      clear:
-        type: enum
-        values: [yes]
+        values: [done, clear, analysis, implementation, introspection, task_validation, post_research_validation, plan_validation, deferral_approval, worktree_discipline_check, nowhere]
+        required: true
     transitions:
       - target: end
         when:
-          done: yes
+          step: done
       - target: work
         when:
-          clear: yes
+          step: clear
         context_assignments:
           decide_arrival: none
 EOF
     for o in analysis implementation introspection task_validation post_research_validation plan_validation deferral_approval worktree_discipline_check nowhere; do
-        printf '      - target: work\n        when:\n          arrive: %s\n        context_assignments:\n          decide_origin: %s\n' "$o" "$o"
+        printf '      - target: work\n        when:\n          step: %s\n        context_assignments:\n          decide_origin: %s\n' "$o" "$o"
     done
     cat <<'EOF'
   end:
@@ -189,8 +185,8 @@ EOF
 open() {
     local s=$1
     shift
-    koto init "$s" --template "$T/two.md" "$@" > /dev/null 2>"$T/init.err" \
-        || { fail "koto init $s: $(cat "$T/init.err")"; finish; }
+    koto init "$s" --template "$T/two.md" "$@" > "$T/init.out" 2>"$T/init.err" \
+        || { fail "koto init $s: $(cat "$T/init.out" "$T/init.err")"; finish; }
 }
 # put <session> <key> <value>: an agent's write, which no arrival is read from.
 put() {
@@ -203,7 +199,7 @@ tick() {
         || fail "koto next $1 $2: $(cat "$T/tick.out" "$T/tick.err")"
 }
 # arrive <session> <state>: one transition assigning decide_origin.
-arrive() { tick "$1" "{\"arrive\":\"$2\"}"; }
+arrive() { tick "$1" "{\"step\":\"$2\"}"; }
 # gate [<mode>] <session> -> stdout in $G, exit in $RC
 gate() {
     G=$(bash "$GATE" "$@" 2>"$T/gate.err")
@@ -536,7 +532,7 @@ finding_says "--laps at the fourth" "resume is refused"
 put lap decide_origin analysis
 gate --laps lap
 expect "--laps after an agent's write of decide_origin" 1
-koto next lap --with-data '{"done":"yes"}' --no-cleanup > "$T/tick.out" 2>"$T/tick.err" || fail "lap to end: $(cat "$T/tick.out" "$T/tick.err")"
+koto next lap --with-data '{"step":"done"}' --no-cleanup > "$T/tick.out" 2>"$T/tick.err" || fail "lap to end: $(cat "$T/tick.out" "$T/tick.err")"
 open lap2 --continues lap
 arrive lap2 implementation
 gate --arrive lap2
@@ -628,7 +624,7 @@ WORKER3_ANS="manager:$ANS"
 attempt worker3 --result decided --chosen "defer it" --basis "$WORKER3_ANS" --state deferral_approval:2
 gate --approval worker3
 expect "--approval citing the dispatcher's answer to the question raised for the arrival" 0
-tick worker3 '{"clear":"yes"}'
+tick worker3 '{"step":"clear"}'
 gate --approval worker3
 expect "--approval once a new deferral cleared the arrival" 1
 finding_says "--approval once a new deferral cleared the arrival" "needs_answer"

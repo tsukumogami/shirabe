@@ -758,12 +758,19 @@ echo "--- continuing a leg-bound run"
 # new request's leg rewinds the waiting session to waiting_record and attaches
 # it under the new leg.
 newreq() {
-    REQ=$(koto request create \
+    koto request create \
         --with-data '{"legs":[{"name":"work-on","role":"work-on","template":"work-on.md","inputs":{}}]}' \
-        --requested-by manager --coordinator-of-record manager 2>"$WORKDIR/req.err" | jq -r '.request_id // empty')
-    [ -n "$REQ" ] || fail "koto request create: $(head -c 300 "$WORKDIR/req.err")"
+        --requested-by manager --coordinator-of-record manager > "$WORKDIR/req.out" 2>"$WORKDIR/req.err"
+    REQ=$(jq -r '.request_id // empty' "$WORKDIR/req.out" 2>>"$WORKDIR/req.err")
+    [ -n "$REQ" ] || fail "koto request create: $(head -c 300 "$WORKDIR/req.out") $(head -c 300 "$WORKDIR/req.err")"
 }
-legof() { koto request get "$1" 2>"$WORKDIR/req.err" | jq -r "(.request // .) | .legs[\"work-on\"] | $2"; }
+# legof <request> <jq filter>: koto's JSON (an error included) goes to a file
+# first, so a refusal printed on stdout shows in the case that reads it.
+legof() {
+    koto request get "$1" > "$WORKDIR/leg.out" 2>"$WORKDIR/leg.err"
+    jq -r "(.request // .) | .legs[\"work-on\"] | $2" "$WORKDIR/leg.out" 2>>"$WORKDIR/leg.err" \
+        || printf 'unreadable: %s %s' "$(head -c 200 "$WORKDIR/leg.out")" "$(head -c 200 "$WORKDIR/leg.err")"
+}
 # cont_leg <session> <request> <dispatcher>: --continue-waiting under the leg.
 cont_leg() {
     toks "[\"x\",\"--koto-leg\",\"$2:work-on\"]"
