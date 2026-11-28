@@ -25,7 +25,9 @@
 #     decide_arrival changes neither the name nor the code; an arrival from a
 #     state no covered exit names (2); koto failing `context history` (2)
 #   --from    exits 10 to 16 for /work-on's seven covered states, 20 for
-#             /execute's worktree_discipline_check, 2 for none
+#             /execute's worktree_discipline_check, 30 to 34 for /scope's
+#             hop_brief, hop_prd, hop_design, hop_plan and full_run_blocked,
+#             2 for none
 #   --laps  3 arrivals from one state (0), a fourth (1), an agent's write of
 #     decide_origin changing nothing, and a session continuing the run going
 #     on counting (1, arrival implementation:5)
@@ -153,7 +155,7 @@ states:
         values: [yes]
       arrive:
         type: enum
-        values: [analysis, implementation, introspection, task_validation, post_research_validation, plan_validation, deferral_approval, worktree_discipline_check, nowhere]
+        values: [analysis, implementation, introspection, task_validation, post_research_validation, plan_validation, deferral_approval, worktree_discipline_check, hop_brief, hop_prd, hop_design, hop_plan, full_run_blocked, nowhere]
       clear:
         type: enum
         values: [yes]
@@ -167,7 +169,7 @@ states:
         context_assignments:
           decide_arrival: none
 EOF
-    for o in analysis implementation introspection task_validation post_research_validation plan_validation deferral_approval worktree_discipline_check nowhere; do
+    for o in analysis implementation introspection task_validation post_research_validation plan_validation deferral_approval worktree_discipline_check hop_brief hop_prd hop_design hop_plan full_run_blocked nowhere; do
         printf '      - target: work\n        when:\n          arrive: %s\n        context_assignments:\n          decide_origin: %s\n' "$o" "$o"
     done
     cat <<'EOF'
@@ -324,12 +326,12 @@ expect "--arrive from a state no covered exit names" 2
 
 open frm
 codes=""
-for o in analysis implementation introspection task_validation post_research_validation plan_validation deferral_approval worktree_discipline_check; do
+for o in analysis implementation introspection task_validation post_research_validation plan_validation deferral_approval worktree_discipline_check hop_brief hop_prd hop_design hop_plan full_run_blocked; do
     arrive frm "$o"
     gate --from frm
     codes="$codes $RC"
 done
-[ "$codes" = " 10 11 12 13 14 15 16 20" ] && pass "--from exits 10 to 16 for /work-on's covered states and 20 for /execute's" || fail "--from exits [$codes]"
+[ "$codes" = " 10 11 12 13 14 15 16 20 30 31 32 33 34" ] && pass "--from exits 10 to 16 for /work-on's covered states, 20 for /execute's and 30 to 34 for /scope's" || fail "--from exits [$codes]"
 # /execute's covered exit is an arrival too: --arrive names it, and the laps
 # count it, from the same table --from reads.
 open wdc
