@@ -115,7 +115,9 @@ the script overwrites whatever the input gave, so leave it out. A successor's
 brief, whose scope is your own run's, gets the role your
 record's Run `role` row holds (with no row the dispatch is refused, naming
 the command that sets it); a lane's brief gets `manager`, on every new
-dispatch. The brief carries it as `--role <role>` on the Goal's invocation
+dispatch. A successor's input names no role anywhere else: its invocation
+line is the brief's one line naming one, and `manager` or `director` in a
+field you write is refused, naming the field. The brief carries it as `--role <role>` on the Goal's invocation
 line, after the whole scope,
 `` Run `/shirabe:coordinate <roadmap-path> --role <role>` in <owner/repo>. ``
 for a roadmap and

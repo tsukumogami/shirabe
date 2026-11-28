@@ -165,10 +165,11 @@ RUN_ROWS='[{"key":"arguments","value":"--roadmap","set_by":"the human","set":"20
  {"key":"coordinator","value":"coord-a","set_by":"coord-a","set":"2026-10-07T10:00Z"},
  {"key":"reports-to","value":"the human","set_by":"the human","set":"2026-10-07T10:00Z"}]'
 
-# mrun <name> <owed|done|paused|parked>: a manager run of a one-milestone
-# roadmap opened by A, its role row written, MV1 owing its verdict (owed), at
-# Done (done), held by a pause (paused) or parked on a decision (parked), and
-# held at wait. Sets S and WD; returns non-zero when it doesn't get there.
+# mrun <name> <owed|done|paused|parked|raising>: a manager run of a
+# one-milestone roadmap opened by A, its role row written, MV1 owing its
+# verdict (owed), at Done (done), held by a pause (paused) or parked on a
+# decision (parked), and held at wait; or (raising) held at decision_raise
+# with MV1's entry opened and its park not yet written. Sets S and WD; returns non-zero when it doesn't get there.
 mrun() {
     export CLAUDE_CODE_SESSION_ID=$A_ID
     if [ "$2" = done ]; then milestone_roadmap "$1" Done; else milestone_roadmap "$1" "In progress"; fi
@@ -190,6 +191,16 @@ mrun() {
         return 0
     fi
     [ "$(at --with-data '{"reconciled":"reported"}')" = pick ] || { bad "$1: the run reaches pick" "$(cat "$T/tick.err")"; return 1; }
+    if [ "$2" = raising ]; then
+        # Held at decision_raise: the park's entry opened, its Work row not
+        # yet written, so the raise is unrecorded.
+        [ "$(at --with-data '{"choice":"await_decision","unit":"MV1","rationale":"its framing is the human'"'"'s call"}')" = decision_raise ] &&
+            write_as_agent state-decision.sh --open --question "MV1: list installed plugins only, or every known one?" \
+                --option "installed -- what the user has" --option "known -- every plugin the registry names" --source self &&
+            [ "$(at --with-data '{"raised":"raised"}')" = decision_raise ] \
+            || { bad "$1: MV1's park is raised and unrecorded" "$(cat "$T/w.err" "$T/tick.err")"; return 1; }
+        return 0
+    fi
     if [ "$2" = parked ]; then
         [ "$(at --with-data '{"choice":"await_decision","unit":"MV1","rationale":"its framing is the human'"'"'s call"}')" = decision_raise ] &&
             write_as_agent state-decision.sh --open --question "MV1: list installed plugins only, or every known one?" \
@@ -872,6 +883,79 @@ if mrun unconfirmed owed; then
     eq "15 unconfirmed: the command with the topic it names exits 0" "0 session=unconfirmed_successor_1-""1a2b3c4d" "$SRC $SO"
     eq "15 unconfirmed: ... launching once" 2 "$(grep -c '^niwa dispatch' "$NS/calls.log")"
     eq "15 unconfirmed: ... the row dispatched" "dispatched unconfirmed-successor-1 $TODAY" "$(succ_value)"
+fi
+
+# ---- 16. a successor brief names no role, and waits on an unrecorded arrival --------------
+# At each scope a successor input with no role word renders a brief whose
+# one line naming a role is its invocation line, and the same input with
+# `ask the director first` in its goal is refused, exit 1 naming goal, with
+# nothing changed. A manager run held at decision_raise, MV1's entry opened
+# and its park not written, refuses its successor with code 13 naming
+# --kind decision and changes nothing; once the park is written and the run
+# ticks on to wait, the same topic dispatches.
+role_lines() { grep -ciwE 'managers?|directors?' "$BRIEFS/$1.md"; }
+succ_input_goal() { # succ_input_goal <topic> <goal suffix>: succ_input with the goal extended
+    succ_input "$1"
+    jq -c --arg g "$2" '.goal += $g' "$T/succ.json" > "$T/succ2.json"
+    (cd "$WD" && koto context add "$S" successor_input.json --from-file "$T/succ2.json" > /dev/null)
+}
+successor_goal() { # successor_goal <topic> <goal suffix>: the mode with that input
+    succ_input_goal "$1" "$2"
+    : > "$T/work/.niwa/workspace.toml"
+    SO=$(cd "$WD" && NIWA="$NS/niwa" NS_RUN="$S" bash "$PS/dispatch-worker.sh" --session "$S" --successor 2> "$T/succ.err"); SRC=$?
+    SE=$(cat "$T/succ.err")
+    rm -f "$T/work/.niwa/workspace.toml"
+}
+ns_reset
+if mrun noroles owed; then
+    SH0=$(shape)
+    successor_goal noroles-successor-1 " ask the director first"
+    eq "16 roadmap: ask the director first is refused, exit 1" 1 "$SRC"
+    has_line "16 roadmap: ... naming goal" "$SE" "refused: goal: a successor brief names its role only on its invocation line"
+    unchanged "16 roadmap" "$SH0"
+    successor noroles-successor-1
+    eq "16 roadmap: with no role word it dispatches" "0 dispatched noroles-successor-1 $TODAY" "$SRC $(succ_value)"
+    eq "16 roadmap: ... its brief has one line naming a role" 1 "$(role_lines noroles-successor-1)"
+    has_line "16 roadmap: ... the invocation line" "$(grep -iwE 'managers?|directors?' "$BRIEFS/noroles-successor-1.md")" 'Run `/shirabe:coordinate '
+fi
+ns_reset
+if drun ci-noroles director open; then
+    SH0=$(shape)
+    successor_goal ci-noroles-successor-1 " ask the director first"
+    eq "16 discipline: ask the director first is refused, exit 1" 1 "$SRC"
+    has_line "16 discipline: ... naming goal" "$SE" "refused: goal: a successor brief names its role only on its invocation line"
+    unchanged "16 discipline" "$SH0"
+    successor ci-noroles-successor-1
+    eq "16 discipline: with no role word it dispatches" "0 dispatched ci-noroles-successor-1 $TODAY" "$SRC $(succ_value)"
+    eq "16 discipline: ... its brief has one line naming a role" 1 "$(role_lines ci-noroles-successor-1)"
+    eq "16 discipline: ... the invocation line" "$(dgoal ci-noroles director)" "$(grep -iwE 'managers?|directors?' "$BRIEFS/ci-noroles-successor-1.md")"
+fi
+ns_reset
+if mrun arrival raising; then
+    SH0=$(shape)
+    successor arrival-successor-1
+    eq "16 arrival: an unrecorded park exits 13" 13 "$SRC"
+    has_line "16 arrival: ... naming the rule" "$SE" "a decision arrival is unrecorded (unrecorded-raise)"
+    has_line "16 arrival: ... and the park's write" "$SE" "--kind decision"
+    unchanged "16 arrival" "$SH0"
+    if write_as_agent state-stored-set.sh --work MV1 --kind decision --who "decision 1" --next "dispatch it with the answer" &&
+        [ "$(at --with-data '{"raised":"raised"}')" = decision_take ] &&
+        write_as_agent state-decision.sh --take &&
+        [ "$(at --with-data '{"taken":"taken"}')" = decision_verdict ] &&
+        write_as_agent state-decision.sh --escalate --recommendation installed --reason "the users asked for their own list" \
+            --context "MV1 can't be scoped until its list is chosen." --problem "It changes the milestone's scope, which is the human's." \
+            --grounds scope --option "installed -- what the user has" --option "known -- every plugin the registry names" &&
+        [ "$(at --with-data '{"verdict":"escalate","rationale":"a scope call"}')" = escalate_send ] &&
+        write_as_agent state-decision.sh --sent --route message &&
+        [ "$(at --with-data '{"sent":"sent"}')" = pick ] &&
+        [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+        ok "16 arrival: the park is written and the run reaches wait"
+        successor arrival-successor-1
+        eq "16 arrival: ... then the same topic dispatches" "0 dispatched arrival-successor-1 $TODAY" "$SRC $(succ_value)"
+        eq "16 arrival: ... printing its session" "session=arrival_successor_1-""1a2b3c4d" "$SO"
+    else
+        bad "16 arrival: the park is written and the run reaches wait" "$(cat "$T/w.err" "$T/tick.err")"
+    fi
 fi
 
 echo; echo "successor-handover engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]
