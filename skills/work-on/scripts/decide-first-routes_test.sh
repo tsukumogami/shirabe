@@ -850,25 +850,37 @@ else
         && pass "the first leg keeps its waiting result" || fail "the first leg: $(legof "$R1" . | cut -c1-400)"
 
     # An answer with no authority over the run is refused before anything is
-    # rewound. koto refuses a run answering its own question, so the answer
-    # comes from lgw, a session that is not this run's dispatcher.
+    # rewound. koto itself refuses an answer from anyone but the question's
+    # addressee, so the answer comes from manager, linked as the dispatcher
+    # only after the raise: the addressee, and the dispatcher the open
+    # checks, but not one the run answered to when it asked.
     S=lgx
-    if reach "$S" analysis; then
+    git checkout -q main
+    git checkout -q -b "case-$S"
+    toks '["x"]'
+    if bash "$OPEN" --workflow "$S" --var ISSUE_NUMBER=2 --var ARTIFACT_PREFIX=issue_2 --var ISSUE_TYPE=task \
+        "$TOKS" > "$WORKDIR/open.out" 2>"$WORKDIR/open.err"; then
+        issue_walk "$S" 2
         tick "$S" '{"plan_outcome":"blocked_missing_context","approach_summary":"no cache store is named"}'
         attempt "$S" --result undecided --state analysis:1
         raise "$S" --attempt "$A" --state analysis:1
         QX=$Q
         tick "$S" '{"decide_outcome":"raised"}'
         expect_state "the second run raised" done_waiting
-        koto decisions answer --in=lgw --text=SQLite --by=session -- "$S" "${QX##*/}" \
-            > "$WORKDIR/ans.out" 2>"$WORKDIR/ans.err" \
-            || fail "$S could not be answered by lgw: $(cat "$WORKDIR/ans.out" "$WORKDIR/ans.err")"
+        koto session link "$S" --dispatched-by manager > "$WORKDIR/link.out" 2>"$WORKDIR/link.err" \
+            || fail "$S: link to manager after the raise: $(cat "$WORKDIR/link.out" "$WORKDIR/link.err")"
+        koto decisions readdress --in="$S" --to=session:manager --by=session --reason "the manager decides" -- "$S" "${QX##*/}" \
+            > "$WORKDIR/readdress.out" 2>"$WORKDIR/readdress.err" \
+            || fail "$S: readdress to manager: $(cat "$WORKDIR/readdress.out" "$WORKDIR/readdress.err")"
+        manager_answers "$S" "$QX"
         newreq
         cont_leg "$S" "$REQ" manager
         [ "$RC" = 2 ] && grep -qx refused=answer_without_authority "$WORKDIR/cont.out" && [ "$(cur "$S")" = done_waiting ] \
             && [ "$(legof "$REQ" '"\(.disposition)|\(.bound_child)"')" = "open|null" ] \
             && pass "under a leg, an answer without authority is refused with nothing rewound" \
-            || fail "--continue-waiting on an answer from another run exited $RC: $(cat "$WORKDIR/cont.out" "$WORKDIR/cont.err")"
+            || fail "--continue-waiting on an answer from a dispatcher linked after the raise exited $RC: $(cat "$WORKDIR/cont.out" "$WORKDIR/cont.err")"
+    else
+        fail "$S: work-on-open.sh with no dispatcher failed: $(cat "$WORKDIR/open.out" "$WORKDIR/open.err")"
     fi
 fi
 
@@ -1122,15 +1134,28 @@ echo "--- a parent from execute.md"
 # The parent is execute.md's own spawn_and_await, read from the file, with
 # its child template pointed at the branch's work-on.md and its two ways out
 # made terminals. Child a waits on a question; b, which waits on a, must not
-# be released. Its ways out to a parked step's states are terminals too: this
-# child is not parked by /execute, so parked_state.sh exits 0 and the batch
-# reaches escalate as before.
+# be released. Its ways out to a parked step's states are terminals too. A
+# child at done_waiting sends parked_state.sh to the PLAN, so the gate runs
+# the branch's parked-state.sh from a stand-in tree whose plan-to-tasks.sh
+# prints the tasks beside the PLAN: a, and b waiting on it. a is parked on
+# its open question and b waits on a, so the batch goes to waiting_record,
+# not escalate.
 EXEC="$SRC_ROOT/skills/execute/koto-templates/execute.md"
+XP="$WORKDIR/xplug"
+mkdir -p "$XP/skills/execute/scripts" "$XP/skills/plan/scripts" "$XP/skills/work-on"
+cp "$SRC_ROOT/skills/execute/scripts/parked-state.sh" "$SRC_ROOT/skills/execute/scripts/park-lib.sh" "$XP/skills/execute/scripts/"
+ln -s "$SRC_ROOT/skills/work-on/scripts" "$XP/skills/work-on/scripts"
+ln -s "$SRC_ROOT/scripts" "$XP/scripts"
+printf '%s\n' '#!/usr/bin/env bash' 'cat "$1.tasks"' > "$XP/skills/plan/scripts/plan-to-tasks.sh"
+chmod +x "$XP/skills/execute/scripts/parked-state.sh" "$XP/skills/plan/scripts/plan-to-tasks.sh"
+printf '%s\n' '[{"name":"a","waits_on":[]},{"name":"b","waits_on":["a"]}]' > "$WORKDIR/PLAN-par.md.tasks"
+: > "$WORKDIR/PLAN-par.md"
 {
     printf '%s\n' '---' 'name: execute-parent' 'version: "1.0"' 'initial_state: spawn_and_await' \
         'variables:' '  PLUGIN_ROOT:' '    required: true' '  PLAN_DOC:' '    default: ""' '  PLAN_SLUG:' '    default: ""' 'states:'
     awk '/^  spawn_and_await:$/ { f = 1 } /^  [a-z_]+:$/ && !/spawn_and_await/ { f = 0 } f' "$EXEC" \
-        | sed "s|default_template: .*|default_template: $TEMPLATE|"
+        | sed -e "s|default_template: .*|default_template: $TEMPLATE|" \
+            -e "s|{{PLUGIN_ROOT}}/skills/execute/scripts/parked-state.sh|$XP/skills/execute/scripts/parked-state.sh|g"
     printf '%s\n' '  pr_finalization:' '    terminal: true' '  escalate:' '    terminal: true' '    failure: true'
     for st in escalate_parked waiting_record escalate_upstream_drift; do
         printf '%s\n' "  $st:" '    terminal: true' '    failure: true'
@@ -1143,7 +1168,9 @@ EXEC="$SRC_ROOT/skills/execute/koto-templates/execute.md"
 git checkout -q main
 git checkout -q -b case-parent
 if grep -q 'failure_policy: skip_dependents' "$WORKDIR/parent.md" \
-        && koto init par --template "$WORKDIR/parent.md" --var PLUGIN_ROOT="$PLUGIN_ROOT" > "$WORKDIR/init.out" 2>"$WORKDIR/init.err"; then
+        && grep -qF "$XP/skills/execute/scripts/parked-state.sh" "$WORKDIR/parent.md" \
+        && koto init par --template "$WORKDIR/parent.md" --var PLUGIN_ROOT="$PLUGIN_ROOT" --var PLAN_DOC="$WORKDIR/PLAN-par.md" \
+            > "$WORKDIR/init.out" 2>"$WORKDIR/init.err"; then
     jq -cn --arg r "$PLUGIN_ROOT" '{tasks: [
         {name: "a", description: "a", vars: {PLUGIN_ROOT: $r, ARTIFACT_PREFIX: "par_a"}},
         {name: "b", description: "b", vars: {PLUGIN_ROOT: $r, ARTIFACT_PREFIX: "par_b"}, waits_on: ["a"]}]}' > "$WORKDIR/tasks.json"
@@ -1156,11 +1183,7 @@ if grep -q 'failure_policy: skip_dependents' "$WORKDIR/parent.md" \
     tick "$C" '{"decide_outcome":"raised"}'
     expect_state "the child" done_waiting
     tick par
-    expect_state "a parent from execute.md, its child waiting" escalate
-    case "$(ctx par failure_reason)" in
-        *"1 failed, 1 skipped"*) pass "the waiting child counts as failed and b, which depends on it, is skipped" ;;
-        *) fail "the parent's failure_reason is [$(ctx par failure_reason)]" ;;
-    esac
+    expect_state "a parent from execute.md, its child waiting" waiting_record
     koto status par > "$WORKDIR/par.out" 2>"$WORKDIR/par.err"
     [ "$(jq -r '[.batch.tasks[]? | select(.task_name == "b") | .outcome] | join(",")' "$WORKDIR/par.out")" = skipped ] \
         && pass "the batch view has b skipped, not released" \

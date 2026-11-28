@@ -1787,8 +1787,8 @@ else
     : > "$SHIRABE_LOG"
     : > "$CLAUDE_LOG"
     run_copy execute
-    if [ "$RC" = 0 ] && out_has "ok: script cases (3 of 3 passed)" && ! out_has "FAIL: $MERGED_CASE"; then
-        pass "real-tree copy, unchanged: execute's check passes deliver 34 among its 3 script cases"
+    if [ "$RC" = 0 ] && out_has "ok: script cases (5 of 5 passed)" && ! out_has "FAIL: $MERGED_CASE"; then
+        pass "real-tree copy, unchanged: execute's check passes deliver 34 among its 5 script cases"
     else
         fail "real-tree copy, unchanged: execute's check: exit $RC"
         printf '%s\n' "$OUT" | sed 's/^/    /'
