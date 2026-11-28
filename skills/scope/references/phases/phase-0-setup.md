@@ -135,6 +135,24 @@ Read the lines it prints:
 - `failed=<kind>` or `error=usage`, also followed by `outcome=error`
   and `step=scope:refused` — the same: report and stop.
 
+A run of the topic that stopped at `done_waiting`, waiting on a
+question it raised at `decide_first`, is never replaced. The open
+reads the question its result names first:
+
+- `waiting=<identity>` and `session=<name>`, exit 3 — the question is
+  still open. Nothing was opened or changed. Print the two lines and
+  end the run as it ended before: waiting on that question.
+- `continued=waiting`, followed by the usual `opened=attached` — the
+  question is closed (answered or withdrawn). koto rewound the
+  session twice, through `waiting_record` to `decide_first`, and the
+  open attached to it. Tick on: `decide_first` holds a decided
+  outcome until an attempt citing the answer is recorded.
+- `failed=waiting`, exit 70 — koto's status or the question couldn't
+  be read, or a rewind was refused. Nothing was opened, so a waiting
+  run is never replaced on a failed read; report the stderr text and
+  stop. A rewind that failed after its first step leaves the session
+  at `waiting_record`, which goes back to `decide_first` when ticked.
+
 The refusal text is `/scope`'s own wording, rendered from koto's typed
 error by `scope-open.sh` (`skills/scope/scripts/scope-open.wording.tsv`):
 the slug refusal names the pattern `^[a-z0-9-]+$`, an `--intent`

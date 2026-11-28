@@ -30,14 +30,18 @@
 #               five origin states differs only in its one edge, which went
 #               to bail (or exit_abandonment) and now goes to decide_first;
 #               every other state but the three new ones is identical; the
-#               result maps of the terminals are unchanged. Skipped with a
-#               reason when the clone holds no merge-base, or when the base
-#               already holds /scope's decide_first.
+#               result maps of the terminals are unchanged. When the clone
+#               holds no merge-base, or the base already holds /scope's
+#               decide_first, the comparison is pinned to history: the commit
+#               that added decide_first to scope.md against its parent. With
+#               neither it is skipped with a reason, and under CI
+#               (GITHUB_ACTIONS) it fails.
 #   one script  the attempt_recorded gates of work-on.md, execute.md and
 #               scope.md run the same script path.
 #   earlier     a session opened on the merge-base's scope.md, with the
 #               branch's skill files as its plugin root, still reaches bail
-#               on a hop's `outcome: bail`. Skipped with the comparison.
+#               on a hop's `outcome: bail`. Read from the same commit as the
+#               comparison, and skipped or failed with it.
 #   the walk    real sessions, opened through scope-open.sh in a scratch koto
 #               store, with a stand-in `manager` session linked as the
 #               dispatcher before anything is raised:
@@ -107,7 +111,7 @@ want='[{"origin":"full_run_blocked","when":{"next_move":"abandon"}},{"origin":"h
 got=$(jq -c '[.states | to_entries[] | select(.key != "waiting_record") | .key as $s | .value.transitions[]? | select(.target == "decide_first")
     | {origin: $s, when: (.when // {})}] | sort_by(.origin)' "$JSON")
 echo "edges into decide_first: $got"
-eq "exactly the five unsettled exits enter decide_first" "$want" "$got"
+eq "exactly the five unsettled exits enter decide_first, besides waiting_record's way back" "$want" "$got"
 holds "each edge into decide_first assigns its own origin and no decide_fresh" \
     '[.states | to_entries[] | select(.key != "waiting_record") | .key as $s | .value.transitions[]? | select(.target == "decide_first")
       | .context_assignments.decide_origin == $s and (.context_assignments | has("decide_fresh") | not)] | length == 5 and all'
@@ -173,12 +177,46 @@ elif ! BASE_SHA=$(git -C "$SRC_ROOT" merge-base HEAD "$BASE_REF" 2> "$WORK/base.
 elif ! git -C "$SRC_ROOT" show "$BASE_SHA:skills/scope/koto-templates/scope.md" > "$WORK/base/scope.md" 2> "$WORK/base.err"; then
     BASE_WHY="scope.md is not readable at $BASE_SHA: $(cat "$WORK/base.err")"
 elif grep -q '^  decide_first:' "$WORK/base/scope.md"; then
-    BASE_WHY="the base $BASE_REF already holds /scope's decide_first; the comparison belongs to the pull request that introduced it"
+    BASE_WHY="the base $BASE_REF already holds /scope's decide_first"
 fi
+CMP_JSON="$JSON"
+CMP_WHAT="the merge-base with $BASE_REF"
+
+# With no merge-base to read, or one that already holds decide_first, the
+# comparison is pinned to history, as /work-on's and /execute's routes suites
+# do: the commit that added decide_first to scope.md, against its parent.
+if [ -n "$BASE_WHY" ] && command -v git > /dev/null; then
+    if git -C "$SRC_ROOT" log --format=%H -S'  decide_first:' -- skills/scope/koto-templates/scope.md > "$WORK/pin.log" 2> "$WORK/pin.err"; then
+        PIN_SHA=$(sed -n '$p' "$WORK/pin.log")
+        if [ -z "$PIN_SHA" ]; then
+            BASE_WHY="$BASE_WHY, and no commit in this clone adds decide_first to scope.md"
+        elif ! git -C "$SRC_ROOT" show "$PIN_SHA^:skills/scope/koto-templates/scope.md" > "$WORK/base/scope.md" 2> "$WORK/pin.err"; then
+            BASE_WHY="$BASE_WHY, and scope.md is not readable at $PIN_SHA^: $(cat "$WORK/pin.err")"
+        elif ! git -C "$SRC_ROOT" show "$PIN_SHA:skills/scope/koto-templates/scope.md" > "$WORK/pin-scope.md" 2> "$WORK/pin.err"; then
+            BASE_WHY="$BASE_WHY, and scope.md is not readable at $PIN_SHA: $(cat "$WORK/pin.err")"
+        else
+            CMP_JSON=$("$REAL_KOTO" template compile "$WORK/pin-scope.md" 2> "$WORK/pin.err" | tail -1)
+            if [ -z "$CMP_JSON" ] || [ ! -f "$CMP_JSON" ]; then
+                BASE_WHY="$BASE_WHY, and scope.md at $PIN_SHA does not compile: $(tail -3 "$WORK/pin.err")"
+            else
+                BASE_SHA="$PIN_SHA^"
+                CMP_WHAT="the parent of $PIN_SHA, the commit that added decide_first"
+                BASE_WHY=""
+            fi
+        fi
+    else
+        BASE_WHY="$BASE_WHY, and git log failed: $(cat "$WORK/pin.err")"
+    fi
+fi
+# skip_or_fail <what>: a comparison that could not run skips, and fails under CI.
+skip_or_fail() {
+    if [ "${GITHUB_ACTIONS:-}" = true ]; then fail "$1 can't run under CI: $BASE_WHY"; else echo "SKIP: $1: $BASE_WHY"; fi
+}
 
 if [ -n "$BASE_WHY" ]; then
-    echo "SKIP: as before: $BASE_WHY"
+    skip_or_fail "as before"
 else
+    echo "as before: against $CMP_WHAT"
     BASE_JSON=$("$REAL_KOTO" template compile "$WORK/base/scope.md" 2> "$WORK/base-compile.err" | tail -1)
     if [ -z "$BASE_JSON" ] || [ ! -f "$BASE_JSON" ]; then
         fail "scope.md at $BASE_SHA does not compile: $(tail -3 "$WORK/base-compile.err")"
@@ -192,10 +230,10 @@ else
             drop='.states[$s] | .transitions |= map(select(.when[$f] != $v))'
             eq "$st differs from the merge-base only in its $f=$v edge" \
                 "$(jq -cS --arg s "$st" --arg f "$f" --arg v "$v" "$drop" "$BASE_JSON")" \
-                "$(jq -cS --arg s "$st" --arg f "$f" --arg v "$v" "$drop" "$JSON")"
+                "$(jq -cS --arg s "$st" --arg f "$f" --arg v "$v" "$drop" "$CMP_JSON")"
         done
         NAMED='["decide_first","waiting_record","done_waiting","hop_brief","hop_prd","hop_design","hop_plan","full_run_blocked"]'
-        jq -S --argjson n "$NAMED" '.states | with_entries(select(.key as $k | $n | index($k) | not))' "$JSON" > "$WORK/states-branch.json"
+        jq -S --argjson n "$NAMED" '.states | with_entries(select(.key as $k | $n | index($k) | not))' "$CMP_JSON" > "$WORK/states-branch.json"
         jq -S --argjson n "$NAMED" '.states | with_entries(select(.key as $k | $n | index($k) | not))' "$BASE_JSON" > "$WORK/states-base.json"
         if diff "$WORK/states-base.json" "$WORK/states-branch.json" > "$WORK/states.diff"; then
             pass "every state but the named ones is identical to the merge-base's"
@@ -203,7 +241,7 @@ else
             fail "a state outside the named ones changed: $(sed -n 1,40p "$WORK/states.diff")"
         fi
         for t in $(jq -r '.states | to_entries[] | select(.value.terminal == true) | .key' "$BASE_JSON"); do
-            eq "the result map of $t is unchanged" "$(jq -cS --arg t "$t" '.states[$t].result' "$BASE_JSON")" "$(jq -cS --arg t "$t" '.states[$t].result' "$JSON")"
+            eq "the result map of $t is unchanged" "$(jq -cS --arg t "$t" '.states[$t].result' "$BASE_JSON")" "$(jq -cS --arg t "$t" '.states[$t].result' "$CMP_JSON")"
         done
     fi
 fi
@@ -270,7 +308,7 @@ repo() {
 # --- earlier --------------------------------------------------------------------
 
 if [ -n "$BASE_WHY" ]; then
-    echo "SKIP: earlier: $BASE_WHY"
+    skip_or_fail "earlier"
 elif [ -z "$PLUGIN" ]; then
     echo "SKIP: earlier: neither the checkout nor TMPDIR is a path koto admits in a --var"
 else
@@ -372,7 +410,7 @@ EOF
             fail "$1: at [$STATE], want $2: $(printf '%s' "$RESP" | jq -c '{error, blocking_conditions}' 2> /dev/null | cut -c1-500) $(tail -2 "$W/tick.err")"
         fi
     }
-    ctx() { (cd "$W/r-$1" && "$REAL_KOTO" context get "scope-$1" "$2" 2> /dev/null); }
+    ctx() { (cd "$W/r-$1" && "$REAL_KOTO" context get "scope-$1" "$2" 2> "$W/ctx.err") || fail "$1: koto context get $2: $(cat "$W/ctx.err")"; }
     # reach <tag> <hop_design|full_run_blocked> -- open, link the dispatcher,
     # walk to the origin.
     reach() {
@@ -410,16 +448,17 @@ EOF
         tick "$t" '{"decide_outcome":"raised"}'
         at "$t: raised" done_waiting
         local st
-        st=$(cd "$W/r-$t" && "$REAL_KOTO" status "scope-$t" 2> /dev/null)
+        st=$(cd "$W/r-$t" && "$REAL_KOTO" status "scope-$t" 2> "$W/status.err") || fail "$t: koto status: $(cat "$W/status.err")"
         eq "$t: the result's outcome is waiting" waiting "$(printf '%s' "$st" | jq -r '.result.payload.outcome // ""')"
         eq "$t: the result's question is the one raised" "$Q" "$(printf '%s' "$st" | jq -r '.result.payload.question // ""')"
         eq "$t: the work tree is as it was" "" "$(git -C "$W/r-$t" status --porcelain)"
         eq "$t: HEAD is as it was" "$head0" "$(git -C "$W/r-$t" rev-parse HEAD)"
-        if (cd "$W/r-$t" && "$REAL_KOTO" context exists "scope-$t" forced_artifact > /dev/null 2>&1); then
-            fail "$t: forced_artifact is recorded"
-        else
-            pass "$t: no forced_artifact is recorded"
-        fi
+        (cd "$W/r-$t" && "$REAL_KOTO" context exists "scope-$t" forced_artifact > /dev/null 2> "$W/exists.err")
+        case $? in
+            0) fail "$t: forced_artifact is recorded" ;;
+            1) pass "$t: no forced_artifact is recorded" ;;
+            *) fail "$t: koto context exists forced_artifact: $(cat "$W/exists.err")" ;;
+        esac
         if grep -rl 'scope-status-block: abandonment' "$W/r-$t/docs" > /dev/null 2>&1; then
             fail "$t: a document carries the abandonment marker"
         else
@@ -466,7 +505,8 @@ EOF
         eq "dsr: an open while the question is open exits 3" 3 "$OPEN_RC"
         eq "dsr: and prints waiting= and session=" "waiting=$Q
 session=scope-dsr" "$OPEN_OUT"
-        STATE=$(cd "$W/r-dsr" && "$REAL_KOTO" status scope-dsr 2> /dev/null | jq -r '.current_state // ""')
+        STATE=$(cd "$W/r-dsr" && "$REAL_KOTO" status scope-dsr 2> "$W/status.err" | jq -r '.current_state // ""')
+        [ -n "$STATE" ] || fail "dsr: koto status: $(cat "$W/status.err")"
         at "dsr: still waiting" done_waiting
         answer dsr
         continue_run dsr
