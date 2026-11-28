@@ -564,6 +564,19 @@ if [ "$CONTINUE" -eq 1 ]; then
     fi
     [ "$OPEN" = false ] \
         || { printf 'failed=question_unreadable\n'; echo "$PROG: the question $QID reads neither open nor closed" >&2; finish_continue 2; }
+    # A question closed without an answer (withdrawn) leaves the successor
+    # nothing to cite, so no successor is opened: the waiting run stays where
+    # it is, and the work starts fresh.
+    OUTCOME=$("$KOTO" decisions history -- "$QID" | jq -r '.answer.outcome // empty') \
+        || { printf 'failed=question_unreadable\n'; echo "$PROG: could not read the question $QID" >&2; finish_continue 2; }
+    case "$OUTCOME" in
+        answered|settled) ;;
+        *)
+            printf 'refused=withdrawn\nquestion=%s\nsession=%s\n' "$QID" "$HEAD"
+            echo "$PROG: the question $QID that $HEAD waits on was closed without an answer (${OUTCOME:-no answer}): there is nothing to continue from; start the work fresh" >&2
+            finish_continue 2
+            ;;
+    esac
     N=""
     case "$HEAD" in *-r[0-9]*) N=${HEAD##*-r} ;; esac
     case "$N" in

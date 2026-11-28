@@ -21,19 +21,29 @@
 #     it holds on a repeat tick, counts the next fresh one (implementation:2),
 #     and exits 2 for a decide_origin naming no covered state
 #   --from    exits 10 to 16 for the seven covered states, 2 for none
+#   --laps  3 arrivals from one state (0), a fourth (1)
 #   the gate  no attempt (1, with one finding); an undecided attempt and no
-#     question (1); an undecided attempt and its open question (3, and
-#     decide_question holds the identity); decided (0); provisional (0); an
+#     question (1); an undecided attempt and its open question (3, writing
+#     nothing; --record-question then writes decide_question); decided (0);
+#     provisional (0); a deciding attempt beside the arrival's open question
+#     (3, with a finding); an
 #     open need raised from the arrival with no attempt (3); an attempt for an
 #     earlier arrival, one with no state, one in another session and one a
 #     predecessor recorded for the arrival it waited on (1 each); a question
-#     answered since, and one withdrawn since (1 each); koto failing, and a
-#     shirabe with no `question precedent` (2 each)
+#     answered since, and one withdrawn since (1 each); koto failing, koto
+#     failing only `context exists`, and a shirabe with no `question
+#     precedent` (2 each)
 #   presenting  an owner question raised, rendered and answered from a
 #     recorded prompt: the gate exits 3 before the answer, 1 after it (so
 #     `raised` holds), and 0 once an attempt citing the answer is recorded
 #   --approval  no attempt, and a deciding attempt that cites no answer (1
-#     each); a deciding attempt whose basis names an answer in effect (0)
+#     each); an arrival cleared to none (1); a deciding attempt citing the
+#     dispatcher's answer to the question raised for the arrival (0), and
+#     the owner's verified answer (0); the answer to a question another
+#     session raised for the same arrival name (1); the answer of a session
+#     the question was passed to that is not above the run (1); and koto's
+#     own refusals of an answer by the run itself and of a person's answer
+#     with no prompt evidence
 #   --resume  no decide_question: 0, with no shirabe call; the question open,
 #     answered but not cited, and withdrawn (1 each); cited by a deciding
 #     attempt (11, the code of the state the question names)
@@ -276,8 +286,19 @@ raise solo2 --content "$T/q.json" --attempt "$A" --state implementation:1
 Q_SOLO2=$Q
 gate solo2
 expect "an undecided attempt and its open question" 3
-[ "$(koto context get solo2 decide_question)" = "$Q_SOLO2" ] && pass "the gate writes the question's identity to decide_question" \
+koto context exists solo2 decide_question > /dev/null && fail "the gate wrote decide_question" \
+    || pass "the gate writes nothing to context"
+gate --record-question solo2
+expect "--record-question with the arrival's question open" 0
+[ "$(koto context get solo2 decide_question)" = "$Q_SOLO2" ] && pass "--record-question writes the question's identity to decide_question" \
     || fail "decide_question is [$(koto context get solo2 decide_question)], want $Q_SOLO2"
+open solo2b
+at solo2b implementation implementation:1
+put solo2b decide_question stale
+gate --record-question solo2b
+expect "--record-question with no open question" 1
+koto context exists solo2b decide_question > /dev/null && fail "--record-question left a stale decide_question" \
+    || pass "--record-question clears decide_question before it looks"
 
 open solo3
 at solo3 implementation implementation:1
@@ -325,8 +346,19 @@ attempt worker1 --result undecided --state implementation:1
 raise worker1 --content "$T/q.json" --attempt "$A" --state implementation:1
 gate worker1
 expect "a worker's open question to its dispatcher" 3
+attempt worker1 --result decided --chosen SQLite --state implementation:1
+gate worker1
+expect "a deciding attempt beside the arrival's open question" 3
+finding_says "a deciding attempt beside the arrival's open question" "is still open, so a deciding attempt can't take the run on"
 manager_answers worker1 "$Q"
 gate worker1
+expect "once the question is answered, the deciding attempt counts" 0
+open worker1b --dispatched-by manager
+at worker1b implementation implementation:1
+attempt worker1b --result undecided --state implementation:1
+raise worker1b --content "$T/q.json" --attempt "$A" --state implementation:1
+manager_answers worker1b "$Q"
+gate worker1b
 expect "a question answered since" 1
 
 open worker2 --dispatched-by manager
@@ -349,6 +381,33 @@ expect "koto failing" 2
 G=$(PATH="$T/oldshirabe:$PATH" bash "$GATE" solo3 2>"$T/gate.err")
 RC=$?
 expect "a shirabe with no question precedent" 2
+# koto failing only `context exists`: read as trouble, never as an absent key,
+# so a continued run never routes as a fresh one.
+mkdir -p "$T/flakykoto"
+{
+    echo '#!/bin/sh'
+    echo 'if [ "$1 $2" = "context exists" ]; then echo "koto stand-in: store unreadable" >&2; exit 3; fi'
+    printf 'exec "%s" "$@"\n' "$(command -v koto)"
+} > "$T/flakykoto/koto"
+chmod +x "$T/flakykoto/koto"
+G=$(PATH="$T/flakykoto:$PATH" bash "$GATE" --resume solo3 2>"$T/gate.err")
+RC=$?
+expect "--resume with koto context exists failing" 2
+G=$(PATH="$T/flakykoto:$PATH" bash "$GATE" --arrive solo3 2>"$T/gate.err")
+RC=$?
+expect "--arrive with koto context exists failing" 2
+
+# --- --laps -------------------------------------------------------------------------
+
+open lap
+put lap decide_origin implementation
+put lap decide_laps_implementation 3
+gate --laps lap
+expect "--laps at the third arrival from implementation" 0
+put lap decide_laps_implementation 4
+gate --laps lap
+expect "--laps at the fourth" 1
+finding_says "--laps at the fourth" "resume is refused"
 
 # --- presenting: an owner question answered from a recorded prompt ---------------
 
@@ -400,6 +459,22 @@ attempt solo8 --result decided --chosen SQLite --basis "$OWNER_ANS" --state anal
 gate solo8
 expect "presenting: once an attempt cites the answer" 0
 
+open solo9
+at solo9 deferral_approval deferral_approval:1
+attempt solo9 --result undecided --state deferral_approval:1
+raise solo9 --content "$T/q.json" --attempt "$A" --state deferral_approval:1
+Q_SOLO9=$Q
+"$SHIRABE" question render "$Q_SOLO9" > "$T/render.out" 2>"$T/render.err" || fail "render: $(cat "$T/render.err")"
+sleep 1
+H=$(harness_id)
+record "$T/render.out" "$H" SQLite
+CLAUDE_CODE_SESSION_ID="$H" "$SHIRABE" question answer "$Q_SOLO9" --in manager > "$T/answer.out" 2>"$T/answer.err" \
+    || fail "the owner's answer to $Q_SOLO9: $(cat "$T/answer.out" "$T/answer.err")"
+OWNER9="$(jq -r '.session // empty' "$T/answer.out"):$(jq -r '.id // empty' "$T/answer.out")"
+attempt solo9 --result decided --chosen "defer it" --basis "$OWNER9" --state deferral_approval:1
+gate --approval solo9
+expect "--approval citing the owner's verified answer to the question raised for the arrival" 0
+
 # --- --approval ---------------------------------------------------------------------
 
 open worker3 --dispatched-by manager
@@ -415,7 +490,57 @@ raise worker3 --content "$T/q.json" --attempt "$A" --state deferral_approval:2
 manager_answers worker3 "$Q"
 attempt worker3 --result decided --chosen "defer it" --basis "manager:$ANS" --state deferral_approval:2
 gate --approval worker3
-expect "--approval with a deciding attempt whose basis names an answer in effect" 0
+expect "--approval citing the dispatcher's answer to the question raised for the arrival" 0
+put worker3 decide_arrival none
+gate --approval worker3
+expect "--approval once a new deferral cleared the arrival to none" 1
+finding_says "--approval once a new deferral cleared the arrival to none" "needs_answer"
+
+# Another session's question under the same arrival name, answered by its
+# dispatcher, approves nothing here.
+open aux --dispatched-by manager
+at aux deferral_approval deferral_approval:1
+attempt aux --result undecided --state deferral_approval:1
+raise aux --content "$T/q.json" --attempt "$A" --state deferral_approval:1
+manager_answers aux "$Q"
+open worker6 --dispatched-by manager
+at worker6 deferral_approval deferral_approval:1
+attempt worker6 --result decided --chosen "defer it" --state deferral_approval:1 --basis "manager:$ANS"
+gate --approval worker6
+expect "--approval citing the answer to another session's question" 1
+finding_says "--approval citing the answer to another session's question" "no question is raised for deferral_approval:1"
+
+# The run's own question passed to a session outside its dispatch chain, and
+# answered there: koto accepts the addressee's answer, the gate does not.
+open scratch
+open worker7 --dispatched-by manager
+at worker7 deferral_approval deferral_approval:1
+attempt worker7 --result undecided --state deferral_approval:1
+raise worker7 --content "$T/q.json" --attempt "$A" --state deferral_approval:1
+Q7=$Q
+koto decisions readdress --in=worker7 --to=session:scratch --by=session --reason "a scratch session" -- worker7 "${Q7##*/}" > "$T/readdress.out" 2>"$T/readdress.err" \
+    || fail "readdress: $(cat "$T/readdress.out" "$T/readdress.err")"
+A7=$(koto decisions answer --in=scratch --text=Defer --by=session -- worker7 "${Q7##*/}" 2>"$T/ans.err" | jq -r '.decision.id // .id // empty')
+[ -n "$A7" ] || fail "scratch could not answer $Q7: $(cat "$T/ans.err")"
+attempt worker7 --result decided --chosen "defer it" --state deferral_approval:1 --basis "scratch:$A7"
+gate --approval worker7
+expect "--approval citing an answer from a session not above the run" 1
+finding_says "--approval citing an answer from a session not above the run" "approves nothing"
+
+# koto's own refusals: the run answering itself, and a person's answer with
+# no prompt evidence.
+open worker8 --dispatched-by manager
+at worker8 deferral_approval deferral_approval:1
+attempt worker8 --result undecided --state deferral_approval:1
+raise worker8 --content "$T/q.json" --attempt "$A" --state deferral_approval:1
+koto decisions answer --in=worker8 --text=Defer --by=session -- worker8 "${Q##*/}" > "$T/self.out" 2>"$T/self.err"
+RC=$?
+[ "$RC" -ne 0 ] && grep -q '"field":"in"' "$T/self.out" "$T/self.err" && pass "koto refuses an answer the run records for its own question" \
+    || fail "a self-answer exited $RC: $(cat "$T/self.out" "$T/self.err")"
+koto decisions answer --in=manager --text=Defer --by=person:owner -- worker8 "${Q##*/}" > "$T/person.out" 2>"$T/person.err"
+RC=$?
+[ "$RC" -ne 0 ] && grep -q '"field":"prompt"' "$T/person.out" "$T/person.err" && pass "koto refuses a person's answer with no prompt evidence" \
+    || fail "an unproven person answer exited $RC: $(cat "$T/person.out" "$T/person.err")"
 
 # --- --resume -----------------------------------------------------------------------
 

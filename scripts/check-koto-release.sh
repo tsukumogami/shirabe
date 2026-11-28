@@ -12,9 +12,12 @@
 #      they are read.
 #
 #   2. The floor bites. In a temp copy of skills/, plan_validation.verdict's
-#      `exit` is set to `mode: auto`. `exit` routes to the validation_exit
-#      terminal, which no auto answer may take, so that copy must fail to
-#      compile with E-DECIDER-FLOOR, while the unmodified copy compiles. A
+#      `proceed` is set to `mode: auto`. `proceed` routes to
+#      setup_plan_backed along a when clause that tests the step_detail gate,
+#      which no auto answer may take, so that copy must fail to compile with
+#      E-DECIDER-FLOOR, while the unmodified copy compiles. (`exit` routes to
+#      decide_first, which tests no gate and is not a terminal, so the floor
+#      has nothing to refuse there.) A
 #      koto that let the mutation through would be a koto whose floor this
 #      repository could not rely on.
 #
@@ -52,8 +55,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROOF_TEMPLATE="skills/work-on/koto-templates/work-on.md"
 PROOF_STATE="plan_validation"
 PROOF_FIELD="verdict"
-PROOF_VALUE="exit"
-PROOF_TARGET="validation_exit"
+PROOF_VALUE="proceed"
+PROOF_TARGET="setup_plan_backed"
 
 KEEP=0
 

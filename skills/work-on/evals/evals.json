@@ -486,7 +486,7 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on #503 — a single issue with one acceptance criterion that genuinely cannot be satisfied this session (a flaky external dependency). The rest of the issue is complete and verified.",
-      "expected_output": "The agent's plan does not self-report the issue done with a caveat. It submits deferral_requested, and at deferral_approval it submits approval_decision: needs_answer, because approved and rejected hold until a deciding attempt for the deferral cites an answer someone other than the run gave. At decide_first it raises the deferral as one question (presenting it when a person started the turn), and only with an attempt citing the answer does it go back and approve the deferral or report the issue blocked. The plan introduces no unapproved caveat/hedge language into the shipped artifacts.",
+      "expected_output": "The agent's plan does not self-report the issue done with a caveat. It submits deferral_requested, and at deferral_approval it submits approval_decision: needs_answer, because approved and rejected hold until a deciding attempt for the deferral cites the answer to the question the run raised for it, from a verified person or a session above the run. At decide_first it raises the deferral as one question (presenting it when a person started the turn), and only with an attempt citing the answer does it go back and approve the deferral or report the issue blocked. The plan introduces no unapproved caveat/hedge language into the shipped artifacts.",
       "files": [],
       "expectations": [
         "Agent's plan surfaces the unmet acceptance criterion to the human as an explicit decision rather than self-reporting done",
@@ -1220,7 +1220,7 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on #612, dispatched by a manager session and running unattended. At implementation the agent finds the issue never says which cache store to use, and the two candidates differ in what the team has to operate. It is about to submit implementation_status: blocked. What happens next, in order, and where does the run end?",
-      "expected_output": "The blocked submission no longer ends the run: the edge goes to decide_first, whose action counts the arrival and names it implementation:1. The agent follows references/question-procedure.md: it reads any earlier answer with shirabe question precedent --in issue_612 --label <label>, finds none, and because the choice is costly to undo it records shirabe question attempt --in issue_612 --state implementation:1 --result undecided with --undo costly and its reason, then raises one question with shirabe question raise --in issue_612 --attempt <id> --state implementation:1, which goes to the manager. Being unattended, it opens no prompt and submits decide_outcome: raised. attempt_recorded exits 3 and the run ends at done_waiting, a retained failure terminal whose result names the question's identity. It does not submit decided, and it does not restart the work fresh.",
+      "expected_output": "The blocked submission no longer ends the run: the edge goes to decide_first, whose action counts the arrival and names it implementation:1. The agent follows references/question-procedure.md: it reads any earlier answer with shirabe question precedent --in issue_612 --label <label>, finds none, and because the choice is costly to undo it records shirabe question attempt --in issue_612 --state implementation:1 --result undecided with --undo costly and its reason, then raises one question with shirabe question raise --in issue_612 --attempt <id> --state implementation:1, which goes to the manager. Being unattended, it opens no prompt and submits decide_outcome: raised. attempt_recorded exits 3, the run passes waiting_record, whose action records the question in decide_question, and it ends at done_waiting, a retained failure terminal whose result names the question's identity. It does not submit decided, and it does not restart the work fresh.",
       "files": [],
       "expectations": [
         "Agent expects the blocked submission to arrive at decide_first rather than done_blocked",
@@ -1254,14 +1254,15 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "issue_612 ended at done_waiting on a question to its manager. The user invokes /work-on #612 again. How does the agent pick the run up, what does it do if the question is still open, and what if it has been answered?",
-      "expected_output": "The agent does not start the work fresh. It opens the run through work-on-open.sh --workflow issue_612 with its usual --var flags and --continue-waiting. If the question is still open the script exits 3 printing waiting=<identity> and session=<head>, and the agent reports that the run is still waiting on that question and stops. Once it is answered, the script opens a successor that continues the waiting session (issue_612-r2), printing opened=continued; the agent ticks it, and entry's decide_resume holds until the agent records a deciding attempt citing the answer (shirabe question attempt --in issue_612-r2 --result decided --basis <answer>). The run then goes back to the state the question came from and carries on, its arrivals counting on from the earlier session. If the answer is no longer needed the run's question is withdrawn with shirabe question withdraw <identity> --in <session> --reason <why>. Under --koto-leg the flag is refused, since koto's succession can't be combined with a leg.",
+      "expected_output": "The agent does not start the work fresh. It opens the run through work-on-open.sh --workflow issue_612 with its usual --var flags and --continue-waiting. If the question is still open the script exits 3 printing waiting=<identity> and session=<head>, and the agent reports that the run is still waiting on that question and stops, unless the user started this turn and the question is addressed to them, in which case it presents the question first and opens again once it is answered. Once it is answered, the script opens a successor that continues the waiting session (issue_612-r2), printing opened=continued; the agent ticks it, and entry's decide_resume holds until the agent records a deciding attempt citing the answer (shirabe question attempt --in issue_612-r2 --result decided --basis <answer>). The run then goes back to the state the question came from and carries on, its arrivals counting on from the earlier session. If the answer is no longer needed the run's question is withdrawn with shirabe question withdraw <identity> --in <session> --reason <why>; a withdrawn question is refused with refused=withdrawn, and the agent starts the work fresh rather than continuing. Under --koto-leg the flag is refused, since koto's succession can't be combined with a leg.",
       "files": [],
       "expectations": [
         "Agent continues the run with work-on-open.sh --continue-waiting rather than a fresh open",
         "Agent reports waiting=<identity> and stops when the script exits 3",
         "Agent records a deciding attempt citing the answer before the successor leaves entry",
         "Agent expects the successor to go back to the state the question came from",
-        "Agent names shirabe question withdraw for an answer no longer needed"
+        "Agent names shirabe question withdraw for an answer no longer needed",
+        "Agent starts the work fresh, not continued, when the script refuses a withdrawn question with refused=withdrawn"
       ]
     },
     {
@@ -1270,7 +1271,7 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on #612 reaches finalization with one acceptance criterion it can't meet and submits deferral_requested. At deferral_approval, can the agent submit approved straight away? What does it do instead?",
-      "expected_output": "No. deferral_approval's answer_cited gate, which can't be overridden, holds approved and rejected until a deciding attempt for the deferral cites an answer in effect, so an approval rests on an answer someone other than the run gave. The agent submits approval_decision: needs_answer, which goes to decide_first with arrival deferral_approval:1; there it raises the question (or, attended, presents it and records the answer), and once a deciding attempt citing the answer is recorded it submits decided with decided_next: resume, back at deferral_approval, where approved or rejected now pass. From deferral_approval there is no stop at decide_first.",
+      "expected_output": "No. deferral_approval's answer_cited gate, which can't be overridden, holds approved and rejected until a deciding attempt for the deferral cites the answer to the question the run raised for this deferral, given by a verified person or by a session above the run; an answer the run gave itself, or one from a session outside its dispatch chain, approves nothing. The agent submits approval_decision: needs_answer, which goes to decide_first with arrival deferral_approval:1; there it raises the question (or, attended, presents it and records the answer), and once a deciding attempt citing the answer is recorded it submits decided with decided_next: resume, back at deferral_approval, where approved or rejected now pass. From deferral_approval there is no stop at decide_first.",
       "files": [],
       "expectations": [
         "Agent says answer_cited holds approved and rejected until an answer is cited",
@@ -1315,7 +1316,7 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on with the free-form task \"add a shout flag\". At post_research_validation the agent finds the task needs a design first and submits verdict: needs_design. What does the next koto next response tell it, and what can it not do there?",
-      "expected_output": "The run is at decide_first, not validation_exit, with decide_origin post_research_validation and arrival post_research_validation:1. The directive names references/question-procedure.md, the three commands it runs there (shirabe question precedent, shirabe question attempt with --state post_research_validation:1, and shirabe question raise) and the arrival to pass as --state, without restating the procedure. Until an attempt for that arrival is recorded, neither decided nor raised leaves: attempt_recorded holds and says what is missing, and the gate can't be overridden.",
+      "expected_output": "The run is at decide_first, not validation_exit, with decide_origin post_research_validation and arrival post_research_validation:1. The directive names references/question-procedure.md, the three commands it runs there (shirabe question precedent, shirabe question attempt with --state post_research_validation:1, and shirabe question raise) and where the arrival to pass as --state is read (koto context get <session> decide_arrival), without restating the procedure. Until an attempt for that arrival is recorded, neither decided nor raised leaves: attempt_recorded holds and says what is missing, and the gate can't be overridden.",
       "files": [],
       "expectations": [
         "Agent expects needs_design to arrive at decide_first rather than validation_exit",
@@ -1327,6 +1328,34 @@
     },
     {
       "id": 90,
+      "name": "decide-first-lap-cap",
+      "tier": 1,
+      "mode": "plan_only",
+      "files": [],
+      "prompt": "/work-on with the free-form task \"add a shout flag\". The agent has submitted verdict: exit at task_validation three times, each time recorded a decided attempt at decide_first and resumed. It submits verdict: exit a fourth time and the run is at decide_first with arrival task_validation:4. It records a decided attempt and submits decided with decided_next: resume. What happens?",
+      "expected_output": "The resume is held: decide_laps, which can't be overridden, refuses resume from the fourth arrival from the same state on, and its finding says so. The agent does not loop back again. It submits decided with decided_next: stop, which takes the exit it was about to take (validation_exit), or records an undecided attempt and raises the question.",
+      "expectations": [
+        "Agent expects the fourth resume from task_validation to be held by decide_laps",
+        "Agent does not try to override decide_laps",
+        "Agent stops with decided_next: stop or raises the question instead of resuming"
+      ]
+    },
+    {
+      "id": 91,
+      "name": "decide-first-stale-approval",
+      "tier": 1,
+      "mode": "plan_only",
+      "files": [],
+      "prompt": "/work-on #612, dispatched by a manager session. Its first deferral was approved on the manager's answer, cited by a deciding attempt for deferral_approval:1. pr_precheck then sent it back through pass_counting to finalization, and it submits deferral_requested again. At deferral_approval, can it submit approved on the earlier answer?",
+      "expected_output": "No. The new deferral_requested clears decide_arrival and decide_question, so answer_cited reads no arrival for this deferral and holds approved and rejected, asking for needs_answer. The agent submits approval_decision: needs_answer, which arrives at decide_first as a new arrival, raises the question for it, since an answer read as precedent was given to another question and approves nothing, and comes back to deferral_approval once that answer is cited.",
+      "expectations": [
+        "Agent says the earlier answer approves nothing for the new deferral",
+        "Agent submits approval_decision: needs_answer",
+        "Agent settles the new deferral at decide_first under its new arrival"
+      ]
+    },
+    {
+      "id": 92,
       "name": "decide-first-gate-knows-execute-exit",
       "prompt": "An /execute run arrives at its decide_first from worktree_discipline_check. What does decide-first-gate.sh --from answer, and what does a deciding attempt need when the run was rewound after its question was answered?",
       "expected_output": "decide-first-gate.sh --from exits 20 for worktree_discipline_check, the code /execute's decide_first routes resume and stop on. When the session holds a question raised for the current arrival that has since been answered, the check holds the deciding attempt until one in effect cites that answer in its basis, naming the shirabe question attempt command to run.",

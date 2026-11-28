@@ -10,10 +10,11 @@
 #                      so the gate finds it; returns 1, saying why, when none
 #                      is found
 #   cite_deferral <s>  takes session <s>, at deferral_approval, through
-#                      needs_answer to decide_first, has a question answered by
-#                      a manager session (<s>-mgr answering <s>-aux, which it
-#                      dispatched), records a decided attempt for the arrival
-#                      citing that answer, and resumes: <s> is back at
+#                      needs_answer to decide_first, links <s> as dispatched
+#                      by a manager session <s>-mgr, raises the question in <s>
+#                      for the arrival, has <s>-mgr answer it, records a
+#                      decided attempt for the arrival citing that answer, and
+#                      resumes: <s> is back at
 #                      deferral_approval, where approved and rejected pass
 #                      answer_cited. Returns 1, saying why, otherwise.
 #   decided_stop <s>   takes session <s>, at decide_first, to the exit it was
@@ -76,14 +77,13 @@ cite_deferral() {
         *) echo "decide-first testlib: $s arrived as [$arrival], not from deferral_approval"; return 1 ;;
     esac
     koto init "$s-mgr" --template "$DF_DIR/df-toy.md" > "$DF_DIR/df-init.out" \
-        && koto init "$s-aux" --template "$DF_DIR/df-toy.md" --dispatched-by "$s-mgr" > "$DF_DIR/df-init.out" \
-        || { echo "decide-first testlib: koto init: $(cat "$DF_DIR/df-init.out")"; return 1; }
-    a=$(shirabe question attempt --in "$s-aux" --what "the deferral" --result undecided \
-        --undo costly --undo-reason "a shipped deferral is the issue owner's to take back" | jq -r '.id // empty')
-    [ -n "$a" ] || { echo "decide-first testlib: the undecided attempt in $s-aux was not recorded"; return 1; }
-    q=$(shirabe question raise --in "$s-aux" --content "$DF_DIR/df-q.json" --attempt "$a" | jq -r '.identity // empty')
-    [ -n "$q" ] || { echo "decide-first testlib: the question in $s-aux was not raised"; return 1; }
-    id=$(koto decisions answer --in="$s-mgr" --text=Defer --by=session -- "$s-aux" "${q##*/}" | jq -r '.decision.id // .id // empty')
+        && koto session link "$s" --dispatched-by "$s-mgr" > "$DF_DIR/df-init.out" \
+        || { echo "decide-first testlib: koto init or link: $(cat "$DF_DIR/df-init.out")"; return 1; }
+    a=$(shirabe question attempt --in "$s" --what "the deferral" --result undecided --state "$arrival" | jq -r '.id // empty')
+    [ -n "$a" ] || { echo "decide-first testlib: the undecided attempt in $s was not recorded"; return 1; }
+    q=$(shirabe question raise --in "$s" --content "$DF_DIR/df-q.json" --attempt "$a" --state "$arrival" | jq -r '.identity // empty')
+    [ -n "$q" ] || { echo "decide-first testlib: the question in $s was not raised"; return 1; }
+    id=$(koto decisions answer --in="$s-mgr" --text=Defer --by=session -- "$s" "${q##*/}" | jq -r '.decision.id // .id // empty')
     [ -n "$id" ] || { echo "decide-first testlib: $s-mgr did not answer $q"; return 1; }
     a=$(shirabe question attempt --in "$s" --what "the deferral" --result decided --chosen Defer \
         --state "$arrival" --basis "$s-mgr:$id" | jq -r '.id // empty')
