@@ -423,7 +423,7 @@ jq -n --arg a "$A" --slurpfile rec "$T/A.record" "$EXPECT" > "$T/A.rules.want" 2
 need "--rules on A exits 0" 0 "$RC_RULES$(cat "$T/A.rules.err")"
 need "  ... one object per row, in record order" "s1 s2 s3 s4 s5 s6 s7 s8 s9" "$(jq -r .standing "$T/A.rules" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 jq -cS '.[]' "$T/A.rules.want" > "$T/A.rules.want.each" 2>/dev/null
-jq -cS 'del(.under_session_grant, .session_allows) | if .standing == "s9" then del(.why) else . end' "$T/A.rules" > "$T/A.rules.rest" 2>/dev/null
+jq -cS 'del(.under_session_grant, .session_allows) | if .standing == "s9" then del(.why) else . end' "$T/A.rules" > "$T/A.rules.rest" 2>"$T/A.rules.rest.err"
 cmp -s "$T/A.rules.want.each" "$T/A.rules.rest" || needf "apart from under_session_grant and session_allows, --rules on A isn't the objects held here: $(head -c 600 "$T/A.rules.rest")"
 need "  ... s9's why names koto's failure to read the decision, not a session's decision" true \
     "$(jq -r 'select(.standing == "s9") | .why | startswith("koto can'"'"'t read the decision: koto exited ")' "$T/A.rules" 2>&1)"
