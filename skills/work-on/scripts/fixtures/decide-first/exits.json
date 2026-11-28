@@ -1,0 +1,12 @@
+[
+  {"origin": "analysis", "field": "plan_outcome", "value": "scope_changed_escalate", "old": "done_blocked", "evidence": {"plan_outcome": "scope_changed_escalate", "approach_summary": "the change needs a second service"}, "reason": "scope changed: escalation required: the change needs a second service"},
+  {"origin": "analysis", "field": "plan_outcome", "value": "blocked_missing_context", "old": "done_blocked", "evidence": {"plan_outcome": "blocked_missing_context", "approach_summary": "no cache store is named"}, "reason": "analysis blocked: missing context: no cache store is named"},
+  {"origin": "implementation", "field": "implementation_status", "value": "blocked", "old": "done_blocked", "evidence": {"implementation_status": "blocked", "rationale": "no cache store is chosen"}, "reason": "implementation blocked: no cache store is chosen"},
+  {"origin": "implementation", "field": "implementation_status", "value": "partial_tests_failing_escalate", "old": "done_blocked", "evidence": {"implementation_status": "partial_tests_failing_escalate", "rationale": "the store tests fail"}, "reason": "implementation blocked: the store tests fail"},
+  {"origin": "introspection", "field": "introspection_outcome", "value": "issue_superseded", "old": "done_blocked", "evidence": {"introspection_outcome": "issue_superseded", "rationale": "another issue covers it"}, "reason": "issue superseded: another issue covers it"},
+  {"origin": "task_validation", "field": "verdict", "value": "exit", "old": "validation_exit", "evidence": {"verdict": "exit", "rationale": "the task names no outcome"}, "reason": null},
+  {"origin": "post_research_validation", "field": "verdict", "value": "needs_design", "old": "validation_exit", "evidence": {"verdict": "needs_design", "rationale": "it needs a design"}, "reason": null},
+  {"origin": "post_research_validation", "field": "verdict", "value": "exit", "old": "validation_exit", "evidence": {"verdict": "exit", "rationale": "it is already done"}, "reason": null},
+  {"origin": "plan_validation", "field": "verdict", "value": "exit", "old": "validation_exit", "evidence": {"verdict": "exit", "rationale": "the step is stale"}, "reason": null},
+  {"origin": "deferral_approval", "field": "approval_decision", "value": "needs_answer", "old": null, "evidence": {"approval_decision": "needs_answer"}, "reason": null}
+]

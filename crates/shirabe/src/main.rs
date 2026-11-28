@@ -127,7 +127,8 @@ enum Commands {
     PreActionHook(PreActionHookArgs),
     /// The plugin's hooks other than the Bash pre-action hook.
     Hook(HookArgs),
-    /// Raise, list, render and answer a question a session cannot settle,
+    /// Raise, list, render, answer and withdraw a question a session cannot
+    /// settle, record an attempt, and read the owner's earlier answers,
     /// recorded in koto. Exits 0 done, 1 refused before any koto write,
     /// 2 usage, 3 koto missing or below the minimum, 4 koto refused,
     /// 5 cannot be presented or the answer does not read as verified,

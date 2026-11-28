@@ -31,7 +31,10 @@ others.
 A session is kept when any of these holds:
 
 - the terminal is declared `failure: true` (`done_blocked`, for example), with
-  or without `--no-cleanup`;
+  or without `--no-cleanup`. `/work-on`'s `done_waiting` is one: a run waiting
+  on its question is kept so a later run can continue it, and `koto session
+  cleanup` refuses it (`holds_question`) until the question is answered or
+  withdrawn;
 - a hierarchy still holds the session, with or without `--no-cleanup`: it has a
   live dispatcher or parent, a `chain/parent` link, or another session names
   it (koto 0.23.0 and later; on 0.22.x this case doesn't exist, and such a

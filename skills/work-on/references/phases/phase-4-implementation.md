@@ -163,6 +163,11 @@ and design intent drift.
 - `implementation_status: scope_expanded_retry` — scope grew beyond the plan mid-implementation; route back to `analysis` to rewrite the plan rather than proceeding with stale decisions
 - `implementation_status: blocked` — external blocker
 
+`partial_tests_failing_escalate` and `blocked` don't end the run on the spot:
+both go to `decide_first`, where the run records an attempt to settle what
+stopped it and either resumes here, stops at `done_blocked`, or raises a
+question and ends at `done_waiting` (SKILL.md, **Deciding Before Stopping**).
+
 Use `scope_expanded_retry` when the user or the code reveals new scope during
 implementation — e.g., the user asks to configure behaviour that was previously
 hard-coded, or a referenced file turns out to need parallel changes. Explain
@@ -198,4 +203,4 @@ The gate is `context-exists`: it asks whether `plan.md` is present, not whether 
 
 `analysis` clears the same keys on its own `scope_changed_retry` self-loop; see `phase-3-analysis.md`. Two edges, one gate, and each needs its own clearing step.
 
-If the clearing step fails and you stop the run, submit `implementation_status: blocked` with the reason in `rationale`; it reaches `done_blocked` like the escalate outcome the block names.
+If the clearing step fails and you stop the run, submit `implementation_status: blocked` with the reason in `rationale`; it goes through `decide_first` like the escalate outcome the block names, and a decided stop there reaches `done_blocked`.

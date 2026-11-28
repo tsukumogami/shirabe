@@ -53,7 +53,8 @@
 #
 # Usage:
 #   work-on-open.sh --workflow <name> [--var NAME=VALUE]...
-#                   [--dispatched-by <dispatcher>] <tokens-file>
+#                   [--dispatched-by <dispatcher>] [--continue-waiting]
+#                   <tokens-file>
 #
 #   --workflow     the session name, <WF> in SKILL.md: issue_<N> or task_<slug>.
 #   --dispatched-by
@@ -206,6 +207,50 @@
 # from the tokens are the caller's input, not reads: koto checks them, and its
 # invalid_var on the leg is their intended answer.
 #
+# A run waiting on its question. With --continue-waiting, <name> is a session
+# at done_waiting, the run that raised a question at decide_first and ended
+# waiting on it, and the open continues that run instead of opening a new one.
+# SKILL.md's Resume passes the flag once it has read the session there;
+# without it the open is exactly as it was, and makes no read first. Each
+# continuation is a new session, so the script first finds the newest,
+# following the `successors` `koto session hierarchy --json` reports, at
+# most 32 of them. Then, at the newest session:
+#
+#   - in any state but done_waiting, the script prints
+#     `refused=superseded session=<newest>` and exits 2: that session is the
+#     run now, and SKILL.md's Resume ticks it rather than opening another;
+#   - at done_waiting with its question still open (`koto decisions history`
+#     reports it open), it prints `waiting=<identity>` and `session=<newest>`
+#     and exits 3, with no koto init: the run waits on that question;
+#   - at done_waiting with the question answered or withdrawn, it runs
+#
+#       koto init <successor> --template <work-on.md> --vars-file <pairs>
+#                 --continues <newest> --supersede --carry ""
+#                 --expect-state done_waiting
+#
+#     which fences the waiting session, carries every one of its context keys
+#     (the plan, decide_question and the arrival count among them) and refuses
+#     with stale_state when the session has left done_waiting since it was
+#     read. <successor> is <name>-r2 for <name>, and -r<n+1> for a name ending
+#     -r<n>. The script prints `opened=continued`, `continues=<newest>` and
+#     `session=<successor>`, then links the dispatcher as for any open. The
+#     successor's first state holds until it cites the answer (work-on.md's
+#     entry). koto's variables are not carried by a succession, so the pairs
+#     are this invocation's, as for any open. A refusal prints
+#     `refused=<koto's code>` and exits koto's code.
+#     Under --dispatched-by, the dispatcher must be the one koto's recorded
+#     origin names for the waiting session: a successor is never linked to a
+#     different dispatcher (or to one when the waiting run had none). Otherwise
+#     the script prints `refused=dispatcher_differs`, `dispatcher=<the waiting
+#     session's, or none>` and `session=<newest>`, and exits 2 with no koto
+#     init. decide-first-gate.sh counts an answer from a dispatcher only
+#     across a lineage that names one dispatcher, so the refusal keeps a
+#     continuation from changing whose answer counts.
+#
+# --continue-waiting with --koto-leg is this script's usage refusal: koto's
+# succession can't be combined with --koto-leg or --attach-live, so a run
+# bound to a leg is not continued here.
+#
 # Output: koto-open.sh's lines (opened=..., rebound=..., leg=..., refused=...,
 # failed=...), then `session=<name>` when a session was opened or attached,
 # then, under --dispatched-by, `warning=link-failed dispatched_by=<dispatcher>`
@@ -213,8 +258,9 @@
 # `failed=kind_unreadable` alone. koto's refusal wording goes to stderr.
 #
 # Exit codes: koto-open.sh's (0 opened, 2 refused, 127 no koto or jq, koto's
-# own code otherwise), 64 for this script's own usage refusals, or 66 for a
-# failed review-level or unit-kind read under --koto-leg, with no koto init.
+# own code otherwise), 64 for this script's own usage refusals, 66 for a
+# failed review-level or unit-kind read under --koto-leg, with no koto init,
+# and 3 for a run waiting on an open question, with no koto init.
 #
 # A bare `--koto-leg` followed by another flag takes that flag as its value, so
 # the value fails the leg pattern and exits 64. deliver-open.sh records an empty
@@ -269,6 +315,7 @@ VARS=()
 POS=0
 DISPATCHER=""
 HAVE_DISPATCHER=0
+CONTINUE=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --workflow)
@@ -282,6 +329,7 @@ while [ "$#" -gt 0 ]; do
             [ "$#" -ge 2 ] || own_refusal "--dispatched-by needs the dispatcher's session name"
             HAVE_DISPATCHER=$((HAVE_DISPATCHER + 1))
             DISPATCHER="$2"; shift ;;
+        --continue-waiting) CONTINUE=1 ;;
         -*) own_refusal "unknown option: $1" ;;
         *)
             POS=$((POS + 1))
@@ -372,6 +420,7 @@ if [ -n "$LEG" ]; then
     fi
     PLAN=$(plan_among "$REST")
     [ -z "$PLAN" ] || own_refusal "--koto-leg does not apply to a PLAN ($PLAN): one leg answers one issue's run"
+    [ "$CONTINUE" -eq 0 ] || own_refusal "--continue-waiting does not apply under --koto-leg: koto's succession can't be combined with a leg"
 fi
 
 # A deferral to hosted CI needs its reason (shared with /execute's opener).
@@ -472,6 +521,102 @@ jq -nc --arg root "$ROOT" --arg level "$LEVEL" --arg kind "$KIND" --argjson toke
     + (if $level == "" then [] else [["REVIEW_LEVEL", $level]] end)
     + (if $kind == "" then [] else [["UNIT_KIND", $kind]] end)' --args ${VARS[@]+"${VARS[@]}"} > "$PAIRS_FILE" \
     || { rm -f -- "$PAIRS_FILE"; own_refusal "could not write the variables file"; }
+
+KOTO="${KOTO_BIN:-koto}"
+
+# finish_continue <rc> -- remove the pairs file and the tokens directory and
+# exit <rc>: koto-open.sh does this on its own path, which a continuation
+# doesn't take.
+finish_continue() {
+    rm -f -- "$PAIRS_FILE"
+    remove_tokens
+    exit "$1"
+}
+
+# A run waiting on its question is continued (see the header).
+if [ "$CONTINUE" -eq 1 ]; then
+    command -v "$KOTO" >/dev/null || { printf 'failed=koto_missing\n'; echo "$PROG: koto is not on PATH" >&2; finish_continue 127; }
+    HEAD="$WORKFLOW"
+    HOPS=0
+    while :; do
+        NEXT=$("$KOTO" session hierarchy --json "$HEAD" | jq -r '(.successors // []) | last // empty') \
+            || { printf 'failed=chain_unreadable\n'; echo "$PROG: could not read the sessions continuing $HEAD" >&2; finish_continue 2; }
+        [ -n "$NEXT" ] || break
+        HOPS=$((HOPS + 1))
+        [ "$HOPS" -le 32 ] \
+            || { printf 'failed=chain_unreadable\n'; echo "$PROG: more than 32 sessions continue $WORKFLOW" >&2; finish_continue 2; }
+        HEAD="$NEXT"
+    done
+    STATUS=$("$KOTO" status "$HEAD") \
+        || { printf 'failed=status_unreadable\n'; echo "$PROG: could not read $HEAD's status" >&2; finish_continue 2; }
+    HEAD_STATE=$(printf '%s' "$STATUS" | jq -r '.current_state // empty')
+    if [ "$HEAD_STATE" != done_waiting ]; then
+        if [ "$HEAD" = "$WORKFLOW" ]; then
+            printf 'refused=not_waiting\n'
+            echo "$PROG: $WORKFLOW is at ${HEAD_STATE:-no readable state}, not done_waiting: there is no waiting run to continue" >&2
+        else
+            printf 'refused=superseded\nsession=%s\n' "$HEAD"
+            echo "$PROG: $WORKFLOW is continued by $HEAD, at ${HEAD_STATE:-no readable state}: resume $HEAD" >&2
+        fi
+        finish_continue 2
+    fi
+    QID=$(printf '%s' "$STATUS" | jq -r '.result.payload.question // empty')
+    [ -n "$QID" ] \
+        || { printf 'failed=no_question\n'; echo "$PROG: $HEAD is at done_waiting with no question in its result" >&2; finish_continue 2; }
+    OPEN=$("$KOTO" decisions history -- "$QID" | jq -r '.open') \
+        || { printf 'failed=question_unreadable\n'; echo "$PROG: could not read the question $QID" >&2; finish_continue 2; }
+    if [ "$OPEN" = true ]; then
+        printf 'waiting=%s\nsession=%s\n' "$QID" "$HEAD"
+        echo "$PROG: $HEAD is waiting on the question $QID, which is still open" >&2
+        finish_continue 3
+    fi
+    [ "$OPEN" = false ] \
+        || { printf 'failed=question_unreadable\n'; echo "$PROG: the question $QID reads neither open nor closed" >&2; finish_continue 2; }
+    # A question closed without an answer (withdrawn) leaves the successor
+    # nothing to cite, so no successor is opened: the waiting run stays where
+    # it is, and the work starts fresh.
+    OUTCOME=$("$KOTO" decisions history -- "$QID" | jq -r '.answer.outcome // empty') \
+        || { printf 'failed=question_unreadable\n'; echo "$PROG: could not read the question $QID" >&2; finish_continue 2; }
+    case "$OUTCOME" in
+        answered|settled) ;;
+        *)
+            printf 'refused=withdrawn\nquestion=%s\nsession=%s\n' "$QID" "$HEAD"
+            echo "$PROG: the question $QID that $HEAD waits on was closed without an answer (${OUTCOME:-no answer}): there is nothing to continue from; start the work fresh" >&2
+            finish_continue 2
+            ;;
+    esac
+    if [ "$HAVE_DISPATCHER" -eq 1 ]; then
+        ORIGIN_OUT=$("$KOTO" session origin "$HEAD") \
+            || { printf 'failed=origin_unreadable\n'; echo "$PROG: could not read $HEAD's dispatcher" >&2; finish_continue 2; }
+        WAS=$(printf '%s' "$ORIGIN_OUT" | jq -r 'select(.origin.state == "dispatched") | .origin.dispatcher // empty') \
+            || { printf 'failed=origin_unreadable\n'; echo "$PROG: could not read $HEAD's dispatcher" >&2; finish_continue 2; }
+        if [ "$WAS" != "$DISPATCHER" ]; then
+            printf 'refused=dispatcher_differs\ndispatcher=%s\nsession=%s\n' "${WAS:-none}" "$HEAD"
+            echo "$PROG: $HEAD was dispatched by ${WAS:-no session}, not $DISPATCHER: a continuation keeps the waiting run's dispatcher" >&2
+            finish_continue 2
+        fi
+    fi
+    N=""
+    case "$HEAD" in *-r[0-9]*) N=${HEAD##*-r} ;; esac
+    case "$N" in
+        ''|*[!0-9]*) SUCC="$HEAD-r2" ;;
+        *) SUCC="${HEAD%-r*}-r$((N + 1))" ;;
+    esac
+    INIT=$("$KOTO" init "$SUCC" --template "$TEMPLATE" --vars-file "$PAIRS_FILE" \
+        --continues "$HEAD" --supersede --carry "" --expect-state done_waiting)
+    INIT_RC=$?
+    if [ "$INIT_RC" -ne 0 ]; then
+        CODE=$(printf '%s' "$INIT" | jq -r '.code // empty')
+        printf 'refused=%s\n' "${CODE:-succession_failed}"
+        echo "$PROG: koto refused to continue $HEAD as $SUCC: $INIT" >&2
+        finish_continue "$INIT_RC"
+    fi
+    printf 'opened=continued\ncontinues=%s\nsession=%s\n' "$HEAD" "$SUCC"
+    if [ "$HAVE_DISPATCHER" -eq 1 ]; then
+        dl_link "$KOTO" "$SUCC" "$DISPATCHER" || true
+    fi
+    finish_continue 0
+fi
 
 set -- "$WORKFLOW" "$TEMPLATE" "$PAIRS_FILE"
 [ -z "$LEG" ] || set -- "$@" --attach-live --koto-leg "$LEG"

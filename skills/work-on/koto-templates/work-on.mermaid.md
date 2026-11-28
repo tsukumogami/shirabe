@@ -5,8 +5,8 @@ stateDiagram-v2
     analysis --> offload_canary : gates.plan_artifact.exists: true, plan_outcome: plan_ready
     analysis --> done_already_complete : plan_outcome: already_complete
     analysis --> analysis : plan_outcome: scope_changed_retry
-    analysis --> done_blocked : plan_outcome: scope_changed_escalate
-    analysis --> done_blocked : plan_outcome: blocked_missing_context
+    analysis --> decide_first : plan_outcome: scope_changed_escalate
+    analysis --> decide_first : plan_outcome: blocked_missing_context
     cascade_entry --> cascade_run : gates.anchor_present.exit_code: 0
     cascade_entry --> done : gates.anchor_present.exit_code: 1
     cascade_entry --> done_blocked : gates.anchor_present.exit_code: 2
@@ -49,15 +49,31 @@ stateDiagram-v2
     context_injection --> setup_issue_backed : gates.await_removals.exit_code: 0, gates.context_artifact.exists: true, status: completed
     context_injection --> setup_issue_backed : gates.await_removals.exit_code: 0, status: override
     context_injection --> done_blocked : status: blocked
-    deferral_approval --> pr_precheck : approval_decision: approved, cleanup_done: removed, design_diagram: updated, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
-    deferral_approval --> pr_precheck : approval_decision: approved, cleanup_done: removed, design_diagram: not_applicable, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
-    deferral_approval --> pr_precheck : approval_decision: approved, cleanup_done: none_found, design_diagram: updated, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
-    deferral_approval --> pr_precheck : approval_decision: approved, cleanup_done: none_found, design_diagram: not_applicable, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
-    deferral_approval --> done_blocked : approval_decision: rejected
-    entry --> context_injection : mode: issue_backed
-    entry --> task_validation : mode: free_form
-    entry --> plan_context_injection : mode: plan_backed
-    entry --> skipped_due_to_dep_failure : mode: skipped
+    decide_first --> waiting_record : decide_outcome: raised, gates.attempt_recorded.exit_code: 3
+    decide_first --> analysis : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 10, gates.decide_laps.exit_code: 0
+    decide_first --> implementation : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 11, gates.decide_laps.exit_code: 0
+    decide_first --> introspection : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 12, gates.decide_laps.exit_code: 0
+    decide_first --> task_validation : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 13, gates.decide_laps.exit_code: 0
+    decide_first --> post_research_validation : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 14, gates.decide_laps.exit_code: 0
+    decide_first --> plan_validation : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 15, gates.decide_laps.exit_code: 0
+    decide_first --> deferral_approval : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 16, gates.decide_laps.exit_code: 0
+    decide_first --> done_blocked : decide_outcome: decided, decided_next: stop, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 10
+    decide_first --> done_blocked : decide_outcome: decided, decided_next: stop, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 11
+    decide_first --> done_blocked : decide_outcome: decided, decided_next: stop, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 12
+    decide_first --> validation_exit : decide_outcome: decided, decided_next: stop, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 13
+    decide_first --> validation_exit : decide_outcome: decided, decided_next: stop, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 14
+    decide_first --> validation_exit : decide_outcome: decided, decided_next: stop, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 15
+    deferral_approval --> pr_precheck : approval_decision: approved, cleanup_done: removed, design_diagram: updated, gates.answer_cited.exit_code: 0, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    deferral_approval --> pr_precheck : approval_decision: approved, cleanup_done: removed, design_diagram: not_applicable, gates.answer_cited.exit_code: 0, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    deferral_approval --> pr_precheck : approval_decision: approved, cleanup_done: none_found, design_diagram: updated, gates.answer_cited.exit_code: 0, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    deferral_approval --> pr_precheck : approval_decision: approved, cleanup_done: none_found, design_diagram: not_applicable, gates.answer_cited.exit_code: 0, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    deferral_approval --> done_blocked : approval_decision: rejected, gates.answer_cited.exit_code: 0
+    deferral_approval --> decide_first : approval_decision: needs_answer
+    entry --> context_injection : gates.continues_waiting.exists: false, mode: issue_backed
+    entry --> task_validation : gates.continues_waiting.exists: false, mode: free_form
+    entry --> plan_context_injection : gates.continues_waiting.exists: false, mode: plan_backed
+    entry --> skipped_due_to_dep_failure : gates.continues_waiting.exists: false, mode: skipped
+    entry --> resume_waiting : gates.continues_waiting.exists: true
     finalization --> implementation : finalization_status: issues_found
     finalization --> check_exit : finalization_status: check_unsatisfiable, gates.commit_convention.exit_code: 1
     finalization --> pr_precheck : cleanup_done: removed, design_diagram: updated, finalization_status: ready_for_pr, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
@@ -83,9 +99,9 @@ stateDiagram-v2
     implementation --> changed_paths_record : gates.on_feature_branch_impl.exit_code: 0, implementation_status: verification_rerun
     implementation --> implementation : implementation_status: partial_tests_failing_retry
     implementation --> analysis : implementation_status: scope_expanded_retry
-    implementation --> done_blocked : implementation_status: partial_tests_failing_escalate
-    implementation --> done_blocked : implementation_status: blocked
-    introspection --> done_blocked : introspection_outcome: issue_superseded
+    implementation --> decide_first : implementation_status: partial_tests_failing_escalate
+    implementation --> decide_first : implementation_status: blocked
+    introspection --> decide_first : introspection_outcome: issue_superseded
     introspection --> analysis : gates.introspection_artifact.exists: true, introspection_outcome: approach_unchanged
     introspection --> analysis : gates.introspection_artifact.exists: true, introspection_outcome: approach_updated
     introspection --> analysis
@@ -131,10 +147,10 @@ stateDiagram-v2
     plan_context_injection --> setup_plan_backed : gates.await_removals.exit_code: 0, status: override
     plan_context_injection --> done_blocked : status: blocked
     plan_validation --> setup_plan_backed : gates.step_detail.exit_code: 0, verdict: proceed
-    plan_validation --> validation_exit : verdict: exit
+    plan_validation --> decide_first : verdict: exit
     post_research_validation --> setup_free_form : gates.await_removals.exit_code: 0, verdict: ready
-    post_research_validation --> validation_exit : verdict: needs_design
-    post_research_validation --> validation_exit : verdict: exit
+    post_research_validation --> decide_first : verdict: needs_design
+    post_research_validation --> decide_first : verdict: exit
     pr_creation --> check_exit : gates.pr_body_conformant.exit_code: 1, pr_status: check_unsatisfiable
     pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, gates.hosted_record_line.exit_code: 0, gates.pr_body_conformant.exit_code: 0, gates.probe_ack.exit_code: 0, gates.probe_value_absent.exit_code: 0, gates.verification_deferral_recorded.exit_code: 0, gates.verification_rerun_recorded.exit_code: 0, pr_status: created
     pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, gates.hosted_record_line.exit_code: 0, gates.pr_body_conformant.exit_code: 0, gates.probe_ack.exit_code: 4, gates.probe_value_absent.exit_code: 0, gates.verification_deferral_recorded.exit_code: 0, gates.verification_rerun_recorded.exit_code: 0, pr_status: created
@@ -171,6 +187,13 @@ stateDiagram-v2
     reproduce --> done_blocked : gates.red_recorded.exit_code: 1, reproduce_status: blocked
     reproduce --> done_blocked : gates.red_recorded.exit_code: 2, reproduce_status: blocked
     research --> post_research_validation
+    resume_waiting --> analysis : gates.decide_resume.exit_code: 10
+    resume_waiting --> implementation : gates.decide_resume.exit_code: 11
+    resume_waiting --> introspection : gates.decide_resume.exit_code: 12
+    resume_waiting --> task_validation : gates.decide_resume.exit_code: 13
+    resume_waiting --> post_research_validation : gates.decide_resume.exit_code: 14
+    resume_waiting --> plan_validation : gates.decide_resume.exit_code: 15
+    resume_waiting --> deferral_approval : gates.decide_resume.exit_code: 16
     review --> verification : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: standard, vars.VERIFICATION: local
     review --> verification_deferred : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: standard, vars.VERIFICATION: hosted-ci
     review --> verification_plan : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: standard, vars.VERIFICATION: auto
@@ -214,7 +237,7 @@ stateDiagram-v2
     staleness_check --> analysis : gates.staleness_fresh.exit_code: 2, staleness_signal: override
     staleness_check --> done_blocked : gates.staleness_fresh.exit_code: 2, staleness_signal: blocked
     task_validation --> research : verdict: proceed
-    task_validation --> validation_exit : verdict: exit
+    task_validation --> decide_first : verdict: exit
     verification --> pass_counting : gates.verification_verdict.exit_code: 0
     verification --> implementation : gates.verification_verdict.exit_code: 1
     verification --> done_blocked : gates.verification_verdict.exit_code: 3
@@ -240,9 +263,12 @@ stateDiagram-v2
     verification_plan --> verification : gates.verification_route_plan.exit_code: 1
     verification_plan --> verification : gates.verification_route_plan.exit_code: 2
     verification_plan --> verification : gates.verification_route_plan.exit_code: -1
+    waiting_record --> done_waiting : gates.question_recorded.exit_code: 0
+    waiting_record --> decide_first : gates.question_recorded.exit_code: 1
     done --> [*]
     done_already_complete --> [*]
     done_blocked --> [*]
+    done_waiting --> [*]
     skipped_due_to_dep_failure --> [*]
     validation_exit --> [*]
     note left of analysis
@@ -284,6 +310,18 @@ stateDiagram-v2
     note left of context_injection
         gate: context_artifact
     end note
+    note left of decide_first
+        gate: attempt_recorded
+    end note
+    note left of decide_first
+        gate: decide_from
+    end note
+    note left of decide_first
+        gate: decide_laps
+    end note
+    note left of deferral_approval
+        gate: answer_cited
+    end note
     note left of deferral_approval
         gate: cleanup_referent
     end note
@@ -298,6 +336,9 @@ stateDiagram-v2
     end note
     note left of deferral_approval
         gate: summary_shape
+    end note
+    note left of entry
+        gate: continues_waiting
     end note
     note left of finalization
         gate: cleanup_referent
@@ -431,6 +472,9 @@ stateDiagram-v2
     note left of reproduce
         gate: red_recorded
     end note
+    note left of resume_waiting
+        gate: decide_resume
+    end note
     note left of review
         gate: level_unchanged
     end note
@@ -502,5 +546,8 @@ stateDiagram-v2
     end note
     note left of verification_plan
         gate: verification_route_plan
+    end note
+    note left of waiting_record
+        gate: question_recorded
     end note
 ```

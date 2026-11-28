@@ -165,3 +165,16 @@ issue's shipped artifacts is legitimate only where it records a human-approved d
 If you find yourself writing one, the matching acceptance criterion is unmet: submit
 `deferral_requested` and take it through the `deferral_approval` gate rather than
 shipping the caveat unapproved.
+
+At `deferral_approval`, `approved` and `rejected` rest on the answer to the
+question this run raised for the deferral, from a verified person or from the
+dispatcher the run named before it raised the question (or a session above
+it): both hold until a deciding attempt for the arrival cites that answer, or a
+settle resting on a verified person's answer. An answer the run gave itself,
+one from a dispatcher linked after the raise, or one across a continuation
+under a different dispatcher approves nothing, and each new
+`deferral_requested` asks again. The dispatcher link is the run's own claim:
+the gate checks when it was recorded, not that the dispatcher has authority
+over the work. With no such answer yet, submit
+`approval_decision: needs_answer`, which goes to `decide_first` to read
+precedent or raise the question.

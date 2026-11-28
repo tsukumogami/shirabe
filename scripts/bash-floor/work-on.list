@@ -150,6 +150,11 @@ skills/work-on/scripts/red-first_test.sh
 skills/work-on/scripts/issue-type-route_test.sh
 # The red-first states driven through a real koto; skips cleanly without it.
 skills/work-on/scripts/red-first-routes_test.sh
+# decide-first-gate.sh against a real koto and the shirabe built for the job,
+# and decide_first's routes, the waiting terminal and a continued run driven
+# through the shipped template; both skip cleanly without koto.
+skills/work-on/scripts/decide-first-gate_test.sh
+skills/work-on/scripts/decide-first-routes_test.sh
 # test-change.sh (the ledger, the notes, the status gate read from the
 # panels' record) through a koto stand-in on git fixtures. No engine.
 skills/work-on/scripts/test-change_test.sh
@@ -179,6 +184,7 @@ cost: skills/work-on/scripts/finalization-shape_test.sh 73
 cost: skills/work-on/scripts/test-change_test.sh 57
 cost: skills/work-on/scripts/review-level-routes_test.sh 55
 cost: skills/work-on/scripts/probe_test.sh 50
+cost: skills/work-on/scripts/decide-first-routes_test.sh 45
 cost: skills/work-on/scripts/test-change-routes_test.sh 41
 cost: skills/work-on/scripts/ci-passing-timeout_test.sh 35
 cost: skills/work-on/scripts/output-gates-routing_test.sh 34
@@ -195,6 +201,7 @@ cost: skills/work-on/scripts/work-on-open_test.sh 17
 cost: skills/work-on/scripts/red-first-routes_test.sh 15
 cost: skills/work-on/scripts/red-first_test.sh 11
 cost: skills/work-on/scripts/pr-checks_test.sh 11
+cost: skills/work-on/scripts/decide-first-gate_test.sh 10
 cost: skills/work-on/scripts/verification-hosted-coverage_test.sh 9
 cost: skills/work-on/scripts/pre-pr-evidence_test.sh 8
 cost: skills/work-on/scripts/probe-routes_test.sh 6

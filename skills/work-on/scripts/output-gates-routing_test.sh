@@ -308,7 +308,7 @@ FAKE_PENDING_REASON="hosted_record: check-skill:coordinate skill-gate (ubuntu-la
 mkdir -p "$FAKE_ROOT/skills/work-on/scripts" "$RC_DIR"
 for s in check-staleness.sh run-verification.sh check-verification.sh check-branch-output.sh \
          check-pr-output.sh check-pre-pr-referents.sh panel-scope.sh has-commits.sh review-level.sh \
-         test-change.sh red-first.sh verification-route.sh; do
+         test-change.sh red-first.sh verification-route.sh decide-first-gate.sh; do
     cat > "$FAKE_ROOT/skills/work-on/scripts/$s" <<EOF
 #!/usr/bin/env bash
 f="$RC_DIR/$s\$1"

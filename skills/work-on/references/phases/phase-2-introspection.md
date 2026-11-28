@@ -19,3 +19,8 @@ Store the findings in koto context under `introspection.md`, by stdin pipe or a
 - `approach_unchanged` — original approach still valid
 - `approach_updated` — adjustments needed
 - `issue_superseded` — issue no longer relevant
+
+`issue_superseded` doesn't end the run on its own: it goes to `decide_first`,
+which lets the run stop at `done_blocked` only once an attempt to decide is
+recorded for the arrival, or raise a question and wait on its answer. The
+directive there names the commands to run.

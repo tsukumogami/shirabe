@@ -16,6 +16,8 @@
 #   history/<key>      the JSON `decisions history <identity>` prints
 #   content/<key>      the bytes `decisions content read <identity>` prints
 #   answer.json        the JSON `decisions answer` (not a withdrawal) prints
+#   precedent.json     the JSON `decisions precedent` prints; with --label,
+#                      precedent/<label>.json when it exists (default: none)
 #   show-answer.json   the JSON `decisions show` of an answer entry prints
 #   sleep              one line per call prefix that hangs (sleeps 60 seconds),
 #                      matched against the call as `log` records it
@@ -175,7 +177,15 @@ case "${1:-} ${2:-}" in
         printf '{"v":1,"session":"%s","decisions":[]}\n' "$3"
         ;;
     "decisions precedent")
-        echo '{"v":1,"person":"owner","answers":[]}'
+        label=""
+        while [ "$#" -gt 0 ]; do
+            case "$1" in --label) label="$2"; shift ;; esac
+            shift
+        done
+        if [ -n "$label" ] && [ -f "$D/precedent/$label.json" ]; then cat "$D/precedent/$label.json"
+        elif [ -f "$D/precedent.json" ]; then cat "$D/precedent.json"
+        else echo '{"v":1,"person":"owner","answers":[]}'
+        fi
         ;;
     *)
         refuse standin_unknown "the stand-in does not serve: $*"

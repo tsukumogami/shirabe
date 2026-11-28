@@ -297,6 +297,49 @@ A provisional attempt is listed for review and isn't a question:
 `koto decisions attempts --in <session> --result provisional --awaiting-review`
 reads it with review `awaiting`, and `koto decisions open` doesn't list it.
 
+## `shirabe question precedent`
+
+```text
+shirabe question precedent --in <session> [--label <label>]
+```
+
+It lists the owner's earlier answers that the session can see, for step 2 of
+`references/question-procedure.md`: `koto decisions precedent --person=owner
+--chain=<session>`, with `--label` when given. Only answers koto reads as
+verified are listed, each as `identity`, `label`, `text`, `session`, `id`,
+`reading` and `basis`, the `<session>:<id>` a deciding attempt passes to
+`--basis` when it settles a question from that answer. The list is sorted on
+the identity and the basis, so two reads of the same record print the same
+bytes.
+
+- `--in`: the session reading, whose chain koto follows.
+- `--label`: the label a question was raised under. Empty, it is refused
+  (exit 1); left out, every answer in the chain is listed.
+
+Output: `{"v":1,"in","label","answers":[...]}`. An empty `answers` means no
+earlier answer covers the label.
+
+## `shirabe question withdraw`
+
+```text
+shirabe question withdraw <identity> --in <session> --reason <text>
+```
+
+It closes an open question whose answer is no longer needed, as koto's
+`withdrawn` outcome: `koto decisions answer --outcome=withdrawn --reason
+--by=session`, recorded in `--in`. The raiser's name and the decision id come
+from the question's history. Who may withdraw (the raiser, or a session that
+continues it) and whether the question is still open are koto's checks; a
+refusal passes through with exit 4. A session that waited on the question can
+then be cleaned up, which koto refuses while it is open.
+
+- `--in`: the session withdrawing it.
+- `--reason`: why the answer is no longer needed. Missing or blank, it is
+  refused (exit 1) and nothing is recorded.
+
+Output: `{"v":1,"identity","in","outcome":"withdrawn","entry","reason"}`,
+`entry` being `<session>:<id>` of the withdrawal.
+
 ## The stored content
 
 One JSON document, compact, keys in this order:

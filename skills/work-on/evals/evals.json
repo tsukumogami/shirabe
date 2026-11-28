@@ -486,11 +486,12 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on #503 — a single issue with one acceptance criterion that genuinely cannot be satisfied this session (a flaky external dependency). The rest of the issue is complete and verified.",
-      "expected_output": "The agent's plan does not self-report the issue done with a caveat. It surfaces the unmet acceptance criterion to the human as an explicit decision: approve a deferral (recorded as the human's decision) or report the issue blocked. The plan introduces no unapproved caveat/hedge language into the shipped artifacts.",
+      "expected_output": "The agent's plan does not self-report the issue done with a caveat. It submits deferral_requested, and at deferral_approval it submits approval_decision: needs_answer, because approved and rejected hold until a deciding attempt for the deferral cites the answer to the question the run raised for it, from a verified person or a session above the run. At decide_first it raises the deferral as one question (presenting it when a person started the turn), and only with an attempt citing the answer does it go back and approve the deferral or report the issue blocked. The plan introduces no unapproved caveat/hedge language into the shipped artifacts.",
       "files": [],
       "expectations": [
         "Agent's plan surfaces the unmet acceptance criterion to the human as an explicit decision rather than self-reporting done",
-        "Agent requires explicit human approval to defer; an approved deferral is recorded as the human's decision",
+        "Agent submits approval_decision: needs_answer and settles the deferral at decide_first before approving or rejecting it",
+        "Agent approves the deferral only with a deciding attempt that cites the human's answer",
         "Without approval the agent reports the issue blocked, not done",
         "Agent does not introduce unapproved caveat or hedge language into the shipped artifacts"
       ]
@@ -516,8 +517,8 @@
     {
       "name": "koto-leg-result-on-the-callers-leg",
       "tier": 1,
-      "prompt": "In a git repository on a feature branch, create a koto request with one leg named work-on: `koto request create --with-data '{\"legs\":[{\"name\":\"work-on\",\"role\":\"work-on\",\"template\":\"work-on.md\",\"inputs\":{}}]}' --requested-by eval --coordinator-of-record eval | jq -r .request_id`. Then run `/work-on \"rename the leg_demo helper\" --koto-leg=<request-id>:work-on`, using `task_leg_demo` as the workflow name. At task_validation the task is not worth doing: submit verdict exit. Afterwards print `koto request get <request-id> | jq '.legs[\"work-on\"]'`.",
-      "expected_output": "The agent takes --koto-leg out of the task description, runs `skill-preflight.sh work-on --mode koto-leg`, writes the invocation's tokens to a private directory, and opens task_leg_demo through work-on-open.sh with --var ARTIFACT_PREFIX=task_leg_demo, not with a plain koto init. The session is bound to the leg. Every tick carries --no-cleanup. The run ends at validation_exit, and the leg records the promoted result: status success, result_final_state validation_exit.",
+      "prompt": "In a git repository on a feature branch, create a koto request with one leg named work-on: `koto request create --with-data '{\"legs\":[{\"name\":\"work-on\",\"role\":\"work-on\",\"template\":\"work-on.md\",\"inputs\":{}}]}' --requested-by eval --coordinator-of-record eval | jq -r .request_id`. Then run `/work-on \"rename the leg_demo helper\" --koto-leg=<request-id>:work-on`, using `task_leg_demo` as the workflow name. At task_validation the task is not worth doing: submit verdict exit, and at decide_first, where stopping is the run's own call, record a decided attempt for the arrival and submit decided with decided_next stop. Afterwards print `koto request get <request-id> | jq '.legs[\"work-on\"]'`.",
+      "expected_output": "The agent takes --koto-leg out of the task description, runs `skill-preflight.sh work-on --mode koto-leg`, writes the invocation's tokens to a private directory, and opens task_leg_demo through work-on-open.sh with --var ARTIFACT_PREFIX=task_leg_demo, not with a plain koto init. The session is bound to the leg. Every tick carries --no-cleanup. verdict exit goes to decide_first with arrival task_validation:1; with a decided attempt recorded for it, decided and stop take the old exit. The run ends at validation_exit, and the leg records the promoted result: status success, result_final_state validation_exit.",
       "files": [],
       "expectations": [
         "The agent opened the session through `work-on-open.sh`, not with its own `koto init`",
@@ -525,6 +526,7 @@
         "The task description submitted at entry does not contain `--koto-leg`",
         "The printed leg has bound_child `task_leg_demo`",
         "The printed leg has result_source `promoted`, result_final_state `validation_exit`, and result status `success`",
+        "The agent recorded a decided attempt with `--state task_validation:1` before it submitted decided with stop",
         "Every `koto next` the agent ran carried `--no-cleanup`"
       ],
       "id": 39
@@ -601,12 +603,13 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on -- plan-backed task, ISSUE_SOURCE=plan_outline, ARTIFACT_PREFIX=step-3, PLAN_DOC=skills/work-on/scripts/testdata/PLAN-v2-single-pr.md, SHARED_BRANCH=feat/word-count",
-      "expected_output": "Agent detects plan_backed mode on a plan/v2 step plan. At plan_context_injection it extracts the `### Step 3:` block from the PLAN as committed, unchanged. At plan_validation the step_detail gate runs step-detail-check.sh, which fails because step 3 is a one-line outline, with the finding `step 3 is an outline; the plan's owner details it before its work starts`. The agent submits verdict: exit with that message as the rationale, reaches validation_exit, builds nothing, and does not detail the step itself.",
+      "expected_output": "Agent detects plan_backed mode on a plan/v2 step plan. At plan_context_injection it extracts the `### Step 3:` block from the PLAN as committed, unchanged. At plan_validation the step_detail gate runs step-detail-check.sh, which fails because step 3 is a one-line outline, with the finding `step 3 is an outline; the plan's owner details it before its work starts`. The agent submits verdict: exit with that message as the rationale, arrives at decide_first as plan_validation:1, records a decided attempt for that arrival (stopping until the owner details the step is the run's own call) and submits decided with decided_next: stop, reaches validation_exit, builds nothing, and does not detail the step itself.",
       "files": [],
       "expectations": [
         "Agent plans to extract the `### Step 3:` block (a one-line outline) as context.md rather than an issue outline",
         "Agent recognizes the step_detail gate's failure at plan_validation and quotes `step 3 is an outline; the plan's owner details it before its work starts`",
         "Agent plans to submit verdict: exit with that message as the rationale, not verdict: proceed",
+        "Agent plans to record a decided attempt for plan_validation:1 at decide_first and submit decided with stop",
         "Agent does NOT plan any implementation, branch work or commit for step 3",
         "Agent does NOT plan to edit the PLAN to detail step 3; it says the plan's owner details it first"
       ]
@@ -974,11 +977,11 @@
       "name": "partial-delivery-approved-deferral",
       "tier": 1,
       "mode": "plan_only",
-      "prompt": "/work-on #917, a plain issue-backed run with no delivery flags, in a repository whose CLAUDE.md declares no `## PR Workflow Content:` header. At finalization one acceptance criterion, a migration guide for adopters, can't be met in this change. The agent submitted deferral_requested, and at deferral_approval the human approved the deferral, saying the guide is tracked on the issue for a follow-up. The run went through pre_pr_evidence and pr_precheck with no recount. What does the agent put in the pull request at pr_creation, and how does the run reach ci_monitor?",
-      "expected_output": "The agent recorded the human's approval with koto decisions record before it submitted approval_decision: approved, with cleanup_done and design_diagram as their enum values, which the approved route requires as ready_for_pr's does. Because this pass came straight from an approved deferral, with no return to finalization since, the closing_keyword gate runs in non-closing mode, even though the run declared no partial delivery. So the body writes Part of #917 in Part 2 rather than Fixes #917, and nothing in the body, the title or a commit message closes the issue. Part 2 says in plain terms which criterion the change leaves undone, the migration guide, and that it stays open on the issue; under the default omit setting the body carries no deferral note naming the recorded approval, state or session. It submits pr_status: created with pr_url, the gate passes, and the run moves on to ci_monitor with the issue still open and the deferred criterion on it.",
+      "prompt": "/work-on #917, a plain issue-backed run with no delivery flags, in a repository whose CLAUDE.md declares no `## PR Workflow Content:` header. At finalization one acceptance criterion, a migration guide for adopters, can't be met in this change. The agent submitted deferral_requested, and at deferral_approval, through needs_answer and decide_first, the human answered the question approving the deferral and the agent recorded a deciding attempt citing that answer, saying the guide is tracked on the issue for a follow-up. The run went through pre_pr_evidence and pr_precheck with no recount. What does the agent put in the pull request at pr_creation, and how does the run reach ci_monitor?",
+      "expected_output": "The agent's deciding attempt for the deferral cites the human's answer, so answer_cited passes when it submits approval_decision: approved, with cleanup_done and design_diagram as their enum values, which the approved route requires as ready_for_pr's does. Because this pass came straight from an approved deferral, with no return to finalization since, the closing_keyword gate runs in non-closing mode, even though the run declared no partial delivery. So the body writes Part of #917 in Part 2 rather than Fixes #917, and nothing in the body, the title or a commit message closes the issue. Part 2 says in plain terms which criterion the change leaves undone, the migration guide, and that it stays open on the issue; under the default omit setting the body carries no deferral note naming the recorded approval, state or session. It submits pr_status: created with pr_url, the gate passes, and the run moves on to ci_monitor with the issue still open and the deferred criterion on it.",
       "files": [],
       "expectations": [
-        "Agent records the approved deferral with koto decisions record before submitting approval_decision: approved",
+        "Agent submits approval_decision: approved only after a deciding attempt for the deferral cites the human's answer",
         "Agent submits approval_decision: approved together with cleanup_done and design_diagram",
         "Agent's PR body references the issue with Part of #917",
         "Agent's PR body, title and commit messages carry no Fixes #917 and no other closing keyword before the issue",
@@ -1209,6 +1212,146 @@
         "Agent passes --ci-wait=all through the tokens to work-on-open.sh and does NOT pass CI_WAIT as a --var",
         "Agent says ci_monitor then waits on every check, whatever always_required says",
         "Agent treats a red check outside the relevant set as holding the run under CI_WAIT=all"
+      ]
+    },
+    {
+      "id": 82,
+      "name": "decide-first-unattended-raise",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #612, dispatched by a manager session and running unattended. At implementation the agent finds the issue never says which cache store to use, and the two candidates differ in what the team has to operate. It is about to submit implementation_status: blocked. What happens next, in order, and where does the run end?",
+      "expected_output": "The blocked submission no longer ends the run: the edge goes to decide_first, whose action counts the arrival and names it implementation:1. The agent follows references/question-procedure.md: it reads any earlier answer with shirabe question precedent --in issue_612 --label <label>, finds none, and because the choice is costly to undo it records shirabe question attempt --in issue_612 --state implementation:1 --result undecided with --undo costly and its reason, then raises one question with shirabe question raise --in issue_612 --attempt <id> --state implementation:1, which goes to the manager. Being unattended, it opens no prompt and submits decide_outcome: raised. attempt_recorded exits 3, the run passes waiting_record, whose action records the question in decide_question, and it ends at done_waiting, a retained failure terminal whose result names the question's identity. It does not submit decided, and it does not restart the work fresh.",
+      "files": [],
+      "expectations": [
+        "Agent expects the blocked submission to arrive at decide_first rather than done_blocked",
+        "Agent passes the arrival name implementation:1 as --state to shirabe question attempt and raise",
+        "Agent reads earlier answers with shirabe question precedent before raising",
+        "Agent records an undecided attempt with --undo costly before raising",
+        "Agent opens no prompt in the unattended run and submits decide_outcome: raised",
+        "Agent says the run ends at done_waiting with the question's identity in its result"
+      ]
+    },
+    {
+      "id": 83,
+      "name": "decide-first-attended-present",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #612, which the user started and is watching. At analysis the agent finds the issue leaves the cache store open, submits plan_outcome: blocked_missing_context, and the run is at decide_first with arrival analysis:1. The choice is costly to undo. What does the agent do there, and where does the run go?",
+      "expected_output": "The agent records an undecided attempt for analysis:1 and raises the question with --state analysis:1, then, because a person started this turn, presents it: shirabe question render <identity>, opens the question prompt with what it printed, and records the person's reply with shirabe question answer <identity>, whose --in names the session the prompt was opened from and never issue_612, since koto records an answer where it was given. It then records a deciding attempt for analysis:1 whose --basis cites that answer, and submits decide_outcome: decided with decided_next: resume (or stop, when stopping is now the run's own call). attempt_recorded passes only with that deciding attempt; submitting raised after the answer is held, since the question is no longer open. With resume the run goes back to analysis and carries on with the answer.",
+      "files": [],
+      "expectations": [
+        "Agent records the undecided attempt and raises the question for analysis:1 before prompting",
+        "Agent renders the question with shirabe question render and opens the prompt from its output",
+        "Agent records the reply with shirabe question answer, with --in naming the session the prompt was opened from rather than the run's own",
+        "Agent records a deciding attempt citing the answer in --basis",
+        "Agent submits decide_outcome: decided with decided_next: resume or stop, not raised",
+        "Agent expects the run to go back to analysis on resume"
+      ]
+    },
+    {
+      "id": 84,
+      "name": "decide-first-continue-waiting",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "issue_612 ended at done_waiting on a question to its manager. The user invokes /work-on #612 again. How does the agent pick the run up, what does it do if the question is still open, and what if it has been answered?",
+      "expected_output": "The agent does not start the work fresh. It opens the run through work-on-open.sh --workflow issue_612 with its usual --var flags and --continue-waiting. If the question is still open the script exits 3 printing waiting=<identity> and session=<head>, and the agent reports that the run is still waiting on that question and stops, unless the user started this turn and the question is addressed to them, in which case it presents the question first and opens again once it is answered. Once it is answered, the script opens a successor that continues the waiting session (issue_612-r2), printing opened=continued; the agent ticks it, it moves from entry to resume_waiting, whose decide_resume gate holds until the agent records a deciding attempt citing the answer (shirabe question attempt --in issue_612-r2 --result decided --basis <answer>). The run then goes back to the state the question came from and carries on, its arrivals counting on from the earlier session. If the answer is no longer needed the run's question is withdrawn with shirabe question withdraw <identity> --in <session> --reason <why>; a withdrawn question is refused with refused=withdrawn, and the agent starts the work fresh rather than continuing. Under --koto-leg the flag is refused, since koto's succession can't be combined with a leg.",
+      "files": [],
+      "expectations": [
+        "Agent continues the run with work-on-open.sh --continue-waiting rather than a fresh open",
+        "Agent reports waiting=<identity> and stops when the script exits 3",
+        "Agent records a deciding attempt citing the answer before the successor leaves entry",
+        "Agent expects the successor to go back to the state the question came from",
+        "Agent names shirabe question withdraw for an answer no longer needed",
+        "Agent starts the work fresh, not continued, when the script refuses a withdrawn question with refused=withdrawn"
+      ]
+    },
+    {
+      "id": 85,
+      "name": "decide-first-deferral-needs-answer",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #612 reaches finalization with one acceptance criterion it can't meet and submits deferral_requested. At deferral_approval, can the agent submit approved straight away? What does it do instead?",
+      "expected_output": "No. deferral_approval's answer_cited gate, which can't be overridden, holds approved and rejected until a deciding attempt for the deferral cites the answer to the question the run raised for this deferral, given by a verified person or by the dispatcher the run named before raising it; an answer the run gave itself, one from a dispatcher linked after the raise, or one across a continuation under a different dispatcher approves nothing. The agent submits approval_decision: needs_answer, which goes to decide_first with arrival deferral_approval:1; there it raises the question (or, attended, presents it and records the answer), and once a deciding attempt citing the answer is recorded it submits decided with decided_next: resume, back at deferral_approval, where approved or rejected now pass. From deferral_approval there is no stop at decide_first.",
+      "files": [],
+      "expectations": [
+        "Agent says answer_cited holds approved and rejected until an answer is cited",
+        "Agent submits approval_decision: needs_answer",
+        "Agent settles the deferral at decide_first with arrival deferral_approval:1",
+        "Agent resumes to deferral_approval with a deciding attempt citing the answer before approving"
+      ]
+    },
+    {
+      "id": 86,
+      "name": "decide-first-gate",
+      "grader": "script",
+      "handoff": "work-on",
+      "run": "scripts/cases/work-on-decide-first.sh gate"
+    },
+    {
+      "id": 87,
+      "name": "decide-first-routes",
+      "grader": "script",
+      "handoff": "work-on",
+      "run": "scripts/cases/work-on-decide-first.sh routes"
+    },
+    {
+      "id": 88,
+      "name": "decide-first-precedent",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #613, dispatched by a manager session and running unattended. At implementation the agent finds the issue never says which cache store to use, submits implementation_status: blocked, and the run is at decide_first with arrival implementation:1. Last week the owner answered a question labelled `build cache store` with SQLite, and that answer is in effect in the run's chain. What does the agent do, and does it raise anything?",
+      "expected_output": "It raises nothing. Following references/question-procedure.md it reads earlier answers first with shirabe question precedent --in issue_613 --label \"build cache store\", which lists the owner's SQLite answer with its session and id in the form --basis takes. It records shirabe question attempt --in issue_613 --state implementation:1 --result decided --chosen SQLite --basis <session>:<answer id> and submits decide_outcome: decided with decided_next: resume. attempt_recorded passes, the run goes back to implementation, and the run's record holds no escalate entry.",
+      "files": [],
+      "expectations": [
+        "Agent runs shirabe question precedent with the label before deciding to raise",
+        "Agent records a decided attempt for implementation:1 whose --basis cites the owner's answer",
+        "Agent submits decide_outcome: decided with decided_next: resume",
+        "Agent raises no question and opens no prompt",
+        "Agent expects the run back at implementation"
+      ]
+    },
+    {
+      "id": 89,
+      "name": "decide-first-directive",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on with the free-form task \"add a shout flag\". At post_research_validation the agent finds the task needs a design first and submits verdict: needs_design. What does the next koto next response tell it, and what can it not do there?",
+      "expected_output": "The run is at decide_first, not validation_exit, with decide_origin post_research_validation and arrival post_research_validation:1. The directive names references/question-procedure.md, the three commands it runs there (shirabe question precedent, shirabe question attempt with --state post_research_validation:1, and shirabe question raise) and where the arrival to pass as --state is read (koto context get <session> decide_arrival), without restating the procedure. Until an attempt for that arrival is recorded, neither decided nor raised leaves: attempt_recorded holds and says what is missing, and the gate can't be overridden.",
+      "files": [],
+      "expectations": [
+        "Agent expects needs_design to arrive at decide_first rather than validation_exit",
+        "Agent names the arrival post_research_validation:1 as the --state to pass",
+        "Agent follows references/question-procedure.md rather than inventing its own steps",
+        "Agent says decided and raised both hold until an attempt for the arrival is recorded",
+        "Agent does not try to override attempt_recorded"
+      ]
+    },
+    {
+      "id": 90,
+      "name": "decide-first-lap-cap",
+      "tier": 1,
+      "mode": "plan_only",
+      "files": [],
+      "prompt": "/work-on with the free-form task \"add a shout flag\". The agent has submitted verdict: exit at task_validation three times, each time recorded a decided attempt at decide_first and resumed. It submits verdict: exit a fourth time and the run is at decide_first with arrival task_validation:4. It records a decided attempt and submits decided with decided_next: resume. What happens?",
+      "expected_output": "The resume is held: decide_laps, which can't be overridden, refuses resume from the fourth arrival from the same state on, and its finding says so. The agent does not loop back again. It submits decided with decided_next: stop, which takes the exit it was about to take (validation_exit), or records an undecided attempt and raises the question.",
+      "expectations": [
+        "Agent expects the fourth resume from task_validation to be held by decide_laps",
+        "Agent does not try to override decide_laps",
+        "Agent stops with decided_next: stop or raises the question instead of resuming"
+      ]
+    },
+    {
+      "id": 91,
+      "name": "decide-first-stale-approval",
+      "tier": 1,
+      "mode": "plan_only",
+      "files": [],
+      "prompt": "/work-on #612, dispatched by a manager session. Its first deferral was approved on the manager's answer, cited by a deciding attempt for deferral_approval:1. pr_precheck then sent it back through pass_counting to finalization, and it submits deferral_requested again. At deferral_approval, can it submit approved on the earlier answer?",
+      "expected_output": "No. The new deferral_requested clears decide_arrival and decide_question, so answer_cited reads no arrival for this deferral and holds approved and rejected, asking for needs_answer. The agent submits approval_decision: needs_answer, which arrives at decide_first as a new arrival, raises the question for it, since an answer read as precedent was given to another question and approves nothing, and comes back to deferral_approval once that answer is cited.",
+      "expectations": [
+        "Agent says the earlier answer approves nothing for the new deferral",
+        "Agent submits approval_decision: needs_answer",
+        "Agent settles the new deferral at decide_first under its new arrival"
       ]
     }
   ]

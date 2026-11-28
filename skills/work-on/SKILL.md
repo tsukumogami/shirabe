@@ -297,6 +297,26 @@ decision:
 - **Rejected** — the issue is not done. The workflow routes to `done_blocked`, a
   non-clean terminal, rather than shipping with the criterion silently unmet.
 
+Either decision rests on the answer to a question the run raised for this
+deferral, given by a verified person or by the session the run named as its
+dispatcher before it raised the question (or one above that session). The
+`answer_cited` gate, which can't be overridden, holds `approved` and `rejected`
+until a deciding attempt for the deferral cites such an answer, or a settle
+whose basis holds a verified person's answer; whether that answer speaks to
+this deferral is the settling session's judgment, and the gate checks only what
+the settle rests on. An answer the run gave itself, one given in a session it
+continues, one from a dispatcher linked after the question was raised, one
+across a continuation that names a different dispatcher, and an answer to a
+question some other session raised approve nothing. A dispatched-by link is a
+claim the run records, not a proof: the gate does not check that the named
+dispatcher has authority over the work, so a run that names a dispatcher before
+it raises, and answers as that dispatcher, is not stopped. The run first
+submits `approval_decision: needs_answer`, which takes it to `decide_first` (see
+**Deciding Before Stopping**) with the deferral as the question, and it comes back
+to `deferral_approval` once the answer is cited. Each new `deferral_requested`
+clears the arrival, so an answer cited for an earlier deferral approves nothing:
+a run that comes back through `finalization` and defers again asks again.
+
 Both ways out to the pull request, `ready_for_pr` at `finalization` and
 `approved` at `deferral_approval`, require the two pre-PR judgment calls with
 them: `cleanup_done` (`removed` or `none_found`) and `design_diagram` (`updated`
@@ -663,7 +683,8 @@ A run that opened no pull request (an already-complete issue, or a child on
 `/execute`'s shared branch) resolves `pr` to `""`, and koto lists it under
 `missing`. The payload carries no head: a coordinator reads that from GitHub when
 it verifies. `done_blocked` and `validation_exit` declare no map, so their payload
-is koto's own. work-on.md declares no `outcome`, so a coordinator still routes on
+is koto's own. `done_waiting` is a failure whose payload is `question`, the
+identity of the question the run waits on, and carries no `pr`. work-on.md declares no `outcome`, so a coordinator still routes on
 status and final state, and reads the pull request from `pr`.
 
 Some exits never reach the leg, which stays open and unbound: an `error=usage` or a
@@ -996,6 +1017,58 @@ every seat that runs judges each edited test as `corrects` or `weakens` in its
 `test_edits`, `panel-scope.sh --record` refuses a round that skips one, and a `weakens`
 is a blocking finding raised by that seat. None of it reaches the pull request.
 
+### Deciding Before Stopping
+
+Ten exits used to end a run straight away when it couldn't settle something:
+`plan_outcome` `scope_changed_escalate` and `blocked_missing_context` at
+analysis, `implementation_status` `blocked` and `partial_tests_failing_escalate`,
+`introspection_outcome: issue_superseded`, the `exit` verdicts of
+`task_validation`, `post_research_validation` (with its `needs_design`) and
+`plan_validation`, and now `approval_decision: needs_answer` at
+`deferral_approval`. Each goes to `decide_first` instead. Its action names the
+arrival, `<origin>:<n>`, counting every arrival in the run, and its directive
+has the run follow `references/question-procedure.md`: read an earlier answer
+with `shirabe question precedent`, record its attempt with `shirabe question
+attempt --state <arrival>`, and raise one question with `shirabe question raise`
+when the attempt is undecided. The `attempt_recorded` gate, which can't be
+overridden, lets the run leave only with an attempt for this arrival:
+
+- `decide_outcome: decided` with `decided_next: resume` goes back to the state
+  it came from; `decided_next: stop` takes the exit it was about to take
+  (`done_blocked` or `validation_exit`, with the same `failure_reason`). Both
+  need a decided or provisional attempt, and no question raised for the arrival
+  still open: a run that raised one waits for its answer and cites it, or
+  withdraws it. An arrival from `deferral_approval` has no stop. The
+  `decide_laps` gate refuses `resume` from the fourth arrival from the same
+  state on, so a run that keeps coming back stops or asks instead.
+- `decide_outcome: raised` needs an undecided attempt and an open question
+  raised for the arrival. It passes `waiting_record`, whose action records the
+  question's identity in `decide_question`, and ends the run at `done_waiting`:
+  a failure terminal, retained, whose result is the question's identity. When
+  the question was answered or withdrawn in the meantime, `waiting_record` goes
+  back to `decide_first` instead, with the arrival unchanged, where the answer
+  is cited or a new attempt recorded.
+
+Arrivals are counted from koto's own record of the transitions into
+`decide_first`, never from a context key the run can rewrite: writing
+`decide_origin` or `decide_arrival` by hand changes neither the arrival's name
+nor the lap count.
+
+In a turn a person started, the run presents the question once it is raised
+(`shirabe question render`, the question prompt, `shirabe question answer`
+with `--in` naming the session the prompt was opened from, never the run's
+own, since koto records an answer where it was given), records a deciding
+attempt citing the answer, and submits `decided`. In any
+other turn, and in every unattended run, it opens no prompt and submits
+`raised`. `scripts/decide-first-gate.sh` is the gate; its header says what each
+exit code means.
+
+A run that reaches none of these exits behaves as before. Entry's
+`continues_waiting` gate reads whether `decide_question` is in context; on a
+fresh run it reports the key as not set, and that finding is what lets the run
+start, so don't add the key. A run that continues a waiting one goes from entry
+to `resume_waiting` instead.
+
 ### Resume
 
 1. `koto workflows` — find a workflow matching this issue.
@@ -1011,6 +1084,49 @@ is a blocking finding raised by that seat. None of it reaches the pull request.
    use is refused and says the same.) Either open goes through
    `work-on-open.sh`; a renamed run still passes `ARTIFACT_PREFIX=issue_<N>`, so
    a leg that pins it still admits the session.
+   The one exception is `done_waiting`: the run is waiting on its question, and
+   is continued, not started fresh. The continuation needs koto's succession
+   flags on `koto init`; check them first, and report anything this prints as a
+   missing prerequisite and stop:
+   ```bash
+   ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh work-on --mode continue-waiting 2>&1 || true
+   ```
+   Then open it with the same flags plus `--continue-waiting`:
+   ```bash
+   ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/work-on-open.sh --workflow <WF> \
+     --var ARTIFACT_PREFIX=<the run's prefix> <the run's other --var flags> \
+     --continue-waiting "$ARGS_DIR/tokens.json"
+   ```
+   It follows the sessions that already continue `<WF>` to the newest one.
+   While the question is open it exits 3, printing `waiting=<identity>` and
+   `session=<newest>`. In a turn a person started, when the question is
+   addressed to that person, present it first (`shirabe question render`, the
+   question prompt, `shirabe question answer`, as **Deciding Before Stopping**
+   says) and open again once it is answered. Otherwise report that the run is
+   still waiting on that question, and stop. Once the question is answered it opens a successor, `<WF>-r2` (then
+   `-r3`), that continues the waiting session and prints `opened=continued`,
+   `continues=` and `session=`. Tick that session. It moves from entry to
+   `resume_waiting`, whose `decide_resume` gate holds it until a deciding
+   attempt in it cites the answer: record
+   `shirabe question attempt --in <successor> --result decided --chosen <...>
+   --basis <answer>`, tick again, and the run goes back to the state the
+   question came from, its arrivals counting on. A session that is not at
+   `done_waiting` is refused with `refused=not_waiting`, and one already
+   continued with `refused=superseded`, naming the session to resume. Passing
+   `--dispatched-by` with a dispatcher other than the waiting session's is
+   refused with `refused=dispatcher_differs`, printing `dispatcher=` (the
+   waiting session's, or `none`) and `session=`: open again naming that
+   dispatcher, since an answer counts only under the one the run raised under. Under
+   `--koto-leg` the flag is refused: koto's succession can't be combined with a
+   leg. When the answer is no longer needed, withdraw the question with
+   `shirabe question withdraw <identity> --in <session> --reason <why>`. A
+   withdrawal takes the question off its addressee's open list for good, and
+   the waiting run is then refused with `refused=withdrawn`, printing
+   `question=` and `session=`: there is nothing to continue from, so start the
+   work fresh (`koto session cleanup <session>`, naming the `session=` the
+   opener printed, which may be a successor rather than `<WF>`, then open as
+   **Initialize** says). `koto session cleanup` refuses a session whose
+   question is still open.
 3. `is_terminal: false` is a genuine resume: `koto next <WF> --no-cleanup`, with
    no open. Under `--koto-leg`, open through `work-on-open.sh` first, which
    attaches the live session and binds it to the leg, then tick.

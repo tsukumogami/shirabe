@@ -78,7 +78,7 @@ case "\$1" in
                 case "\$f" in *work-on.md) echo "error: E-PARSE stub refuses \$f"; exit 1 ;; esac ;;
             clean)
                 if grep -q 'mode: auto' "\$f"; then
-                    echo "error: E-DECIDER-FLOOR an auto answer routes to validation_exit"; exit 1
+                    echo "error: E-DECIDER-FLOOR an auto answer routes to setup_plan_backed"; exit 1
                 fi ;;
         esac
         echo "/stub/cache/compiled.json"; exit 0 ;;
@@ -122,7 +122,7 @@ fi
 stub "$MINIMUM" permissive
 run
 if [ "$RC" -eq 1 ] && grep -q 'the floor did not refuse' <<<"$OUT"; then
-    pass "a koto that compiles the auto-exit mutation fails the check"
+    pass "a koto that compiles the auto-proceed mutation fails the check"
 else
     fail "a koto that let the mutation through was not caught (rc=$RC): $OUT"
 fi

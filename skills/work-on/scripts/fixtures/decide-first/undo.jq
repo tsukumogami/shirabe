@@ -1,0 +1,61 @@
+# undo.jq -- the compiled work-on.md with the decide_first change taken out,
+# for decide-first-routes_test.sh to compare with the template it was made
+# from. $exits is exits.json beside it, the table of covered exits: one
+# object per exit, whose `old` is the state the exit went to before (null for
+# deferral_approval's needs_answer, which is new).
+#
+# What it undoes, and nothing else:
+#   - the states decide_first, waiting_record, done_waiting and
+#     resume_waiting;
+#   - each edge into a decide_first from a covered state goes back to its old
+#     target, without the decide_origin assignment (waiting_record's edge back
+#     goes with the state);
+#   - entry's continues_waiting gate, its exists=false condition on the mode
+#     edges and skip_if, its edge to resume_waiting, and the paragraph its
+#     directive gives the gate;
+#   - finalization's decide_arrival and decide_question assignments on its
+#     deferral_requested edge;
+#   - deferral_approval's answer_cited gate and its conditions, the
+#     needs_answer value and edge, and its directive, whose text names
+#     needs_answer (the suite drops the earlier template's directive there
+#     too).
+# Anything else that differs from the earlier template is a change this step
+# did not name, and the comparison reports it.
+
+def drop_keys($ks): with_entries(select(.key as $k | $ks | index($k) | not));
+def tidy: if (.context_assignments // {}) == {} then del(.context_assignments) else . end;
+
+def old_target($s):
+    if .target != "decide_first" then .
+    else
+        (to_entries | map(select(.key == "when")) | .[0].value) as $w
+        | ([$exits[] | select(.origin == $s and ($w[.field] == .value))] | .[0].old) as $old
+        | if $old == null then error("no covered exit in the table for \($s) \($w)")
+          else .target = $old
+               | .context_assignments |= ((. // {}) | drop_keys(["decide_origin"]))
+               | tidy
+          end
+    end;
+
+.states |= (
+    del(.decide_first, .waiting_record, .done_waiting, .resume_waiting)
+    | .finalization.transitions |= map(
+        if (.when // {}).finalization_status == "deferral_requested"
+        then .context_assignments |= ((. // {}) | drop_keys(["decide_arrival", "decide_question"])) | tidy
+        else . end)
+    | .entry |= (
+        del(.gates.continues_waiting)
+        | (if (.gates // {}) == {} then del(.gates) else . end)
+        | .transitions |= (map(select(.target != "resume_waiting"))
+                           | map(.when |= del(.["gates.continues_waiting.exists"])))
+        | (if has("skip_if") then .skip_if |= del(.["gates.continues_waiting.exists"]) else . end)
+        | .directive |= sub("\n\nThe `continues_waiting` condition (?<x>[^*]*)mode below\\.\n"; "\n"))
+    | .deferral_approval |= (
+        del(.gates.answer_cited, .directive)
+        | (if (.gates // {}) == {} then del(.gates) else . end)
+        | .accepts.approval_decision.values |= map(select(. != "needs_answer"))
+        | .transitions |= (map(select(.when.approval_decision != "needs_answer"))
+                           | map(.when |= del(.["gates.answer_cited.exit_code"]))))
+    | with_entries(.key as $s | .value |= (
+        if has("transitions") then .transitions |= map(old_target($s)) else . end))
+)

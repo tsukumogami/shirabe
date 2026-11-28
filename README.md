@@ -500,7 +500,11 @@ the prompt the owner answered. It never takes the answer as text.
 `undecided` or `provisional`. It takes `provisional` only from a session that
 declares itself unattended and calls the choice cheap to undo; it checks that
 those declarations are consistent, not that they are true. An undecided attempt is what `raise --attempt` rests a question
-on. The
+on. `question precedent` lists the owner's answers in effect in a session's
+chain, optionally for one label, each in the form `--basis` takes, so a
+session settles a matter the owner already answered without raising it
+again; it writes nothing. `question withdraw` closes a question the raiser,
+or a session continuing it, no longer needs answered, and takes a reason. The
 arguments, output fields, exit codes and stored format are in
 [docs/guides/question-commands.md](docs/guides/question-commands.md), and
 what a session does with a question is in
