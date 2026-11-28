@@ -280,7 +280,7 @@ answers() {
 manager_answers() { answers manager "$1" "$2"; }
 # settle <raiser> <identity> <basis> -> the settle's id in $SET
 settle() {
-    koto decisions answer --in="$1" --outcome settled --basis "$3" --text "settled on the earlier answer" -- "$1" "${2##*/}" \
+    koto decisions answer --in="$1" --outcome settled --by=session --basis "$3" --text "settled on the earlier answer" -- "$1" "${2##*/}" \
         > "$T/set.out" 2>"$T/set.err"
     SET=$(jq -r '.decision.id // .id // empty' "$T/set.out")
     [ -n "$SET" ] || fail "$1 could not settle $2 on $3: $(cat "$T/set.out" "$T/set.err")"
