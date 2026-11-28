@@ -246,6 +246,16 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/execute-template-structure_test.sh
 
+      # decide_first's routes, park.sh and the parked-state table. Its "as
+      # before" cases compare the shipped templates with the pull request's
+      # base branch, so that branch is fetched first; without it they skip,
+      # saying so.
+      - name: Run decide-first routes tests (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          git fetch --no-tags --depth=1 origin "${GITHUB_BASE_REF:-main}"
+          bash skills/execute/scripts/decide-first-routes_test.sh
+
       # The output gates on the engine: the owned-PR lookups, the PR body and
       # branch checks, the pause, and the cascade verdict route every shipped
       # edge through real koto ticks over fake gate scripts; the removed

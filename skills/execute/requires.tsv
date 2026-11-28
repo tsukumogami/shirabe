@@ -20,7 +20,9 @@
 # the decisions citing their answers, and `koto workflows --children` with
 # `koto status` for the children at done_waiting. execute-open.sh continues a
 # waiting run with `koto rewind --rationale`, and the hand-off reads `koto
-# session origin` for the recipient of a child's question.
+# session origin` for the recipient of a child's question. decide-first-gate.sh
+# itself also reads `decisions show` for an attempt's basis and `session
+# hierarchy --json` for the sessions the run continues.
 #
 # `koto workflows --children` is the owning session's in the lead shape: it
 # names each step's child from the list in spawn_and_await, and after a lost
@@ -170,6 +172,8 @@ koto	decisions content read	-	always
 koto	decisions attempts	--in	always
 koto	decisions list	--format	always
 koto	session origin	-	always
+koto	decisions show	-	always
+koto	session hierarchy	--json	always
 shirabe	question precedent	--in,--label	always
 shirabe	question attempt	--in,--state,--result,--basis	always
 shirabe	question raise	--in,--attempt,--state,--to	always

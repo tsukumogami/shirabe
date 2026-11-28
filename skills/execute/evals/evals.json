@@ -1648,6 +1648,13 @@
       "run": "scripts/check-handoff.sh execute work-on"
     },
     {
+      "id": 91,
+      "name": "decide-first-routes",
+      "grader": "script",
+      "handoff": "work-on",
+      "run": "scripts/cases/execute-decide-first.sh routes"
+    },
+    {
       "id": 87,
       "name": "hosted-route-child-and-parent-read",
       "tier": 1,
