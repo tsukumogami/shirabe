@@ -319,8 +319,8 @@ eq "an Answer: first line is ordinary text" "0 none" "$RC $(word)"
 # by the reporting worker, are items whatever the report says; a text line
 # naming an identity opens nothing. Fixtures for the koto stand-in
 # (testdata/koto-decisions), written for each run's session by PRE.
-QA=0a1b2c3d-0000-4000-8000-00000000000a/000000000002
-QB=0a1b2c3d-0000-4000-8000-00000000000b/000000000003
+QA=0a1b2c3d-a/000000000002
+QB=0a1b2c3d-b/000000000003
 qkey() { printf '%s' "$1" | tr '/' '_'; }
 KD() { mkdir -p "$KOTO_STORE/decisions/$1"; printf '%s' "$KOTO_STORE/decisions/$1"; }
 CONTENT='{"context":"CTX","problem":"PROB","ask":"Which store, @alice?","question":"CTX\n\nPROB\n\nWhich store, @alice?","options":[{"label":"SQLite","reason":"one file"},{"label":"Postgres","reason":"shared"}],"ground":"G","waiting":[],"label":"cache"}'

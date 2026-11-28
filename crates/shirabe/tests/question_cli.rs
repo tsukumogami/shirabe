@@ -280,7 +280,7 @@ fn answer_with_no_matching_call_exits_4_check_call_with_the_relayed_claim_messag
     assert_eq!(j["error"]["check"], json!("call"));
     let msg = j["error"]["message"].as_str().unwrap();
     assert!(
-        msg.contains("koto decisions record")
+        msg.contains("shirabe question settle")
             && msg.contains("closes no question")
             && msg.contains("grants nothing")
     );

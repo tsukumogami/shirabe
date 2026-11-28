@@ -359,8 +359,8 @@ echo "== a question koto shows closed routes to decision_answer =="
 # history shows closed is an answer to record: `unrecorded-answer <n> koto`,
 # the lowest such entry first. koto's history comes from the stand-in's
 # fixtures (testdata/koto-decisions).
-QA=0a1b2c3d-0000-4000-8000-00000000000a/000000000002
-QB=0a1b2c3d-0000-4000-8000-00000000000b/000000000003
+QA=0a1b2c3d-a/000000000002
+QB=0a1b2c3d-b/000000000003
 KH() { # KH <identity> <true|false>: koto's history of the question, open or closed
     mkdir -p "$KOTO_STORE/decisions/history"
     jq -nc --arg q "$1" --argjson o "$2" '{identity: $q, open: $o, answer: null, entries: []}' \

@@ -65,11 +65,11 @@ keyseal() { printf '%s' "$OUT" | tr ' ' '\n' | sed -n 's/^keyseal:/sealed:/p'; }
 # prompts carry none of the question's content). The content koto holds is
 # marked, so any field this script laid out itself would show in the message.
 PATH="$HERE/testdata/question-stand-in:$PATH"
-QA=0a1b2c3d-0000-4000-8000-00000000000a/000000000002
-QB=0a1b2c3d-0000-4000-8000-00000000000b/000000000003
-QC=0a1b2c3d-0000-4000-8000-00000000000c/000000000004
-QD=0a1b2c3d-0000-4000-8000-00000000000d/000000000005
-QE=0a1b2c3d-0000-4000-8000-00000000000e/000000000006
+QA=0a1b2c3d-a/000000000002
+QB=0a1b2c3d-b/000000000003
+QC=0a1b2c3d-c/000000000004
+QD=0a1b2c3d-d/000000000005
+QE=0a1b2c3d-e/000000000006
 CONTENT='{"context":"CTX-MARK","problem":"PROB-MARK","ask":"ASK-MARK?","question":"CTX-MARK\n\nPROB-MARK\n\nASK-MARK?","options":[{"label":"LABEL-MARK","reason":"REASON-MARK"}],"ground":"GROUND-MARK","waiting":["issue-12"],"label":"cache"}'
 MARKS="CTX-MARK PROB-MARK ASK-MARK REASON-MARK GROUND-MARK LABEL-MARK"
 qkey() { printf '%s' "$1" | tr '/' '_'; }

@@ -274,7 +274,7 @@ fi
 
 if section "deliver execute scope work-on" "a waiting run"; then
 WL="$HERE/testdata/waiting-leg"
-Q1=5b0e7a52-6c1d-4f3e-9a7b-2d8c1e4f6a90/4
+Q1=5b0e7a52-w/4
 # qstate <identity> open|closed|fail: what koto decisions history answers.
 qstate() {
     mkdir -p "$(dirname "$ST/q/$1")"

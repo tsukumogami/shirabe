@@ -324,7 +324,7 @@ eq "  ... the listing read in the run's session" "question pending --in $SR" "$(
 export UNSEEN_FIXTURE="$UNSEEN_DIR/one.json"
 H1=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "one owner answer unseen: the read prints" 0 $?
 eq "  ... it in a field of its own, with the question's identity and the answer to mark seen" \
-    "dfff1914-3843-4932-a49d-48024d22c433/7 coordinate-roadmap-plugin-system-20260926T070000Z:12 loader-pin Pin v2.1.0." \
+    "dfff1914-r/7 coordinate-roadmap-plugin-system-20260926T070000Z:12 loader-pin Pin v2.1.0." \
     "$(printf '%s' "$H1" | jq -r '.unseen[] | "\(.identity) \(.answer) \(.label) \(.text)"')"
 eq "  ... each with the listing's fields" "answer id identity label question reading session text time" \
     "$(printf '%s' "$H1" | jq -r '.unseen[0] | keys | join(" ")')"
@@ -349,7 +349,7 @@ export UNSEEN_FIXTURE="$UNSEEN_DIR/none.json"
 
 echo "== questions open at the run =="
 # open/<SR>.json: what koto decisions open --at <the run's session> lists.
-QO=0a1b2c3d-0000-4000-8000-00000000000c/000000000004
+QO=0a1b2c3d-c/000000000004
 koto_open() { mkdir -p "$KOTO_STORE/decisions/open"; printf '%s' "$1" > "$KOTO_STORE/decisions/open/$SR.json"; }
 seed "$(record "$told_both")"
 H=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "no question open: the read prints" 0 $?

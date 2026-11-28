@@ -50,8 +50,8 @@ RUN=20260926T080000Z
 PATH="$HERE/testdata/question-stand-in:$PATH"
 
 # --- koto's record of a question (testdata/koto-decisions' fixtures) ---------------
-QA=0a1b2c3d-0000-4000-8000-00000000000a/000000000002
-QB=0a1b2c3d-0000-4000-8000-00000000000b/000000000003
+QA=0a1b2c3d-a/000000000002
+QB=0a1b2c3d-b/000000000003
 qkey() { printf '%s' "$1" | tr '/' '_'; }
 KD() { mkdir -p "$KOTO_STORE/decisions/$1"; printf '%s' "$KOTO_STORE/decisions/$1"; }
 # question <identity> <true|false> [need] [raiser]: koto's history and content
@@ -697,7 +697,7 @@ oq() { OUT=$(bash "$RD" --session "$S" --open-questions 2>"$T/err"); RC=$?; }
 setup "[$(E 1 escalated "$HELD_ESC"), $(E 2 coordinator-verdict "$HELD_B + {verdict: \"hold\", reason: \"r\"}")]"
 oq
 eq "--open-questions: none open, exit 0" '0 {"questions":[],"unhandled":[]}' "$RC $OUT"
-QC=0a1b2c3d-0000-4000-8000-00000000000c/000000000004
+QC=0a1b2c3d-c/000000000004
 koto_open "{\"at\":\"$S\",\"questions\":[
   {\"identity\":\"$QC\",\"session\":\"w3\",\"time\":\"2026-09-26T06:30:00Z\",\"addressee\":{\"kind\":\"session\",\"name\":\"$S\"}},
   {\"identity\":\"$QA\",\"session\":\"w1\",\"time\":\"2026-09-26T06:00:00.250Z\",\"addressee\":{\"kind\":\"session\",\"name\":\"$S\"}},

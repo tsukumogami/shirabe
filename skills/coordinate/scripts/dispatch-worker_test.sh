@@ -1476,7 +1476,7 @@ fi
 # promoted result is the recorded waiting payload, its question Q1.
 if section "scope" "--rebrief of a waiting unit"; then
 WL="$HERE/testdata/waiting-leg"
-Q1=5b0e7a52-6c1d-4f3e-9a7b-2d8c1e4f6a90/4
+Q1=5b0e7a52-w/4
 waiting_leg() { # waiting_leg open|closed: req_1's view and Q1's history
     jq -c '.request_id = "req_1" | .legs = {scope: (.legs["work-on"] | .name = "scope")}' "$WL/request.json" >"$ST/request_get.json"
     mkdir -p "$ST/history/${Q1%/*}"
