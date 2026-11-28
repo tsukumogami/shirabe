@@ -349,8 +349,8 @@ states:
 
 The owner's desk.
 EOF
-koto init desk --template "$T/desk.md" > /dev/null 2> "$T/init.err" || { fail "koto init desk: $(cat "$T/init.err")"; finish; }
-koto init stranger --template "$T/desk.md" > /dev/null 2> "$T/init.err" || { fail "koto init stranger: $(cat "$T/init.err")"; finish; }
+koto init desk --template "$T/desk.md" > "$T/init.out" 2> "$T/init.err" || { fail "koto init desk: $(cat "$T/init.out" "$T/init.err")"; finish; }
+koto init stranger --template "$T/desk.md" > "$T/init.out" 2> "$T/init.err" || { fail "koto init stranger: $(cat "$T/init.out" "$T/init.err")"; finish; }
 
 # --- runs that reach no covered exit ---------------------------------------------------
 
@@ -422,8 +422,8 @@ else
     # seq_walk <session> <template>: the state after each tick, in $SEQ.
     seq_walk() {
         SEQ=""
-        koto init "$1" --template "$2" --var "PLAN_DOC=$T/PLAN-seq.md" --var PLAN_SLUG=seq --var "PLUGIN_ROOT=$P" > /dev/null 2> "$T/init.err" \
-            || { fail "koto init $1: $(cat "$T/init.err")"; return 1; }
+        koto init "$1" --template "$2" --var "PLAN_DOC=$T/PLAN-seq.md" --var PLAN_SLUG=seq --var "PLUGIN_ROOT=$P" > "$T/init.out" 2> "$T/init.err" \
+            || { fail "koto init $1: $(cat "$T/init.out" "$T/init.err")"; return 1; }
         facts "$1"
         tick "$1"; SEQ="$SEQ $(state "$1")"
         submit "$1" '{"impact":"informational"}'; SEQ="$SEQ $(state "$1")"
@@ -450,7 +450,7 @@ else
 
     # An old session: opened on the earlier template, ticked with the
     # branch's scripts, it stops where it did.
-    if koto init old --template "$T/wd-pre.md" --var "PLAN_DOC=$T/PLAN-seq.md" --var PLAN_SLUG=seq --var "PLUGIN_ROOT=$P" > /dev/null 2> "$T/init.err"; then
+    if koto init old --template "$T/wd-pre.md" --var "PLAN_DOC=$T/PLAN-seq.md" --var PLAN_SLUG=seq --var "PLUGIN_ROOT=$P" > "$T/init.out" 2> "$T/init.err"; then
         facts old
         tick old
         submit old '{"impact":"intent-changing","rationale":"main removed the interface the PLAN builds on"}'
@@ -458,7 +458,7 @@ else
         eq "with step execute:re-evaluation" execute:re-evaluation "$(koto context get old step 2> "$T/ctx.err")"
         koto context exists old decide_origin > /dev/null 2>&1 && fail "the old session arrived at decide_first" || pass "and never arrives at decide_first"
     else
-        fail "koto init old from the earlier template: $(cat "$T/init.err")"
+        fail "koto init old from the earlier template: $(cat "$T/init.out" "$T/init.err")"
     fi
     export PATH=$SAVED_PATH
 fi
@@ -469,8 +469,8 @@ RUN=execute-walk
 printf '%s\n' '[{"name":"a","waits_on":[]},{"name":"b","waits_on":[]},{"name":"c","waits_on":["a"]}]' > "$T/PLAN-walk.md.tasks"
 : > "$T/PLAN-walk.md"
 jq -n --slurpfile t "$T/PLAN-walk.md.tasks" '{tasks: $t[0]}' > "$T/walk-tasks.json"
-koto init "$RUN" --template "$T/execute.md" --var "PLAN_DOC=$T/PLAN-walk.md" --var PLAN_SLUG=walk --var "PLUGIN_ROOT=$P" > /dev/null 2> "$T/init.err" \
-    || { fail "koto init $RUN: $(cat "$T/init.err")"; finish; }
+koto init "$RUN" --template "$T/execute.md" --var "PLAN_DOC=$T/PLAN-walk.md" --var PLAN_SLUG=walk --var "PLUGIN_ROOT=$P" > "$T/init.out" 2> "$T/init.err" \
+    || { fail "koto init $RUN: $(cat "$T/init.out" "$T/init.err")"; finish; }
 tick "$RUN" "$T/walk-tasks.json"
 eq "the batch is spawned and waits on its children" spawn_and_await "$(state "$RUN")"
 
@@ -543,8 +543,8 @@ RUN=execute-refuse
 printf '%s\n' '[{"name":"x","waits_on":[]},{"name":"y","waits_on":[]}]' > "$T/PLAN-refuse.md.tasks"
 : > "$T/PLAN-refuse.md"
 jq -n --slurpfile t "$T/PLAN-refuse.md.tasks" '{tasks: $t[0]}' > "$T/refuse-tasks.json"
-koto init "$RUN" --template "$T/execute.md" --var "PLAN_DOC=$T/PLAN-refuse.md" --var PLAN_SLUG=refuse --var "PLUGIN_ROOT=$P" > /dev/null 2> "$T/init.err" \
-    || { fail "koto init $RUN: $(cat "$T/init.err")"; finish; }
+koto init "$RUN" --template "$T/execute.md" --var "PLAN_DOC=$T/PLAN-refuse.md" --var PLAN_SLUG=refuse --var "PLUGIN_ROOT=$P" > "$T/init.out" 2> "$T/init.err" \
+    || { fail "koto init $RUN: $(cat "$T/init.out" "$T/init.err")"; finish; }
 tick "$RUN" "$T/refuse-tasks.json"
 for s in x y; do
     tick "$RUN.$s"
@@ -568,7 +568,7 @@ REFUSED=""
 answered_by "$RUN" "$RUN.x" "$Q_x" "the run's own answer to its step's question" || REFUSED="$REFUSED x"
 answered_by stranger "$RUN.y" "$Q_y" "an unrelated session's answer" || REFUSED="$REFUSED y"
 
-koto rewind "$RUN" > /dev/null 2> "$T/rewind.err" || fail "koto rewind $RUN: $(cat "$T/rewind.err")"
+koto rewind "$RUN" > "$T/rewind.out" 2> "$T/rewind.err" || fail "koto rewind $RUN: $(cat "$T/rewind.out" "$T/rewind.err")"
 tick "$RUN"
 for s in x y; do
     case " $REFUSED " in *" $s "*) continue ;; esac

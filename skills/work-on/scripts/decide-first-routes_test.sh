@@ -751,6 +751,122 @@ if reach "$S" analysis; then
 fi
 
 # ==============================================================================
+echo "--- continuing a leg-bound run"
+
+# A run opened under a koto request's leg ends at done_waiting, which resolves
+# that leg. koto's succession can't take a leg, so --continue-waiting under a
+# new request's leg rewinds the waiting session to waiting_record and attaches
+# it under the new leg.
+newreq() {
+    koto request create \
+        --with-data '{"legs":[{"name":"work-on","role":"work-on","template":"work-on.md","inputs":{}}]}' \
+        --requested-by manager --coordinator-of-record manager > "$WORKDIR/req.out" 2>"$WORKDIR/req.err"
+    REQ=$(jq -r '.request_id // empty' "$WORKDIR/req.out" 2>>"$WORKDIR/req.err")
+    [ -n "$REQ" ] || fail "koto request create: $(head -c 300 "$WORKDIR/req.out") $(head -c 300 "$WORKDIR/req.err")"
+}
+# legof <request> <jq filter>: koto's JSON (an error included) goes to a file
+# first, so a refusal printed on stdout shows in the case that reads it.
+legof() {
+    koto request get "$1" > "$WORKDIR/leg.out" 2>"$WORKDIR/leg.err"
+    jq -r "(.request // .) | .legs[\"work-on\"] | $2" "$WORKDIR/leg.out" 2>>"$WORKDIR/leg.err" \
+        || printf 'unreadable: %s %s' "$(head -c 200 "$WORKDIR/leg.out")" "$(head -c 200 "$WORKDIR/leg.err")"
+}
+# cont_leg <session> <request> <dispatcher>: --continue-waiting under the leg.
+cont_leg() {
+    toks "[\"x\",\"--koto-leg\",\"$2:work-on\"]"
+    bash "$OPEN" --workflow "$1" --var ISSUE_NUMBER=2 --var ARTIFACT_PREFIX=issue_2 --var ISSUE_TYPE=task --dispatched-by "$3" \
+        --continue-waiting "$TOKS" > "$WORKDIR/cont.out" 2>"$WORKDIR/cont.err"
+    RC=$?
+}
+cur() { koto status "$1" 2>"$WORKDIR/status.err" | jq -r '.current_state // empty'; }
+
+S=lgw
+if ! koto init --help 2>"$WORKDIR/help.err" | grep -q -- '--koto-leg'; then
+    fail "koto init has no --koto-leg: the leg-bound continuation was not exercised"
+else
+    newreq; R1=$REQ
+    git checkout -q main
+    git checkout -q -b "case-$S"
+    toks "[\"x\",\"--koto-leg\",\"$R1:work-on\"]"
+    bash "$OPEN" --workflow "$S" --var ISSUE_NUMBER=2 --var ARTIFACT_PREFIX=issue_2 --var ISSUE_TYPE=task --dispatched-by manager \
+        "$TOKS" > "$WORKDIR/open.out" 2>"$WORKDIR/open.err" \
+        || fail "$S: work-on-open.sh under the leg failed: $(cat "$WORKDIR/open.out" "$WORKDIR/open.err")"
+    issue_walk "$S" 2
+    tick "$S" '{"plan_outcome":"blocked_missing_context","approach_summary":"no cache store is named"}'
+    attempt "$S" --result undecided --state analysis:1
+    raise "$S" --attempt "$A" --state analysis:1
+    QL=$Q
+    tick "$S" '{"decide_outcome":"raised"}'
+    expect_state "the leg-bound run raised" done_waiting
+    [ "$(legof "$R1" '"\(.disposition)|\(.bound_child)|\(.result.payload.question)"')" = "resolved|$S|$QL" ] \
+        && pass "done_waiting resolved the first leg with the question" || fail "the first leg: $(legof "$R1" . | cut -c1-400)"
+
+    newreq; R2=$REQ
+    cont_leg "$S" "$R2" manager
+    [ "$RC" = 3 ] && grep -qx "waiting=$QL" "$WORKDIR/cont.out" && [ "$(cur "$S")" = done_waiting ] \
+        && [ "$(legof "$R2" '"\(.disposition)|\(.bound_child)"')" = "open|null" ] \
+        && pass "under a leg, an open question is reported (exit 3) and nothing is rewound or attached" \
+        || fail "--continue-waiting under a leg while open exited $RC: $(cat "$WORKDIR/cont.out" "$WORKDIR/cont.err")"
+
+    manager_answers "$S" "$QL"
+    cont_leg "$S" "$R2" scratch
+    [ "$RC" = 2 ] && grep -qx refused=dispatcher_differs "$WORKDIR/cont.out" && [ "$(cur "$S")" = done_waiting ] \
+        && pass "under a leg, a different dispatcher is refused with nothing rewound" \
+        || fail "--continue-waiting under a leg --dispatched-by scratch exited $RC: $(cat "$WORKDIR/cont.out" "$WORKDIR/cont.err")"
+
+    # The first request is still open, so the session still answers a live
+    # leg and koto refuses the attach; the session goes back to done_waiting.
+    cont_leg "$S" "$R2" manager
+    [ "$RC" != 0 ] && grep -qx restored=done_waiting "$WORKDIR/cont.out" && [ "$(cur "$S")" = done_waiting ] \
+        && [ "$(legof "$R2" '.result_source')" = refused ] \
+        && pass "an attach refused while the first request is open restores done_waiting and resolves the new leg as refused" \
+        || fail "--continue-waiting with the first request open exited $RC: $(cat "$WORKDIR/cont.out" "$WORKDIR/cont.err") leg: $(legof "$R2" . | cut -c1-300)"
+
+    koto request close "$R1" > "$WORKDIR/close.out" 2>"$WORKDIR/close.err" \
+        || fail "koto request close $R1: $(cat "$WORKDIR/close.out" "$WORKDIR/close.err")"
+    newreq; R3=$REQ
+    cont_leg "$S" "$R3" manager
+    [ "$RC" = 0 ] && grep -qx continued=waiting "$WORKDIR/cont.out" && grep -qx opened=attached "$WORKDIR/cont.out" \
+        && grep -qx "session=$S" "$WORKDIR/cont.out" && [ "$(cur "$S")" = waiting_record ] \
+        && [ "$(legof "$R3" '"\(.disposition)|\(.bound_child)"')" = "open|$S" ] \
+        && pass "once the first request is closed, the session is rewound to waiting_record and attached under the new leg" \
+        || fail "--continue-waiting under a new leg exited $RC: $(cat "$WORKDIR/cont.out" "$WORKDIR/cont.err") leg: $(legof "$R3" . | cut -c1-300)"
+    tick "$S"
+    expect_state "waiting_record sends the answered run back" decide_first
+    [ "$(ctx "$S" decide_question)" = "$QL" ] && pass "decide_question still names the question the run waited on" \
+        || fail "decide_question is [$(ctx "$S" decide_question)], want $QL"
+    attempt "$S" --result decided --chosen SQLite --state analysis:1
+    tick "$S" '{"decide_outcome":"decided","decided_next":"resume"}'
+    expect_state "a deciding attempt that does not cite the answer is held" decide_first
+    case "$(gate_stdout attempt_recorded)" in *"was answered"*) pass "attempt_recorded names the answer to cite" ;;
+        *) fail "attempt_recorded printed [$(gate_stdout attempt_recorded)]" ;; esac
+    attempt "$S" --result decided --chosen SQLite --basis "$ANS" --state analysis:1
+    tick "$S" '{"decide_outcome":"decided","decided_next":"resume"}'
+    expect_state "citing the answer resumes the run under the new leg" analysis
+    [ "$(legof "$R1" '"\(.disposition)|\(.result.payload.question)"')" = "resolved|$QL" ] \
+        && pass "the first leg keeps its waiting result" || fail "the first leg: $(legof "$R1" . | cut -c1-400)"
+
+    # An answer with no authority over the run (its own) is refused before
+    # anything is rewound.
+    S=lgx
+    if reach "$S" analysis; then
+        tick "$S" '{"plan_outcome":"blocked_missing_context","approach_summary":"no cache store is named"}'
+        attempt "$S" --result undecided --state analysis:1
+        raise "$S" --attempt "$A" --state analysis:1
+        QX=$Q
+        tick "$S" '{"decide_outcome":"raised"}'
+        expect_state "the second run raised" done_waiting
+        answers "$S" "$S" "$QX"
+        newreq
+        cont_leg "$S" "$REQ" manager
+        [ "$RC" = 2 ] && grep -qx refused=answer_without_authority "$WORKDIR/cont.out" && [ "$(cur "$S")" = done_waiting ] \
+            && [ "$(legof "$REQ" '"\(.disposition)|\(.bound_child)"')" = "open|null" ] \
+            && pass "under a leg, an answer without authority is refused with nothing rewound" \
+            || fail "--continue-waiting on a self-answered question exited $RC: $(cat "$WORKDIR/cont.out" "$WORKDIR/cont.err")"
+    fi
+fi
+
+# ==============================================================================
 echo "--- stale approval"
 
 # An answer cited for one deferral, then the run back at finalization (as

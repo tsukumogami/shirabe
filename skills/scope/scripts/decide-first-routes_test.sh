@@ -100,7 +100,7 @@ ktg_on_exit 'rm -rf "$WORK"'
 
 JSON=$("$REAL_KOTO" template compile "$SKILL_DIR/koto-templates/scope.md" 2> "$WORK/compile.err" | tail -1)
 if [ -z "$JSON" ] || [ ! -f "$JSON" ]; then
-    echo "FAIL: scope.md does not compile: $(tail -3 "$WORK/compile.err")"
+    echo "FAIL: scope.md does not compile: $JSON $(tail -3 "$WORK/compile.err")"
     exit 1
 fi
 holds() { if jq -e "$2" "$JSON" > /dev/null; then pass "$1"; else fail "$1"; fi; }
@@ -197,7 +197,7 @@ if [ -n "$BASE_WHY" ] && command -v git > /dev/null; then
         else
             CMP_JSON=$("$REAL_KOTO" template compile "$WORK/pin-scope.md" 2> "$WORK/pin.err" | tail -1)
             if [ -z "$CMP_JSON" ] || [ ! -f "$CMP_JSON" ]; then
-                BASE_WHY="$BASE_WHY, and scope.md at $PIN_SHA does not compile: $(tail -3 "$WORK/pin.err")"
+                BASE_WHY="$BASE_WHY, and scope.md at $PIN_SHA does not compile: $CMP_JSON $(tail -3 "$WORK/pin.err")"
             else
                 BASE_SHA="$PIN_SHA^"
                 CMP_WHAT="the parent of $PIN_SHA, the commit that added decide_first"
@@ -370,8 +370,8 @@ Wait.
 
 Done.
 EOF
-    (cd "$W" && "$REAL_KOTO" init manager --template "$W/manager.md" > /dev/null 2> "$W/init.err") \
-        || fail "koto init manager: $(cat "$W/init.err")"
+    (cd "$W" && "$REAL_KOTO" init manager --template "$W/manager.md" > "$W/init.out" 2> "$W/init.err") \
+        || fail "koto init manager: $(cat "$W/init.out" "$W/init.err")"
 
     jq -n '{
         context: "The PRD names one export format, and an upstream change now names two.",
