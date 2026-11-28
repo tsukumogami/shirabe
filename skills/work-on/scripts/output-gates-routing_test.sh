@@ -48,6 +48,10 @@
 
 set -u
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
+# verification's launcher is a koto background action: one tick starts it and
+# a later one reads it. The cases here ask where a tick leads, so koto next
+# settles a running action before it answers (the guard's header).
+ktg_settle_background
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SKILL_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
@@ -720,7 +724,13 @@ rr_why() {
 if [ "$RR_OK" -eq 1 ]; then
     RR_REASON='flaky "net" test'
     RR_DATA=$(jq -cn --arg r "$RR_REASON" '{implementation_status: "verification_rerun", rationale: $r}')
-    RR_RESP=$(cd "$RR_REPO" && koto next "$RS" --with-data "$RR_DATA" --no-cleanup 2>/dev/null)
+    # `command koto`: the tick that starts the run, not the guard's settled
+    # answer, since the case looks at attempt 2 while it runs. The launcher is
+    # a background action, so the tick returns before --start has archived
+    # attempt 1 and made attempt 2's folder; wait for that folder.
+    RR_RESP=$(cd "$RR_REPO" && command koto next "$RS" --with-data "$RR_DATA" --no-cleanup 2>/dev/null)
+    rr_n=0
+    while [ "$rr_n" -lt 100 ] && [ ! -d "$RR_HEADDIR/attempts/2" ]; do sleep 0.1; rr_n=$((rr_n + 1)); done
 
     RR_CUR=$(cd "$RR_REPO" && koto status "$RS" 2>/dev/null | jq -r '.current_state // empty' 2>/dev/null)
     [ "$RR_CUR" = verification ] \
@@ -871,7 +881,10 @@ fi
 if [ "$R5_OK" -eq 1 ]; then
     R5_REASON='the host was loaded'
     R5_DATA=$(jq -cn --arg r "$R5_REASON" '{verification_status: "rerun", detail: $r}')
-    R5_RESP=$(cd "$R5_REPO" && koto next "$R5S" --with-data "$R5_DATA" --no-cleanup 2>/dev/null)
+    # `command koto`, and the wait for attempt 2's folder, as in the case above.
+    R5_RESP=$(cd "$R5_REPO" && command koto next "$R5S" --with-data "$R5_DATA" --no-cleanup 2>/dev/null)
+    r5_n=0
+    while [ "$r5_n" -lt 100 ] && [ ! -d "$RR_HEADDIR/attempts/2" ]; do sleep 0.1; r5_n=$((r5_n + 1)); done
 
     # Attempt 2's supervisor first, while its command is inside its limit: the
     # lock names it once --start returns, and its log follows.

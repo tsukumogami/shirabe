@@ -69,6 +69,14 @@ and the `verification_verdict` gate, `scripts/check-verification.sh --verdict`, 
 `poll:` gate that waits on the result and routes on it. A pending result is a wait,
 not a failure: tick again when the response says to.
 
+The action runs on koto's host pool `suite` (koto 0.40.0 and later), so a host can
+cap how many suites run on it at once. A host sets the cap in its own koto
+`config.toml` as `[pools.suite]`; without that block nothing is limited. On a host
+that has it, a run whose suite must wait answers a `__pool__` condition with status
+`queued` and stays in `verification`, and a later tick starts the suite. While the
+suite runs, a tick answers an `__action__` condition with status `running`. Both are
+waits, never failures; the state's directive says how to wait on each.
+
 The gate reads the project's **verification map**, committed as
 `.claude/shirabe-extensions/verification-map.json` and read at the merge-base with the
 default branch, so a branch that edits the map is still verified by the map it started
