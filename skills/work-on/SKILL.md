@@ -297,12 +297,18 @@ decision:
 - **Rejected** — the issue is not done. The workflow routes to `done_blocked`, a
   non-clean terminal, rather than shipping with the criterion silently unmet.
 
-Either decision rests on an answer someone other than the run gave. The
-`answer_cited` gate, which can't be overridden, holds `approved` and `rejected`
-until a deciding attempt for the deferral cites an answer in effect. The run first
+Either decision rests on the answer to a question the run raised for this
+deferral, given by a verified person or by a session above the run (one that
+dispatched it, or dispatched that one). The `answer_cited` gate, which can't be
+overridden, holds `approved` and `rejected` until a deciding attempt for the
+deferral cites such an answer. An answer the run gave itself, one given in a
+session it continues, one from a session outside its dispatch chain, and an
+answer to a question some other session raised approve nothing. The run first
 submits `approval_decision: needs_answer`, which takes it to `decide_first` (see
 **Deciding Before Stopping**) with the deferral as the question, and it comes back
-to `deferral_approval` once the answer is cited.
+to `deferral_approval` once the answer is cited. Each new `deferral_requested`
+clears the arrival, so an answer cited for an earlier deferral approves nothing:
+a run that comes back through `finalization` and defers again asks again.
 
 Both ways out to the pull request, `ready_for_pr` at `finalization` and
 `approved` at `deferral_approval`, require the two pre-PR judgment calls with
@@ -1023,11 +1029,15 @@ overridden, lets the run leave only with an attempt for this arrival:
 - `decide_outcome: decided` with `decided_next: resume` goes back to the state
   it came from; `decided_next: stop` takes the exit it was about to take
   (`done_blocked` or `validation_exit`, with the same `failure_reason`). Both
-  need a decided or provisional attempt. An arrival from `deferral_approval` has
-  no stop.
+  need a decided or provisional attempt, and no question raised for the arrival
+  still open: a run that raised one waits for its answer and cites it, or
+  withdraws it. An arrival from `deferral_approval` has no stop. The
+  `decide_laps` gate refuses `resume` from the fourth arrival from the same
+  state on, so a run that keeps coming back stops or asks instead.
 - `decide_outcome: raised` needs an undecided attempt and an open question
-  raised for the arrival, and ends the run at `done_waiting`: a failure terminal,
-  retained, whose result is the question's identity.
+  raised for the arrival. It passes `waiting_record`, whose action records the
+  question's identity in `decide_question`, and ends the run at `done_waiting`:
+  a failure terminal, retained, whose result is the question's identity.
 
 In a turn a person started, the run presents the question once it is raised
 (`shirabe question render`, the question prompt, `shirabe question answer`
@@ -1072,8 +1082,11 @@ waiting run.
    ```
    It follows the sessions that already continue `<WF>` to the newest one.
    While the question is open it exits 3, printing `waiting=<identity>` and
-   `session=<newest>`: report that the run is still waiting on that question,
-   and stop. Once the question is answered it opens a successor, `<WF>-r2` (then
+   `session=<newest>`. In a turn a person started, when the question is
+   addressed to that person, present it first (`shirabe question render`, the
+   question prompt, `shirabe question answer`, as **Deciding Before Stopping**
+   says) and open again once it is answered. Otherwise report that the run is
+   still waiting on that question, and stop. Once the question is answered it opens a successor, `<WF>-r2` (then
    `-r3`), that continues the waiting session and prints `opened=continued`,
    `continues=` and `session=`. Tick that session. Entry's `decide_resume` gate
    holds it until a deciding attempt in it cites the answer: record
@@ -1084,8 +1097,12 @@ waiting run.
    continued with `refused=superseded`, naming the session to resume. Under
    `--koto-leg` the flag is refused: koto's succession can't be combined with a
    leg. When the answer is no longer needed, withdraw the question with
-   `shirabe question withdraw <identity> --in <session> --reason <why>`;
-   `koto session cleanup` refuses a session whose question is still open.
+   `shirabe question withdraw <identity> --in <session> --reason <why>`. A
+   withdrawal takes the question off its addressee's open list for good, and
+   the waiting run is then refused with `refused=withdrawn`: there is nothing
+   to continue from, so start the work fresh (`koto session cleanup <WF>`, then
+   open as **Initialize** says). `koto session cleanup` refuses a session whose
+   question is still open.
 3. `is_terminal: false` is a genuine resume: `koto next <WF> --no-cleanup`, with
    no open. Under `--koto-leg`, open through `work-on-open.sh` first, which
    attaches the live session and binds it to the leg, then tick.

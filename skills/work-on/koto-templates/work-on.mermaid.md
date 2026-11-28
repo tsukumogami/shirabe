@@ -49,14 +49,14 @@ stateDiagram-v2
     context_injection --> setup_issue_backed : gates.await_removals.exit_code: 0, gates.context_artifact.exists: true, status: completed
     context_injection --> setup_issue_backed : gates.await_removals.exit_code: 0, status: override
     context_injection --> done_blocked : status: blocked
-    decide_first --> done_waiting : decide_outcome: raised, gates.attempt_recorded.exit_code: 3
-    decide_first --> analysis : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 10
-    decide_first --> implementation : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 11
-    decide_first --> introspection : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 12
-    decide_first --> task_validation : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 13
-    decide_first --> post_research_validation : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 14
-    decide_first --> plan_validation : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 15
-    decide_first --> deferral_approval : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 16
+    decide_first --> waiting_record : decide_outcome: raised, gates.attempt_recorded.exit_code: 3
+    decide_first --> analysis : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 10, gates.decide_laps.exit_code: 0
+    decide_first --> implementation : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 11, gates.decide_laps.exit_code: 0
+    decide_first --> introspection : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 12, gates.decide_laps.exit_code: 0
+    decide_first --> task_validation : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 13, gates.decide_laps.exit_code: 0
+    decide_first --> post_research_validation : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 14, gates.decide_laps.exit_code: 0
+    decide_first --> plan_validation : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 15, gates.decide_laps.exit_code: 0
+    decide_first --> deferral_approval : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 16, gates.decide_laps.exit_code: 0
     decide_first --> done_blocked : decide_outcome: decided, decided_next: stop, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 10
     decide_first --> done_blocked : decide_outcome: decided, decided_next: stop, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 11
     decide_first --> done_blocked : decide_outcome: decided, decided_next: stop, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 12
@@ -262,6 +262,7 @@ stateDiagram-v2
     verification_plan --> verification : gates.verification_route_plan.exit_code: 1
     verification_plan --> verification : gates.verification_route_plan.exit_code: 2
     verification_plan --> verification : gates.verification_route_plan.exit_code: -1
+    waiting_record --> done_waiting : gates.question_recorded.exists: true
     done --> [*]
     done_already_complete --> [*]
     done_blocked --> [*]
@@ -312,6 +313,9 @@ stateDiagram-v2
     end note
     note left of decide_first
         gate: decide_from
+    end note
+    note left of decide_first
+        gate: decide_laps
     end note
     note left of deferral_approval
         gate: answer_cited
@@ -537,5 +541,8 @@ stateDiagram-v2
     end note
     note left of verification_plan
         gate: verification_route_plan
+    end note
+    note left of waiting_record
+        gate: question_recorded
     end note
 ```

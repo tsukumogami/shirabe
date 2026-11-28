@@ -5,11 +5,13 @@
 # deferral_approval's needs_answer, which is new).
 #
 # What it undoes, and nothing else:
-#   - the states decide_first and done_waiting;
+#   - the states decide_first, waiting_record and done_waiting;
 #   - each edge into decide_first goes back to its old target, without the
 #     decide_origin and decide_fresh assignments;
 #   - entry's decide_resume gate, its exit_code 0 condition on the mode edges
 #     and skip_if, and the edges that route on its other codes;
+#   - finalization's decide_arrival and decide_question assignments on its
+#     deferral_requested edge;
 #   - deferral_approval's answer_cited gate and its conditions, the
 #     needs_answer value and edge, and its directive, whose text names
 #     needs_answer (the suite drops the earlier template's directive there
@@ -33,7 +35,11 @@ def old_target($s):
     end;
 
 .states |= (
-    del(.decide_first, .done_waiting)
+    del(.decide_first, .waiting_record, .done_waiting)
+    | .finalization.transitions |= map(
+        if (.when // {}).finalization_status == "deferral_requested"
+        then .context_assignments |= ((. // {}) | drop_keys(["decide_arrival", "decide_question"])) | tidy
+        else . end)
     | .entry |= (
         del(.gates.decide_resume)
         | (if (.gates // {}) == {} then del(.gates) else . end)

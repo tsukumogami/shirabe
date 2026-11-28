@@ -166,8 +166,10 @@ If you find yourself writing one, the matching acceptance criterion is unmet: su
 `deferral_requested` and take it through the `deferral_approval` gate rather than
 shipping the caveat unapproved.
 
-At `deferral_approval`, `approved` and `rejected` rest on an answer someone
-other than the run gave: both hold until a deciding attempt for the arrival
-cites an answer in effect. With no such answer yet, submit
+At `deferral_approval`, `approved` and `rejected` rest on the answer to the
+question this run raised for the deferral, from a verified person or from a
+session above the run: both hold until a deciding attempt for the arrival cites
+that answer. An answer the run gave itself, or one from a session outside its
+dispatch chain, approves nothing, and each new `deferral_requested` asks again. With no such answer yet, submit
 `approval_decision: needs_answer`, which goes to `decide_first` to read
 precedent or raise the question.

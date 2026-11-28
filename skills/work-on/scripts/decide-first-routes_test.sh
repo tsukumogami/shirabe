@@ -19,20 +19,29 @@
 #                   resumes to each of the seven covered states on its
 #                   decide_from code, stops to done_blocked (10 to 12) or
 #                   validation_exit (13 to 15), has no stop from
-#                   deferral_approval, and ends at done_waiting only on raised
-#                   with attempt_recorded 3; every edge out of it carries
-#                   attempt_recorded; its gates, answer_cited and decide_resume
-#                   cannot be overridden; done_waiting is a failure terminal
+#                   deferral_approval, goes to waiting_record only on raised
+#                   with attempt_recorded 3, and resumes only on decide_laps
+#                   0; waiting_record records decide_question and ends at
+#                   done_waiting only once it is there; every edge out of
+#                   decide_first carries attempt_recorded; its gates,
+#                   question_recorded, answer_cited and decide_resume cannot
+#                   be overridden, and each command gate has a timeout;
+#                   finalization's deferral_requested clears decide_arrival
+#                   and decide_question; done_waiting is a failure terminal
 #                   whose result is the question; entry resumes on 10 to 16
 #   as before       fixtures/decide-first/undo.jq takes exactly the named
 #                   changes out of the compiled template, and what is left
 #                   equals the template at the merge-base with the pull
 #                   request's base (DECIDE_FIRST_BASE, else GITHUB_BASE_REF,
-#                   else origin/main); skipped, saying so, when that base
-#                   already holds decide_first or is not in the clone
+#                   else origin/main). Once that base holds decide_first, the
+#                   merge-base has nothing to compare, and the comparison is
+#                   pinned to history instead: the commit that added
+#                   decide_first, undone with that commit's own undo.jq and
+#                   exits.json, equals its parent. Skipped, saying so, only
+#                   when neither is in the clone
 #   the ten exits   each covered exit, driven from its state, arrives at
-#                   decide_first as <origin>:1, with a directive naming that
-#                   arrival, the procedure and each command, and the exit's
+#                   decide_first as <origin>:1, with a directive saying where
+#                   the arrival is read, the procedure and each command, and the exit's
 #                   failure_reason where it had one; with no attempt the
 #                   submission is held, naming what is missing
 #   resume and stop each origin: a decided attempt and decided_next: resume
@@ -42,8 +51,14 @@
 #                   leave
 #   deferral        approved and rejected are held by answer_cited until an
 #                   answer is cited; needs_answer goes to decide_first
+#   stale approval  an answer cited for one deferral approves nothing once the
+#                   run comes back to finalization and defers again
+#   open question   a deciding attempt beside the arrival's open question is
+#                   held; withdrawing the question lets it go on
+#   lap cap         the fourth arrival from one state cannot resume; it stops
 #   waiting         raised with no question is held; an undecided attempt and
-#                   its open question end at done_waiting, a retained failure
+#                   its open question pass waiting_record, which records the
+#                   question, and end at done_waiting, a retained failure
 #                   whose result names the question, which `koto decisions
 #                   open` lists; `koto session cleanup` refuses it while the
 #                   question is open
@@ -54,7 +69,8 @@
 #                   rejected then passes answer_cited); the next arrival goes
 #                   on counting; refused=not_waiting on a run that is not
 #                   waiting
-#   withdrawn       a withdrawn question: cleanup then succeeds
+#   withdrawn       a withdrawn question: --continue-waiting refuses it
+#                   (refused=withdrawn), and cleanup then succeeds
 #   attended        an owner question presented from a recorded prompt:
 #                   raised is held once it is answered, decided goes on once
 #                   an attempt cites the answer
@@ -62,7 +78,9 @@
 #                   `shirabe question precedent --label` and records a
 #                   deciding attempt citing it, with no question raised
 #   no covered exit a change run to finalization makes no `shirabe question`
-#                   call and never enters decide_first
+#                   call and never enters decide_first; the same submissions
+#                   to the merge-base template and to the branch's land in
+#                   the same state at every tick
 #   an old session  a session started from the earlier template still stops
 #                   at done_blocked (when the base is readable)
 #   words           the new directives never say escalate
@@ -147,6 +165,31 @@ if BASE_SHA=$(git -C "$SRC_ROOT" merge-base HEAD "$BASE_REF" 2>"$WORKDIR/base.er
     fi
 else
     BASE_WHY="no merge-base with $BASE_REF in this clone: $(cat "$WORKDIR/base.err")"
+fi
+
+# Once the base holds decide_first, the comparison is pinned to the commit
+# that added it: that commit's template, undo.jq and exits.json, against its
+# parent's template.
+PIN_SHA=""
+PIN_WHY=""
+PIN="$WORKDIR/pin"
+if [ -z "$BASE_TEMPLATE" ]; then
+    mkdir -p "$PIN"
+    if git -C "$SRC_ROOT" log --format=%H -S'  decide_first:' -- skills/work-on/koto-templates/work-on.md > "$PIN/log" 2>"$PIN/err"; then
+        PIN_SHA=$(sed -n '$p' "$PIN/log")
+        if [ -z "$PIN_SHA" ]; then
+            PIN_WHY="no commit in this clone adds decide_first to work-on.md"
+        elif git -C "$SRC_ROOT" show "$PIN_SHA^:skills/work-on/koto-templates/work-on.md" > "$PIN/pre.md" 2>"$PIN/err" \
+                && git -C "$SRC_ROOT" show "$PIN_SHA:skills/work-on/koto-templates/work-on.md" > "$PIN/post.md" 2>"$PIN/err" \
+                && git -C "$SRC_ROOT" show "$PIN_SHA:skills/work-on/scripts/fixtures/decide-first/undo.jq" > "$PIN/undo.jq" 2>"$PIN/err" \
+                && git -C "$SRC_ROOT" show "$PIN_SHA:skills/work-on/scripts/fixtures/decide-first/exits.json" > "$PIN/exits.json" 2>"$PIN/err"; then
+            :
+        else
+            PIN_WHY="the commit that added decide_first, $PIN_SHA, or its parent is not readable: $(cat "$PIN/err")"
+        fi
+    else
+        PIN_WHY="git log failed: $(cat "$PIN/err")"
+    fi
 fi
 
 export HOME="$WORKDIR/home"
@@ -248,17 +291,41 @@ have=$(q '[.states | to_entries[] | .key as $s | .value.transitions[]? | select(
     = "10>done_blocked,11>done_blocked,12>done_blocked,13>validation_exit,14>validation_exit,15>validation_exit" ] \
     && pass "decide_first stops at the old exit for 10 to 15, and has no stop from deferral_approval" \
     || fail "stop edges: [$(q '[.states.decide_first.transitions[] | select(.when.decided_next == "stop")]')]"
-[ "$(q '[.states.decide_first.transitions[] | select(.target == "done_waiting") | .when | to_entries | map("\(.key)=\(.value)") | join("+")] | join(",")')" \
+[ "$(q '[.states.decide_first.transitions[] | select(.target == "waiting_record") | .when | to_entries | map("\(.key)=\(.value)") | join("+")] | join(",")')" \
     = "decide_outcome=raised+gates.attempt_recorded.exit_code=3" ] \
-    && pass "decide_first ends at done_waiting only on raised with attempt_recorded 3" \
-    || fail "done_waiting edges: [$(q '[.states.decide_first.transitions[] | select(.target == "done_waiting")]')]"
+    && [ "$(q '[.states.decide_first.transitions[] | select(.target == "done_waiting")] | length')" = 0 ] \
+    && pass "decide_first goes to waiting_record only on raised with attempt_recorded 3, and never straight to done_waiting" \
+    || fail "raised edges: [$(q '[.states.decide_first.transitions[] | select(.when.decide_outcome == "raised")]')]"
+[ "$(q '[.states.waiting_record.transitions[] | "\(.target)|\(.when | to_entries | map("\(.key)=\(.value)") | join("+"))"] | join(",")')" \
+    = "done_waiting|gates.question_recorded.exists=true" ] \
+    && [ "$(q '.states.waiting_record.gates.question_recorded | "\(.type)|\(.key)"')" = "context-exists|decide_question" ] \
+    && pass "waiting_record ends at done_waiting only once decide_question is in context" \
+    || fail "waiting_record is [$(q '.states.waiting_record | del(.directive)')]"
+case "$(q '.states.waiting_record.default_action.command')" in
+    *'decide-first-gate.sh" --record-question "{{SESSION_NAME}}"'*) pass "waiting_record's action is decide-first-gate.sh --record-question" ;;
+    *) fail "waiting_record's action is [$(q '.states.waiting_record.default_action')]" ;;
+esac
+[ "$(q '.states.decide_first.default_action | has("capture_stdout_as")')" = false ] \
+    && pass "decide_first's action captures nothing; the script writes decide_arrival itself" \
+    || fail "decide_first's action captures [$(q '.states.decide_first.default_action.capture_stdout_as')]"
+[ "$(q '[.states.decide_first.transitions[] | select(.when.decided_next == "resume") | .when["gates.decide_laps.exit_code"] | tostring] | unique | join(",")')" = 0 ] \
+    && [ "$(q '[.states.decide_first.transitions[] | select(.when.decided_next != "resume") | select(.when | has("gates.decide_laps.exit_code"))] | length')" = 0 ] \
+    && pass "every resume edge needs decide_laps 0, and no other edge tests it" \
+    || fail "decide_laps on decide_first's edges: [$(q '[.states.decide_first.transitions[] | {target, laps: .when["gates.decide_laps.exit_code"]}]')]"
+[ "$(q '[.states.decide_first.gates[], .states.deferral_approval.gates.answer_cited, .states.entry.gates.decide_resume] | map(.timeout | tostring) | unique | join(",")')" = 60 ] \
+    && pass "each command gate this step adds has a 60-second timeout" \
+    || fail "timeouts: [$(q '[.states.decide_first.gates[], .states.deferral_approval.gates.answer_cited, .states.entry.gates.decide_resume] | map(.timeout)')]"
+[ "$(q '[.states.finalization.transitions[] | select(.when.finalization_status == "deferral_requested") | "\(.target)|\(.context_assignments.decide_arrival)|\(.context_assignments.decide_question)"] | join(",")')" \
+    = "deferral_approval|none|none" ] \
+    && pass "a new deferral clears decide_arrival and decide_question, so an earlier answer approves nothing" \
+    || fail "finalization's deferral edge: [$(q '[.states.finalization.transitions[] | select(.when.finalization_status == "deferral_requested")]')]"
 [ "$(q '[.states.decide_first.transitions[] | select(.when | has("gates.attempt_recorded.exit_code") | not)] | length')" = 0 ] \
     && [ "$(q '[.states.decide_first.transitions[] | select(.when.decide_outcome == "decided" and .when["gates.attempt_recorded.exit_code"] != 0)] | length')" = 0 ] \
     && pass "every edge out of decide_first carries attempt_recorded, 0 for decided" \
     || fail "an edge out of decide_first leaves without attempt_recorded"
-[ "$(q '[.states.decide_first.gates.attempt_recorded.overridable, .states.decide_first.gates.decide_from.overridable, .states.deferral_approval.gates.answer_cited.overridable, .states.entry.gates.decide_resume.overridable] | map(tostring) | join(",")')" \
-    = "false,false,false,false" ] && pass "attempt_recorded, decide_from, answer_cited and decide_resume cannot be overridden" \
-    || fail "overridable: [$(q '[.states.decide_first.gates, .states.deferral_approval.gates.answer_cited, .states.entry.gates.decide_resume] | map(del(.command)?)')]"
+[ "$(q '[.states.decide_first.gates.attempt_recorded.overridable, .states.decide_first.gates.decide_from.overridable, .states.decide_first.gates.decide_laps.overridable, .states.waiting_record.gates.question_recorded.overridable, .states.deferral_approval.gates.answer_cited.overridable, .states.entry.gates.decide_resume.overridable] | map(tostring) | join(",")')" \
+    = "false,false,false,false,false,false" ] && pass "attempt_recorded, decide_from, decide_laps, question_recorded, answer_cited and decide_resume cannot be overridden" \
+    || fail "overridable: [$(q '[.states.decide_first.gates, .states.waiting_record.gates, .states.deferral_approval.gates.answer_cited, .states.entry.gates.decide_resume] | map(del(.command)?)')]"
 case "$(q '.states.decide_first.default_action.command')" in
     *'decide-first-gate.sh" --arrive "{{SESSION_NAME}}"'*) pass "decide_first's action is decide-first-gate.sh --arrive" ;;
     *) fail "decide_first's action is [$(q '.states.decide_first.default_action')]" ;;
@@ -292,8 +359,25 @@ if [ -n "$BASE_TEMPLATE" ]; then
     else
         fail "the base template does not compile: $(cat "$WORKDIR/base-compile.err")"
     fi
+elif [ -n "$PIN_SHA" ] && [ -z "$PIN_WHY" ]; then
+    PRE_COMPILED=$(koto template compile "$PIN/pre.md" 2>"$PIN/pre.err" | tail -n 1)
+    POST_COMPILED=$(koto template compile "$PIN/post.md" 2>"$PIN/post.err" | tail -n 1)
+    if [ -f "$PRE_COMPILED" ] && [ -f "$POST_COMPILED" ]; then
+        jq -S '.states.deferral_approval |= del(.directive)' "$PRE_COMPILED" > "$PIN/base.json"
+        if jq -S --argjson exits "$(cat "$PIN/exits.json")" --from-file "$PIN/undo.jq" "$POST_COMPILED" > "$PIN/undone.json" 2>"$PIN/undo.err"; then
+            if diff "$PIN/base.json" "$PIN/undone.json" > "$PIN/undo.diff"; then
+                pass "with the named changes taken out, work-on.md at $PIN_SHA, the commit that added decide_first, equals its parent ($BASE_WHY)"
+            else
+                fail "work-on.md at $PIN_SHA differs from its parent beyond the named changes: $(sed -n 1,40p "$PIN/undo.diff")"
+            fi
+        else
+            fail "undo.jq at $PIN_SHA failed: $(cat "$PIN/undo.err")"
+        fi
+    else
+        fail "the templates at $PIN_SHA and its parent do not compile: $(cat "$PIN/pre.err" "$PIN/post.err")"
+    fi
 else
-    echo "SKIP: as before: $BASE_WHY"
+    echo "SKIP: as before: $BASE_WHY; $PIN_WHY"
 fi
 
 # Every edge into done_blocked and validation_exit, as <source>|<when>|<context
@@ -489,11 +573,11 @@ while [ "$i" -lt "$n" ]; do
     [ "$(ctx "$S" decide_arrival)" = "$origin:1" ] && pass "$label: the arrival is $origin:1" || fail "$label: decide_arrival is [$(ctx "$S" decide_arrival)]"
     dir=$(printf '%s' "$RESP" | jq -r '.directive // ""')
     miss=""
-    for want in "\`$origin:1\`: pass it as \`--state\`" "references/question-procedure.md" "shirabe question precedent --in $S" \
-            "shirabe question attempt --in $S --state $origin:1" "shirabe question raise --in $S" "open no prompt and submit \`raised\`"; do
+    for want in "koto context get $S decide_arrival" "references/question-procedure.md" "shirabe question precedent --in $S" \
+            "shirabe question attempt --in $S --state <arrival>" "shirabe question raise --in $S" "open no prompt and submit \`raised\`"; do
         case "$dir" in *"$want"*) ;; *) miss="$miss [$want]" ;; esac
     done
-    [ -z "$miss" ] && pass "$label: the directive names the arrival, the procedure and each command" || fail "$label: the directive lacks$miss"
+    [ -z "$miss" ] && pass "$label: the directive says where the arrival is read, the procedure and each command" || fail "$label: the directive lacks$miss"
     if [ -n "$reason" ]; then
         [ "$(ctx "$S" failure_reason)" = "$reason" ] && pass "$label: the exit's failure_reason is kept" || fail "$label: failure_reason is [$(ctx "$S" failure_reason)]"
     fi
@@ -555,14 +639,11 @@ if reach "$S" deferral_approval; then
     [ "$(jq -r --arg a "$A" '[.decisions[]?] | "\(length)|\(.[0].decision.subject.state)|\([.[0].decision.basis[]?.id] | index($a) != null)"' "$WORKDIR/esc.out")" \
         = "1|deferral_approval:1|true" ] && pass "one question on the record, for the arrival, resting on the undecided attempt" \
         || fail "the run's escalate entries: $(cat "$WORKDIR/esc.out" "$WORKDIR/esc.err")"
+    [ "$(ctx "$S" decide_question)" = "$QD" ] && pass "waiting_record recorded the question in decide_question" \
+        || fail "decide_question is [$(ctx "$S" decide_question)], want $QD"
     # koto keeps a failure terminal as failure_terminal before it asks about
-    # open questions, so on done_waiting the tick's retention does not list
-    # the question; the open-question read below is what names it.
-    case "$(printf '%s' "$RESP" | jq -c '.retention // {}')" in
-        *"${QD##*/}"*) pass "the tick's retention names the open question" ;;
-        *'"retained":true'*) echo "NOTE: the tick's retention keeps the session without naming the question: $(printf '%s' "$RESP" | jq -c '.retention')" ;;
-        *) fail "the waiting session is not retained: [$(printf '%s' "$RESP" | jq -c '.retention')]" ;;
-    esac
+    # open questions, so the tick's retention says the session is kept without
+    # naming the question; the open-question reads below are what name it.
     koto decisions open --at manager > "$WORKDIR/open-q.out" 2>"$WORKDIR/open-q.err"
     grep -qF "${QD##*/}" "$WORKDIR/open-q.out" && pass "koto decisions open --at manager returns the question" \
         || fail "koto decisions open --at manager: $(cat "$WORKDIR/open-q.out" "$WORKDIR/open-q.err")"
@@ -641,6 +722,82 @@ if reach "$S" analysis; then
 fi
 
 # ==============================================================================
+echo "--- stale approval"
+
+# An answer cited for one deferral, then the run back at finalization (as
+# pr_precheck's recount brings it, through pass_counting; koto rewind stands
+# for that walk here) deferring again: the earlier answer approves nothing.
+S=stl
+if reach "$S" deferral_approval; then
+    tick "$S" '{"approval_decision":"needs_answer"}'
+    attempt "$S" --result undecided --state deferral_approval:1
+    raise "$S" --attempt "$A" --state deferral_approval:1
+    manager_answers "$S" "$Q"
+    attempt "$S" --result decided --chosen "defer the criterion" --state deferral_approval:1 --basis "$ANS"
+    tick "$S" '{"decide_outcome":"decided","decided_next":"resume"}'
+    expect_state "stale: the cited answer resumes the first deferral" deferral_approval
+    n=0
+    while [ "$STATE" != finalization ] && [ "$n" -lt 4 ]; do
+        koto rewind "$S" --rationale "the run comes back to finalization" > "$WORKDIR/rewind.out" 2>"$WORKDIR/rewind.err" \
+            || { fail "koto rewind $S: $(cat "$WORKDIR/rewind.out" "$WORKDIR/rewind.err")"; break; }
+        STATE=$(koto status "$S" 2>"$WORKDIR/status.err" | jq -r '.current_state // empty')
+        n=$((n + 1))
+    done
+    expect_state "stale: back at finalization" finalization
+    tick "$S" '{"finalization_status":"deferral_requested"}'
+    expect_state "stale: a second deferral" deferral_approval
+    [ "$(ctx "$S" decide_arrival)|$(ctx "$S" decide_question)" = "none|none" ] \
+        && pass "stale: the second deferral cleared decide_arrival and decide_question" \
+        || fail "stale: decide_arrival [$(ctx "$S" decide_arrival)], decide_question [$(ctx "$S" decide_question)]"
+    tick "$S" '{"approval_decision":"approved","cleanup_done":"none_found","design_diagram":"not_applicable"}'
+    expect_state "stale: the first deferral's answer does not approve the second" deferral_approval
+    case "$(gate_stdout answer_cited)" in *needs_answer*) pass "stale: answer_cited asks for needs_answer again" ;;
+        *) fail "stale: answer_cited printed [$(gate_stdout answer_cited)]" ;; esac
+fi
+
+# ==============================================================================
+echo "--- a deciding attempt beside an open question"
+
+S=dec
+if reach "$S" task_validation; then
+    tick "$S" '{"verdict":"exit","rationale":"the task names no outcome"}'
+    attempt "$S" --result undecided --state task_validation:1
+    raise "$S" --attempt "$A" --state task_validation:1
+    attempt "$S" --result decided --chosen "carry on" --state task_validation:1
+    tick "$S" '{"decide_outcome":"decided","decided_next":"resume"}'
+    expect_state "a deciding attempt beside the arrival's open question is held" decide_first
+    case "$(gate_stdout attempt_recorded)" in *"is still open"*) pass "attempt_recorded says the question is still open" ;;
+        *) fail "attempt_recorded printed [$(gate_stdout attempt_recorded)]" ;; esac
+    shirabe question withdraw "$Q" --in "$S" --reason "the run settled it" > "$WORKDIR/wd.out" 2>"$WORKDIR/wd.err" \
+        || fail "withdraw: $(cat "$WORKDIR/wd.out" "$WORKDIR/wd.err")"
+    tick "$S" '{"decide_outcome":"decided","decided_next":"resume"}'
+    expect_state "once the question is withdrawn, the deciding attempt resumes" task_validation
+fi
+
+# ==============================================================================
+echo "--- lap cap"
+
+S=lap
+if reach "$S" task_validation; then
+    k=1
+    while [ "$k" -le 3 ]; do
+        tick "$S" '{"verdict":"exit","rationale":"the task names no outcome"}'
+        attempt "$S" --result decided --chosen "carry on" --state "task_validation:$k"
+        tick "$S" '{"decide_outcome":"decided","decided_next":"resume"}'
+        expect_state "lap $k resumes" task_validation
+        k=$((k + 1))
+    done
+    tick "$S" '{"verdict":"exit","rationale":"the task names no outcome"}'
+    attempt "$S" --result decided --chosen "carry on" --state task_validation:4
+    tick "$S" '{"decide_outcome":"decided","decided_next":"resume"}'
+    expect_state "the fourth arrival from task_validation cannot resume" decide_first
+    case "$(gate_stdout decide_laps)" in *"resume is refused"*) pass "decide_laps says resume is refused" ;;
+        *) fail "decide_laps printed [$(gate_stdout decide_laps)]" ;; esac
+    tick "$S" '{"decide_outcome":"decided","decided_next":"stop"}'
+    expect_state "the fourth arrival stops at the old exit" validation_exit
+fi
+
+# ==============================================================================
 echo "--- withdrawn"
 
 S=wdr
@@ -652,6 +809,13 @@ if reach "$S" implementation; then
     expect_state "implementation raised" done_waiting
     shirabe question withdraw "$Q" --in "$S" --reason "the store was chosen elsewhere" > "$WORKDIR/wd.out" 2>"$WORKDIR/wd.err" \
         || fail "withdraw: $(cat "$WORKDIR/wd.out" "$WORKDIR/wd.err")"
+    toks '["x"]'
+    bash "$OPEN" --workflow "$S" --var ISSUE_NUMBER=2 --var ARTIFACT_PREFIX=issue_2 --var ISSUE_TYPE=task --dispatched-by manager \
+        --continue-waiting "$TOKS" > "$WORKDIR/cont.out" 2>"$WORKDIR/cont.err"
+    RC=$?
+    [ "$RC" = 2 ] && grep -qx refused=withdrawn "$WORKDIR/cont.out" && ! koto status "$S-r2" > /dev/null 2>"$WORKDIR/status.err" \
+        && pass "--continue-waiting refuses a withdrawn question and opens no successor" \
+        || fail "--continue-waiting after withdraw exited $RC: $(cat "$WORKDIR/cont.out" "$WORKDIR/cont.err")"
     koto session cleanup "$S" > "$WORKDIR/cleanup.out" 2>"$WORKDIR/cleanup.err" \
         && pass "a waiting session whose question was withdrawn cleans up" || fail "cleanup after withdraw: $(cat "$WORKDIR/cleanup.out" "$WORKDIR/cleanup.err")"
 fi
@@ -744,6 +908,46 @@ if open_run "$S" 2 --var ISSUE_TYPE=task --var VERIFICATION=hosted-ci --var "VER
     [ "$(grep -c '^question' "$WORKDIR/shirabe.log")" = 0 ] && pass "a run to finalization makes no shirabe question call" \
         || fail "shirabe question calls: $(grep '^question' "$WORKDIR/shirabe.log")"
     koto context exists "$S" decide_arrival > /dev/null && fail "the run arrived at decide_first" || pass "and never arrives at decide_first"
+fi
+
+# The same submissions, from koto init, to the merge-base template and to the
+# branch's: the state each tick lands in must be the same throughout.
+# seq_walk <session> <template> -> the states in $SEQ
+seq_walk() {
+    local s=$1
+    SEQ=""
+    git checkout -q main
+    git checkout -q -b "case-$s"
+    koto init "$s" --template "$2" --var ISSUE_NUMBER=2 --var ARTIFACT_PREFIX=issue_2 --var ISSUE_TYPE=task \
+        --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI" \
+        --var PLUGIN_ROOT="$PLUGIN_ROOT" > /dev/null 2>"$WORKDIR/init.err" \
+        || { fail "koto init $s: $(cat "$WORKDIR/init.err")"; return 1; }
+    tick "$s"; SEQ="$SEQ $STATE"
+    tick "$s" '{"mode":"issue_backed","issue_number":"2"}'; SEQ="$SEQ $STATE"
+    tick "$s" '{"status":"override"}'; SEQ="$SEQ $STATE"
+    tick "$s" '{"status":"override"}'; SEQ="$SEQ $STATE"
+    printf '# Issue 2\n\n## Acceptance Criteria\n\n- [ ] it works\n' | koto context add "$s" context.md > /dev/null
+    printf 'plan\n' | koto context add "$s" plan.md > /dev/null
+    tick "$s" '{"plan_outcome":"plan_ready"}'; SEQ="$SEQ $STATE"
+    printf 'shout\n' > "SHOUT-$s.md"
+    git add "SHOUT-$s.md"
+    git commit -q -m "feat: shout"
+    tick "$s" '{"implementation_status":"complete"}'; SEQ="$SEQ $STATE"
+    tick "$s" '{"issue_type":"task"}'; SEQ="$SEQ $STATE"
+    tick "$s" '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'; SEQ="$SEQ $STATE"
+}
+if [ -n "$BASE_TEMPLATE" ]; then
+    if seq_walk seqo "$BASE_TEMPLATE"; then
+        SEQ_OLD=$SEQ
+        if seq_walk seqb "$TEMPLATE"; then
+            echo "states, tick by tick:$SEQ_OLD"
+            [ "$SEQ" = "$SEQ_OLD" ] && pass "a run with no covered exit lands in the same state at every tick on both templates" \
+                || fail "the branch's states [$SEQ], the merge-base's [$SEQ_OLD]"
+            koto context exists seqb decide_arrival > /dev/null && fail "the branch's run arrived at decide_first" || :
+        fi
+    fi
+else
+    echo "SKIP: the state sequence: $BASE_WHY"
 fi
 
 # ==============================================================================

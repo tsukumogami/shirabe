@@ -176,12 +176,19 @@ koto	decisions record	--with-data	always
 koto	overrides list	-	always
 koto	overrides record	--gate,--rationale,--by,--surface,--link	always
 koto	decider answer	--gate,--criterion,--answer	always
-# decide_first (scripts/decide-first-gate.sh, koto's default action and three
-# command gates) reads the run's record: `decisions attempts --in` for the
-# arrival's attempt, `decisions show` for an attempt's basis, `decisions list
-# --format v1 --kind escalate` for the open question naming it, and `decisions
-# history` for whether a question is still open. Its directive has the agent run
-# the `shirabe question` subcommands below. A waiting run is continued by
+# decide_first (scripts/decide-first-gate.sh: two default actions and five
+# command gates, entry's included) reads the run's record: `decisions attempts
+# --in` for the arrival's attempt, `decisions show` for an attempt's basis and
+# an answer's reading, `decisions list --format v1 --kind escalate` for the
+# open question naming it, `decisions history` for whether a question is still
+# open and who answered it, `session hierarchy --json` for the sessions the run
+# continues and `session origin` for the sessions above it, whose answer
+# approves a deferral. These are `always`: entry's gate runs on every run, so
+# every run's preflight needs them, and each is in koto 0.42.0, the minimum
+# scripts/assert-koto-floor.sh holds. The `shirabe question` subcommands are
+# the ones the directive has the agent run, `always` for the same reason; the
+# shirabe this plugin ships carries them, and the gate refuses an older one by
+# name (`question precedent --help`). A waiting run is continued by
 # work-on-open.sh --continue-waiting: `session hierarchy --json` finds the
 # newest session in the run's chain, and the init records the succession. That
 # init runs only on a continued run, so it is declared under its own mode and
@@ -191,6 +198,7 @@ koto	decisions show	-	always
 koto	decisions list	--format,--kind	always
 koto	decisions history	-	always
 koto	session hierarchy	--json	always
+koto	session origin	-	always
 koto	init	--template,--vars-file,--continues,--supersede,--carry,--expect-state	mode:continue-waiting
 shirabe	question precedent	--in,--label,--help	always
 shirabe	question attempt	--in,--state,--result,--basis,--chosen	always

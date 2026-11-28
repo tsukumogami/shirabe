@@ -313,6 +313,7 @@ states:
       decide_resume:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 0; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --resume "{{SESSION_NAME}}"'
+        timeout: 60
         overridable: false
     accepts:
       mode:
@@ -614,8 +615,11 @@ states:
     # verdict is decider-eligible. The decider block lives inside the field,
     # and a user without a decider sees this state exactly as before. `proceed`
     # is shadow and `exit` is never: exit
-    # routes to the validation_exit terminal, which no answer may take on a
-    # model's word. Golden fixtures sit beside this template as
+    # routes to decide_first, in front of the validation_exit terminal, and a
+    # run may not stop there on a model's word. koto's floor no longer forces
+    # this mode, since the edge is no longer a terminal's; it is kept by
+    # choice. scripts/check-koto-release.sh proves the floor on `proceed`,
+    # whose edge tests a gate. Golden fixtures sit beside this template as
     # work-on.plan_validation.verdict.decider.jsonl, and
     # scripts/check-decider-declarations.sh holds the modes to
     # scripts/decider-declarations.tsv.
@@ -2979,18 +2983,25 @@ states:
           gates.diagram_referent.exit_code: 0
           gates.commit_convention.exit_code: 0
       # deferral must be a surfaced human decision, never a clean self-report (Decision E).
+      # A deferral asked for here is a new one: the arrival and question an
+      # earlier deferral was settled on are cleared, so answer_cited can't
+      # pass on them.
       - target: deferral_approval
         when:
           finalization_status: deferral_requested
+        context_assignments:
+          decide_arrival: none
+          decide_question: none
 
   deferral_approval:
     # Blocking human-approval gate for a deferred acceptance criterion (Decision E,
     # PRD R4/R5). The halt is needs_answer, which routes to decide_first: the
     # unmet criterion becomes a question there, and the person's decision is
     # its answer. answer_cited holds approved and rejected until the run's
-    # record has, for this arrival, a deciding attempt whose basis names an
-    # answer in effect (decide-first-gate.sh --approval), so an approval rests
-    # on an answer someone other than the run gave:
+    # record has, for this arrival, a deciding attempt citing the answer in
+    # effect to the question raised for it, given by a verified person or by
+    # a session the run's dispatch chain names above it
+    # (decide-first-gate.sh --approval):
     #   approved -> record the deferral via `koto decisions record`, then proceed to PR
     #               with the deferral recorded in the audit trail (and PR body).
     #   rejected -> the issue is not done; route to the non-clean done_blocked terminal.
@@ -2998,6 +3009,7 @@ states:
       answer_cited:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --approval "{{SESSION_NAME}}"'
+        timeout: 60
         overridable: false
       summary_exists:
         type: context-exists
@@ -3111,16 +3123,22 @@ states:
   # attempt submits decided: resume goes back to the state the run left, and
   # stop takes the exit it was about to take, to the same terminal, with the
   # failure_reason the covered edge already wrote. An undecided attempt with
-  # the question it raised submits raised and ends at done_waiting. decide_from
-  # exits the code of decide_origin, so each edge pairs the outcome with the
-  # origin; deferral_approval has no stop edge, since its rejected edge is
-  # where that run stops. The default action counts the arrival and names it
+  # the question it raised submits raised and ends at done_waiting, through
+  # waiting_record. decide_from exits the code of decide_origin, so each edge
+  # pairs the outcome with the origin; deferral_approval has no stop edge,
+  # since its rejected edge is where that run stops. A deciding attempt does
+  # not let the run leave while a question raised for the arrival is open.
+  # The default action counts the arrival and names it in decide_arrival
   # (decide-first-gate.sh --arrive); a failing gate's ::koto-finding:: line
   # says what is missing.
   decide_first:
+    # The action writes decide_arrival (and the lap count) and captures
+    # nothing, so the directive names the arrival through koto context rather
+    # than a capture a failed action would leave unset. koto 0.42.0 takes a
+    # timeout on a default action only with background: true, so this
+    # foreground one has none; the gates below have theirs.
     default_action:
       command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --arrive "{{SESSION_NAME}}"'
-      capture_stdout_as: DECIDE_ARRIVAL
       fallback: >-
         koto could not name this arrival at decide_first. Read the command's
         own output above: decide-first-gate.sh exits 2 when koto is missing,
@@ -3131,10 +3149,21 @@ states:
       attempt_recorded:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" "{{SESSION_NAME}}"'
+        timeout: 60
         overridable: false
       decide_from:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --from "{{SESSION_NAME}}"'
+        timeout: 60
+        overridable: false
+      # decide_laps caps the loop decide, resume, the same exit, decide
+      # again: past three arrivals from one covered state, resume is refused
+      # and the run stops (decided stop, to the exit's own terminal and
+      # failure_reason) or waits (raised).
+      decide_laps:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --laps "{{SESSION_NAME}}"'
+        timeout: 60
         overridable: false
     accepts:
       decide_outcome:
@@ -3148,7 +3177,7 @@ states:
           With decided: resume goes back to the state the run left, stop takes
           the exit it was about to take.
     transitions:
-      - target: done_waiting
+      - target: waiting_record
         when:
           decide_outcome: raised
           gates.attempt_recorded.exit_code: 3
@@ -3158,42 +3187,49 @@ states:
           decided_next: resume
           gates.attempt_recorded.exit_code: 0
           gates.decide_from.exit_code: 10
+          gates.decide_laps.exit_code: 0
       - target: implementation
         when:
           decide_outcome: decided
           decided_next: resume
           gates.attempt_recorded.exit_code: 0
           gates.decide_from.exit_code: 11
+          gates.decide_laps.exit_code: 0
       - target: introspection
         when:
           decide_outcome: decided
           decided_next: resume
           gates.attempt_recorded.exit_code: 0
           gates.decide_from.exit_code: 12
+          gates.decide_laps.exit_code: 0
       - target: task_validation
         when:
           decide_outcome: decided
           decided_next: resume
           gates.attempt_recorded.exit_code: 0
           gates.decide_from.exit_code: 13
+          gates.decide_laps.exit_code: 0
       - target: post_research_validation
         when:
           decide_outcome: decided
           decided_next: resume
           gates.attempt_recorded.exit_code: 0
           gates.decide_from.exit_code: 14
+          gates.decide_laps.exit_code: 0
       - target: plan_validation
         when:
           decide_outcome: decided
           decided_next: resume
           gates.attempt_recorded.exit_code: 0
           gates.decide_from.exit_code: 15
+          gates.decide_laps.exit_code: 0
       - target: deferral_approval
         when:
           decide_outcome: decided
           decided_next: resume
           gates.attempt_recorded.exit_code: 0
           gates.decide_from.exit_code: 16
+          gates.decide_laps.exit_code: 0
       - target: done_blocked
         when:
           decide_outcome: decided
@@ -3230,6 +3266,30 @@ states:
           decided_next: stop
           gates.attempt_recorded.exit_code: 0
           gates.decide_from.exit_code: 15
+
+  # waiting_record names the question the run waits on. Its default action
+  # (decide-first-gate.sh --record-question) clears decide_question and
+  # writes the identity of the open question raised for this arrival, and
+  # question_recorded reads it back, so done_waiting's result is the record's
+  # answer, never a command gate's side effect. The run passes through
+  # without stopping unless the action fails.
+  waiting_record:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --record-question "{{SESSION_NAME}}"'
+      fallback: >-
+        koto could not record the question this run waits on. Read the
+        command's own output above: decide-first-gate.sh exits 1 when no open
+        question names this arrival, and 2 when the record cannot be read.
+        Stop and report it.
+    gates:
+      question_recorded:
+        type: context-exists
+        key: decide_question
+        overridable: false
+    transitions:
+      - target: done_waiting
+        when:
+          gates.question_recorded.exists: true
 
   # The run is waiting on the question it raised at decide_first. failure is
   # true so a caller not taught this terminal reads it as it reads a blocked
@@ -5446,17 +5506,18 @@ Evidence schema:
 
 ## decide_first
 
-You were about to leave this run without settling something. This is arrival
-`{{DECIDE_ARRIVAL}}`: pass it as `--state` to every command below. Follow
-`{{PLUGIN_ROOT}}/references/question-procedure.md`; it says when the run settles
-the matter itself and when it asks, and what each command takes. The commands
-here are:
+You were about to leave this run without settling something. koto named this
+arrival on the way in: `koto context get {{SESSION_NAME}} decide_arrival` prints
+it, and that name is `<arrival>` below, passed as `--state` to every command.
+Follow `{{PLUGIN_ROOT}}/references/question-procedure.md`; it says when the run
+settles the matter itself and when it asks, and what each command takes. The
+commands here are:
 
 - `shirabe question precedent --in {{SESSION_NAME}} --label <label>`: an answer
   already given in this run's chain, read before anything is raised.
-- `shirabe question attempt --in {{SESSION_NAME}} --state {{DECIDE_ARRIVAL}} ...`:
+- `shirabe question attempt --in {{SESSION_NAME}} --state <arrival> ...`:
   your attempt for this arrival, required before you leave.
-- `shirabe question raise --in {{SESSION_NAME}} --attempt <id> --state {{DECIDE_ARRIVAL}} ...`:
+- `shirabe question raise --in {{SESSION_NAME}} --attempt <id> --state <arrival> ...`:
   the one question, when the attempt is undecided.
 
 Then submit:
@@ -5464,10 +5525,19 @@ Then submit:
 - `decide_outcome: decided` with `decided_next: resume` to go back to the state
   you left and carry on, or `decided_next: stop` to take the exit you were
   about to take, when stopping is the session's own call. Needs a decided or
-  provisional attempt for this arrival. An arrival from `deferral_approval`
-  has no stop: resume, and settle the deferral there.
+  provisional attempt for this arrival, and no question raised for it still
+  open: once you have raised one, wait for its answer and cite it, or
+  withdraw it with `shirabe question withdraw <identity> --in {{SESSION_NAME}}
+  --reason <why>`. An arrival from `deferral_approval` has no stop: resume,
+  and settle the deferral there, where only an answer to the question raised
+  for it, from a verified person or from a session above this run, approves
+  or rejects it.
 - `decide_outcome: raised` once the undecided attempt and its open question are
   on the record. The run ends at `done_waiting`, waiting on that question.
+
+`decide_laps` refuses `resume` from the fourth arrival from the same state on:
+the run has gone back three times and come round again. Stop with
+`decided_next: stop`, or raise the question.
 
 In a turn a person started, after raising, present the question to them:
 `shirabe question render`, open the question prompt with what it printed,
@@ -5479,6 +5549,13 @@ every unattended run, open no prompt and submit `raised`.
 
 `attempt_recorded` holds the submission when the record does not match it,
 and its finding says what is missing; it cannot be overridden.
+
+## waiting_record
+
+koto records the question this run waits on and moves on to `done_waiting`
+without stopping. There is nothing to submit. If it holds here, the action's
+output above says why: no open question names this arrival, or the record
+could not be read. Report it.
 
 ## pr_precheck
 
@@ -6003,7 +6080,9 @@ The run is waiting on the question it raised; the result names it. Do not
 start this work again fresh. Once the question is answered, invoking `/work-on`
 again continues this run with the answer in hand. If the answer is no longer
 needed, withdraw it with `shirabe question withdraw <identity> --in <session>
---reason <why>`.
+--reason <why>`. A withdrawn question ends the wait for good: `/work-on`
+refuses to continue a run whose question was closed without an answer, and the
+work starts fresh.
 
 ## skipped_due_to_dep_failure
 
