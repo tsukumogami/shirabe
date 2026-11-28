@@ -1084,6 +1084,23 @@ case "$(printf '%s\n' "$MD" | sed -n 5p)" in "Scope: roadmap plugin-system."*) o
 eq "  ... the rest as the sealed report renders it" "$(printf '%s\n' "$SEALED_MD" | sed '1,2d')" "$(printf '%s\n' "$MD" | sed '1,4d')"
 eq "  ... the record line read through coordinate-report.sh --record-line, once" "coordinate-report --session $SESSION --record-line" "$(grep '^coordinate-report ' "$CASE/log")"
 eq "the sealed report, its rendering and its seal are unchanged" "$SEALED_JSON|$SEALED_MD|$SEALED_CAP" "$(ctx reconcile/report.json)|$(ctx reconcile/report.md)|$(cat "$CASE/capture")"
+# The agent's relay of the first report (shirabe#2227): pasted as --md prints
+# it, with its own lines after, it passes; a relay that drops the heading,
+# turns a table into a sentence or a section into a bold label names the first
+# line it lost.
+printf '%s\n' "$MD" | grep -q '^| ' && ok "  ... (the report has a table)" || bad "  ... (the report has a table)" "$MD"
+relay() { get --relay "$CASE/relay.md" 2> "$CASE/relay.err"; echo "$? $(sed -n 's/.*First missing: //p' "$CASE/relay.err" | cut -c1-2)"; }
+printf '%s\n\nI hold one unit; nothing waits on you.\n' "$MD" > "$CASE/relay.md"
+eq "--relay: the report as printed, the agent's lines after it, passes" "0 " "$(relay)"
+printf '%s\n' "$MD" | sed 's/  *$//' | sed 's/$/\r/' > "$CASE/relay.md"
+eq "  ... trailing spaces and carriage returns aside" "0 " "$(relay)"
+printf '%s\n' "$MD" | sed 1d > "$CASE/relay.md"
+eq "  ... without the heading it exits 1, naming it" "1 # " "$(relay)"
+printf '%s\n' "$MD" | grep -v '^|' > "$CASE/relay.md"
+eq "  ... a table turned to prose exits 1, naming its first line" "1 | " "$(relay)"
+printf '%s\n' "$MD" | sed 's/^## \(.*\)$/**\1:**/' > "$CASE/relay.md"
+eq "  ... a section under a bold label exits 1, naming its heading" "1 ##" "$(relay)"
+get --relay "$CASE/no-such-relay.md" 2> /dev/null; eq "  ... and a relay file that can't be read is usage" 64 $?
 : > "$CASE/log"
 get --check; check "--check reads no record line" $?
 get > /dev/null; check "  ... nor does the JSON mode" $?

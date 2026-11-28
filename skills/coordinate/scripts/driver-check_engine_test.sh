@@ -439,11 +439,36 @@ try cap "$X_ID"; need "D16: exit" 0 "$RC$(cat "$T/err")"
 crit "D16 (e). on a record with no driver whose row is coord-a, a write as X_ID with no job file exits 0"
 job "$X_ID" coord-x
 try cap "$X_ID"
-refused_as D17 cap "$G has no driver and its coordinator row names coord-a, not this Claude session (coord-x, $X_ID); nothing was written"
+refused_as D17 cap "$G has no driver and its coordinator row names coord-a, not this Claude session (coord-x, $X_ID); nothing was written. When this session should drive the run, take it over: run coordinate-open.sh again with the same invocation, from a new args file"
 job "$A_ID" coord-a
 try cap "$A_ID"; need "D17: as A_ID" 0 "$RC$(cat "$T/err")"
 nojobs
 crit "D17 (e). on a record with no driver whose row is coord-a, X_ID named coord-x is refused naming coord-a, coord-x and X_ID, writing nothing, and A_ID named coord-a passes"
+
+# ---- D18: a hand start's gap fill (shirabe#2227) -------------------------------
+# A fresh run with no driver and no coordinator row: the handover check's
+# no-coordinator fix names the caller's own address, and writing that value
+# passes the driver check on the next write. The koto session name, the value a
+# hand start once guessed, is refused before anything is written.
+putj "$G" record/run "$(run_rows "$G" | jq -c 'map(select(.key != "coordinator"))')"
+job "$X_ID" coord-x
+as "$X_ID" bash "$PS/state-handover.sh" --session "$G" --check > "$T/out" 2> "$T/err"
+need "D18: the no-coordinator fix names the caller's address" \
+    "  no-coordinator: state-stored-set.sh --run coordinator coord-x --by <you> (your address, this session's name)" \
+    "$(grep '^  no-coordinator: ' "$T/err")"
+FILL=$(sed -n 's/^  no-coordinator: state-stored-set\.sh --run coordinator \([^ ]*\) --by .*/\1/p' "$T/err")
+BEFORE=$(snap "$G")
+as "$X_ID" bash "$PS/state-stored-set.sh" --session "$G" --run coordinator "$G" --by coord-x > "$T/out" 2> "$T/err"
+need "D18: the koto session name: exit" 65 "$?"
+grep -qF "this session's address is coord-x, its Claude session name, not $G" "$T/err" || needf "D18: the refusal names the address: $(cat "$T/err")"
+need "D18: ... and writes nothing" "$BEFORE" "$(snap "$G")"
+as "$X_ID" bash "$PS/state-stored-set.sh" --session "$G" --run coordinator "$FILL" --by coord-x > "$T/out" 2> "$T/err"
+need "D18: the printed value: exit" 0 "$?$(cat "$T/err")"
+need "D18: ... is the row" coord-x "$(ctx "$G" record/run | jq -r '[.[] | select(.key == "coordinator") | .value][0]')"
+try cap "$X_ID"; need "D18: the next write passes the driver check" 0 "$RC$(cat "$T/err")"
+nojobs
+putj "$G" record/run "$(run_rows "$G" | jq -c --argjson r "$(row coordinator coord-a coord-a)" 'map(select(.key != "coordinator")) + [$r]')"
+crit "D18. on a fresh run, the handover check's fix names X_ID's address coord-x; --run coordinator <the koto session> is refused (65) writing nothing; the printed value is written and the next write passes"
 
 # ---- D13 -----------------------------------------------------------------------
 # takeover <session> <name> <base or ->: run A opened with a go-ahead and
