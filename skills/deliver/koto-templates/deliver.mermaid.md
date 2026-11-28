@@ -7,6 +7,8 @@ stateDiagram-v2
     confirm --> done_stopped : decision: stop, gates.mode_auto.exit_code: 1
     execute_absent --> execute_run
     execute_lost --> done_error
+    execute_returned --> done_stopped : gates.still_waiting.matches: true, gates.waiting_read.exists: true
+    execute_returned --> execute_absent : gates.still_waiting.matches: false, gates.waiting_read.exists: true
     execute_run --> merged_check : gates.exec_leg.disposition: resolved, gates.exec_leg.payload.outcome: merged, gates.exec_leg.source: promoted, gates.exec_leg.valid: true
     execute_run --> done : gates.exec_leg.disposition: resolved, gates.exec_leg.payload.outcome: ready-awaiting-merge, gates.exec_leg.source: promoted, gates.exec_leg.valid: true
     execute_run --> done_stopped : gates.exec_leg.disposition: resolved, gates.exec_leg.payload.outcome: paused-for-review, gates.exec_leg.source: promoted, gates.exec_leg.valid: true
@@ -18,7 +20,7 @@ stateDiagram-v2
     execute_run --> done_error : gates.exec_leg.disposition: resolved, gates.exec_leg.source: explicit
     execute_run --> done_error : gates.exec_leg.disposition: abandoned
     execute_run --> execute_lost : gates.exec_leg.disposition: missing
-    execute_run --> execute_absent : child_returned: yes, gates.exec_leg.bound: false, gates.exec_leg.disposition: open
+    execute_run --> execute_returned : child_returned: yes, gates.exec_leg.bound: false, gates.exec_leg.disposition: open
     executed_check --> done : gates.executed_merged.matches: true, gates.executed_open.matches: false, gates.executed_pr.matches: true
     executed_check --> done : gates.executed_merged.matches: false, gates.executed_open.matches: true, gates.executed_pr.matches: true
     executed_check --> done_error : gates.executed_merged.matches: false, gates.executed_open.matches: false
@@ -60,6 +62,12 @@ stateDiagram-v2
     done_stopped --> [*]
     note left of confirm
         gate: mode_auto
+    end note
+    note left of execute_returned
+        gate: still_waiting
+    end note
+    note left of execute_returned
+        gate: waiting_read
     end note
     note left of execute_run
         gate: exec_leg

@@ -13,8 +13,11 @@
 #
 # Exits:
 #   0  nothing is parked. A run that never parked a step (no parked/ key, no
-#      parked_ever, no child at done_waiting) exits here before reading the
-#      PLAN or calling shirabe. A run that parked one and has since cleared
+#      parked_ever, no child at done_waiting) exits here after two list reads,
+#      `koto context list` and `koto workflows --children`, before any
+#      per-key or per-child read, the PLAN or shirabe. A child that failed
+#      (done_waiting among them) is the only thing that sends a run with
+#      no parked key on to the full read. A run that parked one and has since cleared
 #      every key exits 0 only once every PLAN step has a child: after a
 #      waiting run is rewound, the tasks are submitted again before the batch
 #      can finish.
@@ -49,6 +52,16 @@ PLAN="${2:-}"
 command -v koto > /dev/null || unreadable "koto is not on PATH"
 command -v jq > /dev/null || unreadable "jq is not on PATH"
 
+# The cheap path: every batch tick of every run passes here, and almost none
+# has anything parked. Two list reads decide it; a malformed list is read as
+# trouble (exit 2, no edge), never as "nothing parked".
+KEYS=$(koto context list "$RUN") || unreadable "koto context list $RUN failed"
+LIST=$(koto workflows --children "$RUN") || unreadable "koto workflows --children $RUN failed"
+QUICK=$(jq -n --argjson k "$KEYS" --argjson c "$LIST" \
+    '([$k[] | select(startswith("parked/") or . == "parked_ever")] | length) + ([$c[] | select(.outcome == "failure")] | length)') \
+    || unreadable "could not read the context keys or the children of $RUN"
+[ "$QUICK" = 0 ] && exit 0
+
 PARKED=$(pk_parked "$RUN") || unreadable "could not read the parked steps of $RUN"
 EVER=$(pk_ctx "$RUN" parked_ever) || unreadable "could not read parked_ever"
 CHILDREN=$(pk_children "$RUN") || unreadable "could not list the children of $RUN"
@@ -79,6 +92,9 @@ classify() {
         return 0
     fi
     h=$(pk_history "$q") || unreadable "koto decisions history $q failed"
+    # A history jq can't read as open counts as closed: that is exit 4, which
+    # no edge matches, so the batch holds. Read as open it could end the run
+    # at done_waiting on a question that is not there.
     if printf '%s\n' "$h" | jq -e '.open == true' > /dev/null; then
         open_steps="$open_steps $step"
         note "$q"

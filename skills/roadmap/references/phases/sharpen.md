@@ -28,7 +28,10 @@ Sharpening never moves a v2 roadmap to v3: that is its own edit.
 A Draft roadmap is edited through the usual resume at Phase 3, and a Done
 one takes its own resume row; neither uses this procedure.
 
-Under `--auto`, take the recommendation and say which choice was taken.
+Under `--auto`, a choice the request leaves open is settled as
+`${CLAUDE_PLUGIN_ROOT}/references/question-procedure.md` says: an edit to the
+unpublished roadmap is cheap to undo, so it is decided provisionally and
+named.
 
 ## Steps
 

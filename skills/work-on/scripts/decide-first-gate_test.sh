@@ -24,7 +24,8 @@
 #     arrival implementation:2; an agent's write of decide_origin or
 #     decide_arrival changes neither the name nor the code; an arrival from a
 #     state no covered exit names (2); koto failing `context history` (2)
-#   --from    exits 10 to 16 for the seven covered states, 2 for none
+#   --from    exits 10 to 16 for /work-on's seven covered states, 20 for
+#             /execute's worktree_discipline_check, 2 for none
 #   --laps  3 arrivals from one state (0), a fourth (1), an agent's write of
 #     decide_origin changing nothing, and a session continuing the run going
 #     on counting (1, arrival implementation:5)
@@ -57,9 +58,15 @@
 #     and one whose basis is the owner's verified answer (0); and koto's own
 #     refusals of an answer by the run itself and of a person's answer with
 #     no prompt evidence
+#   --answer  the dispatcher's answer linked before the raise and a verified
+#     person's answer printed; a late-linked dispatcher's answer and a
+#     withdrawn question print nothing (exit 0); no identity, or koto
+#     failing (2)
 #   --resume  no decide_question: 0, with no shirabe call; the question open,
 #     answered but not cited, and withdrawn (1 each); cited by a deciding
-#     attempt (11, the code of the state the question names)
+#     attempt (11, the code of the state the question names); cited, but
+#     answered by a dispatcher linked after the raise (1); and the check in a
+#     session whose decide_question that dispatcher answered (1)
 #
 # Usage: bash skills/work-on/scripts/decide-first-gate_test.sh
 #   shirabe from SHIRABE_BIN, else the tree's target/release/shirabe, else
@@ -146,7 +153,7 @@ states:
         values: [yes]
       arrive:
         type: enum
-        values: [analysis, implementation, introspection, task_validation, post_research_validation, plan_validation, deferral_approval, nowhere]
+        values: [analysis, implementation, introspection, task_validation, post_research_validation, plan_validation, deferral_approval, worktree_discipline_check, nowhere]
       clear:
         type: enum
         values: [yes]
@@ -160,7 +167,7 @@ states:
         context_assignments:
           decide_arrival: none
 EOF
-    for o in analysis implementation introspection task_validation post_research_validation plan_validation deferral_approval nowhere; do
+    for o in analysis implementation introspection task_validation post_research_validation plan_validation deferral_approval worktree_discipline_check nowhere; do
         printf '      - target: work\n        when:\n          arrive: %s\n        context_assignments:\n          decide_origin: %s\n' "$o" "$o"
     done
     cat <<'EOF'
@@ -317,12 +324,26 @@ expect "--arrive from a state no covered exit names" 2
 
 open frm
 codes=""
-for o in analysis implementation introspection task_validation post_research_validation plan_validation deferral_approval; do
+for o in analysis implementation introspection task_validation post_research_validation plan_validation deferral_approval worktree_discipline_check; do
     arrive frm "$o"
     gate --from frm
     codes="$codes $RC"
 done
-[ "$codes" = " 10 11 12 13 14 15 16" ] && pass "--from exits 10 to 16 for the seven covered states" || fail "--from exits [$codes]"
+[ "$codes" = " 10 11 12 13 14 15 16 20" ] && pass "--from exits 10 to 16 for /work-on's covered states and 20 for /execute's" || fail "--from exits [$codes]"
+# /execute's covered exit is an arrival too: --arrive names it, and the laps
+# count it, from the same table --from reads.
+open wdc
+arrive wdc worktree_discipline_check
+gate --arrive wdc
+[ "$RC:$G" = "0:worktree_discipline_check:1" ] && pass "--arrive names /execute's arrival: worktree_discipline_check:1" \
+    || fail "--arrive for worktree_discipline_check printed [$G], exit $RC: $(cat "$T/gate.err")"
+arrive wdc worktree_discipline_check
+arrive wdc worktree_discipline_check
+gate --laps wdc
+expect "--laps allows the third arrival from worktree_discipline_check" 0
+arrive wdc worktree_discipline_check
+gate --laps wdc
+expect "--laps refuses the fourth arrival from worktree_discipline_check" 1
 open frm2
 gate --from frm2
 expect "--from with no arrival" 2
@@ -628,6 +649,7 @@ koto session link late --dispatched-by manager > "$T/link.out" 2>"$T/link.err" |
 koto decisions readdress --in=late --to=session:manager --by=session --reason "the manager decides" -- late "${Q_LATE##*/}" > "$T/readdress.out" 2>"$T/readdress.err" \
     || fail "readdress late to manager: $(cat "$T/readdress.out" "$T/readdress.err")"
 manager_answers late "$Q_LATE"
+ANS_LATE=$ANS
 attempt late --result decided --chosen "defer it" --basis "manager:$ANS" --state deferral_approval:1
 gate --approval late
 expect "--approval citing a dispatcher linked after the question was raised" 1
@@ -716,6 +738,7 @@ gate --resume worker4b
 expect "--resume while the question is open" 1
 finding_says "--resume while the question is open" "still open"
 manager_answers worker4 "$Q4"
+ANS4=$ANS
 gate --resume worker4b
 expect "--resume with the answer not cited" 1
 finding_says "--resume with the answer not cited" "is not cited yet"
@@ -734,5 +757,41 @@ open worker5b --continues worker5
 put worker5b decide_question "$Q5"
 gate --resume worker5b
 expect "--resume after the question was withdrawn" 1
+
+# An answer from a dispatcher linked only after the raise carries no authority:
+# the continuing run is not resumed on it, even once its attempt cites it.
+open lateb --continues late
+put lateb decide_question "$Q_LATE"
+attempt lateb --result decided --chosen "defer it" --basis "manager:$ANS_LATE" --state deferral_approval:1
+gate --resume lateb
+expect "--resume on an answer from a dispatcher linked after the raise" 1
+finding_says "--resume on an answer from a dispatcher linked after the raise" "carries no authority"
+
+# The rewound session's check: its decide_question answered by a session with
+# no authority over it holds the gate, whatever it cites.
+put late decide_question "$Q_LATE"
+gate late
+expect "the check in a session whose question a late-linked dispatcher answered" 1
+finding_says "the check in a session whose question a late-linked dispatcher answered" "carries no authority"
+
+# --- --answer: the rule /execute's park.sh calls --------------------------------------
+
+gate --answer worker4 "$Q4"
+[ "$RC:$G" = "0:manager:$ANS4" ] && pass "--answer prints the answer of the dispatcher linked before the raise" \
+    || fail "--answer worker4 printed [$G], exit $RC: $(cat "$T/gate.err")"
+gate --answer solo8 "$Q_SOLO8"
+[ "$RC:$G" = "0:$OWNER_ANS" ] && pass "--answer prints a verified person's answer" \
+    || fail "--answer solo8 printed [$G], exit $RC: $(cat "$T/gate.err")"
+gate --answer late "$Q_LATE"
+[ "$RC:$G" = "0:" ] && pass "--answer prints nothing for a dispatcher linked after the raise" \
+    || fail "--answer late printed [$G], exit $RC: $(cat "$T/gate.err")"
+gate --answer worker5 "$Q5"
+[ "$RC:$G" = "0:" ] && pass "--answer prints nothing for a withdrawn question" \
+    || fail "--answer worker5 printed [$G], exit $RC: $(cat "$T/gate.err")"
+gate --answer worker4
+expect "--answer with no identity" 2
+G=$(PATH="$T/badkoto:$PATH" bash "$GATE" --answer worker4 "$Q4" 2>"$T/gate.err")
+RC=$?
+expect "--answer with koto failing" 2
 
 finish

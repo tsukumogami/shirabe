@@ -835,6 +835,30 @@ the open questions' identities separated by a space; `print-exit.sh` prints
 one of the three exit paths: the run is not finished, and `/execute` invoked
 again on the PLAN continues it (Resume).
 
+In a turn a person started, the run presents its own question once it's
+raised at `decide_first` (`shirabe question render`, the question prompt,
+`shirabe question answer` with `--in` naming the session the prompt was opened
+from, never the run's own), records a deciding attempt citing the answer and
+submits `decided`; in any other turn, and in every unattended run, it opens no
+prompt and submits `raised`. `references/question-procedure.md` (step 5) is
+the procedure. A child's question is presented the same way, by whoever holds
+the turn the person typed.
+
+A parked step is taken up from `spawn_and_await` once its question is
+answered. For a child's question that means `retry_failed` with
+`include_skipped` for the child, then the PLAN's tasks submitted again: the
+child goes back to its first state with its context kept, and from there to
+`resume_waiting`, which holds until an attempt in the child cites the answer.
+`park.sh clear` then drops the step's key. Only an answer that carries
+authority over the run counts: a verified person's answer, a session answer
+from the run's dispatcher linked before the question was raised, or a settle
+resting on a verified person's answer. The run's own answer never counts, and
+neither does an unrelated session's; `park.sh` asks /work-on's
+`decide-first-gate.sh --answer` for that rule rather than keeping a copy.
+Leaving a parked step's child alone until then is an instruction to the
+agent, not something koto enforces: nothing stops a tick of that child. What
+is enforced is that the batch doesn't finish while a step's key stands.
+
 ## Security Considerations
 
 `/execute`'s security envelope binds the six pattern-level contract surfaces

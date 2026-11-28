@@ -34,9 +34,12 @@ pk_ctx() {
 
 # pk_parked <session>: `<step> <identity>` for every parked/<step> key.
 pk_parked() {
-    local keys k v
+    local keys names k v
     keys=$(koto context list "$1") || return 2
-    for k in $(printf '%s\n' "$keys" | jq -r '.[] | select(startswith("parked/"))'); do
+    # Read into a variable first: a jq that fails inside the for list would
+    # leave the list empty and read as "nothing parked".
+    names=$(printf '%s\n' "$keys" | jq -r '.[] | select(startswith("parked/"))') || return 2
+    for k in $names; do
         v=$(koto context get "$1" "$k") || return 2
         printf '%s %s\n' "${k#parked/}" "$v"
     done
@@ -47,18 +50,32 @@ pk_history() {
     koto decisions history -- "$1"
 }
 
-# pk_answer <history>: `<session>:<id>` of the answer in effect, empty when
-# there is none.
+# pk_raw_answer <history>: `<session>:<id>` of whatever answer the closed
+# question carries, empty when it was withdrawn without one.
+pk_raw_answer() {
+    printf '%s\n' "$1" | jq -r '.answer | select(. != null) | "\(.session):\(.id)"'
+}
+
+# pk_answer <run> <identity>: `<session>:<id>` of the answer in effect when
+# it carries authority over the run, empty otherwise. The rule is /work-on's
+# decide-first-gate.sh --answer (a verified person's answer, a session answer
+# from the run's dispatcher linked before the raise, or a settle whose basis
+# holds a verified person's answer; never one from the run's own lineage,
+# and for a step's question never the run itself); it is called, not copied.
+# Non-zero when the record can't be read.
 pk_answer() {
-    printf '%s\n' "$1" | jq -r '.answer | select(. != null and .outcome == "answered") | "\(.session):\(.id)"'
+    local self
+    self=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P) || return 2
+    bash "$self/../../work-on/scripts/decide-first-gate.sh" --answer "$1" "$2"
 }
 
 # pk_children <session>: `<task> <state> <terminal> <failure>` for each
 # child koto lists, the task being the child's name after `<session>.`.
 pk_children() {
-    local list name st
+    local list names name st
     list=$(koto workflows --children "$1") || return 2
-    for name in $(printf '%s\n' "$list" | jq -r '.[].name'); do
+    names=$(printf '%s\n' "$list" | jq -r '.[].name') || return 2
+    for name in $names; do
         st=$(koto status "$name") || return 2
         printf '%s\n' "$st" | jq -r --arg t "${name#"$1".}" \
             '"\($t) \(.current_state) \(.is_terminal) \(.result.status // "none")"' || return 2

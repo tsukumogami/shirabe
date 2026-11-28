@@ -101,7 +101,52 @@ else
         fi
     done
     [ -z "$BASE_WHY" ] && grep -q '^  decide_first:' "$BASE_DIR/skills/execute/koto-templates/execute.md" \
-        && BASE_WHY="the base $BASE_REF already holds /execute's decide_first; the comparison belongs to the pull request that introduced it"
+        && BASE_WHY="the base $BASE_REF already holds /execute's decide_first"
+fi
+HEAD_SKILLS="$SRC_ROOT/skills"
+BASE_SKILLS="$BASE_DIR/skills"
+CMP_WHAT="$BASE_REF's merge-base"
+PIN_SHA=""
+
+# Once the base holds decide_first, the comparison is pinned to history, as
+# /work-on's routes suite does: the commit that added decide_first to
+# execute.md, against its parent. With neither in the clone the comparison is
+# skipped, saying so, and under CI (GITHUB_ACTIONS) it fails instead.
+if [ -n "$BASE_WHY" ] && command -v git > /dev/null; then
+    PIN="$WORK/pin"
+    mkdir -p "$PIN"
+    if git -C "$SRC_ROOT" log --format=%H -S'  decide_first:' -- skills/execute/koto-templates/execute.md > "$PIN/log" 2> "$PIN/err"; then
+        PIN_SHA=$(sed -n '$p' "$PIN/log")
+        PIN_OK=yes
+        if [ -z "$PIN_SHA" ]; then
+            PIN_OK=""
+            BASE_WHY="$BASE_WHY, and no commit in this clone adds decide_first to execute.md"
+        else
+            for side in pre post; do
+                rev=$PIN_SHA
+                [ "$side" = pre ] && rev="$PIN_SHA^"
+                for t in execute/koto-templates/execute.md execute/koto-templates/execute-coordinated.md work-on/koto-templates/work-on.md; do
+                    mkdir -p "$PIN/$side/skills/$(dirname "$t")"
+                    if ! git -C "$SRC_ROOT" show "$rev:skills/$t" > "$PIN/$side/skills/$t" 2> "$PIN/err"; then
+                        PIN_OK=""
+                        BASE_WHY="$BASE_WHY, and skills/$t is not readable at $rev: $(cat "$PIN/err")"
+                        break 2
+                    fi
+                done
+            done
+        fi
+        if [ -n "$PIN_OK" ]; then
+            HEAD_SKILLS="$PIN/post/skills"
+            BASE_SKILLS="$PIN/pre/skills"
+            CMP_WHAT="the parent of $PIN_SHA, the commit that added decide_first"
+            BASE_SHA="$PIN_SHA^"
+            BASE_WHY=""
+        else
+            PIN_SHA=""
+        fi
+    else
+        BASE_WHY="$BASE_WHY, and git log failed: $(cat "$PIN/err")"
+    fi
 fi
 
 # --- the template --------------------------------------------------------------------
@@ -128,18 +173,30 @@ if [ -n "$REAL_KOTO" ]; then
                 | select(($s == "spawn_and_await" and .when["gates.parked_stop.exit_code"] != null) | not)
                 | "\(.target) <- \($s)|\(.when // {} | tojson)|\(.context_assignments // {} | tojson)"' "$1" | sort
         }
+        HJSON=$JSON
+        if [ -z "$BASE_WHY" ] && [ -n "$PIN_SHA" ]; then
+            HJSON=$("$REAL_KOTO" template compile "$HEAD_SKILLS/execute/koto-templates/execute.md" 2> "$WORK/pin-compile.err" | tail -1)
+            if [ -z "$HJSON" ] || [ ! -f "$HJSON" ]; then
+                BASE_WHY="execute.md at $PIN_SHA does not compile: $(tail -3 "$WORK/pin-compile.err")"
+            fi
+        fi
         if [ -n "$BASE_WHY" ]; then
-            echo "SKIP: as before: $BASE_WHY"
+            if [ -n "${GITHUB_ACTIONS:-}" ]; then
+                fail "as before: $BASE_WHY; under CI the comparison must run"
+            else
+                echo "SKIP: as before: $BASE_WHY"
+            fi
         else
-            BASE_JSON=$("$REAL_KOTO" template compile "$BASE_DIR/skills/execute/koto-templates/execute.md" 2> "$WORK/base-compile.err" | tail -1)
+            echo "as before: compared with $CMP_WHAT"
+            BASE_JSON=$("$REAL_KOTO" template compile "$BASE_SKILLS/execute/koto-templates/execute.md" 2> "$WORK/base-compile.err" | tail -1)
             if [ -z "$BASE_JSON" ] || [ ! -f "$BASE_JSON" ]; then
                 fail "execute.md at $BASE_SHA does not compile: $(tail -3 "$WORK/base-compile.err")"
             else
-                stop_edges "$JSON" > "$WORK/edges-branch.txt"
+                stop_edges "$HJSON" > "$WORK/edges-branch.txt"
                 stop_edges "$BASE_JSON" | grep -v '^escalate_upstream_drift <- worktree_discipline_check|' > "$WORK/edges-base.txt"
                 echo "edges into escalate_upstream_drift and done_blocked, the new ones left out:"
                 sed 's/^/  /' "$WORK/edges-branch.txt"
-                echo "the same at $BASE_REF's merge-base, the covered exit left out:"
+                echo "the same at $CMP_WHAT, the covered exit left out:"
                 sed 's/^/  /' "$WORK/edges-base.txt"
                 if diff "$WORK/edges-base.txt" "$WORK/edges-branch.txt" > "$WORK/edges.diff"; then
                     pass "every other edge into escalate_upstream_drift and done_blocked is as it was at the merge-base"
@@ -147,7 +204,7 @@ if [ -n "$REAL_KOTO" ]; then
                     fail "the edges into the two exits changed: $(cat "$WORK/edges.diff")"
                 fi
                 NAMED='["decide_first","park_own","escalate_parked","waiting_record","done_waiting","worktree_discipline_check","spawn_and_await"]'
-                jq -S --argjson n "$NAMED" '.states | with_entries(select(.key as $k | $n | index($k) | not))' "$JSON" > "$WORK/states-branch.json"
+                jq -S --argjson n "$NAMED" '.states | with_entries(select(.key as $k | $n | index($k) | not))' "$HJSON" > "$WORK/states-branch.json"
                 jq -S --argjson n "$NAMED" '.states | with_entries(select(.key as $k | $n | index($k) | not))' "$BASE_JSON" > "$WORK/states-base.json"
                 if diff "$WORK/states-base.json" "$WORK/states-branch.json" > "$WORK/states.diff"; then
                     pass "every state but the named ones is identical to the merge-base's"
@@ -155,14 +212,14 @@ if [ -n "$REAL_KOTO" ]; then
                     fail "a state outside the named ones changed: $(sed -n 1,40p "$WORK/states.diff")"
                 fi
                 for t in merged ready_awaiting_merge paused_for_review done done_blocked; do
-                    eq "the result map of $t is unchanged" "$(jq -cS --arg t "$t" '.states[$t].result' "$BASE_JSON")" "$(jq -cS --arg t "$t" '.states[$t].result' "$JSON")"
+                    eq "the result map of $t is unchanged" "$(jq -cS --arg t "$t" '.states[$t].result' "$BASE_JSON")" "$(jq -cS --arg t "$t" '.states[$t].result' "$HJSON")"
                 done
                 # worktree_discipline_check differs by its one retargeted edge.
                 retarget='.states.worktree_discipline_check | .transitions |= map(select(.when.impact != "intent-changing"))'
                 eq "worktree_discipline_check differs only in its intent-changing edge" \
-                    "$(jq -cS "$retarget" "$BASE_JSON")" "$(jq -cS "$retarget" "$JSON")"
-                C_HEAD=$("$REAL_KOTO" template compile "$SKILL_DIR/koto-templates/execute-coordinated.md" 2> "$WORK/c.err" | tail -1)
-                C_BASE=$("$REAL_KOTO" template compile "$BASE_DIR/skills/execute/koto-templates/execute-coordinated.md" 2>> "$WORK/c.err" | tail -1)
+                    "$(jq -cS "$retarget" "$BASE_JSON")" "$(jq -cS "$retarget" "$HJSON")"
+                C_HEAD=$("$REAL_KOTO" template compile "$HEAD_SKILLS/execute/koto-templates/execute-coordinated.md" 2> "$WORK/c.err" | tail -1)
+                C_BASE=$("$REAL_KOTO" template compile "$BASE_SKILLS/execute/koto-templates/execute-coordinated.md" 2>> "$WORK/c.err" | tail -1)
                 if [ -f "$C_HEAD" ] && [ -f "$C_BASE" ] && cmp -s "$C_HEAD" "$C_BASE"; then
                     pass "execute-coordinated.md compiles to the same JSON as at the merge-base"
                 else
@@ -195,10 +252,12 @@ if [ -n "$REAL_KOTO" ]; then
             '[.states.decide_first.gates[] | .overridable] | length == 4 and all(. == false)'
         holds "park_own goes on once the question is recorded and the steps parked, and back to the check when the question closed first" \
             '(.states.park_own.transitions | map({(.target): .when}) | add) as $p
-             | $p.spawn_and_await == {"gates.question_recorded.exists": true, "gates.own_parked.exists": true}
-               and $p.worktree_discipline_check == {"gates.question_recorded.exists": false}'
+             | $p.spawn_and_await == {"gates.question_recorded.exit_code": 0, "gates.own_parked.exists": true}
+               and $p.worktree_discipline_check == {"gates.question_recorded.exit_code": 1}'
         holds "escalate_parked escalates whether or not the questions could be read" \
             '.states.escalate_parked.transitions == [{"target": "escalate"}] or (.states.escalate_parked.transitions | length == 1 and .[0].target == "escalate" and ((.[0].when // {}) == {}))'
+        holds "park_own reads its question with the gate's --recorded, which never writes" \
+            '.states.park_own.gates.question_recorded | .type == "command" and (.command | test("decide-first-gate.sh\" --recorded ")) and .overridable == false'
         holds "park_own records the question before it parks" \
             '.states.park_own.default_action.command | test("decide-first-gate.sh\" --record-question .*&& .*park.sh\" mark ")'
         holds "spawn_and_await: pr_finalization and escalate need parked_state 0" \
@@ -230,7 +289,19 @@ fi
 
 mkdir -p "$WORK/tree/skills/execute/scripts" "$WORK/tree/skills/plan/scripts" "$WORK/tree/skills/work-on/scripts" "$WORK/bin"
 for f in park.sh park-lib.sh parked-state.sh; do cp "$SCRIPT_DIR/$f" "$WORK/tree/skills/execute/scripts/"; done
-cp "$SRC_ROOT/skills/work-on/scripts/decide-first-gate.sh" "$WORK/tree/skills/work-on/scripts/"
+# The authority rule is /work-on's decide-first-gate.sh --answer, which reads
+# koto's decision records this stand-in koto does not keep; its stand-in prints
+# what the case wrote to authority/<identity>. The rule itself is walked with
+# the real koto in skills/work-on/scripts/decide-first-gate_test.sh, and
+# park.sh against it in park-walk_test.sh.
+cat > "$WORK/tree/skills/work-on/scripts/decide-first-gate.sh" <<'GATE'
+#!/usr/bin/env bash
+[ "${1:-}" = --answer ] || { echo "gate stand-in: no answer for: $*" >&2; exit 70; }
+printf '%s %s\n' "$2" "$3" >> "$KOTO_STUB_DIR/answer-calls"
+f="$KOTO_STUB_DIR/authority/$(printf '%s' "$3" | sed 's|/|%2F|g')"
+[ -f "$f" ] && cat "$f"
+exit 0
+GATE
 printf '#!/usr/bin/env bash\ncat "%s"\n' "$FIX/tasks.json" > "$WORK/tree/skills/plan/scripts/plan-to-tasks.sh"
 cp "$FIX/koto" "$WORK/bin/koto"
 printf '#!/usr/bin/env bash\necho "shirabe stand-in: not called by these cases" >&2\nexit 70\n' > "$WORK/bin/shirabe"
@@ -246,17 +317,23 @@ Q1=11111111-aaaa/000000000001
 Q2=22222222-bbbb/000000000002
 enc() { printf '%s' "$1" | sed 's|/|%2F|g'; }
 
-reset() { rm -rf "$KOTO_STUB_DIR"; mkdir -p "$KOTO_STUB_DIR"/{ctx,children,status,history,content,list,attempts}; : > "$KOTO_STUB_LOG"; }
+reset() { rm -rf "$KOTO_STUB_DIR"; mkdir -p "$KOTO_STUB_DIR"/{ctx,children,status,history,content,list,attempts,authority}; : > "$KOTO_STUB_LOG"; }
 key() { mkdir -p "$KOTO_STUB_DIR/ctx/$1"; printf '%s' "$3" > "$KOTO_STUB_DIR/ctx/$1/$(enc "$2")"; }
 has_key() { [ -f "$KOTO_STUB_DIR/ctx/$1/$(enc "$2")" ]; }
 getkey() { cat "$KOTO_STUB_DIR/ctx/$1/$(enc "$2")"; }
-# question <id> open|answered|withdrawn [<answer session:id>]
+# question <id> open|answered|withdrawn [<answer session:id> [unauthorized]]
+# An answered question's answer carries authority (the gate stand-in prints
+# it) unless the case says unauthorized.
 question() {
     local h
+    rm -f "$KOTO_STUB_DIR/authority/$(enc "$1")"
     case "$2" in
-        open) h='{"open":true,"question":{"state":"worktree_discipline_check:1"},"answer":null}' ;;
-        answered) h=$(jq -cn --arg s "${3%%:*}" --arg i "${3##*:}" '{open:false,question:{state:"worktree_discipline_check:1"},answer:{session:$s,id:$i,outcome:"answered"}}') ;;
-        withdrawn) h='{"open":false,"question":{"state":"worktree_discipline_check:1"},"answer":null}' ;;
+        open) h='{"open":true,"raiser":{"name":"execute-park.step-2"},"question":{"state":"worktree_discipline_check:1"},"answer":null}' ;;
+        answered)
+            h=$(jq -cn --arg s "${3%%:*}" --arg i "${3##*:}" '{open:false,raiser:{name:"execute-park.step-2"},question:{state:"worktree_discipline_check:1"},answer:{session:$s,id:$i,outcome:"answered"}}')
+            [ "${4:-}" = unauthorized ] || printf '%s\n' "$3" > "$KOTO_STUB_DIR/authority/$(enc "$1")"
+            ;;
+        withdrawn) h='{"open":false,"raiser":{"name":"execute-park.step-2"},"question":{"state":"worktree_discipline_check:1"},"answer":null}' ;;
     esac
     printf '%s\n' "$h" > "$KOTO_STUB_DIR/history/$(enc "$1").json"
 }
@@ -268,7 +345,10 @@ children() {
         IFS=: read -r st term rs q <<EOF
 ${c#*=}
 EOF
-        list=$(printf '%s' "$list" | jq -c --arg n "$name" '. + [{name: $n}]')
+        # koto's own list carries each child's outcome; parked-state.sh's
+        # cheap path reads it.
+        list=$(printf '%s' "$list" | jq -c --arg n "$name" --arg r "$rs" --argjson t "$term" \
+            '. + [{name: $n, outcome: (if $t | not then "running" elif $r == "failure" then "failure" elif $r == "success" then "success" else "skipped" end)}]')
         jq -cn --arg s "$st" --argjson t "$term" --arg r "$rs" --arg q "${q:-}" \
             '{current_state: $s, is_terminal: $t}
              + (if $r == "none" then {} else {result: ({status: $r} + (if $q == "" then {} else {payload: {outcome: "waiting", question: $q}} end))} end)' \
@@ -288,8 +368,21 @@ children step-1=done:true:success
 run_state
 eq "parked-state: nothing parked exits 0" 0 "$RC"
 rm -f "$PLAN"
+: > "$KOTO_STUB_LOG"
 run_state
 eq "parked-state: nothing parked exits 0 without reading the PLAN" 0 "$RC"
+eq "parked-state: nothing parked makes two list reads and nothing else" "context list $RUN|workflows --children $RUN" "$(paste -sd'|' "$KOTO_STUB_LOG")"
+: > "$KOTO_STUB_LOG"
+children step-1=done_blocked:true:failure
+run_state
+eq "parked-state: a failed child with nothing parked still exits 0, after the full read" 0 "$RC"
+grep -q "^status $RUN.step-1" "$KOTO_STUB_LOG" && pass "parked-state: a failed child sends the run on to the per-child read" \
+    || fail "parked-state: a failed child was not read: $(cat "$KOTO_STUB_LOG")"
+reset
+mkdir -p "$KOTO_STUB_DIR/ctx/$RUN"
+printf '{not json' > "$KOTO_STUB_DIR/children/$RUN.json"
+run_state
+eq "parked-state: a children list jq can't read is exit 2, never nothing parked" 2 "$RC"
 printf 'stand-in PLAN\n' > "$PLAN"
 
 # 3: step-1 parked on an open question, step-2 landed, step-3 waits on step-1.
@@ -354,6 +447,10 @@ if has_key "$RUN" parked/step-1 && has_key "$RUN" parked/step-2 && has_key "$RUN
 else
     fail "park.sh mark --own with no waiting parks every step"
 fi
+reset
+OUT=$(bash "$PARK" mark "$RUN" --own --plan "$PLAN" 2>> "$WORK/err"); RC=$?
+eq "park.sh mark --own with no decide_question parks nothing and says none" "0 none" "$RC $OUT"
+has_key "$RUN" parked_ever && fail "park.sh mark --own with no decide_question wrote parked_ever" || pass "park.sh mark --own with no decide_question writes nothing"
 
 # park.sh mark --child.
 reset
@@ -373,6 +470,22 @@ question "$Q2" open
 children step-2=done_waiting:true:failure:"$Q2"
 bash "$PARK" clear "$RUN" step-2 2>> "$WORK/err"; RC=$?
 eq "park.sh clear refuses while the question is open" 1 "$RC"
+question "$Q2" answered manager:000000000007 unauthorized
+cites "$RUN.step-2" manager:000000000007
+ERR=$(bash "$PARK" clear "$RUN" step-2 2>&1 >/dev/null); RC=$?
+eq "park.sh clear refuses a cited answer without authority" 1 "$RC"
+case "$ERR" in *"carries no authority"*) pass "park.sh clear says the answer carries no authority" ;; *) fail "park.sh clear's refusal: [$ERR]" ;; esac
+eq "park.sh clear asks the gate's --answer for the run and the question" "$RUN $Q2" "$(tail -n 1 "$KOTO_STUB_DIR/answer-calls")"
+OUT=$(bash "$PARK" list "$RUN"); RC=$?
+eq "park.sh list names an answer without authority" "0 step-2 $Q2 unauthorized manager:000000000007" "$RC $OUT"
+rm -f "$KOTO_STUB_DIR/list/$RUN.step-2.json"
+# The run's own answer to its child's question: the gate never counts the
+# run (its stand-in here prints nothing, as for any answer without authority).
+question "$Q2" answered "$RUN:000000000008" unauthorized
+cites "$RUN.step-2" "$RUN:000000000008"
+bash "$PARK" clear "$RUN" step-2 2>> "$WORK/err"; RC=$?
+eq "park.sh clear refuses the run's own answer to its child's question" 1 "$RC"
+rm -f "$KOTO_STUB_DIR/list/$RUN.step-2.json"
 question "$Q2" answered manager:000000000007
 bash "$PARK" clear "$RUN" step-2 2>> "$WORK/err"; RC=$?
 eq "park.sh clear refuses an answer nothing cites" 1 "$RC"
@@ -405,6 +518,13 @@ eq "park.sh cited: 1 before the run cites the answer" 1 "$RC"
 cites "$RUN" manager:000000000003
 bash "$PARK" cited "$RUN"; RC=$?
 eq "park.sh cited: 0 once the run cites it" 0 "$RC"
+question "$Q1" answered manager:000000000003 unauthorized
+bash "$PARK" cited "$RUN"; RC=$?
+eq "park.sh cited: 1 for a cited answer without authority" 1 "$RC"
+question "$Q1" answered "$RUN:000000000004" unauthorized
+cites "$RUN" "$RUN:000000000004"
+bash "$PARK" cited "$RUN"; RC=$?
+eq "park.sh cited: 1 for the run's own answer" 1 "$RC"
 
 # park.sh check.
 reset
@@ -420,18 +540,10 @@ printf '{"waiting":["step-3"]}\n' > "$KOTO_STUB_DIR/content/$(enc "$Q1").json"
 bash "$PARK" check "$RUN" --plan "$PLAN" > /dev/null; RC=$?
 eq "park.sh check passes a step the PLAN holds" 0 "$RC"
 
-# decide-first-gate.sh --from knows /execute's covered exit.
-reset
-key "$RUN" decide_origin worktree_discipline_check
-bash "$WORK/tree/skills/work-on/scripts/decide-first-gate.sh" --from "$RUN" > /dev/null; RC=$?
-eq "decide-first-gate.sh --from maps worktree_discipline_check to 20" 20 "$RC"
-key "$RUN" decide_laps_worktree_discipline_check 3
-bash "$WORK/tree/skills/work-on/scripts/decide-first-gate.sh" --laps "$RUN" > /dev/null; RC=$?
-eq "decide-first-gate.sh --laps allows the third arrival" 0 "$RC"
-key "$RUN" decide_laps_worktree_discipline_check 4
-OUT=$(bash "$WORK/tree/skills/work-on/scripts/decide-first-gate.sh" --laps "$RUN"); RC=$?
-eq "decide-first-gate.sh --laps refuses the fourth arrival" 1 "$RC"
-case "$OUT" in *'"rule_id":"work-on/decide-first"'*'past the cap'*) pass "--laps's finding names the cap" ;; *) fail "--laps's finding: [$OUT]" ;; esac
+# decide-first-gate.sh derives /execute's arrivals, --from's 20 and the laps
+# from koto's transition writes of decide_origin, which this stand-in koto
+# does not keep: skills/work-on/scripts/decide-first-gate_test.sh walks them
+# with the real koto, worktree_discipline_check included.
 
 echo
 echo "park_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"
