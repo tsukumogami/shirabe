@@ -864,7 +864,6 @@ states:
           outcome: bail
         context_assignments:
           decide_origin: hop_brief
-          decide_fresh: "yes"
 
   hop_prd:
     # phase: 2
@@ -924,7 +923,6 @@ states:
           outcome: bail
         context_assignments:
           decide_origin: hop_prd
-          decide_fresh: "yes"
 
   hop_design:
     # phase: 2
@@ -989,7 +987,6 @@ states:
           outcome: bail
         context_assignments:
           decide_origin: hop_design
-          decide_fresh: "yes"
 
   hop_plan:
     # phase: 2
@@ -1113,7 +1110,6 @@ states:
           outcome: bail
         context_assignments:
           decide_origin: hop_plan
-          decide_fresh: "yes"
 
   fold:
     # phase: 2
@@ -1444,7 +1440,6 @@ states:
           next_move: abandon
         context_assignments:
           decide_origin: full_run_blocked
-          decide_fresh: "yes"
 
   exit_re_evaluation:
     # phase: 3
@@ -1744,55 +1739,37 @@ states:
   # action, as /work-on's waiting_record does; no gate writes context) and
   # ends the run at done_waiting. The way out: when the question closed
   # (answered or withdrawn) before this tick, --record-question finds none
-  # open and leaves decide_question unset, and the run goes back to the state
-  # it left, where a second bail arrives at decide_first as a new arrival and
-  # reads the answer as precedent. Not an edge into decide_first, which only
-  # the covered exits enter.
+  # open and leaves decide_question unset, --recorded exits 1, and the run
+  # goes back to decide_first for the same arrival, where the answer is cited
+  # or the withdrawal read. That edge writes no decide_origin, so it is not a
+  # new arrival and adds no lap.
   waiting_record:
     default_action:
       command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --record-question "scope-{{TOPIC}}"'
       fallback: >-
         koto could not record the question this run waits on. Read the
-        command's own output above: decide-first-gate.sh exits 1 when no open
-        question names this arrival, and 2 when the record cannot be read.
-        Tick again with nothing submitted once it reads.
+        command's own output above: decide-first-gate.sh exits 2 when the
+        record cannot be read. Tick again with nothing submitted once it reads.
     gates:
       question_recorded:
-        type: context-exists
-        key: decide_question
-        overridable: false
-      decide_from:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --from "{{SESSION_NAME}}"'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --recorded "{{SESSION_NAME}}"'
         timeout: 120
         overridable: false
     transitions:
       - target: done_waiting
         when:
-          gates.question_recorded.exists: true
+          gates.question_recorded.exit_code: 0
         context_assignments:
           outcome: waiting
           failure_reason: "scope: waiting on an open question"
-      - target: hop_brief
+      # No question for the arrival is open now (answered or withdrawn since
+      # it was raised): back to decide_first, which reads the answer or the
+      # withdrawal. The edge writes no decide_origin, so the arrival is the
+      # same one.
+      - target: decide_first
         when:
-          gates.question_recorded.exists: false
-          gates.decide_from.exit_code: 30
-      - target: hop_prd
-        when:
-          gates.question_recorded.exists: false
-          gates.decide_from.exit_code: 31
-      - target: hop_design
-        when:
-          gates.question_recorded.exists: false
-          gates.decide_from.exit_code: 32
-      - target: hop_plan
-        when:
-          gates.question_recorded.exists: false
-          gates.decide_from.exit_code: 33
-      - target: full_run_blocked
-        when:
-          gates.question_recorded.exists: false
-          gates.decide_from.exit_code: 34
+          gates.question_recorded.exit_code: 1
 
   publish_full_run:
     # phase: 3
@@ -3507,8 +3484,9 @@ continued after its question closed, a deciding attempt must cite the answer.
 
 koto runs this state itself: it records the question the run waits on and
 ends it at `done_waiting`. If the question closed before this tick, nothing is
-recorded and the run goes back to the state it left; read the answer there
-with `shirabe question precedent`. There is nothing to submit. If it holds
+recorded and the run goes back to `decide_first` for the same arrival: cite the
+answer there, or record a new attempt if it was withdrawn. There is nothing to
+submit. If it holds
 here, read the action's output and tick again with
 `koto next {{SESSION_NAME}} --no-cleanup`.
 

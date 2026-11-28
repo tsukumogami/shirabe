@@ -7,10 +7,11 @@
 #
 # The shipped scope.md is compiled with koto and read with jq:
 #
-#   the table   exactly five edges enter decide_first: each hop's bail
-#               (hop_brief, hop_prd, hop_design, hop_plan) and
-#               full_run_blocked's abandon, each assigning its own
-#               decide_origin and decide_fresh "yes".
+#   the table   exactly five edges outside the decide states enter
+#               decide_first: each hop's bail (hop_brief, hop_prd,
+#               hop_design, hop_plan) and full_run_blocked's abandon, each
+#               assigning its own decide_origin and no decide_fresh (the gate
+#               counts arrivals from the decide_origin writes).
 #   the routes  decide_first's raised edge goes to waiting_record on an
 #               undecided attempt (exit 3); a decided resume needs a
 #               deciding attempt (exit 0), the origin's code (30-34) and
@@ -19,9 +20,10 @@
 #               and to exit_abandonment from full_run_blocked. Its three
 #               gates cannot be overridden and each has a timeout.
 #               (A context-exists gate runs no command and takes none.)
-#   the wait    waiting_record goes to done_waiting once the question is in
-#               context, and back to the origin when it is not, so the state
-#               has a way out; done_waiting is a failure terminal whose
+#   the wait    waiting_record records the question with --record-question
+#               and goes to done_waiting on --recorded's 0, and back to
+#               decide_first on 1, writing no decide_origin, so the state has
+#               a way out that is not a new arrival; done_waiting is a failure terminal whose
 #               result carries outcome and question.
 #   as before   against the merge-base with the base branch (DECIDE_FIRST_BASE,
 #               else origin/$GITHUB_BASE_REF, else origin/main): each of the
@@ -102,13 +104,13 @@ holds() { if jq -e "$2" "$JSON" > /dev/null; then pass "$1"; else fail "$1"; fi;
 # --- the table ------------------------------------------------------------------
 
 want='[{"origin":"full_run_blocked","when":{"next_move":"abandon"}},{"origin":"hop_brief","when":{"outcome":"bail"}},{"origin":"hop_design","when":{"outcome":"bail"}},{"origin":"hop_plan","when":{"outcome":"bail"}},{"origin":"hop_prd","when":{"outcome":"bail"}}]'
-got=$(jq -c '[.states | to_entries[] | .key as $s | .value.transitions[]? | select(.target == "decide_first")
+got=$(jq -c '[.states | to_entries[] | select(.key != "waiting_record") | .key as $s | .value.transitions[]? | select(.target == "decide_first")
     | {origin: $s, when: (.when // {})}] | sort_by(.origin)' "$JSON")
 echo "edges into decide_first: $got"
 eq "exactly the five unsettled exits enter decide_first" "$want" "$got"
-holds "each edge into decide_first assigns its own origin and decide_fresh yes" \
-    '[.states | to_entries[] | .key as $s | .value.transitions[]? | select(.target == "decide_first")
-      | .context_assignments.decide_origin == $s and .context_assignments.decide_fresh == "yes"] | length == 5 and all'
+holds "each edge into decide_first assigns its own origin and no decide_fresh" \
+    '[.states | to_entries[] | select(.key != "waiting_record") | .key as $s | .value.transitions[]? | select(.target == "decide_first")
+      | .context_assignments.decide_origin == $s and (.context_assignments | has("decide_fresh") | not)] | length == 5 and all'
 
 # --- the routes -----------------------------------------------------------------
 
@@ -138,17 +140,19 @@ holds "decide_first arrives through decide-first-gate.sh" \
 
 # --- the wait -------------------------------------------------------------------
 
-holds "waiting_record goes to done_waiting once the question is recorded, setting outcome waiting" \
+holds "waiting_record records the question with --record-question" \
+    '.states.waiting_record.default_action.command | test("decide-first-gate\\.sh\" --record-question ")'
+holds "waiting_record goes to done_waiting on --recorded's 0, setting outcome waiting" \
     '[.states.waiting_record.transitions[] | select(.target == "done_waiting")]
-     | length == 1 and .[0].when == {"gates.question_recorded.exists": true}
+     | length == 1 and .[0].when == {"gates.question_recorded.exit_code": 0}
        and .[0].context_assignments.outcome == "waiting"'
-holds "waiting_record's way out goes back to the origin when no question is recorded" \
-    '[.states.waiting_record.transitions[] | select(.when["gates.question_recorded.exists"] == false)]
-     | (map({(.when["gates.decide_from.exit_code"] | tostring): .target}) | add)
-       == {"30": "hop_brief", "31": "hop_prd", "32": "hop_design", "33": "hop_plan", "34": "full_run_blocked"}'
-holds "waiting_record's gates cannot be overridden, and its command gate has a timeout" \
-    '[.states.waiting_record.gates[]] | length == 2 and all(.[]; .overridable == false)
-       and all(.[] | select(.type == "command"); (.timeout // 0) > 0)'
+holds "waiting_record's way out goes back to decide_first on 1, writing no decide_origin" \
+    '[.states.waiting_record.transitions[] | select(.target != "done_waiting")]
+     | length == 1 and .[0].target == "decide_first" and .[0].when == {"gates.question_recorded.exit_code": 1}
+       and ((.[0].context_assignments // {}) | has("decide_origin") | not)'
+holds "waiting_record's one gate is --recorded, not overridable, with a timeout" \
+    '[.states.waiting_record.gates[]] | length == 1 and all(.[]; .overridable == false and (.timeout // 0) > 0)
+       and (.[0].command | test("decide-first-gate\\.sh\" --recorded "))'
 holds "done_waiting is a failure terminal carrying outcome and question" \
     '.states.done_waiting | .terminal == true and .failure == true
        and .result.outcome == "${context.outcome}" and .result.question == "${context.decide_question}"'

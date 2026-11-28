@@ -79,9 +79,10 @@
 # --from exits with the code of the arrival's origin, so decide_first's edges
 # can pair it with the submitted outcome: 10 analysis, 11 implementation,
 # 12 introspection, 13 task_validation, 14 post_research_validation,
-# 15 plan_validation, 16 deferral_approval, and /execute's
-# 20 worktree_discipline_check; 2 when there is no arrival or its origin is no
-# covered state.
+# 15 plan_validation, 16 deferral_approval, /execute's
+# 20 worktree_discipline_check, and /scope's 30 hop_brief, 31 hop_prd,
+# 32 hop_design, 33 hop_plan and 34 full_run_blocked; 2 when there is no
+# arrival or its origin is no covered state.
 #
 # --laps exits 0 while the arrivals from the origin number at most 3, and 1,
 # with a finding, from the fourth: the resume edges need 0.

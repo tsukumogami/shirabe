@@ -177,12 +177,8 @@ stateDiagram-v2
     setup --> hop_select : gates.resume_hop_set.matches: true, setup_result: ready
     setup --> discovery : gates.resume_hop_set.matches: false, setup_result: ready
     setup --> bail : setup_result: blocked
-    waiting_record --> done_waiting : gates.question_recorded.exists: true
-    waiting_record --> hop_brief : gates.decide_from.exit_code: 30, gates.question_recorded.exists: false
-    waiting_record --> hop_prd : gates.decide_from.exit_code: 31, gates.question_recorded.exists: false
-    waiting_record --> hop_design : gates.decide_from.exit_code: 32, gates.question_recorded.exists: false
-    waiting_record --> hop_plan : gates.decide_from.exit_code: 33, gates.question_recorded.exists: false
-    waiting_record --> full_run_blocked : gates.decide_from.exit_code: 34, gates.question_recorded.exists: false
+    waiting_record --> done_waiting : gates.question_recorded.exit_code: 0
+    waiting_record --> decide_first : gates.question_recorded.exit_code: 1
     done_abandonment --> [*]
     done_cancelled --> [*]
     done_error --> [*]
@@ -350,9 +346,6 @@ stateDiagram-v2
     end note
     note left of setup
         gate: resume_hop_set
-    end note
-    note left of waiting_record
-        gate: decide_from
     end note
     note left of waiting_record
         gate: question_recorded
