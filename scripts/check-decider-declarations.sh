@@ -43,7 +43,8 @@
 # Exit codes:
 #   0 - every declaration matches the table and has a passing fixture file
 #   1 - a check failed; each failure names the template, state, field, and reason
-#   2 - usage error, or a required tool is missing
+#   2 - usage error, a required tool is missing, or the check's temporary
+#       directory is gone or unreadable mid-run (nothing was verified)
 #
 # Bash 3.2: no associative arrays, no mapfile. Lists live in temp files.
 
@@ -98,6 +99,22 @@ esac
 WORK=$(mktemp -d) || die "could not create a temporary directory"
 trap 'rm -rf "$WORK"' EXIT
 
+# The verdict is built from files under $WORK, so a write or read-back that
+# fails there ends the run (shirabe#2229). Exit 2, through die, because the
+# result is unknown rather than a finding.
+scratch_lost() {
+    die "temporary directory $WORK is gone or unreadable: cannot $1; nothing was verified"
+}
+
+# need_scratch FILE... -- each FILE under $WORK must be readable before the
+# run reads it back.
+need_scratch() {
+    local f
+    for f in "$@"; do
+        [ -r "$WORK/$f" ] || scratch_lost "read back $f"
+    done
+}
+
 TAB=$(printf '\t')
 FAILURES=0
 
@@ -113,7 +130,7 @@ fail() {
 #   {template, state, field, values, escape, labels: [{label, max}], modes: {value: mode}}
 # and declared.tsv one row per declared value, in the table's shape.
 
-: > "$WORK/declarations.jsonl"
+: > "$WORK/declarations.jsonl" || scratch_lost "write declarations.jsonl"
 for f in "$ROOT"/skills/*/koto-templates/*.md; do
     [ -f "$f" ] || continue
     case "$f" in *.mermaid.md) continue ;; esac
@@ -143,11 +160,16 @@ for f in "$ROOT"/skills/*/koto-templates/*.md; do
 done
 
 jq -r '. as $d | $d.values[] | [$d.template, $d.state, $d.field, ., ($d.modes[.] // "shadow")] | @tsv' \
-    "$WORK/declarations.jsonl" > "$WORK/declared.tsv"
+    "$WORK/declarations.jsonl" > "$WORK/declared.tsv" || {
+    need_scratch declarations.jsonl
+    scratch_lost "write declared.tsv"
+}
+need_scratch declarations.jsonl declared.tsv
 
 # -- the modes table ----------------------------------------------------------
 
-: > "$WORK/table.tsv"
+: > "$WORK/table.tsv" || scratch_lost "write table.tsv"
+: > "$WORK/table.keys" || scratch_lost "write table.keys"
 if [ ! -f "$TABLE" ]; then
     echo "check-decider-declarations: FAIL: the modes table $TABLE does not exist" >&2
     FAILURES=$((FAILURES + 1))
@@ -172,15 +194,17 @@ else
                 ;;
         esac
         key=$(printf '%s\n' "$line" | cut -f1-4)
+        need_scratch table.keys
         if grep -Fxq "$key" "$WORK/table.keys" 2>/dev/null; then
             echo "check-decider-declarations: FAIL: ${TABLE##*/} line $n repeats a row for $(printf '%s' "$key" | tr '\t' ' ')" >&2
             FAILURES=$((FAILURES + 1))
             continue
         fi
-        printf '%s\n' "$key" >> "$WORK/table.keys"
-        printf '%s\n' "$line" >> "$WORK/table.tsv"
+        printf '%s\n' "$key" >> "$WORK/table.keys" || scratch_lost "write table.keys"
+        printf '%s\n' "$line" >> "$WORK/table.tsv" || scratch_lost "write table.tsv"
     done < "$TABLE"
 fi
+need_scratch table.tsv declared.tsv
 
 # Every declared value has a row with its effective mode.
 while IFS="$TAB" read -r t s f v m; do
@@ -267,9 +291,11 @@ while IFS= read -r decl; do
         --argjson escape "$(printf '%s' "$decl" | jq -c .escape)" \
         --argjson labels "$(printf '%s' "$decl" | jq -c .labels)" \
         "$FIXTURE_JQ" < "$fixture" > "$WORK/result" 2>"$WORK/jq.err"; then
+        [ -d "$WORK" ] || scratch_lost "write result"
         fail "$t" "$s" "$f" "could not read $fixture_rel: $(cat "$WORK/jq.err")"
         continue
     fi
+    need_scratch result
 
     while IFS= read -r line; do
         [ -n "$line" ] || continue
@@ -297,6 +323,7 @@ EOF
     echo "  $t $s.$f: $fixture_rel, $total cases ($(printf '%s' "$summary" | sed 's/^ //'))"
 done < "$WORK/declarations.jsonl"
 
+need_scratch declarations.jsonl declared.tsv
 declared=$(wc -l < "$WORK/declarations.jsonl" | tr -d ' ')
 values=$(wc -l < "$WORK/declared.tsv" | tr -d ' ')
 if [ "$FAILURES" -eq 0 ]; then
