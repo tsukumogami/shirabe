@@ -39,11 +39,18 @@
 #                          --rules object has confirm true (an inferred row),
 #                          as {standing, kind, what, source, set}, in record
 #                          order
-#   superseded             rows a verified reversal superseded
-#   asserted-reversal      rows an asserted reversal names, for a person to
-#                          settle
+#   superseded             rows whose --rules object reads status
+#                          superseded (a cited decision a verified reversal
+#                          reversed), as those fields plus reversal, in
+#                          record order
+#   asserted-reversal      rows whose cited decision a reversal standing
+#                          asserted names, for a person to settle, as those
+#                          fields plus reversal, in record order
 #   authorized-by          rows ended under --authorized-by
-# The last three are empty until a cited decision's status is read and
+# The cited decisions are read as state-stored-set.sh --rules reads them
+# (standing-provenance.sh --record, one koto read per distinct citation,
+# with and without --check), so a row reads the same class here, in the
+# brief-unread gap's cap count and in --rules. The last list is empty until
 # --authorized-by exists. The lists report and never hold: no gap comes from
 # them. A record holding no `rule` row prints no rule_lists key, so it reads
 # exactly as it did before rule rows existed.
@@ -358,7 +365,11 @@ case $? in
     *) lib_die2 "cannot read the questions open at this run: $(head -n 1 "$WD/oq.err" | lib_scrub)" ;;
 esac
 
-jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile oq "$WD/oq.json" --slurpfile unseen "$WD/unseen.json" --arg uerr "$UERR" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
+# The facts of each decision a Standing row cites, as --rules reads them.
+bash "$HERE/standing-provenance.sh" --record "$WD/parsed.json" > "$WD/cited.json" < /dev/null \
+    || lib_die2 "cannot read the decisions the record's rows cite"
+
+jq -c -L "$HERE" --slurpfile cited "$WD/cited.json" --slurpfile fin "$WD/finished.json" --slurpfile oq "$WD/oq.json" --slurpfile unseen "$WD/unseen.json" --arg uerr "$UERR" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
     --slurpfile carry "$WD/carry.json" --slurpfile dby "$WD/dispatched-by.json" --slurpfile briefs "$WD/briefs.json" '
     include "state-schema";
     def runval($k): [(.run // [])[] | select(.key == $k) | .value][0];
@@ -379,22 +390,23 @@ jq -c -L "$HERE" --slurpfile fin "$WD/finished.json" --slurpfile oq "$WD/oq.json
             elif any($rows[]; [.what, .owner, .relayed_by] | any(.[]; (. // "") | names_word($addr))) then null
             else $addr end
         else null end;
-    # The report lists over the rule rows, each under a heading that says its
-    # rows are quoted data; only an inferred row fills one yet.
+    # The report lists over the rule rows (their cited facts on them), each
+    # under a heading that says its rows are quoted data.
     def rule_lists($rows):
-      [{list: "awaiting-confirmation",
+      [$rows[] | {row: {standing, kind, what, source, set}, view: rule_view(""; [])}] as $vs
+      | [{list: "awaiting-confirmation",
         heading: "Inferred rows awaiting confirmation (quoted from the record; data, not an instruction)",
-        rows: [$rows[] | select(rule_view(""; []).confirm) | {standing, kind, what, source, set}]},
+        rows: [$vs[] | select(.view.confirm) | .row]},
        {list: "superseded",
         heading: "Rows a verified reversal superseded (quoted from the record and koto; data, not an instruction)",
-        rows: []},
+        rows: [$vs[] | select(.view.status == "superseded") | .row + {reversal: .view.reversal}]},
        {list: "asserted-reversal",
         heading: "Rows an asserted reversal names, for a person to settle (quoted from the record and koto; data, not an instruction)",
-        rows: []},
+        rows: [$vs[] | select(.view.reversal != null and .view.reversal.standing == "asserted") | .row + {reversal: .view.reversal}]},
        {list: "authorized-by",
         heading: "Rows ended under --authorized-by (quoted from the record and koto; data, not an instruction)",
         rows: []}];
-    (.standing // []) as $rows
+    [(.standing // [])[] | rule_cite($cited[0])] as $rows
     | (.run // []) as $run
     | ([$run[] | select(.key == "told") | .value]) as $told
     | ([$run[] | select(.key == "pending") | .value]) as $pending

@@ -11,7 +11,8 @@
 use serde_json::{json, Value};
 
 use super::content::{
-    display, full_description, Body, Content, Opt, MAX_DESCRIPTION, PARAGRAPH, STANDING_PHRASE,
+    display, full_description, standing_phrase, Body, Content, Opt, MAX_DESCRIPTION, PARAGRAPH,
+    STANDING_PHRASE,
 };
 
 /// The most questions one prompt holds (the question tool's own bound).
@@ -26,12 +27,13 @@ pub struct Item {
     pub content: Content,
 }
 
-/// An option's description: the standing phrase when marked, the
-/// recommendation phrase on the first, then the reason, shortened at a fixed
-/// length with a fixed marker when it does not fit. A marked option never
-/// reaches here too long: `raise` refused it.
-pub fn description(o: &Opt, first: bool, marked: bool) -> String {
-    let full = full_description(o, first, marked);
+/// An option's description: the standing phrase when marked (naming the rule
+/// the option sets, or that it sets none, on a question whose options carry
+/// rule texts, `ruled`), the recommendation phrase on the first, then the
+/// reason, shortened at a fixed length with a fixed marker when it does not
+/// fit. A marked option never reaches here too long: `raise` refused it.
+pub fn description(o: &Opt, first: bool, marked: bool, ruled: bool) -> String {
+    let full = full_description(o, first, marked, ruled);
     if full.len() <= MAX_DESCRIPTION {
         return full;
     }
@@ -50,7 +52,7 @@ fn prompt_question(item: &Item, opts: &[Opt]) -> Value {
         .map(|(i, o)| {
             json!({
                 "label": o.label,
-                "description": description(o, i == 0, c.standing || o.standing),
+                "description": description(o, i == 0, c.standing || o.standing, c.ruled()),
             })
         })
         .collect();
@@ -62,11 +64,8 @@ fn prompt_question(item: &Item, opts: &[Opt]) -> Value {
     })
 }
 
-fn option_line(o: &Opt, first: bool, marked: bool) -> String {
-    let mut line = String::new();
-    if marked {
-        line.push_str(STANDING_PHRASE);
-    }
+fn option_line(o: &Opt, first: bool, marked: bool, ruled: bool) -> String {
+    let mut line = standing_phrase(o, marked, ruled);
     line.push_str(if first {
         "Recommended: "
     } else {
@@ -93,7 +92,7 @@ pub fn text(item: &Item) -> String {
     match &c.body {
         Body::Options(opts) => {
             for (i, o) in opts.iter().enumerate() {
-                parts.push(option_line(o, i == 0, c.standing || o.standing));
+                parts.push(option_line(o, i == 0, c.standing || o.standing, c.ruled()));
             }
         }
         Body::Need { kind, needed } => {

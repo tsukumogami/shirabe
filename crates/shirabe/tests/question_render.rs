@@ -566,3 +566,38 @@ fn a_dependency_read_that_hangs_stops_the_command() {
         "pending took {took:?}"
     );
 }
+
+#[test]
+fn a_ruled_standing_question_names_each_options_rule_or_that_it_sets_none() {
+    let s = Standin::new();
+    let mut v = good();
+    v["standing"] = json!(true);
+    v["options"][0]["rule"] = json!("Use SQLite for the build cache.");
+    let id = s.serve("solo", "000000000003", &stored_of(&v), "");
+    let r = render(&s, &[&id]);
+    let o = r["prompts"][0]["questions"][0]["options"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let rule = "This answer sets the standing rule \"Use SQLite for the build cache.\". ";
+    let first = o[0]["description"].as_str().unwrap();
+    assert!(
+        first.starts_with(&format!("{rule}Recommended. ")),
+        "{first}"
+    );
+    for opt in &o[1..] {
+        let d = opt["description"].as_str().unwrap();
+        assert!(d.starts_with("This answer sets no standing rule. "), "{d}");
+        assert!(!d.contains("sets a standing rule"), "{d}");
+    }
+    let text = r["prompts"][0]["text"].as_str().unwrap();
+    let line = format!("{rule}Recommended: SQLite");
+    assert!(text.contains(&line), "{text}");
+    assert!(
+        text.contains("This answer sets no standing rule. Alternative: Postgres"),
+        "{text}"
+    );
+    // The labels are the stored labels: the rule never changes what koto
+    // compares when the owner's answer is recorded.
+    assert_eq!(o[0]["label"], json!("SQLite"));
+}

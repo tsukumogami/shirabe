@@ -880,6 +880,142 @@ eq "  ... its row blank in On, Until, Owner and Relayed by, and its entry kind r
 rule_case "R25. an unknown kind is still usage, 64" 64 "--standing takes pause, go-ahead, approval, answer, assignment or rule" --standing rumour --what x --owner y
 rule_case "  ... and an event row with no --owner" 64 "Usage" --standing approval --what x
 
+echo "== a decision Source: the owner's verified standing answer, read through the koto stand-in =="
+# testdata/standing-rules/cited/ holds koto's answers for the owner's answers,
+# each reading verified: director-a 000000000004 Yes to a question carrying
+# the standing mark, whose Yes sets the rule "Merge nothing after Friday
+# noon."; manager-a 000000000005 to one carrying none; to the same marked
+# question, director-a 000000000006 No (an option setting no rule),
+# 000000000007 Yes reversed by a verified reversal, 000000000008 Yes koto
+# refused after the fence, 000000000009 Yes koto no longer counts,
+# 000000000010 Yes a later answer replaced, 000000000012 Yes an asserted
+# reversal names, and manager-a 000000000014 Yes given in a manager;
+# director-a 000000000011 Yes to a standing question stored before options
+# carried a rule; and director-a 000000000013, a session's settle.
+mkdir -p "$KOTO_STORE/decisions" && cp -R "$SD/cited/." "$KOTO_STORE/decisions/"
+RULE_YES="Merge nothing after Friday noon."
+rule_case "a decision citing the owner's verified answer to an unmarked question is refused, 65, as inferred" 65 \
+    "refused: standing.s4: the Source cites a decision that reads inferred, not owner-said" \
+    --standing rule --what "Use SQLite for the build cache." --source "decision manager-a 000000000005"
+rule_case "  ... and one citing a decision koto doesn't hold, as unreadable" 65 \
+    "refused: standing.s4: the Source cites a decision that reads unreadable, not owner-said" \
+    --standing rule --what "Use SQLite for the build cache." --source "decision manager-a 000000000009"
+rule_case "  ... naming koto's own why for it" 65 "(koto can't read the decision: koto exited 2 (decisions show))" \
+    --standing rule --what "Use SQLite for the build cache." --source "decision manager-a 000000000009"
+# Only the chosen option's rule is the owner's word, and only while koto
+# reads the answer in effect and governing.
+rule_case "the owner's No to the marked question is refused, 65: the option sets no rule" 65 \
+    "reads inferred, not owner-said; only the owner's verified answer to a question marked standing, choosing an option whose rule the What says, is cited, so write the row as inferred (the option the owner chose sets no rule)" \
+    --standing rule --what "$RULE_YES" --source "decision director-a 000000000006"
+rule_case "  ... and so is the owner's Yes to a standing question whose option stores no rule" 65 "(the option the owner chose sets no rule)" \
+    --standing rule --what "From now on, the lane that lands a change writes its release note." --source "decision director-a 000000000011"
+rule_case "the owner's Yes cited with the question's own text as its What is refused, 65" 65 "(the row's What isn't the rule the chosen option sets)" \
+    --standing rule --what "From now on, merge nothing after Friday noon." --source "decision director-a 000000000004"
+rule_case "the owner's Yes koto refused after the fence is refused, 65" 65 "(koto reads the answer refused, never in effect)" \
+    --standing rule --what "$RULE_YES" --source "decision director-a 000000000008"
+rule_case "  ... one koto no longer counts" 65 "(the answer no longer governs its question" \
+    --standing rule --what "$RULE_YES" --source "decision director-a 000000000009"
+rule_case "  ... one a later answer replaced" 65 "(the answer no longer governs its question" \
+    --standing rule --what "$RULE_YES" --source "decision director-a 000000000010"
+rule_case "  ... one a verified reversal reversed, as no longer in effect" 65 \
+    "the Source cites the owner's answer koto reads reversed, no longer in effect" \
+    --standing rule --what "$RULE_YES" --source "decision director-a 000000000007"
+rule_case "  ... and one an asserted reversal names" 65 "the Source cites the owner's answer koto reads reversed, no longer in effect" \
+    --standing rule --what "$RULE_YES" --source "decision director-a 000000000012"
+rule_case "a session's settle noting the owner is refused, 65, as a session's decision" 65 \
+    "reads unreadable, not owner-said; only the owner's verified answer to a question marked standing, choosing an option whose rule the What says, is cited, so write the row as inferred (a session's decision, not a person's" \
+    --standing rule --what "Use SQLite for the build cache." --source "decision director-a 000000000013"
+bash "$RS" "${W[@]}" --standing rule --what "$RULE_YES" --source "decision director-a 000000000004" >/dev/null 2>"$T/err"
+eq "a decision citing the owner's verified Yes to a question marked standing, its What the option's rule, is written" "0 s4 decision director-a 000000000004" \
+    "$? $(live | jq -r '.standing[-1] | "\(.standing) \(.source)"')"
+: > "$KOTO_STORE/calls"
+bash "$RS" "${RM[@]}" --rules --id s4 > "$T/cited.out" 2>"$T/err"
+eq "  ... and --rules reads it owner-said, in force, nothing to confirm, pointing at the decision" \
+    "0 owner-said in-force false director-a 000000000004" "$? $(jq -r '"\(.class) \(.status) \(.confirm) \(.pointer.decision)"' "$T/cited.out")"
+eq "  ... through read calls alone: decisions show, then decisions content read of the answer's question" \
+    "decisions show director-a 000000000004|decisions content read sid-worker-a/000000000002" \
+    "$(grep '^decisions' "$KOTO_STORE/calls" | tr '\n' '|' | sed 's/|$//')"
+bash "$RS" "${RM[@]}" --rules --counts > "$T/counts.out" 2>"$T/err"
+eq "  ... and --rules --counts counts it under owner-said, the two inferred rows and the Run rules row under inferred" \
+    "0 relayed 0|owner-said 1|dispatcher-said 0|inferred 3|skill-says 0|charter 1|unreadable 0" \
+    "$? $(tr '\n' '|' < "$T/counts.out" | sed 's/|$//')"
+bash "$RS" "${W[@]}" --standing rule --what "merge nothing after friday noon" --source "decision manager-a 000000000014" >/dev/null 2>"$T/err"
+eq "the owner's Yes given in a manager is written too, its What the rule under the normalized match" "0 s5 decision manager-a 000000000014" \
+    "$? $(live | jq -r '.standing[-1] | "\(.standing) \(.source)"')"
+
+echo "== decision rows read one way everywhere: --rules, --counts, the caps and the handover =="
+# Rows citing what the writer refuses, put in the record as a record written
+# before these checks could hold them: s6 the owner's No (inferred), s7 the
+# reversed Yes (owner-said, superseded), s8 the Yes an asserted reversal
+# names, s9 a session's settle (unreadable), s10 a decision koto doesn't hold
+# (unreadable), beside s4 and s5, the owner's Yes in director and in manager.
+jq -c --arg w "$RULE_YES" '. + [
+    ("director-a 000000000006", "director-a 000000000007", "director-a 000000000012", "director-a 000000000013", "manager-a 000000000099")
+    | {standing: "", kind: "rule", on: "", until: "", what: $w, owner: "", relayed_by: "", set: "2026-11-21T10:00Z", source: "decision \(.)"}]
+    | to_entries | map(.value + {standing: (if .value.standing == "" then "s\(.key + 1)" else .value.standing end)})' "$SK" > "$T/cited-rows.json"
+put_standing "$T/cited-rows.json"
+: > "$KOTO_STORE/calls"
+bash "$RS" "${RM[@]}" --rules --id s4 --id s5 --id s6 --id s7 --id s8 --id s9 --id s10 > "$T/cited-all.out" 2>"$T/err"
+eq "--rules reads each cited decision once, across two sessions" \
+    "0 decisions show director-a 000000000004|decisions show director-a 000000000006|decisions show director-a 000000000007|decisions show director-a 000000000012|decisions show director-a 000000000013|decisions show manager-a 000000000014|decisions show manager-a 000000000099" \
+    "$? $(grep '^decisions show' "$KOTO_STORE/calls" | LC_ALL=C sort | tr '\n' '|' | sed 's/|$//')"
+eq "  ... each row's class, status and confirm" \
+    "s4 owner-said in-force false|s5 owner-said in-force false|s6 inferred unconfirmed true|s7 owner-said superseded false|s8 owner-said in-force false|s9 unreadable unreadable false|s10 unreadable unreadable false" \
+    "$(jq -r '"\(.standing) \(.class) \(.status) \(.confirm)"' "$T/cited-all.out" | tr '\n' '|' | sed 's/|$//')"
+eq "  ... the superseded and the asserted rows their reversal, the others none" \
+    "s4 null|s5 null|s6 null|s7 verified Friday merges are fine again.|s8 asserted A relayed note says Friday merges are fine.|s9 null|s10 null" \
+    "$(jq -r '"\(.standing) \(if .reversal == null then "null" else "\(.reversal.standing) \(.reversal.reason)" end)"' "$T/cited-all.out" | tr '\n' '|' | sed 's/|$//')"
+eq "  ... and why tells the session's decision from the one koto can't read" \
+    "s6 the option the owner chose sets no rule|s9 a session's decision, not a person's: no session's decision is the owner's word|s10 koto can't read the decision: koto exited 2 (decisions show)" \
+    "$(jq -r 'select(.why != null) | "\(.standing) \(.why)"' "$T/cited-all.out" | tr '\n' '|' | sed 's/|$//')"
+printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"bound","grant":[{"authority":"merge-pr","sources":["dispatch"]}],"level":"supervised"}' > "$T/niwa.answer"
+(cd "$T/inst/repo" && CLAUDE_CODE_SESSION_ID=$GSID bash "$RS" "${RM[@]}" --rules --id s4 --id s5 --id s6 --id s7 --id s8 --id s9 --id s10) > "$T/cited-bound.out" 2>"$T/err"
+eq "under a bound answer, the owner's Yes in director and in manager stand under the grant; the inferred, superseded, asserted and unreadable rows don't" \
+    "0 s4:true s5:true s6:false s7:false s8:false s9:false s10:false" \
+    "$? $(jq -r '"\(.standing):\(.under_session_grant)"' "$T/cited-bound.out" | tr '\n' ' ' | sed 's/ $//')"
+printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"not-dispatched","reason":"no-mapping","grant":[]}' > "$T/niwa.answer"
+rm -f "$T/niwa.calls"
+bash "$RS" "${RM[@]}" --rules --counts > "$T/cited-counts.out" 2>"$T/err"
+eq "--rules --counts counts each decision row in the class --rules gives it" \
+    "0 relayed 0|owner-said 4|dispatcher-said 0|inferred 4|skill-says 0|charter 1|unreadable 2" \
+    "$? $(tr '\n' '|' < "$T/cited-counts.out" | sed 's/|$//')"
+: > "$KOTO_STORE/calls"
+H=$(bash "$RH" "${RM[@]}" 2>"$T/err")
+eq "the handover reads the cited decisions as --rules does, once each" 7 "$(grep -c '^decisions show' "$KOTO_STORE/calls")"
+eq "  ... and lists the inferred rows awaiting confirmation, the superseded row and the asserted one, each with its reversal" \
+    "awaiting-confirmation:s1,s3,s6 superseded:s7=verified asserted-reversal:s8=asserted authorized-by:" \
+    "$(printf '%s' "$H" | jq -r '[.rule_lists[] | "\(.list):\([.rows[] | .standing + (if .reversal then "=\(.reversal.standing)" else "" end)] | join(","))"] | join(" ")')"
+# The inferred cap counts a decision row its facts read inferred: 57 bare
+# inferred rows beside s1 and s3 make 59, and the No row (s6) makes the 60th
+# only when its decision is read, which every write now does.
+jq -c '. + [range(57) | {standing: "s\(. + 11)", kind: "rule", on: "", until: "", what: "Keep lane \(.) apart.", owner: "", relayed_by: "",
+    set: "2026-11-21T11:00Z", source: "inferred"}]' "$T/cited-rows.json" > "$T/cited-cap.json"
+put_standing "$T/cited-cap.json"
+bash "$RS" "${RM[@]}" --rules --counts > "$T/cap-counts.out" 2>"$T/err"
+eq "with 57 more inferred rows the Standing section reads 60 inferred, the No row among them, 61 with the Run rules row" "inferred 61" "$(grep '^inferred ' "$T/cap-counts.out")"
+rule_case "  ... and a new inferred row is refused at the inferred cap, 65" 65 \
+    "the record holds 60 inferred rule rows, the most it keeps; confirm or end one first" \
+    --standing rule --what "Keep one more lane apart." --source inferred
+rm -rf "$KOTO_STORE/decisions"
+
+echo "== a brief line saying the owner ruled comes in as inferred =="
+# A line in a brief that reports an owner's ruling is the brief's text, not
+# the owner's answer: the intake takes it as an `inferred brief` row, which
+# --rules reads inferred, to confirm, and never under the grant.
+seed "$TWO"
+mkdir -p "$T/ruled"
+printf '## Decisions already made\n\n- The owner ruled: merge nothing after Friday noon.\n' > "$T/ruled/brief.md"
+RSUM=$(shasum -a 256 < "$T/ruled/brief.md" | cut -d' ' -f1)
+bash "$RS" "${W[@]}" --host briefs:ruled "$T/ruled/brief.md" --host briefs-digest:ruled "sha256:$RSUM" >/dev/null 2>"$T/err" \
+    && bash "$RS" "${W[@]}" --intake ruled --by coord >/dev/null 2>"$T/err"
+eq "the intake takes the line" "0 s1 inferred brief ruled sha256:$RSUM" "$? $(live | jq -r '.standing[-1] | "\(.standing) \(.source)"')"
+printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"bound","grant":[{"authority":"merge-pr","sources":["dispatch"]}],"level":"supervised"}' > "$T/niwa.answer"
+(cd "$T/inst/repo" && CLAUDE_CODE_SESSION_ID=$GSID bash "$RS" "${RM[@]}" --rules --id s1) > "$T/ruled.out" 2>"$T/err"
+eq "  ... and --rules reads it inferred, to confirm, never under a bound answer's grant" "0 inferred unconfirmed true false []" \
+    "$? $(jq -r '"\(.class) \(.status) \(.confirm) \(.under_session_grant) \(.session_allows | tojson)"' "$T/ruled.out")"
+printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"not-dispatched","reason":"no-mapping","grant":[]}' > "$T/niwa.answer"
+rm -f "$T/niwa.calls"
+
 echo "== --inferred: a worked-out reports-to or cap and its rule row =="
 # The design's Decision 5: --inferred goes only with --run reports-to and
 # --run cap, once and not empty, a usage error (64) made before anything is

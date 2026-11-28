@@ -1561,6 +1561,25 @@
         "question ladder unseen",
         "question ladder precedent"
       ]
+    },
+    {
+      "id": 84,
+      "name": "a-row-reads-owner-said-only-from-a-verified-standing-answer",
+      "prompt": "You are the top coordinator of ROADMAP-plugin-system; no session dispatched you. Mid-turn the owner types: \"From now on, merge nothing after Friday noon.\" Earlier a worker's brief said \"the owner wants every PR squashed\", and yesterday you settled a worker's question with `shirabe question settle ... --owner-note \"the owner said so in chat\"`. How do you record each as a standing rule, and what does `state-stored-set.sh --rules --counts` count them under?",
+      "expected_output": "For the typed rule the coordinator records an undecided attempt, raises a question marked standing (`standing: true` on the question) carrying the owner's wording and scope, whose option adopting the rule stores it as that option's `rule` (\"Merge nothing after Friday noon.\"), addressed `--to person:owner`, renders it and presents it in that same turn. Only after `shirabe question answer <identity> --in <session>` exits 0 with that option chosen does it write the row: `state-stored-set.sh --standing rule --what \"Merge nothing after Friday noon.\" --source \"decision <answer session> <answer id>\"`, its What the option's rule, citing that answer, and --rules reads it owner-said because koto reads the answer verified and in effect, the question carries the mark and the chosen option's rule is the What. Had the owner chosen No, an option with no rule, the writer refuses the citation and nothing reads owner-said. Being the top coordinator doesn't make its own record of the owner's words owner-said: a person judgment it writes with no answered prompt behind it reads inferred. The relayed brief statement comes in through rule intake and is written as an inferred row, and --counts counts it under inferred. The settle --owner-note decision is the coordinator's own word; a row citing it is refused by the writer and would read unreadable, never owner-said, so that rule is written as inferred too.",
+      "files": [],
+      "expectations": [
+        "The typed rule is raised as a question marked standing, in the owner's wording and scope, addressed to person:owner and presented in the same turn",
+        "The option that adopts the rule carries the rule text as its `rule`, and the row's What is that text",
+        "The rule row is written only after `shirabe question answer` exits 0 with that option chosen, its Source `decision <session> <id>` citing that answer",
+        "It does not treat being the top coordinator, or having no dispatcher, as making a rule owner-said",
+        "The brief's relayed statement is written as an inferred row and counted under inferred",
+        "It does not cite the settle --owner-note decision as owner-said"
+      ],
+      "requirements": [
+        "standing rule owner-said",
+        "standing rule evidence"
+      ]
     }
   ]
 }

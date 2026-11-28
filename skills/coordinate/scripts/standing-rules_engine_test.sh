@@ -25,8 +25,9 @@
 #      (state-open.sh --carry, exit 0) and the successor's record/standing is
 #      byte-identical to A's;
 #   5. --rules on A prints one object per row, in record order, each, apart
-#      from under_session_grant and session_allows, byte-identical (jq -cS, then cmp) to the
-#      objects held below, and with niwa's answer not-dispatched, under_session_grant false
+#      from under_session_grant and session_allows (and s9's why, which
+#      names koto's failure to read the decision), byte-identical (jq -cS,
+#      then cmp) to the objects held below, and with niwa's answer not-dispatched, under_session_grant false
 #      and session_allows [] on every one; each relayed row's pointer names the entry
 #      its own --standing wrote, and on B, whose session holds no entries, the
 #      row itself;
@@ -400,20 +401,20 @@ crit "4. the carry from A's Standing exits 0 and the successor's record/standing
 # Each relayed row names the entry its own --standing wrote: the run wrote
 # nothing before them, so s<n>'s is entry n.
 EXPECT='[
- {"standing":"s1","kind":"pause","class":"relayed","what":"hold the first lane","owner":"the human","pointer":{"entry":"\($a) record/entries/000001"},"words":null,"source":null,"status":"in-force","reversal":null,"confirm":false},
- {"standing":"s2","kind":"go-ahead","class":"relayed","what":"one dispatch of the third lane","owner":"the human","pointer":{"entry":"\($a) record/entries/000002"},"words":null,"source":null,"status":"in-force","reversal":null,"confirm":false},
- {"standing":"s3","kind":"approval","class":"relayed","what":"the release notes as drafted","owner":"the human","pointer":{"entry":"\($a) record/entries/000003"},"words":null,"source":null,"status":"in-force","reversal":null,"confirm":false},
- {"standing":"s4","kind":"answer","class":"relayed","what":"panels at the head are the cost to cut","owner":"the human","pointer":{"entry":"\($a) record/entries/000004"},"words":null,"source":null,"status":"in-force","reversal":null,"confirm":false},
- {"standing":"s5","kind":"assignment","class":"relayed","what":"fix the loader'"'"'s retry","owner":"the human","pointer":{"entry":"\($a) record/entries/000005"},"words":null,"source":null,"status":"in-force","reversal":null,"confirm":false},
+ {"standing":"s1","kind":"pause","class":"relayed","what":"hold the first lane","owner":"the human","pointer":{"entry":"\($a) record/entries/000001"},"words":null,"source":null,"status":"in-force","reversal":null,"why":null,"confirm":false},
+ {"standing":"s2","kind":"go-ahead","class":"relayed","what":"one dispatch of the third lane","owner":"the human","pointer":{"entry":"\($a) record/entries/000002"},"words":null,"source":null,"status":"in-force","reversal":null,"why":null,"confirm":false},
+ {"standing":"s3","kind":"approval","class":"relayed","what":"the release notes as drafted","owner":"the human","pointer":{"entry":"\($a) record/entries/000003"},"words":null,"source":null,"status":"in-force","reversal":null,"why":null,"confirm":false},
+ {"standing":"s4","kind":"answer","class":"relayed","what":"panels at the head are the cost to cut","owner":"the human","pointer":{"entry":"\($a) record/entries/000004"},"words":null,"source":null,"status":"in-force","reversal":null,"why":null,"confirm":false},
+ {"standing":"s5","kind":"assignment","class":"relayed","what":"fix the loader'"'"'s retry","owner":"the human","pointer":{"entry":"\($a) record/entries/000005"},"words":null,"source":null,"status":"in-force","reversal":null,"why":null,"confirm":false},
  {"standing":"s6","kind":"rule","class":"inferred","what":"Pause all work on Feature 2 until lifted.","owner":null,"said":"2026-10-20T09:00Z","set":"2026-10-20T09:00Z",
   "pointer":{"brief":"worker","digest":"sha256:1111111111111111111111111111111111111111111111111111111111111111"},"words":null,
-  "source":"inferred brief worker sha256:1111111111111111111111111111111111111111111111111111111111111111","status":"unconfirmed","reversal":null,"confirm":true},
+  "source":"inferred brief worker sha256:1111111111111111111111111111111111111111111111111111111111111111","status":"unconfirmed","reversal":null,"why":null,"confirm":true},
  {"standing":"s7","kind":"rule","class":"skill-says","what":"Read a CI run'"'"'s status at most once a minute.","owner":null,"said":"2026-10-20T09:01Z","set":"2026-10-20T09:01Z",
   "pointer":{"repo":"acme/widgets","path":"skills/coordinate/SKILL.md","commit":"0123456789abcdef0123456789abcdef01234567"},"words":null,
-  "source":"skill acme/widgets skills/coordinate/SKILL.md 0123456789abcdef0123456789abcdef01234567","status":"in-force","reversal":null,"confirm":false},
+  "source":"skill acme/widgets skills/coordinate/SKILL.md 0123456789abcdef0123456789abcdef01234567","status":"in-force","reversal":null,"why":null,"confirm":false},
  {"standing":"s8","kind":"rule","class":"charter","what":"Release pull requests wait for a person'"'"'s review before they merge.","owner":null,"said":"2026-10-20T09:02Z","set":"2026-10-20T09:02Z",
   "pointer":{"pinned":"charter","digest":"sha256:2222222222222222222222222222222222222222222222222222222222222222"},"words":null,
-  "source":"pinned charter sha256:2222222222222222222222222222222222222222222222222222222222222222","status":"in-force","reversal":null,"confirm":false},
+  "source":"pinned charter sha256:2222222222222222222222222222222222222222222222222222222222222222","status":"in-force","reversal":null,"why":null,"confirm":false},
  {"standing":"s9","kind":"rule","class":"unreadable","what":"Merge only on a green board.","owner":null,"said":null,"set":"2026-10-20T09:03Z",
   "pointer":{"decision":"coordinate-roadmap-rules-20261001T100000Z 000000000007"},"words":null,
   "source":"decision coordinate-roadmap-rules-20261001T100000Z 000000000007","status":"unreadable","reversal":null,"confirm":false}
@@ -422,8 +423,10 @@ jq -n --arg a "$A" --slurpfile rec "$T/A.record" "$EXPECT" > "$T/A.rules.want" 2
 need "--rules on A exits 0" 0 "$RC_RULES$(cat "$T/A.rules.err")"
 need "  ... one object per row, in record order" "s1 s2 s3 s4 s5 s6 s7 s8 s9" "$(jq -r .standing "$T/A.rules" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 jq -cS '.[]' "$T/A.rules.want" > "$T/A.rules.want.each" 2>/dev/null
-jq -cS 'del(.under_session_grant, .session_allows)' "$T/A.rules" > "$T/A.rules.rest" 2>/dev/null
+jq -cS 'del(.under_session_grant, .session_allows) | if .standing == "s9" then del(.why) else . end' "$T/A.rules" > "$T/A.rules.rest" 2>"$T/A.rules.rest.err"
 cmp -s "$T/A.rules.want.each" "$T/A.rules.rest" || needf "apart from under_session_grant and session_allows, --rules on A isn't the objects held here: $(head -c 600 "$T/A.rules.rest")"
+need "  ... s9's why names koto's failure to read the decision, not a session's decision" true \
+    "$(jq -r 'select(.standing == "s9") | .why | startswith("koto can'"'"'t read the decision: koto exited ")' "$T/A.rules" 2>&1)"
 need "  ... with niwa answering not-dispatched, under_session_grant false and session_allows [] on every object" "false:[] false:[] false:[] false:[] false:[] false:[] false:[] false:[] false:[]" \
     "$(jq -r '"\(.under_session_grant):\(.session_allows | tojson)"' "$T/A.rules" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 printf 'authority check -C %s --session %s --json\n' "$(cd "$WD" && pwd -P)" "$SID" > "$T/A.rules.calls.want"

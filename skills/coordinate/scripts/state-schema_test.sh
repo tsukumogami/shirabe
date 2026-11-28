@@ -40,6 +40,7 @@
 # Usage: bash skills/coordinate/scripts/state-schema_test.sh
 # Exit codes: 0 all pass; 1 a failure.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
@@ -299,6 +300,78 @@ eq "a pinned rule reads charter, with its label and digest" \
     "$(view "$(jq -c '[.[2]]' "$SD/rule-rows.json")")"
 eq "a decision rule reads unreadable twice over, with the session and id, and no owner or time" \
     "unreadable|unreadable|false|null|null|null|null|{\"decision\":\"$SESS 000000000007\"}" "$(view "$(jq -c '[.[3]]' "$SD/rule-rows.json")")"
+# A decision row's class read from its cited decision's facts, as
+# standing-provenance.sh prints them: `reading`, `standing`, the chosen
+# option's `rule` against the row's What, koto's `status` and `governs`
+# decide for a person decision, and where it was entered plays no part.
+# cited <kind> <reading-json> <standing> [entering [jq patch over the row]]: a
+# decision row citing such facts, governing its question and in effect, its
+# chosen option setting the rule `X.`, its What `x`.
+cited() {
+    jq -c -n --arg k "$1" --argjson r "$2" --argjson st "$3" --arg e "${4:-director}" '[{standing: "s4", kind: "rule", what: "x", set: "2026-10-20T09:00Z",
+        source: "decision director 000000000004",
+        cited: {session: "director", id: "000000000004", status: "in-effect",
+            decider: (if $k == "person" then {kind: "person", entering: $e, surface: "terminal"} else {kind: "session", session: $e} end),
+            time: "2026-10-20T09:00:00.000Z", reading: $r, governs: true, question: null, standing: $st, rule: "X.",
+            reversal: null, quoted: {}}} | '"${5:-.}"']'
+}
+cls() { view "$1" | cut -d'|' -f1,2,3,8; }
+DPTR="{\"decision\":\"director 000000000004\"}"
+eq "a verified owner's answer to a question marked standing, given in director, reads owner-said, in force, nothing to confirm" \
+    "owner-said|in-force|false|$DPTR" "$(cls "$(cited person '"verified"' true director)")"
+eq "  ... and given in a worker, the same" "owner-said|in-force|false|$DPTR" "$(cls "$(cited person '"verified"' true worker-a)")"
+eq "  ... and given in a manager, the same" "owner-said|in-force|false|$DPTR" "$(cls "$(cited person '"verified"' true manager)")"
+# What the owner chose: the rule is the chosen option's stored text.
+eq "the owner's verified answer choosing an option that sets no rule (a No) reads inferred, to confirm" "inferred|unconfirmed|true|$DPTR" \
+    "$(cls "$(cited person '"verified"' true director '.cited.rule = null')")"
+eq "  ... and a row whose What isn't the chosen option's rule reads inferred" "inferred|unconfirmed|true|$DPTR" \
+    "$(cls "$(cited person '"verified"' true director '.what = "Merge anything, any day."')")"
+eq "  ... while one the normalized match holds reads owner-said" "owner-said|in-force|false|$DPTR" \
+    "$(cls "$(cited person '"verified"' true director '.what = "  x  "')")"
+# Whether the answer is still in effect: koto's status and governs.
+eq "the owner's answer koto refused (after the fence) reads inferred" "inferred|unconfirmed|true|$DPTR" \
+    "$(cls "$(cited person '"verified"' true director '.cited.status = "refused" | .cited.governs = false')")"
+eq "  ... one koto no longer counts (its question withdrawn) reads inferred" "inferred|unconfirmed|true|$DPTR" \
+    "$(cls "$(cited person '"verified"' true director '.cited.governs = false')")"
+REVV='{session: "director", id: "000000000009", time: "2026-10-21T09:00:00.000Z", decider: {kind: "person", entering: "director", surface: "terminal"}, standing: "verified", hop: false, fence: []}'
+# rev <row-json>: class|status|confirm|the reversal's id, standing and reason.
+rev() {
+    jq -r -L "$HERE" --arg s "$SESS" 'include "state-schema"; .[] | rule_view($s; [])
+        | "\(.class)|\(.status)|\(.confirm)|\(.reversal.id) \(.reversal.standing) \(.reversal.reason)"' <<< "$1"
+}
+eq "  ... one a verified reversal reversed keeps owner-said and reads superseded, nothing to confirm, its reversal and reason shown" \
+    "owner-said|superseded|false|000000000009 verified the rule is dropped" \
+    "$(rev "$(cited person '"verified"' true director ".cited.status = \"reversed\" | .cited.governs = false | .cited.reversal = $REVV
+        | .cited.quoted.reversal_reason = \"the rule is dropped\"")")"
+eq "  ... one an asserted reversal names reads owner-said and in force, the reversal shown" "owner-said|in-force|false|000000000009 asserted null" \
+    "$(rev "$(cited person '"verified"' true director ".cited.status = \"reversed\" | .cited.reversal = ($REVV | .standing = \"asserted\")")")"
+# why: what tells a koto failure from a session's decision.
+why() { jq -r -L "$HERE" --arg s "$SESS" 'include "state-schema"; .[] | rule_view($s; []) | .why // "null"' <<< "$1"; }
+eq "why is null for an owner-said row" null "$(why "$(cited person '"verified"' true)")"
+eq "  ... names koto's own why for a decision koto can't read" "koto can't read the decision: koto exited 2 (decisions show)" \
+    "$(why "$(cited person '"verified"' true director '.cited = {session: "director", id: "000000000004", status: "unreadable", why: "koto exited 2 (decisions show)"}')")"
+eq "  ... and a session's decision as one, apart from a koto failure" "a session's decision, not a person's: no session's decision is the owner's word" \
+    "$(why "$(cited session null false manager)")"
+eq "  ... and a No as an option that sets no rule" "the option the owner chose sets no rule" "$(why "$(cited person '"verified"' true director '.cited.rule = null')")"
+eq "  ... and a decision row with no facts read as that" "no facts of the cited decision were read" "$(why "$(jq -c '[.[3]]' "$SD/rule-rows.json")")"
+eq "a verified owner's answer with no mark reads inferred, to confirm" "inferred|unconfirmed|true|$DPTR" "$(cls "$(cited person '"verified"' false)")"
+eq "a remote session's answer, marked, reads inferred" "inferred|unconfirmed|true|$DPTR" "$(cls "$(cited person '"a remote session'"'"'s answer"' true)")"
+eq "a person judgment with no answered prompt, in a coordinator with no dispatcher, reads inferred" "inferred|unconfirmed|true|$DPTR" \
+    "$(cls "$(cited person null false director)")"
+eq "a session's decision, a settle --owner-note among them, keeps unreadable" "unreadable|unreadable|false|$DPTR" \
+    "$(cls "$(cited session null false manager)")"
+eq "  ... even with a reading and a mark set" "unreadable|unreadable|false|$DPTR" "$(cls "$(cited session '"verified"' true manager)")"
+eq "a cited decision koto couldn't read keeps unreadable" "unreadable|unreadable|false|$DPTR" \
+    "$(cls "$(cited person '"verified"' true | jq -c '.[0].cited = {session: "director", id: "000000000004", status: "unreadable", why: "x"} | .')")"
+eq "rule_cite puts the facts on the row its Source cites, and on no other" "true false" \
+    "$(jq -nc -L "$HERE" 'include "state-schema"; {"director 000000000004": {status: "in-effect"}} as $c
+        | [({source: "decision director 000000000004"} | rule_cite($c) | has("cited")), ({source: "decision director 000000000005"} | rule_cite($c) | has("cited"))] | map(tostring) | join(" ")' | tr -d '"')"
+eq "rule_cap_counts counts a decision row its facts read inferred against the inferred cap, and an unread one not" '[{"rule":3,"inferred":1},null]' \
+    "$(jq -nc -L "$HERE" --argjson a "$(cited person '"verified"' true director '.cited.rule = null')" --argjson b "$(cited person '"verified"' true)" \
+        --argjson c "$(jq -c '[.[3]]' "$SD/rule-rows.json")" 'include "state-schema"; $a + $b + $c | [rule_cap_counts, rule_cap_problem({kind: "rule", source: "inferred"})]')"
+eq "rule_counts counts a cited owner's verified standing answer under owner-said" \
+    "relayed 0|owner-said 1|dispatcher-said 0|inferred 1|skill-says 0|charter 0|unreadable 0" \
+    "$(jq -r -L "$HERE" --argjson a "$(cited person '"verified"' true)" --argjson b "$(cited person '"verified"' false)" 'include "state-schema"; $a + $b | rule_counts' -n | tr '\n' '|' | sed 's/|$//')"
 eq "a doc rule reads charter, as a pinned one does, pointing at its repository, path and commit" \
     "charter|in-force|{\"repo\":\"acme/widgets\",\"path\":\"docs/x.md\",\"commit\":\"$SHA40\"}" \
     "$(view "$(jq -nc --arg s "doc acme/widgets docs/x.md $SHA40" '[{standing: "s4", kind: "rule", what: "x", set: "2026-10-20T09:00Z", source: $s}]')" | cut -d'|' -f1,2,8)"

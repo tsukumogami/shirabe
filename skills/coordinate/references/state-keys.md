@@ -511,13 +511,14 @@ and Relayed by, and a Source saying where its words come from, and it holds
 nothing: pick, the dispatch check, the land check and the merge read pauses,
 go-aheads and assignments only, whatever a rule's What says. `--standing rule
 --what <text> --source <form>` writes one, its What one line of at most 400
-bytes and its Source in one of four forms:
+bytes and its Source in one of five forms:
 
 ```
 skill <owner/repo> <path> <commit>         a line of a skill's text
 doc <owner/repo> <path> <commit>           a document a public host can name
 pinned <label> sha256:<64 hex>             a file a Run rules or briefs row pins with that label and digest
 inferred [brief <label> sha256:<64 hex>]   your own reading, with the brief you read it from
+decision <session> <12-digit id>           the owner's answer choosing an option that sets a standing rule
 ```
 
 A path is relative, with no `.` or `..` segment and no leading `-`; a commit
@@ -526,8 +527,10 @@ is 40 hex. A rule takes no `--on` or `--until` (64), and `--owner` or
 checks run in this order, each refusal 65 with nothing written: the Source's
 grammar and the row's columns; the What's 400 bytes; the caps, at most 120
 rule rows, of which at most 60 read inferred (the event kinds count against
-neither, so a pause can always be written); a `pinned` Source's Run row; then
-the forge reads. For a `skill` or `doc` Source naming repository R at commit
+neither, so a pause can always be written); a `pinned` Source's Run row; a
+`decision` Source's decision, which must read owner-said and in force
+(below), so any other is refused, naming why, and written as `inferred`
+instead; then the forge reads. For a `skill` or `doc` Source naming repository R at commit
 C, on a public host R must be public; R's default branch must hold C (a
 repository that doesn't exist and one that can't be read get the same
 refusal); the file must exist at C; and the What must equal one of its
@@ -545,25 +548,71 @@ it. A row with no Source, an event row, reads `relayed`; `inferred` reads
 `inferred`, with status `unconfirmed` and `confirm` true, since it waits for a
 person; `skill` reads `skill-says`; `doc` and `pinned` read `charter`. The
 Run `rules` rows read beside them: a `skill-` label `skill-says`, a
-`workspace-` label `charter`, any other label `inferred`. `owner-said`,
-`dispatcher-said` and `unreadable` belong to cited decisions, which
-`--standing rule` doesn't write.
+`workspace-` label `charter`, any other label `inferred`.
+
+A `decision` row's class is read from the decision it cites, through
+`standing-provenance.sh`, which makes read calls only (`koto decisions show`,
+then `koto decisions content read` of an owner's answer's question) and opens
+no harness record. It prints koto's `status`, its top-level `reading` of the
+decision (never a field of the stored body), koto's `governs` for an answer,
+whether the answered question carries the standing mark on the question or on
+the option the owner chose, and `rule`: the rule text the chosen option
+stores, when the mark covers it. The owner sets a rule by choosing an option
+that carries one, so a question raised to set a rule gives that option a
+`rule` (`shirabe question raise`; `docs/guides/question-commands.md`), and an
+option with none, a "No" among them, sets no rule. `rule_class` reads
+`owner-said` for the owner's verified answer with the mark whose chosen
+option's `rule` the row's What says under the normalized match, while koto
+reads the answer in effect and governing its question. Once a reversal
+standing verified reverses it, the row keeps `owner-said` and reads status
+`superseded`, its `reversal` showing who reversed it, when and why; a
+reversal standing asserted leaves it in force but shows the reversal, and
+the row grants nothing until a person settles it. Any other person decision
+reads `inferred`: an unmarked question, a marked option not chosen, an option
+that sets no rule, a What that isn't the option's rule, an answer koto reads
+refused or that no longer governs its question (withdrawn, or replaced by a
+later answer), a remote session's answer, a person judgment with no answered
+prompt behind it. `unreadable` is for a session's decision, a `shirabe
+question settle --owner-note` decision among them, and for one koto can't
+give; the row's `why` tells them apart (`koto can't read the decision: <koto's
+failure>` against `a session's decision, not a person's: ...`), and one
+citation koto can't read leaves only its own rows unreadable. Where the
+decision was entered isn't read: being the top coordinator, with no
+dispatcher, makes no row the owner's, and the owner's answer given in a
+manager or a worker reads as one given in a director. `dispatcher-said` isn't
+read yet. The What is compared with the chosen option's rule, never with the
+question's text, so write the rule the option stores. A line in a brief or a
+message saying the owner ruled something is that text, not the owner's
+answer, and comes in as `inferred`.
+
+The verified mark is local to the machine. koto reads an answer `verified`
+only on the host whose harness records it checked the prompt against; the same
+store read on another machine, copied or synced there, reads it `a remote
+session's answer`, so an `owner-said` row read on that machine reads
+`inferred`, to confirm again. Nothing carries the mark across hosts.
+
+Every read of a row's class reads the cited decisions the same way, one koto
+read per distinct citation: `--rules`, `--rules --counts`, the caps a rule
+row's write and an intake are held to, and the handover read (its rule lists
+and the `brief-unread` gap's count). So a `decision` row reads one class
+everywhere, and one reading `inferred` counts against the inferred cap.
 
 `state-stored-set.sh` reads rules two ways. `--rules` prints one JSON object
 per Standing row in record order (`standing`, `kind`, `class`, `what`,
 `owner` for a relayed row, `said`, `set`, `pointer`, `words`, `source`, `status`,
-`reversal`, `confirm`), then, without `--id`, one per Run `rules` row
+`reversal`, `why`, `confirm`), then, without `--id`, one per Run `rules` row
 (`{run: "rules", kind, label, digest, class, said, pointer}`, the pointer
 naming the `rules:<label>` host key, which isn't read). A pointer is where
 the words are: a relayed row's entry (the row itself when no entry matches),
 a `skill` or `doc` row's `{repo, path, commit}`, a `pinned` row's `{pinned,
 digest}`, an inferred brief row's `{brief, digest}`, a bare inferred row's own
-row. Each Standing object also carries `under_session_grant` and
+row, a `decision` row's `{decision: "<session> <id>"}`. Each Standing object also carries `under_session_grant` and
 `session_allows`: a row grants nothing itself, and these say whether it
 stands under the session's niwa grant and what that grant allows. A pause, an
 inferred or `pinned` row, a `skill` row citing a repository other than the
 installed plugin's, and a `doc` row citing one other than the record's host
-never do, and print `false` and `[]`; when any row may, `--rules` reads the
+never do, and neither does a `decision` row that isn't `owner-said` and in
+force with no reversal; these print `false` and `[]`; when any row may, `--rules` reads the
 grant once with `niwa authority check`. No gate reads either field. `--id`
 prints only those rows (one the record lacks is refused, 65). `--rules
 --counts` prints seven `<class> <count>` lines instead, in the order
