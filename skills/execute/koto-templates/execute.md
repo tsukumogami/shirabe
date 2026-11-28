@@ -600,7 +600,6 @@ states:
         context_assignments:
           failure_reason: "worktree_discipline_check: upstream-drift detected (intent-changing): ${evidence.rationale}"
           decide_origin: worktree_discipline_check
-          decide_fresh: "yes"
 
   escalate_upstream_drift:
     # The accepts block is vestigial: koto today chains through a state whose

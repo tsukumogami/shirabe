@@ -24,7 +24,7 @@
 #                  compiles to the same JSON
 #   the template   the intent-changing edge out of worktree_discipline_check
 #                  goes to decide_first, keeping failure_reason and assigning
-#                  decide_origin and decide_fresh; decide_first's three edges
+#                  decide_origin and no decide_fresh; decide_first's three edges
 #                  (raised to park_own on attempt_recorded 3 and waiting_steps
 #                  0, decided resume and stop on decide_from 20) and its
 #                  non-overridable gates, resume held by decide_laps;
@@ -175,7 +175,7 @@ if [ -n "$REAL_KOTO" ]; then
             '[.states.worktree_discipline_check.transitions[] | select(.when.impact == "intent-changing")]
              | length == 1 and .[0].target == "decide_first"
                and .[0].context_assignments.decide_origin == "worktree_discipline_check"
-               and .[0].context_assignments.decide_fresh == "yes"
+               and (.[0].context_assignments | has("decide_fresh") | not)
                and (.[0].context_assignments.failure_reason | startswith("worktree_discipline_check: upstream-drift detected (intent-changing): "))'
         holds "nothing else enters escalate_upstream_drift from worktree_discipline_check" \
             '[.states.worktree_discipline_check.transitions[] | select(.target == "escalate_upstream_drift")] | length == 0'
