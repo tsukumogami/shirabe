@@ -611,6 +611,88 @@ case "$out" in
 esac
 if [ -z "$(ls -A "$WORK/mkt-cwd")" ]; then pass "  ... and writes nothing where it ran"; else fail "  ... and writes nothing where it ran: $(ls -A "$WORK/mkt-cwd")"; fi
 
+# A work directory that disappears mid-run (shirabe#2222). Unchecked, every
+# write into it and every read back failed with "No such file or directory",
+# the join came back empty, the error count stayed 0, and the check printed
+# OK with empty counts and exited 0. The seam is the PATH stub above: a mktemp
+# that hands out a known directory, and a find that removes that directory
+# before running the real find. The check calls find only after it has set up
+# its work files, so the directory is gone while the run is under way. The
+# fixture holds an unenumerated site, so a run that finished would exit 1.
+REAL_FIND=$(command -v find)
+VANISH="$WORK/vanish-scratch"
+mkdir -p "$WORK/vanish-bin"
+printf '#!/bin/sh\nmkdir -p "%s" || exit 1\necho "%s"\n' "$VANISH" "$VANISH" > "$WORK/vanish-bin/mktemp"
+printf '#!/bin/sh\nrm -rf "%s"\nexec "%s" "$@"\n' "$VANISH" "$REAL_FIND" > "$WORK/vanish-bin/find"
+chmod +x "$WORK/vanish-bin/mktemp" "$WORK/vanish-bin/find"
+new_fixture vanished-scratch
+add_requires koto
+add_file 'run.sh' 'koto status 2>/dev/null || true'
+enum_open; enum_close
+out=$(PATH="$WORK/vanish-bin:$PATH" bash "$CHECK" --enumeration "$ENUM" "$FIXTURE" 2>&1); rc=$?
+if [ "$rc" -eq 2 ]; then pass "a work directory lost mid-run is an environment error (2)"; else fail "a work directory lost mid-run exited $rc, expected 2: $out"; fi
+case "$out" in
+  *"temporary directory $VANISH is gone or unreadable"*) pass "  ... that names the cause" ;;
+  *) fail "  ... that names the cause: $out" ;;
+esac
+case "$out" in
+  *"check-tool-diagnostic-discards: OK"*) fail "  ... and never prints OK: $out" ;;
+  *) pass "  ... and never prints OK" ;;
+esac
+
+# --- Case 34: a narrowed run reads the repository's declarations ------------
+# shirabe#2221. A narrowed run over one skill read only the requires.tsv under
+# its target, so a discard of a tool another skill declares went unreported
+# there and was reported by the whole-repository run. The fixture is a
+# repository of its own: a copy of the checker sits in its scripts/, so the
+# copy's REPO_ROOT is the fixture root and the case controls every
+# declaration. The enumeration stays outside the fixture, as for every case.
+INREPO="$WORK/inrepo"
+INCHECK="$INREPO/scripts/check-tool-diagnostic-discards.sh"
+NEEDLE="discards a declared tool's diagnostics and is not enumerated"
+mkdir -p "$INREPO/scripts" "$INREPO/skills/coordinate" "$INREPO/skills/decision/scripts"
+cp "$CHECK" "$INCHECK"
+printf 'pkill\t-\t-\talways\n' > "$INREPO/skills/coordinate/requires.tsv"
+printf 'jq\t-\t-\talways\n' > "$INREPO/skills/decision/requires.tsv"
+printf '%s\n' 'pkill -P "$w" 2>/dev/null' > "$INREPO/skills/decision/scripts/reap.sh"
+ENUM="$WORK/inrepo.enum.md"
+enum_open; enum_close
+
+# The issue's reproduction: no flag, one skill, the tool declared only by
+# another skill.
+label="A narrowed run over one skill reports a discard of a tool declared only by another skill"
+out=$(bash "$INCHECK" --enumeration "$ENUM" "$INREPO/skills/decision" 2>&1); rc=$?
+case "$rc:$out" in
+  1:*"$NEEDLE"*) pass "$label" ;;
+  *) fail "$label -- expected exit 1 saying '$NEEDLE', got $rc: $out" ;;
+esac
+
+# The inside-the-repository test compares physical paths, so a target reached
+# through a symlink to the repository is still inside it.
+ln -s "$INREPO" "$WORK/inrepo-link"
+out=$(bash "$INCHECK" --enumeration "$ENUM" "$WORK/inrepo-link/skills/decision" 2>&1); rc=$?
+case "$rc:$out" in
+  1:*"$NEEDLE"*) pass "  ... and through a symlink to the repository" ;;
+  *) fail "  ... and through a symlink to the repository -- expected exit 1 saying '$NEEDLE', got $rc: $out" ;;
+esac
+
+# Mixed targets, one inside the repository and one outside, keep the
+# targets' own declarations: pkill is declared by neither.
+mkdir -p "$WORK/outside/skills/outside"
+printf 'jq\t-\t-\talways\n' > "$WORK/outside/skills/outside/requires.tsv"
+out=$(bash "$INCHECK" --enumeration "$ENUM" "$INREPO/skills/decision" "$WORK/outside" 2>&1); rc=$?
+case "$rc:$out" in
+  0:*"check-tool-diagnostic-discards: OK"*) pass "  ... but mixed targets read the targets' own declarations" ;;
+  *) fail "  ... but mixed targets read the targets' own declarations -- expected exit 0, got $rc: $out" ;;
+esac
+
+# --declarations still overrides the default.
+out=$(bash "$INCHECK" --enumeration "$ENUM" --declarations "$INREPO/skills/decision" "$INREPO/skills/decision" 2>&1); rc=$?
+case "$rc:$out" in
+  0:*"check-tool-diagnostic-discards: OK"*) pass "  ... and --declarations still overrides it" ;;
+  *) fail "  ... and --declarations still overrides it -- expected exit 0, got $rc: $out" ;;
+esac
+
 echo
 echo "check-tool-diagnostic-discards_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"
 [ "$FAIL_COUNT" -eq 0 ]

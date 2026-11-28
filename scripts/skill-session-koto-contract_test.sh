@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # skill-session-koto-contract_test.sh -- runs scripts/skill-session.sh's reply
-# table and parent_state against real koto 0.37.0, 0.37.1 and 0.37.2, on a
-# scratch S3 bucket, through a local proxy that can fail chosen listings.
+# table and parent_state against real koto 0.42.0 and 0.43.0, on a scratch S3
+# bucket, through a local proxy that can fail chosen listings. Each release is
+# opened through skill-session.sh, which refuses a koto below shirabe's koto
+# floor (scripts/assert-koto-floor.sh), so each must be at or above it.
 #
 # Usage: bash scripts/skill-session-koto-contract_test.sh
 #
@@ -11,10 +13,12 @@
 #
 # Inputs, read after the guard line above (the guard clears KOTO_SESSION_*
 # and AWS_*, not these):
-#   CONTRACT_KOTO_0_37_0, CONTRACT_KOTO_0_37_1, CONTRACT_KOTO_0_37_2
-#                           absolute paths of the three release binaries
+#   CONTRACT_KOTO_0_42_0, CONTRACT_KOTO_0_43_0
+#                           absolute paths of the two release binaries
 #   CONTRACT_KOTO_PREINDEX  the 0.34.0 binary, the last release before the
-#                           bucket's name index; it writes the parent sessions
+#                           bucket's name index; it writes the parent sessions,
+#                           running koto directly and never skill-session.sh,
+#                           so the floor doesn't apply to it
 #   CONTRACT_S3_ENDPOINT    the bucket's endpoint, http://127.0.0.1:<port> only
 #   CONTRACT_S3_BUCKET, CONTRACT_S3_ACCESS_KEY, CONTRACT_S3_SECRET_KEY
 #
@@ -35,15 +39,14 @@
 # main, so neither has a name-index entry. The release then opens design-h<r>
 # and design-e<r> on host A. Topics: n (never opened), h (parent held on this
 # host), e (parent held only under host B's prefix); <r> is the release with
-# the dots dropped (0370 for 0.37.0).
+# the dots dropped (0420 for 0.42.0).
 #
 # The cases, per release, each counted once:
 #   setup, then
 #   never-opened, sweep finishes      koto's exact not-found reply; absent;
 #                                     has-work exit 1
-#   never-opened, sweep can't finish  exit 3 session_lookup_failed (0.37.1 on),
-#                                     another exit 2 (0.37.0); has-work exit 7
-#                                     with koto's line; never absent
+#   never-opened, sweep can't finish  exit 3 session_lookup_failed; has-work
+#                                     exit 7 with koto's line; never absent
 #   context exists                    0 and 1 on a held session; 2 or 3, never
 #                                     1, on a never-opened one with the sweep
 #                                     failing
@@ -52,8 +55,9 @@
 #   held elsewhere, sweep finishes    a KNOWN GAP: printed, not failed (koto
 #                                     refuses where the plan expects a state)
 #   held elsewhere, sweep can't finish  not a parent here: adopted=none
-#   own prefix failing, whole bucket failing (0.37.1 and 0.37.2), on both
-#                                     parents
+#   own prefix failing, whole bucket failing, on both parents; with every
+#                                     request failing, adopt of the parent
+#                                     held here fails closed (koto_error)
 #   reads write nothing               no PUT, POST or DELETE from a read-only
 #                                     call, adopt's writes to its own child
 #                                     excepted
@@ -92,7 +96,7 @@ die() {
     exit 1
 }
 
-for _v in CONTRACT_KOTO_0_37_0 CONTRACT_KOTO_0_37_1 CONTRACT_KOTO_0_37_2 CONTRACT_KOTO_PREINDEX \
+for _v in CONTRACT_KOTO_0_42_0 CONTRACT_KOTO_0_43_0 CONTRACT_KOTO_PREINDEX \
     CONTRACT_S3_ENDPOINT CONTRACT_S3_BUCKET CONTRACT_S3_ACCESS_KEY CONTRACT_S3_SECRET_KEY; do
     [ -n "${!_v:-}" ] || skip "$_v is not set"
 done
@@ -114,10 +118,6 @@ grep -Eq '^http://127\.0\.0\.1:[0-9]+$' <<<"$CONTRACT_S3_ENDPOINT" \
 
 [ -f "$SS" ] || die "skill-session.sh not found at $SS"
 [ -f "$TEMPLATE" ] || die "the store template not found at $TEMPLATE"
-
-# The no-copy text parent_state reads, taken from the script itself.
-PARENT_NO_COPY_HERE=$(sed -n '/^PARENT_NO_COPY_HERE="/{s/^PARENT_NO_COPY_HERE="\(.*\)"$/\1/p;q;}' "$SS")
-[ -n "$PARENT_NO_COPY_HERE" ] || die "cannot read PARENT_NO_COPY_HERE from $SS"
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/koto-contract-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
@@ -200,9 +200,8 @@ check_version() {
     fi
 }
 check_version "$CONTRACT_KOTO_PREINDEX" 0.34.0
-check_version "$CONTRACT_KOTO_0_37_0" 0.37.0
-check_version "$CONTRACT_KOTO_0_37_1" 0.37.1
-check_version "$CONTRACT_KOTO_0_37_2" 0.37.2
+check_version "$CONTRACT_KOTO_0_42_0" 0.42.0
+check_version "$CONTRACT_KOTO_0_43_0" 0.43.0
 
 # --- the proxy -------------------------------------------------------------------
 
@@ -457,7 +456,7 @@ prefix_of() {
 
 # --- cases -----------------------------------------------------------------------
 
-VER=""; R=""; BIN=""; NEW=0
+VER=""; R=""; BIN=""
 CASES=0; FAILED=0; CASE=""; CASE_BAD=0
 WRITES=0; WRITE_LOG=""
 ANY_FAILED=0
@@ -525,8 +524,7 @@ log_lines() { wc -l <"$PLOG" | tr -d ' '; }
 #                             the version (src/session/cloud.rs, state_key and
 #                             version_key), and the session's summary after
 #                             each push of its state file (src/session/cloud.rs,
-#                             CloudBackend::put_summary, :1965 at v0.37.2 and
-#                             :1764 at v0.37.0)
+#                             CloudBackend::put_summary)
 adopt_writes() {
     local s="/$CONTRACT_S3_BUCKET/$PREFIX_A/$1/" topic=${1#design-}
     printf '%s\n' \
@@ -683,26 +681,15 @@ case_never_opened_pass() {
 }
 
 case_never_opened_sweep() {
-    local want="workflow 'design-$TN' not found" krc kout field lines
+    local krc kout field=code lines
     case_start "never-opened, sweep can't finish"
     set_mode sweep
     kread "design-$TN" status "design-$TN"
     krc=$RC; kout=$OUT
-    if [ "$NEW" -eq 1 ]; then
-        is_slf || bad "koto status design-$TN: exit $RC code [$(jget "$OUT" code)], want 3 session_lookup_failed; stdout [$(oneline "$OUT")]"
-        field=code
-    else
-        expect_rc 2 "koto status design-$TN"
-        if [ -z "$(jget "$OUT" error)" ] || [ "$(jget "$OUT" error)" = "$want" ]; then
-            bad "koto status design-$TN: error is [$(jget "$OUT" error)], want one that isn't the not-found reply"
-        fi
-        field=error
-    fi
-    if [ "$VER" = 0.37.2 ]; then
-        printf 'NOTE: %s koto status design-%s, sweep failing: reason %s, index %s\n' "$VER" "$TN" \
-            "$( [ "$(jhas "$kout" reason)" = true ] && echo "present ($(jget "$kout" reason))" || echo absent)" \
-            "$( [ "$(jhas "$kout" index)" = true ] && echo "present ($(jget "$kout" index))" || echo absent)"
-    fi
+    is_slf || bad "koto status design-$TN: exit $RC code [$(jget "$OUT" code)], want 3 session_lookup_failed; stdout [$(oneline "$OUT")]"
+    printf 'NOTE: %s koto status design-%s, sweep failing: reason %s, index %s\n' "$VER" "$TN" \
+        "$( [ "$(jhas "$kout" reason)" = true ] && echo "present ($(jget "$kout" reason))" || echo absent)" \
+        "$( [ "$(jhas "$kout" index)" = true ] && echo "present ($(jget "$kout" index))" || echo absent)"
     sread "" "design-$TN" has-work design "$TN"
     expect_rc 7 "skill-session.sh has-work design $TN"
     lines=$(printf '%s\n' "$OUT" | grep -c .)
@@ -774,14 +761,7 @@ case_held_elsewhere_sweep() {
     case_start "held elsewhere, sweep can't finish"
     set_mode sweep
     kread "scope-$TE" status "scope-$TE"
-    if [ "$NEW" -eq 1 ]; then
-        is_slf || bad "koto status scope-$TE: exit $RC code [$(jget "$OUT" code)], want 3 session_lookup_failed; stdout [$(oneline "$OUT")]"
-    else
-        case "$OUT" in
-            *"$PARENT_NO_COPY_HERE"*) printf 'NOTE: %s koto status scope-%s (exit %s) carries the PARENT_NO_COPY_HERE text\n' "$VER" "$TE" "$RC" ;;
-            *) bad "koto status scope-$TE: exit $RC does not carry the PARENT_NO_COPY_HERE text; stdout [$(oneline "$OUT")]" ;;
-        esac
-    fi
+    is_slf || bad "koto status scope-$TE: exit $RC code [$(jget "$OUT" code)], want 3 session_lookup_failed; stdout [$(oneline "$OUT")]"
     sread "design-$TE" "design-$TE" adopt design "$TE"
     expect_rc 0 "skill-session.sh adopt design $TE"
     expect_line "adopted=none" "skill-session.sh adopt design $TE"
@@ -794,7 +774,7 @@ case_held_elsewhere_sweep() {
     case_end
 }
 
-# case_widened <mode> <label>: the two shapes 0.37.1 and 0.37.2 refuse with
+# case_widened <mode> <label>: the two shapes the releases refuse with
 # session_lookup_failed, on the parent held elsewhere and the one held here.
 case_widened() {
     case_start "$2, held elsewhere"
@@ -817,8 +797,21 @@ case_widened() {
     fi
     expect_rc 0 "koto status scope-$TH"
     sread "design-$TH" "design-$TH" adopt design "$TH"
-    expect_rc 0 "skill-session.sh adopt design $TH"
-    expect_line "adopted=scope-$TH" "skill-session.sh adopt design $TH"
+    if [ "$1" = all ]; then
+        # The proxy's `all` mode fails every request, object writes included,
+        # so adopt's write of chain/parent can't land. koto refuses a context
+        # write whose upload isn't confirmed since 0.39.0 (koto#730), where 0.37.x
+        # warned and exited 0, and adopt then fails closed rather than report
+        # a parent it never recorded.
+        expect_rc 1 "skill-session.sh adopt design $TH"
+        expect_line "failed=koto_error" "skill-session.sh adopt design $TH"
+        if grep -q '^adopted=' <<<"$OUT"; then
+            bad "skill-session.sh adopt design $TH: printed an adopted= line with every request failing; stdout [$(oneline "$OUT")]"
+        fi
+    else
+        expect_rc 0 "skill-session.sh adopt design $TH"
+        expect_line "adopted=scope-$TH" "skill-session.sh adopt design $TH"
+    fi
     sread "" "scope-$TH" status "scope-$TH"
     expect_not_absent "skill-session.sh status scope-$TH"
     set_mode pass
@@ -835,7 +828,6 @@ run_release() {
     R=$(printf '%s' "$VER" | tr -d .)
     TN="n$R"; TH="h$R"; TE="e$R"
     CASES=0; FAILED=0; WRITES=0; WRITE_LOG=""
-    case "$VER" in 0.37.0) NEW=0 ;; *) NEW=1 ;; esac
     echo "== koto $VER ($BIN) =="
     if setup_release; then
         case_never_opened_pass
@@ -844,10 +836,8 @@ run_release() {
         case_held_here_sweep
         case_held_elsewhere_pass
         case_held_elsewhere_sweep
-        if [ "$NEW" -eq 1 ]; then
-            case_widened "own:$PREFIX_A" "this directory's prefix failing"
-            case_widened all "the whole bucket failing"
-        fi
+        case_widened "own:$PREFIX_A" "this directory's prefix failing"
+        case_widened all "the whole bucket failing"
         case_writes
     else
         echo "NOTE: $VER setup failed; the release's other cases did not run"
@@ -857,11 +847,10 @@ run_release() {
     [ "$FAILED" -eq 0 ] || ANY_FAILED=1
 }
 
-for VER in 0.37.0 0.37.1 0.37.2; do
+for VER in 0.42.0 0.43.0; do
     case "$VER" in
-        0.37.0) BIN=$CONTRACT_KOTO_0_37_0 ;;
-        0.37.1) BIN=$CONTRACT_KOTO_0_37_1 ;;
-        0.37.2) BIN=$CONTRACT_KOTO_0_37_2 ;;
+        0.42.0) BIN=$CONTRACT_KOTO_0_42_0 ;;
+        0.43.0) BIN=$CONTRACT_KOTO_0_43_0 ;;
     esac
     run_release
 done

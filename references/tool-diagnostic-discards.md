@@ -522,5 +522,6 @@ scripts/check-tool-diagnostic-discards.sh --enumeration FILE PATH
 ```
 
 Exit 0 when the live sites and the records agree exactly, 1 on any finding, 2 on
-a usage error. `.github/workflows/check-tool-diagnostic-discards.yml` runs it on
+a usage or environment error (including a temporary directory lost mid-run).
+`.github/workflows/check-tool-diagnostic-discards.yml` runs it on
 every PR touching `skills/`, this file, or the script.

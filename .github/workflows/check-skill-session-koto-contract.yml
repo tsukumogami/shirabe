@@ -2,13 +2,16 @@ name: Check skill-session koto contract
 
 # scripts/skill-session.sh reads koto's replies by exit code and `code`, and
 # parent_state reads two of koto's refusals as "not a parent here". This job
-# runs that reading against the real releases it was written for, 0.37.0,
-# 0.37.1 and 0.37.2, through scripts/skill-session-koto-contract_test.sh. The
-# suite needs a bucket: a MinIO server on 127.0.0.1 with a bucket made for the
-# run and credentials generated for it, so no repository secret is involved.
-# The parent sessions are written by 0.34.0, the last release before the
-# bucket's name index, and the suite fails chosen listings through its own
-# proxy in front of MinIO.
+# runs that reading against real releases, 0.42.0 and 0.43.0, through
+# scripts/skill-session-koto-contract_test.sh. The suite opens a session with
+# each through skill-session.sh, which refuses a koto below shirabe's koto
+# floor (scripts/assert-koto-floor.sh), so every release in KOTO_RELEASES must
+# be at or above it; scripts/koto-minimum-consistency_test.sh fails when one
+# isn't. The suite needs a bucket: a MinIO server on 127.0.0.1 with a bucket
+# made for the run and credentials generated for it, so no repository secret
+# is involved. The parent sessions are written by 0.34.0, the last release
+# before the bucket's name index, and the suite fails chosen listings through
+# its own proxy in front of MinIO.
 #
 # The suite skips with exit 0 when an input is missing, so the steps before it
 # check each release's version and that the bucket answers a listing, and the
@@ -46,9 +49,14 @@ jobs:
   koto-contract:
     runs-on: ubuntu-latest
     env:
-      # The releases the suite runs, and the one that writes the parent
-      # sessions before the name index existed.
-      KOTO_RELEASES: "0.34.0 0.37.0 0.37.1 0.37.2"
+      # The releases the suite runs, each opened through skill-session.sh, so
+      # each must be at or above shirabe's koto floor;
+      # scripts/koto-minimum-consistency_test.sh fails when one isn't.
+      KOTO_RELEASES: "0.42.0 0.43.0"
+      # The release that writes the parent sessions before the name index
+      # existed. It runs koto directly and never through skill-session.sh, so
+      # the floor doesn't apply to it.
+      KOTO_PREINDEX_RELEASE: "0.34.0"
       # minio/minio is archived; this is its last release that publishes
       # server binaries as release assets.
       MINIO_RELEASE: RELEASE.2025-09-07T16-13-09Z
@@ -74,7 +82,7 @@ jobs:
           TSUKU_TELEMETRY: "0"
         run: |
           set -euo pipefail
-          for v in $KOTO_RELEASES; do
+          for v in $KOTO_PREINDEX_RELEASE $KOTO_RELEASES; do
             tsuku install -y "tsukumogami/koto@$v"
           done
 
@@ -83,7 +91,7 @@ jobs:
       - name: Check each release's version
         run: |
           set -euo pipefail
-          for v in $KOTO_RELEASES; do
+          for v in $KOTO_PREINDEX_RELEASE $KOTO_RELEASES; do
             bin="$HOME/.tsuku/tools/koto-$v/bin/koto"
             if [ ! -x "$bin" ]; then
               echo "no koto binary at $bin" >&2
@@ -165,26 +173,25 @@ jobs:
         run: |
           set -euo pipefail
           tools="$HOME/.tsuku/tools"
-          export CONTRACT_KOTO_PREINDEX="$tools/koto-0.34.0/bin/koto"
-          export CONTRACT_KOTO_0_37_0="$tools/koto-0.37.0/bin/koto"
-          export CONTRACT_KOTO_0_37_1="$tools/koto-0.37.1/bin/koto"
-          export CONTRACT_KOTO_0_37_2="$tools/koto-0.37.2/bin/koto"
+          export CONTRACT_KOTO_PREINDEX="$tools/koto-$KOTO_PREINDEX_RELEASE/bin/koto"
+          export CONTRACT_KOTO_0_42_0="$tools/koto-0.42.0/bin/koto"
+          export CONTRACT_KOTO_0_43_0="$tools/koto-0.43.0/bin/koto"
           bash scripts/skill-session-koto-contract_test.sh 2>&1 | tee "$RUNNER_TEMP/contract.out"
 
       # A skip, a release that never ran, or a failed case all leave fewer
-      # than three clean summary lines.
+      # than two clean summary lines.
       - name: Require one clean summary line per release
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/contract.out"
-          re='^release=(0\.37\.0|0\.37\.1|0\.37\.2) cases=[1-9][0-9]* failed=0$'
+          re='^release=(0\.42\.0|0\.43\.0) cases=[1-9][0-9]* failed=0$'
           clean=$(grep -cE "$re" "$out" || true)
-          if [ "$clean" -ne 3 ]; then
-            echo "expected exactly three clean summary lines, found $clean:" >&2
+          if [ "$clean" -ne 2 ]; then
+            echo "expected exactly two clean summary lines, found $clean:" >&2
             grep -E '^release=' "$out" >&2 || true
             exit 1
           fi
-          for v in 0.37.0 0.37.1 0.37.2; do
+          for v in 0.42.0 0.43.0; do
             n=$(grep -E "$re" "$out" | grep -cF "release=$v " || true)
             if [ "$n" -ne 1 ]; then
               echo "expected one clean summary line for $v, found $n" >&2

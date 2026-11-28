@@ -31,6 +31,10 @@
 #     check-koto-release.sh read the minimum through --print-floor, no other
 #     script or workflow reads the FLOOR line itself except the preflight's
 #     load-time reader, and that reader agrees with --print-floor
+#   every release in the koto contract job's KOTO_RELEASES is at or above the
+#     minimum, since the suite opens each through skill-session.sh; the
+#     pre-index parent writer is exempt under its own key,
+#     KOTO_PREINDEX_RELEASE (with controls for the reader)
 #
 # Statements are matched across line breaks and comment markers, so a sentence
 # wrapped in a YAML or shell comment is read as a sentence. docs/designs,
@@ -284,6 +288,83 @@ if [ "$PLANTED" = "0.1.0" ] && [ "$PLANTED" != "$MINIMUM" ]; then
     pass "a planted disagreement in the binary's copy reads as a disagreement"
 else
     fail "the binary's copy reader did not see the planted value: [$PLANTED]"
+fi
+
+# --- the contract job's releases ------------------------------------------------
+
+# check-skill-session-koto-contract.yml runs the koto contract suite against
+# real koto releases, and the suite opens a session with every release in the
+# workflow's KOTO_RELEASES through `skill-session.sh open`, which refuses a koto
+# below the minimum (failed=koto_below_floor) before any case runs. That job
+# runs only when its own paths change, so a minimum raised in another pull
+# request leaves it testing releases it can no longer open, and it goes red on
+# the next pull request that touches it. This case fails the pull request that
+# raises the minimum instead.
+#
+# One release is exempt, by name: the workflow's KOTO_PREINDEX_RELEASE, the
+# release before the bucket's name index. It only writes the parent sessions,
+# through koto directly and never through skill-session.sh, and a release at or
+# above the minimum then reads them through skill-session.sh, which is what
+# the job checks. It sits under its own key and never in KOTO_RELEASES, so no
+# position in the list is exempt and a below-minimum release can't pass by
+# being first.
+CONTRACT_WF="$REPO/.github/workflows/check-skill-session-koto-contract.yml"
+
+# releases_of <file> <key>: every MAJOR.MINOR.PATCH on each line that sets
+# <key> (`<key>: <value>`, any indent, quoting or order), one per line;
+# nothing when no line sets it. A comment line never sets a key.
+releases_of() {
+    sed -nE "s/^[[:space:]]*$2:[[:space:]]*//p" "$1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'
+}
+
+# ver_lt <a> <b>: exit 0 when MAJOR.MINOR.PATCH <a> is below <b>.
+ver_lt() {
+    local a1 a2 a3 b1 b2 b3
+    IFS=. read -r a1 a2 a3 <<<"$1"
+    IFS=. read -r b1 b2 b3 <<<"$2"
+    [ "$((10#$a1))" -ne "$((10#$b1))" ] && { [ "$((10#$a1))" -lt "$((10#$b1))" ]; return; }
+    [ "$((10#$a2))" -ne "$((10#$b2))" ] && { [ "$((10#$a2))" -lt "$((10#$b2))" ]; return; }
+    [ "$((10#$a3))" -lt "$((10#$b3))" ]
+}
+
+# below_minimum <file>: the KOTO_RELEASES entries of <file> below the minimum,
+# space-separated.
+below_minimum() {
+    local v out=""
+    for v in $(releases_of "$1" KOTO_RELEASES); do
+        if ver_lt "$v" "$MINIMUM"; then out="$out $v"; fi
+    done
+    printf '%s' "${out# }"
+}
+
+# Controls: a planted workflow's below-minimum entry is caught wherever it
+# sits, the exempt key's release isn't, and a reformatted line reads the same.
+printf '    env:\n      KOTO_PREINDEX_RELEASE: "0.1.0"\n      KOTO_RELEASES: "%s 0.1.1"\n' "$MINIMUM" >"$T/contract-bad.yml"
+printf "  # KOTO_RELEASES: \"0.1.2\"\n  KOTO_RELEASES:   '%s'   # the releases\n  KOTO_PREINDEX_RELEASE: 0.1.0\n" "$MINIMUM" >"$T/contract-good.yml"
+if [ "$(below_minimum "$T/contract-bad.yml")" = 0.1.1 ]; then
+    pass "a planted below-minimum KOTO_RELEASES entry is caught out of first place, and KOTO_PREINDEX_RELEASE is not (control)"
+else
+    fail "the release reader misread a planted workflow: [$(below_minimum "$T/contract-bad.yml")], want [0.1.1]"
+fi
+if [ "$(releases_of "$T/contract-good.yml" KOTO_RELEASES)" = "$MINIMUM" ] && [ -z "$(below_minimum "$T/contract-good.yml")" ]; then
+    pass "a reformatted KOTO_RELEASES line reads the same, and a commented one is ignored (control)"
+else
+    fail "the release reader misread a reformatted workflow: [$(releases_of "$T/contract-good.yml" KOTO_RELEASES | tr '\n' ' ')]"
+fi
+
+if [ -z "$(releases_of "$CONTRACT_WF" KOTO_RELEASES)" ]; then
+    fail "no KOTO_RELEASES line with a release in $CONTRACT_WF; the releases the contract job opens can't be checked against the minimum"
+else
+    LOW=$(below_minimum "$CONTRACT_WF")
+    if [ -z "$LOW" ]; then
+        pass "every release the koto contract job opens through skill-session.sh is at or above $MINIMUM ($(releases_of "$CONTRACT_WF" KOTO_RELEASES | tr '\n' ' ' | sed 's/ $//'))"
+    else
+        fail "the koto contract job opens releases below shirabe's koto floor $MINIMUM through skill-session.sh, which refuses them with failed=koto_below_floor before any case: $LOW
+  Move KOTO_RELEASES in .github/workflows/check-skill-session-koto-contract.yml,
+  and the releases scripts/skill-session-koto-contract_test.sh runs, to
+  releases at or above $MINIMUM. The release that only writes the pre-index
+  parent sessions belongs under KOTO_PREINDEX_RELEASE, not KOTO_RELEASES."
+    fi
 fi
 
 echo

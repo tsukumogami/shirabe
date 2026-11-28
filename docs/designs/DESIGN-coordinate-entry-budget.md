@@ -649,6 +649,81 @@ Deliverables:
 - the figures, recorded on the pull request that closes the milestone's
   check
 
+#### Phase 4 results
+
+Read on shirabe v0.57.0, which carries #2198, with Claude Code 2.1.332 and
+Opus. Turn 0 is the first assistant message's input, cache creation and
+cache read tokens added together. Character counts come from each
+transcript's first request. Token shares use the Context section's 2.95
+characters per token, so only the turn-0 totals are measured.
+
+| Start | Turn 0 | Input, cache creation, cache read |
+|-------|--------|-----------------------------------|
+| Dispatched under the profile, led by `/shirabe:coordinate`, opening nothing | 31,913 | 2, 31,911, 0 |
+| Dispatched without the profile, same prompt | 60,337 | 2, 32,782, 27,553 |
+| Started by hand (`claude --bg`, no `--settings`), same prompt | 59,492 | 2, 59,490, 0 |
+| Started by hand, a full start to its first report | 58,940 | 2, 32,048, 26,890 |
+| Dispatched under the profile, taking that run over, to its first report | 31,511 | 2, 19,788, 11,721 |
+
+**The profiled start.** 31,913 is below 35,000. It's a little above the
+30.4K to 31.8K this design projected. In the same run all five deferred
+tools loaded through one ToolSearch call and worked: a background `sleep`
+started and was stopped with TaskStop by its task id, and a cron was
+created, listed, deleted and listed again empty. The run made no `gh`,
+`koto` or `git` call.
+
+Against the live check in #2188 (60,907, the same profile, shirabe 0.56.0)
+the harness has the same shape. Both have the same tools apart from one tool
+Claude Code added since, the same system-prompt sections and the same
+project context, and neither has a skill listing. Turn 0 fell by 28,994
+tokens. The skill's expansion, the command wrapper and the prompt together
+fell from 96,688 characters to 9,954, about 29.4K tokens. The harness grew by
+923 characters, from the new tool's schema and longer Agent and Bash
+descriptions. Against the 27,401 harness reading, 31,913 is 4,512 tokens
+higher. The entry accounts for about 3,374 of that. The transcripts can't
+split the remaining 1,138 between harness drift and prompt length.
+
+**Starts without the profile.** Both keep the full harness: the six tools
+the profile drops (Artifact, Workflow, SendFeedback, ReportFindings,
+EnterWorktree and Skill, 45,771 characters of schema together) are in their
+tool lists, and so is the skill listing (about 30K characters). Both read the
+same entry, 10,362 characters with its wrapper and prompt, where a start led
+by the invocation on 0.56.x carried 96,688.
+
+The dispatched start without the profile has the same harness shape as an
+unprofiled dispatched coordinator read just before this release (61,415,
+prompt led by a plain instruction, so no skill entry). The two differ only in
+Claude Code and account state: the Artifact tool's schema is about 10.9K
+characters shorter, one tool and an Artifact instructions section were added,
+and three account connectors are gone. Neither harness was trimmed by this
+change.
+
+The hand start's harness matches the unprofiled dispatch's, less one tool
+schema (2,142 characters) and a short reminder. This host has no hand start
+led by the invocation on 0.56.x to compare it with directly. Its entry is
+the dispatch's, character for character.
+
+The Context section's 54,695 and 22,144 are print-mode runs under the
+profile's `--settings`, with a 10-tool list and without the background-session
+and browser sections. Neither start without the profile has that harness
+shape, so those two figures are not a baseline for a hand start. Their
+difference, 32,551, is the old entry under print mode.
+
+**The two full starts.** The takeover start continued the hand start's run
+through koto's fence (`outcome=continued`, with that run as its predecessor)
+and reached its first report with no refusal and no question. The hand start
+reached its first report only after its reconcile wrote a coordinator row
+that its own later writes were then refused against, and it recovered by
+taking its own run over. A plain retry of the opener also failed, because the
+opener had removed its args file. Neither start showed the person the
+reconcile report as the script printed it, and both stopped at `reconcile`
+without submitting it. #2227 tracks all of these. The lockout and the
+removed args file behave the same in 0.56.3. The first-report wording, and
+the lines on what a coordinator's address is, were lost when the entry was
+cut.
+
+Nothing in any of the five runs wrote to GitHub.
+
 ## Security Considerations
 
 This change moves text between the places a coordinator reads, and moves the recording of a dispatched start's brief path from the coordinator to the opener. It grants no new tool, filesystem, network or process permission, and it adds no dependency or download. The risks are about which text the coordinator sees when it acts, and about one new input.
