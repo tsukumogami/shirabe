@@ -168,6 +168,11 @@ esac
 
 if [ "$OUTCOME" = "merged" ]; then
     [ -n "$PR" ] && printf 'pr=%s\n' "$PR"
+elif [ "$OUTCOME" = "waiting" ]; then
+    # A waiting run's draft pull request stays a draft: no pr= line, which
+    # would read as one ready for a person. The question= lines below say
+    # what it waits on.
+    :
 else
     # One entry per unmerged PR, `<url>:<role>` comma-joined. A URL carries a
     # colon, so each entry splits on its last one.

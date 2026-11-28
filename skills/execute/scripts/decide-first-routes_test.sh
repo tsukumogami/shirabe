@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# park_test.sh -- /execute's covered exit and its parked steps: the shape of
+# decide-first-routes_test.sh -- /execute's covered exit and its parked steps: the shape of
 # execute.md's decide_first, park_own, spawn_and_await's parked edges,
 # waiting_record and done_waiting, read from the compiled template; and
 # park.sh and parked-state.sh run against a koto stand-in serving recorded
@@ -12,13 +12,25 @@
 # is a recorded fixture, never a live answer.
 #
 # Cases:
+#   the table      fixtures/park/exits.json, /execute's one covered exit, is
+#                  exactly the set of edges into decide_first
+#   as before      every edge into escalate_upstream_drift and done_blocked
+#                  other than decide_first's stop and spawn_and_await's
+#                  parked stop is as it was at the merge-base, with its
+#                  source, condition and assignments; every state but the
+#                  named ones is identical to the merge-base's, the result
+#                  maps of merged, ready_awaiting_merge, paused_for_review,
+#                  done and done_blocked are equal, and execute-coordinated.md
+#                  compiles to the same JSON
 #   the template   the intent-changing edge out of worktree_discipline_check
 #                  goes to decide_first, keeping failure_reason and assigning
 #                  decide_origin and decide_fresh; decide_first's three edges
 #                  (raised to park_own on attempt_recorded 3 and waiting_steps
 #                  0, decided resume and stop on decide_from 20) and its
 #                  non-overridable gates, resume held by decide_laps;
-#                  park_own records the question, then parks; spawn_and_await's pr_finalization
+#                  park_own records the question, then parks, and goes back
+#                  to worktree_discipline_check when it closed first;
+#                  escalate_parked has no gate; spawn_and_await's pr_finalization
 #                  and escalate edges need parked_state 0, its parked edges
 #                  route 1 to escalate_parked, 3 to waiting_record, a cited
 #                  stop on 4 to escalate_upstream_drift; waiting_record goes
@@ -42,7 +54,10 @@
 #                  or `none`; reason appends once; cited answers 0 and 1;
 #                  check refuses a step the PLAN does not hold
 #
-# Usage: bash skills/execute/scripts/park_test.sh
+# Usage: bash skills/execute/scripts/decide-first-routes_test.sh
+#   The merge-base is taken with DECIDE_FIRST_BASE, else origin/$GITHUB_BASE_REF,
+#   else origin/main; the comparisons are skipped, saying so, when it or
+#   execute.md at it can't be read.
 #
 # Exit codes: 0 all cases pass (or jq is absent, every case skipped); 1 a
 # case failed.
@@ -50,6 +65,7 @@
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SKILL_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 SRC_ROOT=$(cd "$SKILL_DIR/../.." && pwd)
@@ -64,7 +80,29 @@ eq() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1: want [$2], got [$3]"; 
 command -v jq > /dev/null || { echo "SKIP: jq is not on PATH -- no case ran"; exit 0; }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/park-test.XXXXXX") || { echo "FAIL: mktemp"; exit 1; }
-trap 'rm -rf "$WORK"' EXIT INT TERM
+ktg_on_exit 'rm -rf "$WORK"'
+
+# The merge-base's templates, read before any case runs.
+BASE_REF="${DECIDE_FIRST_BASE:-}"
+[ -n "$BASE_REF" ] || { [ -n "${GITHUB_BASE_REF:-}" ] && BASE_REF="origin/$GITHUB_BASE_REF"; }
+[ -n "$BASE_REF" ] || BASE_REF=origin/main
+BASE_DIR="$WORK/base"
+BASE_WHY=""
+if ! command -v git > /dev/null; then
+    BASE_WHY="git is not on PATH"
+elif ! BASE_SHA=$(git -C "$SRC_ROOT" merge-base HEAD "$BASE_REF" 2> "$WORK/base.err"); then
+    BASE_WHY="no merge-base with $BASE_REF in this clone: $(cat "$WORK/base.err")"
+else
+    for t in execute/koto-templates/execute.md execute/koto-templates/execute-coordinated.md work-on/koto-templates/work-on.md; do
+        mkdir -p "$BASE_DIR/skills/$(dirname "$t")"
+        if ! git -C "$SRC_ROOT" show "$BASE_SHA:skills/$t" > "$BASE_DIR/skills/$t" 2> "$WORK/base.err"; then
+            BASE_WHY="skills/$t is not readable at $BASE_SHA: $(cat "$WORK/base.err")"
+            break
+        fi
+    done
+    [ -z "$BASE_WHY" ] && grep -q '^  decide_first:' "$BASE_DIR/skills/execute/koto-templates/execute.md" \
+        && BASE_WHY="the base $BASE_REF already holds /execute's decide_first; the comparison belongs to the pull request that introduced it"
+fi
 
 # --- the template --------------------------------------------------------------------
 
@@ -75,6 +113,64 @@ if [ -n "$REAL_KOTO" ]; then
         fail "execute.md does not compile: $(tail -3 "$WORK/compile.err")"
     else
         holds() { if jq -e "$2" "$JSON" > /dev/null; then pass "$1"; else fail "$1"; fi; }
+        # The table: exactly the committed covered exits enter decide_first.
+        got=$(jq -c '[.states | to_entries[] | .key as $s | .value.transitions[]? | select(.target == "decide_first")
+            | {origin: $s, when: (.when // {})}] | sort_by(.origin)' "$JSON")
+        want=$(jq -c '[.[] | {origin, when: {(.field): .value}}] | sort_by(.origin)' "$FIX/exits.json")
+        echo "edges into decide_first: $got"
+        eq "the edges into decide_first are exactly fixtures/park/exits.json" "$want" "$got"
+
+        # As before: the edges into the two exits, and every untouched state.
+        stop_edges() {
+            jq -r '.states | to_entries[] | .key as $s | .value.transitions[]?
+                | select(.target == "escalate_upstream_drift" or .target == "done_blocked")
+                | select($s != "decide_first")
+                | select(($s == "spawn_and_await" and .when["gates.parked_stop.exit_code"] != null) | not)
+                | "\(.target) <- \($s)|\(.when // {} | tojson)|\(.context_assignments // {} | tojson)"' "$1" | sort
+        }
+        if [ -n "$BASE_WHY" ]; then
+            echo "SKIP: as before: $BASE_WHY"
+        else
+            BASE_JSON=$("$REAL_KOTO" template compile "$BASE_DIR/skills/execute/koto-templates/execute.md" 2> "$WORK/base-compile.err" | tail -1)
+            if [ -z "$BASE_JSON" ] || [ ! -f "$BASE_JSON" ]; then
+                fail "execute.md at $BASE_SHA does not compile: $(tail -3 "$WORK/base-compile.err")"
+            else
+                stop_edges "$JSON" > "$WORK/edges-branch.txt"
+                stop_edges "$BASE_JSON" | grep -v '^escalate_upstream_drift <- worktree_discipline_check|' > "$WORK/edges-base.txt"
+                echo "edges into escalate_upstream_drift and done_blocked, the new ones left out:"
+                sed 's/^/  /' "$WORK/edges-branch.txt"
+                echo "the same at $BASE_REF's merge-base, the covered exit left out:"
+                sed 's/^/  /' "$WORK/edges-base.txt"
+                if diff "$WORK/edges-base.txt" "$WORK/edges-branch.txt" > "$WORK/edges.diff"; then
+                    pass "every other edge into escalate_upstream_drift and done_blocked is as it was at the merge-base"
+                else
+                    fail "the edges into the two exits changed: $(cat "$WORK/edges.diff")"
+                fi
+                NAMED='["decide_first","park_own","escalate_parked","waiting_record","done_waiting","worktree_discipline_check","spawn_and_await"]'
+                jq -S --argjson n "$NAMED" '.states | with_entries(select(.key as $k | $n | index($k) | not))' "$JSON" > "$WORK/states-branch.json"
+                jq -S --argjson n "$NAMED" '.states | with_entries(select(.key as $k | $n | index($k) | not))' "$BASE_JSON" > "$WORK/states-base.json"
+                if diff "$WORK/states-base.json" "$WORK/states-branch.json" > "$WORK/states.diff"; then
+                    pass "every state but the named ones is identical to the merge-base's"
+                else
+                    fail "a state outside the named ones changed: $(sed -n 1,40p "$WORK/states.diff")"
+                fi
+                for t in merged ready_awaiting_merge paused_for_review done done_blocked; do
+                    eq "the result map of $t is unchanged" "$(jq -cS --arg t "$t" '.states[$t].result' "$BASE_JSON")" "$(jq -cS --arg t "$t" '.states[$t].result' "$JSON")"
+                done
+                # worktree_discipline_check differs by its one retargeted edge.
+                retarget='.states.worktree_discipline_check | .transitions |= map(select(.when.impact != "intent-changing"))'
+                eq "worktree_discipline_check differs only in its intent-changing edge" \
+                    "$(jq -cS "$retarget" "$BASE_JSON")" "$(jq -cS "$retarget" "$JSON")"
+                C_HEAD=$("$REAL_KOTO" template compile "$SKILL_DIR/koto-templates/execute-coordinated.md" 2> "$WORK/c.err" | tail -1)
+                C_BASE=$("$REAL_KOTO" template compile "$BASE_DIR/skills/execute/koto-templates/execute-coordinated.md" 2>> "$WORK/c.err" | tail -1)
+                if [ -f "$C_HEAD" ] && [ -f "$C_BASE" ] && cmp -s "$C_HEAD" "$C_BASE"; then
+                    pass "execute-coordinated.md compiles to the same JSON as at the merge-base"
+                else
+                    fail "execute-coordinated.md's compiled JSON differs from the merge-base's: $(tail -3 "$WORK/c.err")"
+                fi
+            fi
+        fi
+
         holds "the intent-changing edge goes to decide_first, keeping failure_reason and assigning the origin" \
             '[.states.worktree_discipline_check.transitions[] | select(.when.impact == "intent-changing")]
              | length == 1 and .[0].target == "decide_first"
@@ -97,6 +193,12 @@ if [ -n "$REAL_KOTO" ]; then
              == {"resume": 0, "stop": null}'
         holds "decide_first's four gates cannot be overridden" \
             '[.states.decide_first.gates[] | .overridable] | length == 4 and all(. == false)'
+        holds "park_own goes on once the question is recorded and the steps parked, and back to the check when the question closed first" \
+            '(.states.park_own.transitions | map({(.target): .when}) | add) as $p
+             | $p.spawn_and_await == {"gates.question_recorded.exists": true, "gates.own_parked.exists": true}
+               and $p.worktree_discipline_check == {"gates.question_recorded.exists": false}'
+        holds "escalate_parked escalates whether or not the questions could be read" \
+            '.states.escalate_parked.transitions == [{"target": "escalate"}] or (.states.escalate_parked.transitions | length == 1 and .[0].target == "escalate" and ((.[0].when // {}) == {}))'
         holds "park_own records the question before it parks" \
             '.states.park_own.default_action.command | test("decide-first-gate.sh\" --record-question .*&& .*park.sh\" mark ")'
         holds "spawn_and_await: pr_finalization and escalate need parked_state 0" \
@@ -115,8 +217,8 @@ if [ -n "$REAL_KOTO" ]; then
                and $w.spawn_and_await["gates.none_open.matches"] == true'
         holds "done_waiting is a failure terminal whose result is outcome waiting and the questions" \
             '.states.done_waiting.terminal == true and .states.done_waiting.failure == true
-             and .states.done_waiting.result.outcome == "waiting"
-             and .states.done_waiting.result.question == "${context.waiting_questions}"'
+             and .states.done_waiting.result.question == "${context.waiting_questions}"
+             and ([.states.waiting_record.transitions[] | select(.target == "done_waiting") | .context_assignments.outcome] == ["waiting"])'
         holds "no state but waiting_record enters done_waiting" \
             '[.states | to_entries[] | select(any(.value.transitions[]?; .target == "done_waiting")) | .key] == ["waiting_record"]'
     fi

@@ -719,13 +719,28 @@ states:
         the question's content or the PLAN could not be read. Run it again by hand with the same
         arguments, then tick again with nothing submitted.
     gates:
+      question_recorded:
+        type: context-exists
+        key: decide_question
+        overridable: false
       own_parked:
         type: context-exists
         key: parked_ever
+        overridable: false
     transitions:
       - target: spawn_and_await
         when:
+          gates.question_recorded.exists: true
           gates.own_parked.exists: true
+      # The way out: the question closed (answered or withdrawn) between the
+      # submission and this tick, so --record-question found none open and
+      # left decide_question unset. Nothing is parked; the run re-runs the
+      # check, and an intent-changing verdict arrives at decide_first again
+      # as a new arrival, where the answer is read as precedent. Not an edge
+      # into decide_first, which only the covered exit enters.
+      - target: worktree_discipline_check
+        when:
+          gates.question_recorded.exists: false
 
   spawn_and_await:
     gates:
@@ -831,15 +846,10 @@ states:
         koto could not add the open questions to the failure reason. Read the
         command's own output above, run it again by hand with the same
         arguments, and tick again with nothing submitted.
-    gates:
-      reason_written:
-        type: context-matches
-        key: failure_reason
-        pattern: '; open questions: '
+    # No gate: the run escalates whether or not the questions could be
+    # added, so a failed read never holds a run that is already stopping.
     transitions:
       - target: escalate
-        when:
-          gates.reason_written.matches: true
 
   # Writes waiting_questions, the open questions done_waiting's result names,
   # or `none`. A run rewound from done_waiting lands here (koto rewinds to the
@@ -866,6 +876,10 @@ states:
           gates.questions_written.exists: true
           gates.none_open.matches: false
         context_assignments:
+          outcome: waiting
+          step: "execute:waiting"
+          reason: open-questions
+          waiting: ""
           failure_reason: "execute: waiting on open questions"
       - target: spawn_and_await
         when:
@@ -874,12 +888,20 @@ states:
   # The run waits on the questions its steps are parked on. failure is true
   # so a caller not taught this terminal reads it as it reads a blocked run,
   # never as success. The session is kept while a question it raised is
-  # open; /execute invoked again rewinds it to spawn_and_await.
+  # open; /execute invoked again rewinds it to spawn_and_await. Its result is
+  # every terminal's map, with question added: the open identities, separated
+  # by a space.
   done_waiting:
     terminal: true
     failure: true
     result:
-      outcome: waiting
+      outcome: "${context.outcome}"
+      pr: "${context.home_pr}"
+      reason: "${context.reason}"
+      repos: "${context.repos}"
+      resume: "${context.resume}"
+      step: "${context.step}"
+      waiting: "${context.waiting}"
       question: "${context.waiting_questions}"
 
   pr_finalization:
@@ -2037,14 +2059,18 @@ not hold; each finding says what is missing, and neither can be overridden.
 
 ## park_own
 
-koto runs this state itself: it parks the steps the question names and goes
-on to `spawn_and_await`. There is nothing to submit. If it holds here, read
+koto runs this state itself: it records the open question, parks the steps it
+names and goes on to `spawn_and_await`. If the question closed before this
+tick, nothing is parked and the run goes back to `worktree_discipline_check`
+to classify the upstream change again; read the answer there with
+`shirabe question precedent`. There is nothing to submit. If it holds here, read
 the action's output and tick again with `koto next {{SESSION_NAME}} --no-cleanup`.
 
 ## escalate_parked
 
 koto runs this state itself: it adds the open questions to the failure
-reason and goes on to `escalate`. There is nothing to submit.
+reason and goes on to `escalate`, also when they could not be read. There is
+nothing to submit.
 
 ## waiting_record
 
