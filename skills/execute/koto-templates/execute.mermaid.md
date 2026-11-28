@@ -18,7 +18,7 @@ stateDiagram-v2
     drift_facts --> done_blocked : facts_status: blocked, gates.drift_facts_recorded.matches: false
     escalate --> done_blocked
     escalate_dirty_merge_state --> done_blocked
-    escalate_parked --> escalate : gates.reason_written.matches: true
+    escalate_parked --> escalate
     escalate_upstream_drift --> done_blocked
     merge_attempt --> ready_awaiting_merge : gates.merge_intent.exit_code: 1
     merge_attempt --> merge_confirm : gates.merge_intent.exit_code: 0, merge_exec: called
@@ -40,7 +40,8 @@ stateDiagram-v2
     orchestrator_setup --> done_blocked : status: blocked
     orchestrator_setup --> done_blocked : gates.setup_owned_pr.exit_code: 3, status: completed
     orchestrator_setup --> done_blocked : gates.setup_owned_pr.exit_code: 2, status: completed
-    park_own --> spawn_and_await : gates.own_parked.exists: true
+    park_own --> spawn_and_await : gates.own_parked.exists: true, gates.question_recorded.exists: true
+    park_own --> worktree_discipline_check : gates.question_recorded.exists: false
     plan_completion --> ci_monitor : gates.cascade_completed.matches: true, gates.cascade_partial.matches: false, gates.cascade_skipped.matches: false, gates.expected_head_recorded.matches: true, gates.ready_owned_pr.exit_code: 0, gates.shared_hosted_read.exit_code: 0, gates.shared_hosted_ready.exit_code: 0
     plan_completion --> ci_monitor : gates.cascade_completed.matches: true, gates.cascade_partial.matches: false, gates.cascade_skipped.matches: false, gates.expected_head_recorded.matches: false, gates.ready_owned_pr.exit_code: 0, gates.shared_hosted_read.exit_code: 0, gates.shared_hosted_ready.exit_code: 0
     plan_completion --> ci_monitor : gates.cascade_completed.matches: false, gates.cascade_partial.matches: false, gates.cascade_skipped.matches: true, gates.expected_head_recorded.matches: true, gates.ready_owned_pr.exit_code: 0, gates.shared_hosted_read.exit_code: 0, gates.shared_hosted_ready.exit_code: 0
@@ -111,9 +112,6 @@ stateDiagram-v2
     note left of drift_facts
         gate: plan_intent_recorded
     end note
-    note left of escalate_parked
-        gate: reason_written
-    end note
     note left of merge_attempt
         gate: merge_intent
     end note
@@ -146,6 +144,9 @@ stateDiagram-v2
     end note
     note left of park_own
         gate: own_parked
+    end note
+    note left of park_own
+        gate: question_recorded
     end note
     note left of plan_completion
         gate: cascade_completed
