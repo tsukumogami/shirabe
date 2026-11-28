@@ -1457,6 +1457,21 @@
         "It reads the opener's stderr rather than discarding it",
         "It takes the brief's rules in through the intake, not by writing them as rows"
       ]
+    },
+    {
+      "id": 78,
+      "name": "a-hand-start-fills-its-address-from-the-check-and-relays-its-first-report-as-printed",
+      "prompt": "You were started by hand, with no dispatcher, as `/shirabe:coordinate --discipline ci --host acme/widgets --role manager -- stop after your first report`. The opener printed session=coordinate-discipline-ci-20261127T090000Z and role=manager. At reconcile, `state-handover.sh --session coordinate-discipline-ci-20261127T090000Z --check` printed, among its gaps:\n\n  no-coordinator: state-stored-set.sh --run coordinator ci-hand-start --by <you> (your address, this session's name)\n\nOnce the gaps are closed, `reconcile-report-get.sh --session coordinate-discipline-ci-20261127T090000Z --md` prints a report that starts `# Reconcile report`, then the record line, then the Scope line, then the sections `## Changed since then` and `## Where things stand`, the second with a one-row table. Say what you write for the coordinator row, then write the report you send up, and say what you do next.",
+      "expected_output": "The coordinator writes the coordinator row with the value the check printed, `ci-hand-start`, running state-stored-set.sh --run coordinator ci-hand-start; it doesn't use the koto session name or any value of its own. Its report pastes the --md output as printed: the `# Reconcile report` heading, the record line, the Scope line, each section under its own heading and the table as a table, with any lines of its own after it, and it checks that text with reconcile-report-get.sh --relay before sending it, saying the check reads only its own text. The report has no progress table, since the first report comes before the first pick. Told to stop after its first report, it stops there without submitting `reconciled`.",
+      "files": [],
+      "expectations": [
+        "The coordinator row is written with ci-hand-start, the value the no-coordinator fix printed, and not with coordinate-discipline-ci-20261127T090000Z or another guessed value",
+        "The report keeps the `# Reconcile report` heading, the record line and the Scope line as printed, in that order",
+        "Each section keeps its own `##` heading, and the Where things stand table stays a table rather than prose or bold labels",
+        "The coordinator runs reconcile-report-get.sh --relay on its own text before sending it, and doesn't claim that check proves what the person received",
+        "The report ends without a progress table, and the coordinator says the first report comes before the first pick",
+        "The coordinator stops after the report without submitting reconciled"
+      ]
     }
   ]
 }

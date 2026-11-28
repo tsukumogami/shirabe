@@ -2,7 +2,7 @@
 # driver-check_engine_test.sh -- the record writers' driver check on real koto
 # sessions of the shipped coordinate.md, against the testdata/gh stand-in
 # (docs/designs/DESIGN-coordinator-standing-rule-provenance.md, the
-# acceptance terms for the driver check, D1 to D19; D6 is
+# acceptance terms for the driver check, D1 to D19, and D20, shirabe#2227's hand start; D6 is
 # scripts/check-template-compat_test.sh's and the CI compat-table check's).
 #
 # A driven record is one whose record/meta holds a `driver` id, seeded with
@@ -445,7 +445,7 @@ try cap "$A_ID"; need "D17: as A_ID" 0 "$RC$(cat "$T/err")"
 nojobs
 crit "D17 (e). on a record with no driver whose row is coord-a, X_ID named coord-x is refused naming coord-a, coord-x and X_ID, writing nothing, and A_ID named coord-a passes"
 
-# ---- D18: a hand start's gap fill (shirabe#2227) -------------------------------
+# ---- D20: a hand start's gap fill (shirabe#2227) -------------------------------
 # A fresh run with no driver and no coordinator row: the handover check's
 # no-coordinator fix names the caller's own address, and writing that value
 # passes the driver check on the next write. The koto session name, the value a
@@ -453,22 +453,22 @@ crit "D17 (e). on a record with no driver whose row is coord-a, X_ID named coord
 putj "$G" record/run "$(run_rows "$G" | jq -c 'map(select(.key != "coordinator"))')"
 job "$X_ID" coord-x
 as "$X_ID" bash "$PS/state-handover.sh" --session "$G" --check > "$T/out" 2> "$T/err"
-need "D18: the no-coordinator fix names the caller's address" \
+need "D20: the no-coordinator fix names the caller's address" \
     "  no-coordinator: state-stored-set.sh --run coordinator coord-x --by <you> (your address, this session's name)" \
     "$(grep '^  no-coordinator: ' "$T/err")"
 FILL=$(sed -n 's/^  no-coordinator: state-stored-set\.sh --run coordinator \([^ ]*\) --by .*/\1/p' "$T/err")
 BEFORE=$(snap "$G")
 as "$X_ID" bash "$PS/state-stored-set.sh" --session "$G" --run coordinator "$G" --by coord-x > "$T/out" 2> "$T/err"
-need "D18: the koto session name: exit" 65 "$?"
-grep -qF "this session's address is coord-x, its Claude session name, not $G" "$T/err" || needf "D18: the refusal names the address: $(cat "$T/err")"
-need "D18: ... and writes nothing" "$BEFORE" "$(snap "$G")"
+need "D20: the koto session name: exit" 65 "$?"
+grep -qF "this session's address is coord-x, its Claude session name, not $G" "$T/err" || needf "D20: the refusal names the address: $(cat "$T/err")"
+need "D20: ... and writes nothing" "$BEFORE" "$(snap "$G")"
 as "$X_ID" bash "$PS/state-stored-set.sh" --session "$G" --run coordinator "$FILL" --by coord-x > "$T/out" 2> "$T/err"
-need "D18: the printed value: exit" 0 "$?$(cat "$T/err")"
-need "D18: ... is the row" coord-x "$(ctx "$G" record/run | jq -r '[.[] | select(.key == "coordinator") | .value][0]')"
-try cap "$X_ID"; need "D18: the next write passes the driver check" 0 "$RC$(cat "$T/err")"
+need "D20: the printed value: exit" 0 "$?$(cat "$T/err")"
+need "D20: ... is the row" coord-x "$(ctx "$G" record/run | jq -r '[.[] | select(.key == "coordinator") | .value][0]')"
+try cap "$X_ID"; need "D20: the next write passes the driver check" 0 "$RC$(cat "$T/err")"
 nojobs
 putj "$G" record/run "$(run_rows "$G" | jq -c --argjson r "$(row coordinator coord-a coord-a)" 'map(select(.key != "coordinator")) + [$r]')"
-crit "D18. on a fresh run, the handover check's fix names X_ID's address coord-x; --run coordinator <the koto session> is refused (65) writing nothing; the printed value is written and the next write passes"
+crit "D20. on a fresh run, the handover check's fix names X_ID's address coord-x; --run coordinator <the koto session> is refused (65) writing nothing; the printed value is written and the next write passes"
 
 # ---- D13 -----------------------------------------------------------------------
 # takeover <session> <name> <base or ->: run A opened with a go-ahead and

@@ -1113,6 +1113,14 @@ run)
         jq --arg v "$VALUE" --arg b "$BY" --arg t "$NOW" \
             '.run = ([(.run // [])[] | select(.key != "role")] + [{key: "role", value: $v, set_by: $b, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
     elif [ "$KEY" = coordinator ]; then
+        # The row is this session's own address. The driver check compares it
+        # with the caller's name (lib_caller) on every later write, so a row
+        # naming anything else would lock the run's own session out: refuse it
+        # here, before anything is written (shirabe#2227).
+        lib_caller
+        if [ -n "$LIB_CALLER_NAME" ] && [ "$VALUE" != "$LIB_CALLER_NAME" ]; then
+            refuse "--run coordinator: this session's address is $LIB_CALLER_NAME, its Claude session name, not $VALUE; a coordinator row naming another session would refuse every later write from this one, so nothing was written; run it again with $LIB_CALLER_NAME"
+        fi
         PROG_JQ=$LIB_COORD_ROW_JQ
         ETEXT="The coordinator's address is now $VALUE, set by $BY. Nobody has been told it yet."
     elif [ "$KEY" = rules ] || [ "$KEY" = briefs ]; then
@@ -1521,6 +1529,9 @@ if [ "$HAS_INTERVENTION" = 1 ]; then
     [ "$OVERRIDE" = 1 ] || EARGS+=(--before-find)
 fi
 core_write
+# The record is written now, so a driver refusal of the entries below must not
+# say nothing was (lib_driver_check reads this tail).
+export LIB_DRIVER_TAIL="this entry wasn't written, but the record write before it was"
 # An intake the caps stopped: its rows are written, its briefs row isn't, and
 # the brief-unread gap stays open; it exits 1 once its entries are told (14
 # when one isn't).

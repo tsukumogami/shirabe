@@ -390,7 +390,12 @@ while [ $# -gt 0 ]; do
         *) [ -z "$ARGS_FILE" ] || usage "expected one <args-file>"; ARGS_FILE=$1; shift ;;
     esac
 done
-[ -n "$ARGS_FILE" ] && [ -r "$ARGS_FILE" ] || usage "expected a readable <args-file>"
+[ -n "$ARGS_FILE" ] || usage "expected a readable <args-file>"
+# The opener removes its args file once it has read it, so running the same
+# command again finds none: say so, and how to start again.
+[ -e "$ARGS_FILE" ] || [ -L "$ARGS_FILE" ] \
+    || usage "no args file at $ARGS_FILE: the opener consumes its args file on every run, so to start again allocate a new directory with koto-open.sh --alloc-dir and write the tokens to args.json there"
+[ -r "$ARGS_FILE" ] || usage "expected a readable <args-file>"
 [ "$HAVE_DISPATCHER" -le 1 ] || usage "--dispatched-by given more than once"
 [ "$HAVE_BRIEF" -le 1 ] || usage "--brief given more than once"
 [ "$HAVE_DISPATCHER" -eq 0 ] || dl_valid_dispatcher "$DISPATCHER" \
