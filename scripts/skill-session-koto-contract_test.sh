@@ -522,8 +522,7 @@ log_lines() { wc -l <"$PLOG" | tr -d ' '; }
 #                             the version (src/session/cloud.rs, state_key and
 #                             version_key), and the session's summary after
 #                             each push of its state file (src/session/cloud.rs,
-#                             CloudBackend::put_summary, :1965 at v0.37.2 and
-#                             :1764 at v0.37.0)
+#                             CloudBackend::put_summary)
 adopt_writes() {
     local s="/$CONTRACT_S3_BUCKET/$PREFIX_A/$1/" topic=${1#design-}
     printf '%s\n' \
