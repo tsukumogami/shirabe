@@ -1,5 +1,5 @@
-//! `shirabe question`: raise, list, render and answer a question a session
-//! cannot settle, recorded in koto.
+//! `shirabe question`: raise, list, render, answer, pass up and settle a
+//! question a session cannot settle alone, recorded in koto.
 //!
 //! The commands validate, store, record and render. They never author a
 //! question: every part comes from the raising session's content, and nothing
@@ -22,6 +22,7 @@ pub mod answer;
 pub mod attempt;
 pub mod content;
 pub mod koto;
+pub mod ladder;
 pub mod render;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -80,6 +81,80 @@ enum QuestionCommands {
     /// unattended run, provisional. Prints the attempt's id, session, result
     /// and state as one JSON object.
     Attempt(AttemptArgs),
+    /// Pass a question up to the session's own dispatcher or to the owner,
+    /// keeping its identity. A decision question needs the session's own
+    /// undecided attempt tied to it; a need passes with none.
+    PassUp(PassUpArgs),
+    /// Answer a question the session holds, as the session: answered by its
+    /// addressee, settled by its raiser. With --owner-note, a relayed claim
+    /// is recorded as the session's own decision, never the owner's.
+    Settle(SettleArgs),
+    /// Mark an owner's answer given at or below the session as seen: one
+    /// judgment citing it. The answer itself is not changed.
+    Seen(SeenArgs),
+}
+
+#[derive(Args)]
+struct PassUpArgs {
+    /// The question's identity, <raiser session id>/<decision id>.
+    #[arg(value_name = "IDENTITY")]
+    identity: String,
+    /// The koto session passing the question up: the question's current
+    /// addressee or its raiser.
+    #[arg(long = "in", value_name = "SESSION")]
+    in_: String,
+    /// Why the question is not this session's to settle: contradicts-answer,
+    /// changes-scope, outward-facing or reserved-step, or outside-scope when
+    /// passing up to a coordinator.
+    #[arg(long, value_name = "GROUND")]
+    ground: Option<String>,
+    /// The session's own undecided attempt tied to the question, as
+    /// <decision id> or <session>:<decision id>. Required for a decision
+    /// question; refused for a need.
+    #[arg(long, value_name = "ID")]
+    attempt: Option<String>,
+    /// The new recipient: the session's own dispatcher (the default) or
+    /// person:owner.
+    #[arg(long, value_name = "RECIPIENT")]
+    to: Option<String>,
+}
+
+#[derive(Args)]
+struct SettleArgs {
+    /// The question's identity. Left out with --what for a relayed claim
+    /// that answers no recorded question.
+    #[arg(value_name = "IDENTITY")]
+    identity: Option<String>,
+    /// The koto session settling it.
+    #[arg(long = "in", value_name = "SESSION")]
+    in_: String,
+    /// What was decided, for a claim that answers no recorded question.
+    #[arg(long, value_name = "TEXT", conflicts_with = "identity")]
+    what: Option<String>,
+    /// The option chosen.
+    #[arg(long, value_name = "TEXT")]
+    chosen: Option<String>,
+    /// Why. Required with a question identity.
+    #[arg(long, value_name = "TEXT")]
+    reason: Option<String>,
+    /// An earlier decision this one rests on, <session>:<decision id>, such
+    /// as the owner's answer to a question with the same label. Repeatable.
+    #[arg(long, value_name = "SESSION:ID")]
+    basis: Vec<String>,
+    /// What was relayed as the owner's word. Recorded in the session's own
+    /// decision, never as the owner's answer.
+    #[arg(long = "owner-note", value_name = "TEXT")]
+    owner_note: Option<String>,
+}
+
+#[derive(Args)]
+struct SeenArgs {
+    /// The owner's answer, <session>:<answer id>.
+    #[arg(value_name = "SESSION:ID")]
+    answer: String,
+    /// The koto session marking it seen.
+    #[arg(long = "in", value_name = "SESSION")]
+    in_: String,
 }
 
 #[derive(Args)]
@@ -315,6 +390,35 @@ pub fn run(args: QuestionArgs) -> ExitCode {
         QuestionCommands::Render(a) => ("render", render_cmd(&a)),
         QuestionCommands::Answer(a) => ("answer", answer_cmd(&a)),
         QuestionCommands::Attempt(a) => ("attempt", attempt_cmd(&a)),
+        QuestionCommands::PassUp(a) => (
+            "pass-up",
+            ladder::pass_up(&ladder::PassUp {
+                identity: &a.identity,
+                session: &a.in_,
+                ground: a.ground.as_deref(),
+                attempt: a.attempt.as_deref(),
+                to: a.to.as_deref(),
+            }),
+        ),
+        QuestionCommands::Settle(a) => (
+            "settle",
+            ladder::settle(&ladder::Settle {
+                identity: a.identity.as_deref(),
+                session: &a.in_,
+                what: a.what.as_deref(),
+                chosen: a.chosen.as_deref(),
+                reason: a.reason.as_deref(),
+                basis: &a.basis,
+                owner_note: a.owner_note.as_deref(),
+            }),
+        ),
+        QuestionCommands::Seen(a) => (
+            "seen",
+            ladder::seen(&ladder::Seen {
+                answer: &a.answer,
+                session: &a.in_,
+            }),
+        ),
     };
     match result {
         Ok(v) => {
@@ -1073,6 +1177,15 @@ fn gather(person: bool, at: Option<&str>) -> Result<Pending, Failure> {
             depends_on.map_or(Value::Null, Value::from),
         );
         e.insert("held".into(), json!(held));
+        // Whether the session listing recorded a pass-up of this question:
+        // it then waits on someone above that session.
+        e.insert(
+            "passed_up".into(),
+            json!(at.is_some_and(|at| h.entries().iter().any(|x| {
+                x.get("entry").and_then(Value::as_str) == Some("pass-up")
+                    && x.get("session").and_then(Value::as_str) == Some(at)
+            }))),
+        );
         e.insert("stored".into(), json!(content.is_some()));
         if let Some(s) = q.get("state") {
             e.insert("state".into(), s.clone());
@@ -1198,6 +1311,58 @@ fn answered(session: &str) -> Result<Vec<Value>, Failure> {
     Ok(out.into_values().collect())
 }
 
+/// The owner's answers in effect at or below `session` that no decision in
+/// its run cites yet: what reached it as knowledge and that it has not marked
+/// seen (`shirabe question seen`). Each carries the question it answers, its
+/// label, the answer's text, the session it was given in and koto's
+/// `reading`, as koto prints them.
+fn unseen(session: &str) -> Result<Vec<Value>, Failure> {
+    let chain_arg = format!("--chain={session}");
+    let prec = koto::run(&["decisions", "precedent", "--person=owner", &chain_arg])?;
+    let mut out = Vec::new();
+    for a in prec
+        .get("answers")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        let below = a.get("below").and_then(Value::as_bool) == Some(true);
+        let here = a.get("session").and_then(Value::as_str) == Some(session);
+        if a.get("cited").and_then(Value::as_bool) != Some(false) || !(below || here) {
+            continue;
+        }
+        let Some(identity) = a.get("identity").and_then(Value::as_str) else {
+            continue;
+        };
+        let question = match history_if_any(identity)? {
+            Some(h) => h
+                .raw
+                .pointer("/question/text")
+                .cloned()
+                .unwrap_or(Value::Null),
+            None => Value::Null,
+        };
+        let answer_session = a.get("session").cloned().unwrap_or(Value::Null);
+        let answer_id = a.get("id").cloned().unwrap_or(Value::Null);
+        let answer = match (answer_session.as_str(), answer_id.as_str()) {
+            (Some(s), Some(i)) => json!(format!("{s}:{i}")),
+            _ => Value::Null,
+        };
+        out.push(json!({
+            "identity": identity,
+            "question": question,
+            "label": a.get("label").cloned().unwrap_or(Value::Null),
+            "text": a.get("text").cloned().unwrap_or(Value::Null),
+            "session": answer_session,
+            "id": answer_id,
+            "answer": answer,
+            "reading": a.get("reading").cloned().unwrap_or(Value::Null),
+            "time": a.get("time").cloned().unwrap_or(Value::Null),
+        }));
+    }
+    Ok(out)
+}
+
 fn owner_only(person: Option<&str>) -> Result<bool, Failure> {
     match person {
         None => Ok(false),
@@ -1223,6 +1388,7 @@ fn pending_cmd(a: &PendingArgs) -> Result<Value, Failure> {
     let p = gather(person, at)?;
     let (held, ready): (Vec<_>, Vec<_>) = p.questions.into_iter().partition(|q| q.held);
     let answered = answered(&a.in_)?;
+    let unseen = unseen(&a.in_)?;
     Ok(json!({
         "v": 1,
         "in": a.in_,
@@ -1230,6 +1396,7 @@ fn pending_cmd(a: &PendingArgs) -> Result<Value, Failure> {
         "held": held.into_iter().map(|q| Value::Object(q.element)).collect::<Vec<_>>(),
         "incomplete": p.incomplete,
         "answered": answered,
+        "unseen": unseen,
     }))
 }
 
@@ -1353,7 +1520,7 @@ fn render_cmd(a: &RenderArgs) -> Result<Value, Failure> {
 /// What `answer` says when there is no answered prompt to point at.
 pub const RELAYED: &str = "No answered prompt records the owner's answer here, so nothing was recorded for the owner. \
 A relayed claim (\"the owner said ...\") is not the owner's answer: record it as this session's own decision with the owner noted, \
-`koto decisions record <session> --kind judgment --outcome settled --subject what=<question> --reason \"relayed: the owner said ...\" --by session`. \
+`shirabe question settle --in <session> --what <question> --chosen <choice> --owner-note \"the owner said ...\"`. \
 That decision closes no question waiting on the owner and grants nothing to another session. The question stays open.";
 
 /// Whether standard input holds data now, without blocking.

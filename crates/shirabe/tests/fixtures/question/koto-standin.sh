@@ -17,6 +17,11 @@
 #   content/<key>      the bytes `decisions content read <identity>` prints
 #   answer.json        the JSON `decisions answer` (not a withdrawal) prints
 #   show-answer.json   the JSON `decisions show` of an answer entry prints
+#   show/<session>_<id> the JSON `decisions show <session> <id>` prints, ahead
+#                      of the other `show` answers
+#   precedent.json     the JSON `decisions precedent` prints
+#   readdress.json     the JSON `decisions readdress` prints; without it, a
+#                      pass-up numbered from the counter
 #   sleep              one line per call prefix that hangs (sleeps 60 seconds),
 #                      matched against the call as `log` records it
 # <key> is the identity with its "/" replaced by "_". A session's id is
@@ -153,6 +158,7 @@ case "${1:-} ${2:-}" in
             "$3" "$session" "$session" "$id" "$packet"
         ;;
     "decisions show")
+        if [ -f "$D/show/${3}_$4" ]; then cat "$D/show/${3}_$4"; exit 0; fi
         if [ -f "$D/show-answer.json" ] && [ -f "$D/answered" ]; then cat "$D/show-answer.json"; exit 0; fi
         printf '{"v":1,"id":"%s","session":"%s","prompt_header":"%s"}\n' "$4" "$3" "$(header_of "sid-$3/$4")"
         ;;
@@ -175,7 +181,23 @@ case "${1:-} ${2:-}" in
         printf '{"v":1,"session":"%s","decisions":[]}\n' "$3"
         ;;
     "decisions precedent")
-        echo '{"v":1,"person":"owner","answers":[]}'
+        cat "$D/precedent.json" 2>/dev/null || echo '{"v":1,"person":"owner","answers":[]}'
+        ;;
+    "decisions readdress")
+        if [ -f "$D/readdress.json" ]; then cat "$D/readdress.json"; exit 0; fi
+        raiser="$3" qid="$4"
+        shift 4
+        in="" to=""
+        while [ "$#" -gt 0 ]; do
+            case "$1" in
+                --in) in="$2"; shift ;;
+                --to) to="$2"; shift ;;
+            esac
+            shift
+        done
+        id=$(next_id)
+        printf '{"v":1,"id":"%s","session":"%s","question":"sid-%s/%s","status":"in-effect","addressee":"%s"}\n' \
+            "$id" "$in" "$raiser" "$qid" "$to"
         ;;
     *)
         refuse standin_unknown "the stand-in does not serve: $*"

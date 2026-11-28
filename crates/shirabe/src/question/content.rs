@@ -123,6 +123,12 @@ fn secret_patterns() -> &'static [Regex] {
     })
 }
 
+/// Whether `s` holds text shaped like a secret. The match itself is never
+/// returned, so a caller can refuse the value without printing it.
+pub fn holds_secret(s: &str) -> bool {
+    secret_patterns().iter().any(|re| re.is_match(s))
+}
+
 /// The number of secret shapes the binary holds.
 #[cfg(test)]
 pub fn secret_shape_count() -> usize {
