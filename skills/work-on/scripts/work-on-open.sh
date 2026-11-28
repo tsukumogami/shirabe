@@ -238,6 +238,14 @@
 #     entry). koto's variables are not carried by a succession, so the pairs
 #     are this invocation's, as for any open. A refusal prints
 #     `refused=<koto's code>` and exits koto's code.
+#     Under --dispatched-by, the dispatcher must be the one koto's recorded
+#     origin names for the waiting session: a successor is never linked to a
+#     different dispatcher (or to one when the waiting run had none). Otherwise
+#     the script prints `refused=dispatcher_differs`, `dispatcher=<the waiting
+#     session's, or none>` and `session=<newest>`, and exits 2 with no koto
+#     init. decide-first-gate.sh counts an answer from a dispatcher only
+#     across a lineage that names one dispatcher, so the refusal keeps a
+#     continuation from changing whose answer counts.
 #
 # --continue-waiting with --koto-leg is this script's usage refusal: koto's
 # succession can't be combined with --koto-leg or --attach-live, so a run
@@ -577,6 +585,17 @@ if [ "$CONTINUE" -eq 1 ]; then
             finish_continue 2
             ;;
     esac
+    if [ "$HAVE_DISPATCHER" -eq 1 ]; then
+        ORIGIN_OUT=$("$KOTO" session origin "$HEAD") \
+            || { printf 'failed=origin_unreadable\n'; echo "$PROG: could not read $HEAD's dispatcher" >&2; finish_continue 2; }
+        WAS=$(printf '%s' "$ORIGIN_OUT" | jq -r 'select(.origin.state == "dispatched") | .origin.dispatcher // empty') \
+            || { printf 'failed=origin_unreadable\n'; echo "$PROG: could not read $HEAD's dispatcher" >&2; finish_continue 2; }
+        if [ "$WAS" != "$DISPATCHER" ]; then
+            printf 'refused=dispatcher_differs\ndispatcher=%s\nsession=%s\n' "${WAS:-none}" "$HEAD"
+            echo "$PROG: $HEAD was dispatched by ${WAS:-no session}, not $DISPATCHER: a continuation keeps the waiting run's dispatcher" >&2
+            finish_continue 2
+        fi
+    fi
     N=""
     case "$HEAD" in *-r[0-9]*) N=${HEAD##*-r} ;; esac
     case "$N" in

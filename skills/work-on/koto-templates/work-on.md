@@ -298,22 +298,21 @@ variables:
     required: false
 
 states:
-  # decide_resume reads whether this session continues a run that ended at
-  # done_waiting (decide-first-gate.sh --resume). It exits 0 for every run
-  # that does not, so a fresh run starts as it always did; in a session that
-  # continues one it exits the code of the covered state the question's
-  # state names once a deciding attempt here cites the answer, and 1, with a
-  # finding, until then. An old plugin root without the script passes.
+  # continues_waiting reads whether decide_question is in context, which a
+  # session holds at entry only when it continues a run that ended at
+  # done_waiting (work-on-open.sh --continue-waiting carries it). koto reads
+  # the key itself and runs no command, so a fresh run starts as it always
+  # did; a continued run goes to resume_waiting, whose gate holds it until
+  # the answer is cited.
   entry:
     skip_if:
       vars.ISSUE_SOURCE: plan_outline
       mode: plan_backed
-      gates.decide_resume.exit_code: 0
+      gates.continues_waiting.exists: false
     gates:
-      decide_resume:
-        type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 0; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --resume "{{SESSION_NAME}}"'
-        timeout: 60
+      continues_waiting:
+        type: context-exists
+        key: decide_question
         overridable: false
     accepts:
       mode:
@@ -334,19 +333,36 @@ states:
       - target: context_injection
         when:
           mode: issue_backed
-          gates.decide_resume.exit_code: 0
+          gates.continues_waiting.exists: false
       - target: task_validation
         when:
           mode: free_form
-          gates.decide_resume.exit_code: 0
+          gates.continues_waiting.exists: false
       - target: plan_context_injection
         when:
           mode: plan_backed
-          gates.decide_resume.exit_code: 0
+          gates.continues_waiting.exists: false
       - target: skipped_due_to_dep_failure
         when:
           mode: skipped
-          gates.decide_resume.exit_code: 0
+          gates.continues_waiting.exists: false
+      - target: resume_waiting
+        when:
+          gates.continues_waiting.exists: true
+
+  # decide_resume (decide-first-gate.sh --resume) exits the code of the
+  # covered state the carried question's state names once a deciding attempt
+  # in this session cites the question's answer, and 1, with a finding,
+  # while the question is open, after it was withdrawn, or before the answer
+  # is cited. Only a continued run comes here, so a missing script holds it.
+  resume_waiting:
+    gates:
+      decide_resume:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --resume "{{SESSION_NAME}}"'
+        timeout: 60
+        overridable: false
+    transitions:
       - target: analysis
         when:
           gates.decide_resume.exit_code: 10
@@ -368,7 +384,6 @@ states:
       - target: deferral_approval
         when:
           gates.decide_resume.exit_code: 16
-
   # await_removals holds a run before setup, whose baseline builds, while a
   # build-output removal is still deleting in this work tree
   # (clean-build-output.sh, whose record run-verification.sh --await-removals
@@ -435,7 +450,6 @@ states:
           verdict: exit
         context_assignments:
           decide_origin: task_validation
-          decide_fresh: "yes"
 
   validation_exit:
     terminal: true
@@ -480,13 +494,11 @@ states:
           verdict: needs_design
         context_assignments:
           decide_origin: post_research_validation
-          decide_fresh: "yes"
       - target: decide_first
         when:
           verdict: exit
         context_assignments:
           decide_origin: post_research_validation
-          decide_fresh: "yes"
 
   # The setup_issue_backed and setup_free_form directives in the body below are
   # word-for-word twins; an edit to one belongs in the other.
@@ -669,7 +681,6 @@ states:
           verdict: exit
         context_assignments:
           decide_origin: plan_validation
-          decide_fresh: "yes"
 
   setup_plan_backed:
     # A key in skip_if that isn't a vars. key must already be in the state's
@@ -804,7 +815,6 @@ states:
         context_assignments:
           failure_reason: "issue superseded: ${evidence.rationale}"
           decide_origin: introspection
-          decide_fresh: "yes"
       - target: analysis
         when:
           introspection_outcome: approach_unchanged
@@ -914,14 +924,12 @@ states:
         context_assignments:
           failure_reason: "scope changed: escalation required: ${evidence.approach_summary}"
           decide_origin: analysis
-          decide_fresh: "yes"
       - target: decide_first
         when:
           plan_outcome: blocked_missing_context
         context_assignments:
           failure_reason: "analysis blocked: missing context: ${evidence.approach_summary}"
           decide_origin: analysis
-          decide_fresh: "yes"
 
   # The live offload canary (DESIGN-offload-live-canary.md). The
   # draw records the run's group in the session directory and prints the
@@ -1299,14 +1307,12 @@ states:
         context_assignments:
           failure_reason: "implementation blocked: ${evidence.rationale}"
           decide_origin: implementation
-          decide_fresh: "yes"
       - target: decide_first
         when:
           implementation_status: blocked
         context_assignments:
           failure_reason: "implementation blocked: ${evidence.rationale}"
           decide_origin: implementation
-          decide_fresh: "yes"
 
   changed_paths_record:
     # Mechanical, and normally invisible. The action writes changed_paths.txt
@@ -3114,7 +3120,6 @@ states:
           approval_decision: needs_answer
         context_assignments:
           decide_origin: deferral_approval
-          decide_fresh: "yes"
 
   # decide_first stands in front of every covered exit: the ten edges above
   # that used to end the run at done_blocked or validation_exit when it could
@@ -3128,12 +3133,13 @@ states:
   # pairs the outcome with the origin; deferral_approval has no stop edge,
   # since its rejected edge is where that run stops. A deciding attempt does
   # not let the run leave while a question raised for the arrival is open.
-  # The default action counts the arrival and names it in decide_arrival
-  # (decide-first-gate.sh --arrive); a failing gate's ::koto-finding:: line
-  # says what is missing.
+  # Each edge in assigns decide_origin, and koto records that write as the
+  # transition's: the arrivals, and the laps from each state, are counted from
+  # those records, never from a key the session can rewrite. The default
+  # action names the arrival in decide_arrival (decide-first-gate.sh
+  # --arrive); a failing gate's ::koto-finding:: line says what is missing.
   decide_first:
-    # The action writes decide_arrival (and the lap count) and captures
-    # nothing, so the directive names the arrival through koto context rather
+    # The action writes decide_arrival and captures nothing, so the directive names the arrival through koto context rather
     # than a capture a failed action would leave unset. koto 0.42.0 takes a
     # timeout on a default action only with background: true, so this
     # foreground one has none; the gates below have theirs.
@@ -3278,18 +3284,24 @@ states:
       command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --record-question "{{SESSION_NAME}}"'
       fallback: >-
         koto could not record the question this run waits on. Read the
-        command's own output above: decide-first-gate.sh exits 1 when no open
-        question names this arrival, and 2 when the record cannot be read.
-        Stop and report it.
+        command's own output above: decide-first-gate.sh exits 2 when the
+        record cannot be read. Stop and report it.
     gates:
       question_recorded:
-        type: context-exists
-        key: decide_question
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --recorded "{{SESSION_NAME}}"'
+        timeout: 60
         overridable: false
     transitions:
       - target: done_waiting
         when:
-          gates.question_recorded.exists: true
+          gates.question_recorded.exit_code: 0
+      # The question was answered or withdrawn between `raised` and this
+      # state: back to decide_first, which reads the answer or the withdrawal.
+      # The edge writes no decide_origin, so the arrival is the same one.
+      - target: decide_first
+        when:
+          gates.question_recorded.exit_code: 1
 
   # The run is waiting on the question it raised at decide_first. failure is
   # true so a caller not taught this terminal reads it as it reads a blocked
@@ -4412,6 +4424,11 @@ states:
 
 Determine the workflow mode and provide the initial context for this task.
 
+The `continues_waiting` condition reads whether this run continues one that
+stopped to wait for an answer. On a fresh run it reports `decide_question` as
+not set, and that is what lets the run start: don't add the key, submit the
+mode below.
+
 **Issue-backed mode**: you have a GitHub issue number. Submit evidence with
 `mode: issue_backed` and include the `issue_number` field.
 
@@ -4427,6 +4444,23 @@ Evidence schema:
 - `issue_number`: GitHub issue number (issue-backed only)
 - `task_description`: what to build (free-form only)
 - `issue_source`: `github` or `plan_outline` (plan-backed only)
+
+## resume_waiting
+
+This run continues one that stopped at `done_waiting` for the answer to the
+question in `decide_question`. Read it with `shirabe question show
+<identity>`, or its history with `koto decisions history <identity>`.
+
+- While the question is open, the gate holds: there is nothing to do here but
+  wait for the answer.
+- Once it is answered, record a deciding attempt citing the answer, then tick
+  again: `shirabe question attempt --in {{SESSION_NAME}} --result decided
+  --chosen <what the answer settles> --basis <session>:<answer id>`. The run
+  goes back to the state the question was raised from.
+- A question withdrawn or closed without an answer leaves nothing to continue:
+  start the work fresh.
+
+The gate's finding names which of these holds.
 
 ## context_injection
 
@@ -5553,9 +5587,11 @@ and its finding says what is missing; it cannot be overridden.
 ## waiting_record
 
 koto records the question this run waits on and moves on to `done_waiting`
-without stopping. There is nothing to submit. If it holds here, the action's
-output above says why: no open question names this arrival, or the record
-could not be read. Report it.
+without stopping. There is nothing to submit. If the question was answered or
+withdrawn since you submitted `raised`, the run goes back to `decide_first`
+instead, for the same arrival: cite the answer there, or record a new attempt.
+If it holds here, the record could not be read, and the output above says why.
+Report it.
 
 ## pr_precheck
 

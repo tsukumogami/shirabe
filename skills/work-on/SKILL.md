@@ -298,12 +298,19 @@ decision:
   non-clean terminal, rather than shipping with the criterion silently unmet.
 
 Either decision rests on the answer to a question the run raised for this
-deferral, given by a verified person or by a session above the run (one that
-dispatched it, or dispatched that one). The `answer_cited` gate, which can't be
-overridden, holds `approved` and `rejected` until a deciding attempt for the
-deferral cites such an answer. An answer the run gave itself, one given in a
-session it continues, one from a session outside its dispatch chain, and an
-answer to a question some other session raised approve nothing. The run first
+deferral, given by a verified person or by the session the run named as its
+dispatcher before it raised the question (or one above that session). The
+`answer_cited` gate, which can't be overridden, holds `approved` and `rejected`
+until a deciding attempt for the deferral cites such an answer, or a settle
+whose basis holds a verified person's answer; whether that answer speaks to
+this deferral is the settling session's judgment, and the gate checks only what
+the settle rests on. An answer the run gave itself, one given in a session it
+continues, one from a dispatcher linked after the question was raised, one
+across a continuation that names a different dispatcher, and an answer to a
+question some other session raised approve nothing. A dispatched-by link is a
+claim the run records, not a proof: the gate does not check that the named
+dispatcher has authority over the work, so a run that names a dispatcher before
+it raises, and answers as that dispatcher, is not stopped. The run first
 submits `approval_decision: needs_answer`, which takes it to `decide_first` (see
 **Deciding Before Stopping**) with the deferral as the question, and it comes back
 to `deferral_approval` once the answer is cited. Each new `deferral_requested`
@@ -1037,7 +1044,15 @@ overridden, lets the run leave only with an attempt for this arrival:
 - `decide_outcome: raised` needs an undecided attempt and an open question
   raised for the arrival. It passes `waiting_record`, whose action records the
   question's identity in `decide_question`, and ends the run at `done_waiting`:
-  a failure terminal, retained, whose result is the question's identity.
+  a failure terminal, retained, whose result is the question's identity. When
+  the question was answered or withdrawn in the meantime, `waiting_record` goes
+  back to `decide_first` instead, with the arrival unchanged, where the answer
+  is cited or a new attempt recorded.
+
+Arrivals are counted from koto's own record of the transitions into
+`decide_first`, never from a context key the run can rewrite: writing
+`decide_origin` or `decide_arrival` by hand changes neither the arrival's name
+nor the lap count.
 
 In a turn a person started, the run presents the question once it is raised
 (`shirabe question render`, the question prompt, `shirabe question answer`
@@ -1048,9 +1063,11 @@ other turn, and in every unattended run, it opens no prompt and submits
 `raised`. `scripts/decide-first-gate.sh` is the gate; its header says what each
 exit code means.
 
-A run that reaches none of these exits behaves as before: entry's
-`decide_resume` gate exits 0 without reading anything when the run continues no
-waiting run.
+A run that reaches none of these exits behaves as before. Entry's
+`continues_waiting` gate reads whether `decide_question` is in context; on a
+fresh run it reports the key as not set, and that finding is what lets the run
+start, so don't add the key. A run that continues a waiting one goes from entry
+to `resume_waiting` instead.
 
 ### Resume
 
@@ -1088,20 +1105,27 @@ waiting run.
    says) and open again once it is answered. Otherwise report that the run is
    still waiting on that question, and stop. Once the question is answered it opens a successor, `<WF>-r2` (then
    `-r3`), that continues the waiting session and prints `opened=continued`,
-   `continues=` and `session=`. Tick that session. Entry's `decide_resume` gate
-   holds it until a deciding attempt in it cites the answer: record
+   `continues=` and `session=`. Tick that session. It moves from entry to
+   `resume_waiting`, whose `decide_resume` gate holds it until a deciding
+   attempt in it cites the answer: record
    `shirabe question attempt --in <successor> --result decided --chosen <...>
    --basis <answer>`, tick again, and the run goes back to the state the
    question came from, its arrivals counting on. A session that is not at
    `done_waiting` is refused with `refused=not_waiting`, and one already
-   continued with `refused=superseded`, naming the session to resume. Under
+   continued with `refused=superseded`, naming the session to resume. Passing
+   `--dispatched-by` with a dispatcher other than the waiting session's is
+   refused with `refused=dispatcher_differs`, printing `dispatcher=` (the
+   waiting session's, or `none`) and `session=`: open again naming that
+   dispatcher, since an answer counts only under the one the run raised under. Under
    `--koto-leg` the flag is refused: koto's succession can't be combined with a
    leg. When the answer is no longer needed, withdraw the question with
    `shirabe question withdraw <identity> --in <session> --reason <why>`. A
    withdrawal takes the question off its addressee's open list for good, and
-   the waiting run is then refused with `refused=withdrawn`: there is nothing
-   to continue from, so start the work fresh (`koto session cleanup <WF>`, then
-   open as **Initialize** says). `koto session cleanup` refuses a session whose
+   the waiting run is then refused with `refused=withdrawn`, printing
+   `question=` and `session=`: there is nothing to continue from, so start the
+   work fresh (`koto session cleanup <session>`, naming the `session=` the
+   opener printed, which may be a successor rather than `<WF>`, then open as
+   **Initialize** says). `koto session cleanup` refuses a session whose
    question is still open.
 3. `is_terminal: false` is a genuine resume: `koto next <WF> --no-cleanup`, with
    no open. Under `--koto-leg`, open through `work-on-open.sh` first, which
