@@ -105,7 +105,8 @@
 #   0 -- every declaration conforms
 #   1 -- at least one finding
 #   2 -- usage error (a named path does not exist, or the policy file's cadence
-#        table cannot be read)
+#        table cannot be read, or the scan's temporary directory is gone or
+#        unreadable mid-run, in which case nothing was verified)
 #
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile. macOS ships
 # 3.2.57 as /bin/bash and .github/workflows/check-preflight-scripts.yml runs an
@@ -148,6 +149,13 @@ usage_error() {
 WORK=""
 cleanup() { [ -n "$WORK" ] && rm -rf "$WORK"; }
 trap cleanup EXIT
+
+# The parity check reads files under $WORK, so a write or read-back that fails
+# there ends the run (shirabe#2229). Exit 2, through usage_error, because the
+# scan's result is unknown rather than a finding.
+scratch_lost() {
+  usage_error "temporary directory $WORK is gone or unreadable: cannot $1; nothing was verified"
+}
 
 # ---------------------------------------------------------------------------
 # The cadence split, read from the policy file
@@ -357,7 +365,8 @@ extract_skill_flags() {
           esac
           while IFS= read -r flag; do
             [ -n "$flag" ] || continue
-            printf '%s\t%s\t%s\t%s\n' "$skill" "$tool" "$flag" "$rel" >> "$WORK/live.flags"
+            printf '%s\t%s\t%s\t%s\n' "$skill" "$tool" "$flag" "$rel" >> "$WORK/live.flags" \
+              || scratch_lost "write live.flags"
           done <<EOF
 $(segment_flags "$seg" "$tool")
 EOF
@@ -635,7 +644,7 @@ main() {
   read_cadence "$POLICY_FILE"
 
   WORK=$(mktemp -d) || usage_error "cannot make a temporary directory"
-  : > "$WORK/live.flags"
+  : > "$WORK/live.flags" || scratch_lost "write live.flags"
 
   local dir skill decl
   while IFS= read -r dir; do
@@ -661,10 +670,12 @@ main() {
     check_declaration "$skill" "$decl"
     check_modes "$skill" "$dir"
 
-    : > "$WORK/skill.flags"
-    : > "$WORK/live.flags"
+    : > "$WORK/skill.flags" || scratch_lost "write skill.flags"
+    : > "$WORK/live.flags" || scratch_lost "write live.flags"
     extract_skill_flags "$skill" "$dir"
-    LC_ALL=C sort -u "$WORK/live.flags" > "$WORK/skill.flags"
+    [ -r "$WORK/live.flags" ] || scratch_lost "read back live.flags"
+    LC_ALL=C sort -u "$WORK/live.flags" > "$WORK/skill.flags" || scratch_lost "write skill.flags"
+    [ -r "$WORK/skill.flags" ] || scratch_lost "read back skill.flags"
     check_parity "$skill"
   done <<EOF
 $(find "$SKILLS_DIR" -mindepth 1 -maxdepth 1 -type d | LC_ALL=C sort)

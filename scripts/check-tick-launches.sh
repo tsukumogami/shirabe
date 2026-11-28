@@ -71,7 +71,9 @@
 # Exit codes:
 #   0  no launch inside a tick, or every one unsets KOTO_SESSION_* first
 #   1  at least one launch that doesn't
-#   2  usage error, or a template or root that can't be read
+#   2  usage error, a template or root that can't be read, or the run's
+#      temporary directory lost mid-run ("is gone or unreadable"), so
+#      nothing was verified
 #
 # Requires: bash 3.2+, awk, sed, grep. No eval, no associative arrays, no
 # mapfile.
@@ -120,9 +122,18 @@ ALLOW="$ROOT/scripts/check-tick-launches.allow"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/check-tick-launches.XXXXXX") || exit 2
 trap 'rm -rf "$WORK"' EXIT
 
+# The verdict is built from files under $WORK, so a write or read-back that
+# fails there must end the run (shirabe#2229). Unchecked, a directory lost
+# mid-run left the loops nothing to read and the run printed OK for a scan
+# that never finished. Exit 2, not 1: the result is unknown, not a finding.
+scratch_lost() {
+    printf '%s: temporary directory %s is gone or unreadable: cannot %s\n' "$PROG" "$WORK" "$1" >&2
+    exit 2
+}
+
 # The allow records: <caller><TAB><callee><TAB><reason>, paths from the root.
 # A record with no reason is refused.
-: >"$WORK/allow"
+: >"$WORK/allow" || scratch_lost "write the allow records"
 if [ -f "$ALLOW" ]; then
     awk -F '\t' '
         /^[[:space:]]*(#|$)/ { next }
@@ -254,7 +265,7 @@ SCRIPTS=0
 while IFS= read -r tpl; do
     [ -n "$tpl" ] || continue
     rm -rf "$WORK/cmds"
-    mkdir -p "$WORK/cmds"
+    mkdir -p "$WORK/cmds" || scratch_lost "create cmds"
     # One file per `command:` in the frontmatter, named for its line: the
     # value unquoted ('' is a quote inside single quotes; \" and \\ inside
     # double ones), or a block scalar's lines.
@@ -280,16 +291,20 @@ while IFS= read -r tpl; do
             print v > file
             close(file)
         }
-    ' "$tpl"
+    ' "$tpl" || scratch_lost "write the commands of $tpl"
+    [ -d "$WORK/cmds" ] || scratch_lost "read back cmds"
     name="${tpl#"$ROOT"/}"
     for c in "$WORK"/cmds/*; do
-        [ -f "$c" ] || continue
+        # No file here is fine (a template with no cmd.sh-worthy command, or
+        # no command at all) while the directory is still there.
+        [ -f "$c" ] || { [ -d "$WORK/cmds" ] || scratch_lost "read back cmds"; continue; }
         COMMANDS=$((COMMANDS + 1))
         at="${c##*/}"
         report "$name:$at: the command, its line " "$c"
         # The scripts the command runs, then the scripts they run. A
         # {{PLUGIN_ROOT}}/ path is the same path from the root.
-        sed 's#{{PLUGIN_ROOT}}/##g' "$c" >"$WORK/cmd.sh"
+        sed 's#{{PLUGIN_ROOT}}/##g' "$c" >"$WORK/cmd.sh" || scratch_lost "write cmd.sh"
+        [ -r "$WORK/cmd.sh" ] || scratch_lost "read back cmd.sh"
         queue=$(refs "$WORK/cmd.sh" "$ROOT")
         while [ -n "$queue" ]; do
             s="${queue%%
@@ -312,7 +327,7 @@ $s
             while IFS= read -r callee; do
                 [ -n "$callee" ] || continue
                 if [ -s "$WORK/allow" ] && grep -qxF "${s#"$ROOT"/}$TAB${callee#"$ROOT"/}" "$WORK/allow"; then
-                    printf '%s\t%s\n' "${s#"$ROOT"/}" "${callee#"$ROOT"/}" >>"$WORK/used"
+                    printf '%s\t%s\n' "${s#"$ROOT"/}" "${callee#"$ROOT"/}" >>"$WORK/used" || scratch_lost "write used"
                     continue
                 fi
                 queue="$queue${queue:+
@@ -325,6 +340,8 @@ EOF_MORE
 done <<EOF_TEMPLATES
 $TEMPLATES
 EOF_TEMPLATES
+
+[ -r "$WORK/allow" ] || scratch_lost "read back allow"
 
 # Every allow record has to name a call this run passed over; one that no
 # longer matches is reported, so a stale record can't hide a later call.

@@ -171,12 +171,15 @@ problem() {
     PROBLEMS=$((PROBLEMS + 1))
 }
 
-# report <file>: one problem per non-empty line of <file>.
+# report <file>: one problem per non-empty line of <file>. A file that can't be
+# opened is a lost scratch file, never an empty one (shirabe#2229): exit 2.
 report() {
     local line
-    while IFS= read -r line; do
+    exec 3< "$1" || die2 "scratch file $1 is gone or unreadable: cannot read it back; nothing was verified"
+    while IFS= read -r line <&3; do
         [ -n "$line" ] && problem "$line"
-    done < "$1"
+    done
+    exec 3<&-
 }
 
 # jqf <out> <jq arguments...>: jq into <out>. A jq that fails is a check that

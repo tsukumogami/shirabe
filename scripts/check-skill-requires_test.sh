@@ -484,6 +484,41 @@ esac
 if [ -z "$(ls -A "$WORK/mkt-cwd")" ]; then pass "  ... and writes nothing where it ran"; else fail "  ... and writes nothing where it ran: $(ls -A "$WORK/mkt-cwd")"; fi
 
 # ===========================================================================
+# 13. A work directory lost mid-run (shirabe#2229)
+# ===========================================================================
+# Unchecked, the sort that builds skill.flags read a file that was gone, the
+# parity loop read nothing, the error count stayed 0, and the scan printed OK
+# and exited 0. The seam is a sort first on PATH that, only on the call
+# `sort -u <dir>/live.flags`, removes <dir> -- the scan's work directory,
+# after it has written live.flags -- and then runs the real sort. Every other
+# sort call goes straight to the real one. The fixture is the clean one, so a
+# run that finished would pass.
+
+REAL_SORT=$(command -v sort)
+mkdir -p "$WORK/vanish-bin"
+printf '#!/bin/sh\nif [ "$1" = "-u" ]; then\n  case "$2" in\n    */live.flags) rm -rf "$(dirname "$2")" ;;\n  esac\nfi\nexec "%s" "$@"\n' "$REAL_SORT" > "$WORK/vanish-bin/sort"
+chmod +x "$WORK/vanish-bin/sort"
+new_fixture vanish-work
+record koto  'context add'      --from-file  always
+record shirabe validate         --format     always
+record gh    -                  -            'mode:issues'
+add_file SKILL.md \
+  'Phase 1 runs `koto context add --from-file notes.md` and then' \
+  'checks the doc with `shirabe validate --format json <doc>`.' \
+  'In the issues mode the skill files them with gh.'
+OUT=$(PATH="$WORK/vanish-bin:$PATH" bash "$CHECK" --skills "$FIXTURE/skills" --routes "$ROUTES" --policy "$POLICY" 2>&1)
+RC=$?
+if [ "$RC" -eq 2 ]; then pass "a temporary directory lost mid-run is an environment error (2)"; else fail "a temporary directory lost mid-run exited $RC, expected 2: $OUT"; fi
+case "$OUT" in
+  *"is gone or unreadable"*) pass "  ... that names the cause" ;;
+  *) fail "  ... that names the cause: $OUT" ;;
+esac
+case "$OUT" in
+  *"check-skill-requires: OK"*) fail "  ... and never prints check-skill-requires: OK: $OUT" ;;
+  *) pass "  ... and never prints check-skill-requires: OK" ;;
+esac
+
+# ===========================================================================
 
 echo
 echo "check-skill-requires_test: $PASS_COUNT passed, $FAIL_COUNT failed"

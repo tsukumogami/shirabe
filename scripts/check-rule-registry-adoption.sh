@@ -22,7 +22,8 @@
 # Usage: check-rule-registry-adoption.sh [--root <dir>] <base>
 #   --root  the repository to check (default: this script's repository)
 #
-# Exit codes: 0 passed or skipped, 1 problems listed on stdout, 2 could not run.
+# Exit codes: 0 passed or skipped, 1 problems listed on stdout, 2 could not run
+# (including a scratch directory that is gone or unreadable mid-run).
 
 set -u
 
@@ -85,6 +86,23 @@ fi
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/check-rule-registry-adoption.XXXXXX") || die2 "cannot make a scratch directory"
 trap 'rm -rf "$TMP"' EXIT
 
+# The verdict is built from files under $TMP, so a write or read-back that
+# fails there must end the run (shirabe#2229): an unread file is not an empty
+# one, and an empty removed-lines list would read as "nothing removed". Exit 2,
+# through die2, because the result is unknown rather than a problem.
+scratch_lost() {
+    die2 "temporary directory $TMP is gone or unreadable: cannot $1; nothing was verified"
+}
+
+# need_scratch FILE... -- each FILE under $TMP must be readable before it is
+# read back.
+need_scratch() {
+    local f
+    for f in "$@"; do
+        [ -r "$TMP/$f" ] || scratch_lost "read back $f"
+    done
+}
+
 PROBLEMS=0
 problem() {
     printf '%s: %s\n' "$PROG" "$*"
@@ -96,12 +114,14 @@ problem() {
 jq -r '.rules[] | objects | .id | strings' "$REG" > "$TMP/head-ids" 2>/dev/null \
     || die2 "cannot read references/rule-registry.json"
 repo_git show "$BASE:$OLD_TABLE" > "$TMP/table" || die2 "cannot read $OLD_TABLE at the base"
-awk -F'\t' '/^#/ || NF == 0 { next } { print $1 }' "$TMP/table" > "$TMP/base-ids"
+awk -F'\t' '/^#/ || NF == 0 { next } { print $1 }' "$TMP/table" > "$TMP/base-ids" \
+    || scratch_lost "write base-ids"
 if at_base "$CRITERIA"; then
     repo_git show "$BASE:$CRITERIA" > "$TMP/criteria.json" || die2 "cannot read $CRITERIA at the base"
     jq -r '.criteria[].rule_id | strings' "$TMP/criteria.json" >> "$TMP/base-ids" 2>/dev/null \
         || die2 "$CRITERIA at the base does not parse"
 fi
+need_scratch base-ids head-ids
 [ -s "$TMP/base-ids" ] || die2 "found no ids at the base"
 while IFS= read -r id; do
     [ -n "$id" ] || continue
@@ -146,7 +166,8 @@ span_lines() {
 # file between the base and the working tree.
 removed_lines() {
     repo_git diff -U0 --no-renames --no-ext-diff --no-color "$BASE" -- "$1" > "$TMP/diff" \
-        || die2 "git diff failed on $1"
+        || { [ -d "$TMP" ] || scratch_lost "write diff"; die2 "git diff failed on $1"; }
+    need_scratch diff
     awk '
         /^@@ / {
             split($2, o, ","); old = substr(o[1], 2) + 0; hunk = 1; next
@@ -157,18 +178,24 @@ removed_lines() {
 }
 
 repo_git show "$BASE:$MANIFEST" > "$TMP/manifest" 2>/dev/null || die2 "cannot read $MANIFEST at the base"
-awk -F'\t' '/^#/ || NF < 3 || $1 == "profile" { next } { print $2 "\t" $3 }' "$TMP/manifest" | sort -u > "$TMP/spans"
+awk -F'\t' '/^#/ || NF < 3 || $1 == "profile" { next } { print $2 "\t" $3 }' "$TMP/manifest" | sort -u > "$TMP/spans" || scratch_lost "write spans"
+need_scratch spans
 [ -s "$TMP/spans" ] || die2 "$MANIFEST at the base lists no spans"
-printf '%s\tfile\n' "$EXECUTE_TEMPLATE" >> "$TMP/spans"
+printf '%s\tfile\n' "$EXECUTE_TEMPLATE" >> "$TMP/spans" || scratch_lost "write spans"
 
-cut -f1 "$TMP/spans" | sort -u > "$TMP/span-paths"
+cut -f1 "$TMP/spans" | sort -u > "$TMP/span-paths" || scratch_lost "write span-paths"
+need_scratch span-paths
 while IFS= read -r p; do
     # A manifest row for a file the base doesn't have loads nothing to lose.
     at_base "$p" || continue
-    removed_lines "$p" > "$TMP/removed"
+    removed_lines "$p" > "$TMP/removed" || scratch_lost "write removed"
+    # Nothing removed is a pass for this file, once the list is known to exist.
+    need_scratch removed
     [ -s "$TMP/removed" ] || continue
     repo_git show "$BASE:$p" > "$TMP/base-file" || die2 "cannot read $p at the base"
-    awk -F'\t' -v p="$p" '$1 == p { print $2 }' "$TMP/spans" > "$TMP/selectors"
+    awk -F'\t' -v p="$p" '$1 == p { print $2 }' "$TMP/spans" > "$TMP/selectors" \
+        || scratch_lost "write selectors"
+    need_scratch base-file selectors spans
     while IFS= read -r sel; do
         case "$sel" in
             file|body|state:?*) ;;
@@ -176,6 +203,7 @@ while IFS= read -r p; do
         esac
         span_lines "$sel" < "$TMP/base-file" > "$TMP/span" || die2 "cannot cut $p ($sel)"
         # A selector that selects nothing would protect nothing, silently.
+        need_scratch span
         [ -s "$TMP/span" ] || die2 "$p ($sel) selects no lines at the base"
         hits=$(awk 'NR == FNR { in_span[$1] = 1; next } ($1 in in_span) { printf "%s%s", sep, $1; sep = "," }' \
             "$TMP/span" "$TMP/removed")

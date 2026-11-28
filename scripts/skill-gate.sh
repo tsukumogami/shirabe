@@ -54,7 +54,8 @@
 #   0 - every selected check passed, or nothing was selected
 #   1 - one or more checks failed
 #   2 - usage error, a refused SKILL_GATE_BASE or SKILL_GATE_PART, or git
-#       could not list the changes
+#       could not list the changes, or the run's temporary directory was
+#       lost mid-run ("is gone or unreadable"), so the selection is unknown
 #
 # bash 3.2 floor: no associative arrays, no mapfile.
 
@@ -124,12 +125,24 @@ else
     T=$(mktemp -d "${TMPDIR:-/tmp}/skill-gate.XXXXXX") || exit 2
     trap 'rm -rf "$T"' EXIT
 
+    scratch_lost() {
+        echo "skill-gate: temporary directory $T is gone or unreadable: cannot $1" >&2
+        exit 2
+    }
+    need_scratch() {
+        [ -r "$T/$1" ] || scratch_lost "read back $1"
+    }
+
     if ! git diff --name-only --no-renames -z "$BASE" HEAD >"$T/changed" 2>"$T/diff.err"; then
         echo "skill-gate: git diff $BASE HEAD failed: $(cat "$T/diff.err")" >&2
         exit 2
     fi
 
-    : >"$T/skills"
+    # The working files live under $T, so a directory lost mid-run must end
+    # the run: an unreadable change list would otherwise read as no changes
+    # and print "nothing to check" (shirabe#2229).
+    need_scratch changed
+    : >"$T/skills" || scratch_lost "write skills"
     SHARED=0
     while IFS= read -r -d '' path; do
         case "$path" in
@@ -138,7 +151,7 @@ else
                 name=${name%%/*}
                 # Only a directory that HEAD still has is a skill to check.
                 if [ "$(git cat-file -t "HEAD:skills/$name" 2>/dev/null)" = "tree" ]; then
-                    printf '%s\n' "$name" >>"$T/skills"
+                    printf '%s\n' "$name" >>"$T/skills" || scratch_lost "write skills"
                 fi
                 ;;
             scripts/*|references/*|koto-templates/*)
@@ -147,7 +160,9 @@ else
         esac
     done <"$T/changed"
 
-    LC_ALL=C sort -u "$T/skills" >"$T/selected"
+    need_scratch skills
+    LC_ALL=C sort -u "$T/skills" >"$T/selected" || scratch_lost "write selected"
+    need_scratch selected
     while IFS= read -r name; do
         PLAN="${PLAN}check-skill $name
 "

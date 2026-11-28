@@ -21,7 +21,8 @@
 # Exit codes:
 #   0 - nothing a normal run loads differs from <base>
 #   1 - at least one such file differs; each is named on stderr
-#   2 - usage error, or <base> is not a commit
+#   2 - usage error, <base> is not a commit, or the run's temporary path list
+#       was lost mid-run ("is gone or unreadable"), so nothing was verified
 
 set -euo pipefail
 
@@ -48,22 +49,44 @@ repo_root=$(git rev-parse --show-toplevel)
 manifest="${ABLATION_MANIFEST:-$repo_root/docs/measurement/offload-baseline/load-manifest.tsv}"
 [ -f "$manifest" ] || die "manifest not found: $manifest"
 
-list="$(mktemp)"
-trap 'rm -f "$list"' EXIT
+list="$(mktemp)" || die "cannot create a temporary file"
+sorted="$list.sorted"
+trees="$list.trees"
+trap 'rm -f "$list" "$sorted" "$trees"' EXIT
+
+# The path list is the whole verdict, so a write or read-back that fails must
+# end the run (shirabe#2229): an unreadable list is not an empty one.
+lost() {
+    die "temporary file $list is gone or unreadable: cannot $1"
+}
 
 # Column 2 of every data row: skip comments, blank lines and the header.
 awk -F '\t' '
     /^#/ || /^[[:space:]]*$/ { next }
     !header { header = 1; next }
     $2 != "" { print $2 }
-' "$manifest" >> "$list"
+' "$manifest" >> "$list" || lost "write the manifest paths"
 
 # Every koto template, at HEAD and at the base, so a template added or
-# removed on either side is compared too.
-{
-    git ls-tree -r --name-only "$head" -- skills
-    git ls-tree -r --name-only "$fork" -- skills
-} | grep -E '^skills/[^/]+/koto-templates/[^/]+\.md$' >> "$list" || true
+# removed on either side is compared too. Each ls-tree writes to a file and
+# its status is checked on its own, before grep reads the listing. Piped into
+# grep, a failed git can read as success: pipefail reports grep's no-match
+# status 1 over git's, and a brace group of the two reports only the second.
+git ls-tree -r --name-only "$head" -- skills > "$trees" \
+    || die "could not list the files under skills/ at $head (status $?)"
+git ls-tree -r --name-only "$fork" -- skills >> "$trees" \
+    || die "could not list the files under skills/ at $fork (status $?)"
+[ -r "$trees" ] || die "temporary file $trees is gone or unreadable: cannot read back the tree listing"
+# Status 1 is grep's no match (or an append the shell couldn't open, which
+# the read-back below catches); more than that is a failed grep, and the
+# list is incomplete.
+grc=0
+grep -E '^skills/[^/]+/koto-templates/[^/]+\.md$' "$trees" >> "$list" || grc=$?
+[ "$grc" -le 1 ] || die "could not read the koto templates from the tree listing (status $grc)"
+
+[ -r "$list" ] || lost "read back the path list"
+sort -u "$list" > "$sorted" || lost "sort the path list"
+[ -r "$sorted" ] || lost "read back the sorted path list"
 
 changed=0
 while IFS= read -r path; do
@@ -71,7 +94,7 @@ while IFS= read -r path; do
         echo "$PROG: $path differs from $base" >&2
         changed=1
     fi
-done < <(sort -u "$list")
+done < "$sorted"
 
 if [ "$changed" -eq 0 ]; then
     echo "$PROG: nothing a normal run loads differs from $base"

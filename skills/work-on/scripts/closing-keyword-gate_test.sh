@@ -107,10 +107,16 @@ if [[ "${1:-}" == "api" ]]; then
             exit 1
         fi
     done
+    answer=$name
     for r in ${GH_RENAMED:-}; do
-        if [[ "${r%%=*}" == "$lname" ]]; then printf '%s\n' "${r#*=}"; exit 0; fi
+        if [[ "${r%%=*}" == "$lname" ]]; then answer=${r#*=}; break; fi
     done
-    printf '%s\n' "$name"
+    printf '%s\n' "$answer"
+    # $GH_API_VANISH, off by default: after answering, remove the bare
+    # temporary files mktemp made in $TMPDIR, the caller's own among them.
+    if [[ -n "${GH_API_VANISH:-}" && -n "${TMPDIR:-}" ]]; then
+        rm -f "$TMPDIR"/tmp.* 2>/dev/null
+    fi
     exit 0
 fi
 [[ -z "${GH_PR_SLEEP:-}" ]] || sleep "$GH_PR_SLEEP"
@@ -1054,6 +1060,36 @@ evil/x" >/dev/null 2>&1; got=$?
 [[ "$got" == 2 ]] && pass "a repo value with a newline exits 2" || fail "a repo value with a newline: exit $got"
 PATH="$STUB_DIR:$PATH" "$SCRIPT" --approved-pass "" >/dev/null 2>&1; got=$?
 expect_got "an empty --approved-pass value is a usage error" 2 "$got"
+
+# --- a temporary file lost mid-lookup (shirabe#2229) ---------------------------
+# A lookup writes gh's answer to a bare mktemp file and reads it back with
+# cat, whose failure went unchecked. A file removed in between left the
+# looked-up name empty with gh's status 0, so the old name went unrecognised
+# and the script reached exit 0. Here acme/old-app is an old name of the pull
+# request's repository, so a lookup that finishes refuses (exit 1). The seam
+# is the stub's GH_API_VANISH: after answering, it removes the tmp.* files in
+# $TMPDIR, which the case points at a directory of its own, so the files it
+# removes are the script's. A bare mktemp on macOS ignores TMPDIR and makes
+# its file in the per-user temporary directory, so a mktemp wrapper first on
+# PATH for this case alone gives a bare call the template
+# ${TMPDIR:-/tmp}/tmp.XXXXXXXXXX, the file GNU mktemp makes anyway; any other
+# call goes straight to the real mktemp.
+VANISH_TMP=$(mktemp -d) || exit 1; TMPS+=("$VANISH_TMP")
+REAL_MKTEMP=$(command -v mktemp)
+CK_VANISH_BIN=$(mktemp -d) || exit 1; TMPS+=("$CK_VANISH_BIN")
+printf '#!/bin/sh\nif [ "$#" -eq 0 ]; then\n    exec "%s" "${TMPDIR:-/tmp}/tmp.XXXXXXXXXX"\nfi\nexec "%s" "$@"\n' \
+    "$REAL_MKTEMP" "$REAL_MKTEMP" > "$CK_VANISH_BIN/mktemp"
+chmod +x "$CK_VANISH_BIN/mktemp"
+out=$(PATH="$CK_VANISH_BIN:$STUB_DIR:$PATH" TMPDIR="$VANISH_TMP" GH_API_VANISH=1 \
+    GH_RENAMED="acme/old-app=acme/app" GH_MISSING="" GH_API_FAIL="" GH_API_SLEEP="" \
+    GH_PR_SLEEP="" GH_API_WARN="" GH_FAIL=0 PR_URL="" PR_BODY="Fixes acme/tracker#42
+Fixes acme/old-app#42" "$SCRIPT" --issue 42 --repo acme/tracker 2>&1); rc=$?
+if [[ "$rc" == 3 ]]; then pass "a temporary directory lost mid-run is undecided (3)"
+else fail "a temporary directory lost mid-run exited $rc, expected 3: $out"; fi
+case "$out" in
+  *"is gone or unreadable"*) pass "  ... that names the cause" ;;
+  *) fail "  ... that names the cause: $out" ;;
+esac
 
 echo
 echo "closing-keyword-gate_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"

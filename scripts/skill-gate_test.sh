@@ -340,6 +340,37 @@ for bad in all SUITES " suites" "suites,checks"; do
 done
 unset SKILL_GATE_PART
 
+# -- a temporary directory lost mid-run (shirabe#2229) ------------------------
+
+# Unchecked, the change list was written into a directory that was gone, the
+# loop over it read nothing, the plan came back empty, and the gate said it
+# had nothing to check and exited 0 on a change that touches a skill. The
+# seam: a mktemp that hands out a known directory, and a git that removes it
+# on the `diff --name-only` call -- the first write into it -- and then runs
+# the real git. Every other git call goes straight to the real one.
+REAL_GIT=$(command -v git)
+VANISH="$T/vanish-scratch"
+VANISH_BIN="$T/vanish-bin"
+mkdir -p "$VANISH_BIN"
+printf '#!/bin/sh\nmkdir -p "%s" || exit 1\necho "%s"\n' "$VANISH" "$VANISH" >"$VANISH_BIN/mktemp"
+printf '#!/bin/sh\ncase " $* " in\n    *" diff --name-only "*) rm -rf "%s" ;;\nesac\nexec "%s" "$@"\n' "$VANISH" "$REAL_GIT" >"$VANISH_BIN/git"
+chmod +x "$VANISH_BIN/mktemp" "$VANISH_BIN/git"
+commit_case edit:skills/alpha/SKILL.md
+SKILL_GATE_BASE=$BASE STUB_FAIL=""
+: >"$RECORD"
+OUT=$(cd "$REPO" && STUB_RECORD="$RECORD" PATH="$VANISH_BIN:$PATH" "$BASH_BIN" scripts/skill-gate.sh 2>&1)
+RC=$?
+if [ "$RC" = 2 ]; then
+    pass "a temporary directory lost mid-run is an environment error (2)"
+else
+    fail "a temporary directory lost mid-run exited $RC, expected 2" "output: $OUT"
+fi
+case "$OUT" in
+    *"is gone or unreadable"*) pass "  ... that names the cause" ;;
+    *) fail "  ... that names the cause" "output: $OUT" ;;
+esac
+not_in "  ... and never prints skill-gate: nothing to check" "skill-gate: nothing to check"
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

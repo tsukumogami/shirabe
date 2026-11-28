@@ -87,16 +87,25 @@ esac
 EOF
 
 # shirabe validate ...: prints FAKE_SHIRABE_OUT, exits FAKE_SHIRABE_RC, and
-# keeps a copy of the body file it was handed.
+# keeps a copy of the body file it was handed. FAKE_SHIRABE_VANISH=1 then
+# removes the directory holding that body file, the script's temporary
+# directory, before it exits; off by default.
 cat > "$BIN/shirabe" <<'EOF'
 #!/usr/bin/env bash
 . "$(dirname "$0")/record.sh" shirabe "$@"
 prev=""
+body=""
 for a in "$@"; do
-    [ "$prev" != --pr-body ] || cp "$a" "$LOG/shirabe/body"
+    if [ "$prev" = --pr-body ]; then
+        cp "$a" "$LOG/shirabe/body"
+        body=$a
+    fi
     prev=$a
 done
 printf '%s\n' "${FAKE_SHIRABE_OUT-}"
+if [ "${FAKE_SHIRABE_VANISH:-0}" = 1 ] && [ -n "$body" ]; then
+    rm -rf "$(dirname "$body")"
+fi
 exit "${FAKE_SHIRABE_RC:-0}"
 EOF
 
@@ -1991,6 +2000,41 @@ KOTO_STUB_FAIL=exists run --hosted-record --session hr
 run --hosted-record
 [ "$RC" -eq 2 ] && pass "--hosted-record without --session is a usage error (2)" || fail "--hosted-record without --session: rc $RC"
 export PATH="$HR_SAVED_PATH"
+cd "$SUITE_PWD" || exit 2
+
+# --- --pr-body: a temporary directory lost mid-run (shirabe#2229) ---------------
+# The scan writes the workflow records into the temporary directory before the
+# validator runs, and the validator's clean exit is read with
+# `[ ! -s "$WORK/records" ]`. A directory removed in between made that test
+# true, so a body holding a `## Review panel` heading, a violation in a
+# repository that doesn't opt in to workflow content (exit 1 when the run
+# finishes), passed as conformant with exit 0. The seam is the shirabe
+# stand-in: with FAKE_SHIRABE_VANISH=1 it removes the directory holding the
+# body file it was handed, which is the script's temporary directory, after
+# answering clean.
+cd "$WORKDIR/omit-repo" || exit 2
+VANISH_SAVED_BRANCH_JSON=$FAKE_GH_BRANCH_JSON
+FAKE_GH_RC=0
+FAKE_SHIRABE_RC=0
+FAKE_SHIRABE_OUT='{"schema":"shirabe-pr-body/v1","outcome":"clean","findings":[]}'
+FAKE_GH_BRANCH_JSON=$(pr_json "feat: read the round" "Reads the review round from the session.
+
+---
+
+## Review panel
+
+Fixes #12")
+out=$(FAKE_SHIRABE_VANISH=1 "$CHECK" --pr-body 2>&1); rc=$?
+if [ "$rc" -eq 2 ]; then pass "a temporary directory lost mid-run is undecided (2)"; else fail "a temporary directory lost mid-run exited $rc, expected 2: $out"; fi
+case "$out" in
+  *"is gone or unreadable"*) pass "  ... that names the cause" ;;
+  *) fail "  ... that names the cause: $out" ;;
+esac
+case "$out" in
+  *"the PR title and body conform"*) fail "  ... and never passes: $out" ;;
+  *) pass "  ... and never passes" ;;
+esac
+FAKE_GH_BRANCH_JSON=$VANISH_SAVED_BRANCH_JSON
 cd "$SUITE_PWD" || exit 2
 
 # --- the rule registry ----------------------------------------------------------

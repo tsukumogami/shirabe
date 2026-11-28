@@ -43,7 +43,9 @@
 #      per violation on stdout, and a line on stderr saying how to dispute one
 #   2  the check could not decide: a usage error, a missing tool (git, jq,
 #      koto, shirabe), a range or ref that does not resolve, a validator that
-#      failed to run. No finding is printed; the reason goes to stderr.
+#      failed to run, or (--docs-visibility) a temporary file that is gone or
+#      unreadable when read back. No finding is printed; the reason goes to
+#      stderr.
 #
 # Each finding is koto's finding shape, built with jq:
 #   ::koto-finding::{"rule_id":"<name>","level":"error","message":"<summary>: ...",
@@ -260,7 +262,8 @@ check_docs_visibility() {
     WORK=$(mktemp -d "${TMPDIR:-/tmp}/check-branch-output.XXXXXX") \
         || undecided "cannot create a temporary directory"
     trap 'rm -rf "$WORK"' EXIT
-    : > "$WORK/files"
+    : > "$WORK/files" \
+        || undecided "temporary directory $WORK is gone or unreadable: cannot write files"
     n=0
     while IFS= read -r p; do
         case "$p" in
@@ -293,6 +296,10 @@ EOF
     jq -c '.findings[] | select(.code == "R7" or .code == "R8" or .code == "R9")' \
         "$WORK/out" > "$WORK/hits" 2> "$WORK/jq.err" \
         || undecided "cannot read shirabe validate's JSON output: $(tail -n 3 "$WORK/jq.err")"
+    # The findings are read back below: a lost file is a fault, not an empty
+    # list of findings.
+    [ -f "$WORK/hits" ] && [ -r "$WORK/hits" ] \
+        || undecided "temporary file $WORK/hits is gone or unreadable: cannot read back the findings"
     while IFS= read -r hit; do
         [ -n "$hit" ] || continue
         code=$(printf '%s' "$hit" | jq -r '.code')
