@@ -1069,9 +1069,18 @@ expect_got "an empty --approved-pass value is a usage error" 2 "$got"
 # request's repository, so a lookup that finishes refuses (exit 1). The seam
 # is the stub's GH_API_VANISH: after answering, it removes the tmp.* files in
 # $TMPDIR, which the case points at a directory of its own, so the files it
-# removes are the script's.
+# removes are the script's. A bare mktemp on macOS ignores TMPDIR and makes
+# its file in the per-user temporary directory, so a mktemp wrapper first on
+# PATH for this case alone gives a bare call the template
+# ${TMPDIR:-/tmp}/tmp.XXXXXXXXXX, the file GNU mktemp makes anyway; any other
+# call goes straight to the real mktemp.
 VANISH_TMP=$(mktemp -d) || exit 1; TMPS+=("$VANISH_TMP")
-out=$(PATH="$STUB_DIR:$PATH" TMPDIR="$VANISH_TMP" GH_API_VANISH=1 \
+REAL_MKTEMP=$(command -v mktemp)
+CK_VANISH_BIN=$(mktemp -d) || exit 1; TMPS+=("$CK_VANISH_BIN")
+printf '#!/bin/sh\nif [ "$#" -eq 0 ]; then\n    exec "%s" "${TMPDIR:-/tmp}/tmp.XXXXXXXXXX"\nfi\nexec "%s" "$@"\n' \
+    "$REAL_MKTEMP" "$REAL_MKTEMP" > "$CK_VANISH_BIN/mktemp"
+chmod +x "$CK_VANISH_BIN/mktemp"
+out=$(PATH="$CK_VANISH_BIN:$STUB_DIR:$PATH" TMPDIR="$VANISH_TMP" GH_API_VANISH=1 \
     GH_RENAMED="acme/old-app=acme/app" GH_MISSING="" GH_API_FAIL="" GH_API_SLEEP="" \
     GH_PR_SLEEP="" GH_API_WARN="" GH_FAIL=0 PR_URL="" PR_BODY="Fixes acme/tracker#42
 Fixes acme/old-app#42" "$SCRIPT" --issue 42 --repo acme/tracker 2>&1); rc=$?

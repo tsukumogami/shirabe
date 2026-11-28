@@ -353,7 +353,7 @@ VANISH="$T/vanish-scratch"
 VANISH_BIN="$T/vanish-bin"
 mkdir -p "$VANISH_BIN"
 printf '#!/bin/sh\nmkdir -p "%s" || exit 1\necho "%s"\n' "$VANISH" "$VANISH" >"$VANISH_BIN/mktemp"
-printf '#!/bin/sh\ncase " $* " in\n    *" diff "*" --name-only "*) rm -rf "%s" ;;\nesac\nexec "%s" "$@"\n' "$VANISH" "$REAL_GIT" >"$VANISH_BIN/git"
+printf '#!/bin/sh\ncase " $* " in\n    *" diff --name-only "*) rm -rf "%s" ;;\nesac\nexec "%s" "$@"\n' "$VANISH" "$REAL_GIT" >"$VANISH_BIN/git"
 chmod +x "$VANISH_BIN/mktemp" "$VANISH_BIN/git"
 commit_case edit:skills/alpha/SKILL.md
 SKILL_GATE_BASE=$BASE STUB_FAIL=""
