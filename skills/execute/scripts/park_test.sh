@@ -17,7 +17,8 @@
 #                  decide_origin and decide_fresh; decide_first's three edges
 #                  (raised to park_own on attempt_recorded 3 and waiting_steps
 #                  0, decided resume and stop on decide_from 20) and its
-#                  non-overridable gates; spawn_and_await's pr_finalization
+#                  non-overridable gates, resume held by decide_laps;
+#                  park_own records the question, then parks; spawn_and_await's pr_finalization
 #                  and escalate edges need parked_state 0, its parked edges
 #                  route 1 to escalate_parked, 3 to waiting_record, a cited
 #                  stop on 4 to escalate_upstream_drift; waiting_record goes
@@ -31,6 +32,8 @@
 #                  child failed outright; 4 with a closed question still
 #                  parked; 3 for an unmarked child at done_waiting; after a
 #                  clear, 1 until every step has a child, then 0
+#   decide-first   --from maps worktree_discipline_check to 20; --laps
+#                  refuses the fourth arrival from it
 #   park.sh        mark --own parks the steps `waiting` names, or every step;
 #                  mark --child refuses a child not at done_waiting and parks
 #                  one that is; clear refuses an open question and an
@@ -89,8 +92,13 @@ if [ -n "$REAL_KOTO" ]; then
              | length == 2
                and (map({(.when.decided_next): .target}) | add) == {"resume": "worktree_discipline_check", "stop": "escalate_upstream_drift"}
                and all(.[]; .when["gates.attempt_recorded.exit_code"] == 0 and .when["gates.decide_from.exit_code"] == 20)'
-        holds "decide_first's gates cannot be overridden" \
-            '[.states.decide_first.gates[] | .overridable] | length == 3 and all(. == false)'
+        holds "decide_first: resume needs decide_laps 0, stop does not" \
+            '[.states.decide_first.transitions[] | select(.when.decide_outcome == "decided")] | map({(.when.decided_next): .when["gates.decide_laps.exit_code"]}) | add
+             == {"resume": 0, "stop": null}'
+        holds "decide_first's four gates cannot be overridden" \
+            '[.states.decide_first.gates[] | .overridable] | length == 4 and all(. == false)'
+        holds "park_own records the question before it parks" \
+            '.states.park_own.default_action.command | test("decide-first-gate.sh\" --record-question .*&& .*park.sh\" mark ")'
         holds "spawn_and_await: pr_finalization and escalate need parked_state 0" \
             '[.states.spawn_and_await.transitions[] | select(.target == "pr_finalization" or .target == "escalate")]
              | length >= 2 and all(.[]; .when["gates.parked_state.exit_code"] == 0)'
@@ -315,6 +323,13 @@ reset
 key "$RUN" decide_origin worktree_discipline_check
 bash "$WORK/tree/skills/work-on/scripts/decide-first-gate.sh" --from "$RUN" > /dev/null; RC=$?
 eq "decide-first-gate.sh --from maps worktree_discipline_check to 20" 20 "$RC"
+key "$RUN" decide_laps_worktree_discipline_check 3
+bash "$WORK/tree/skills/work-on/scripts/decide-first-gate.sh" --laps "$RUN" > /dev/null; RC=$?
+eq "decide-first-gate.sh --laps allows the third arrival" 0 "$RC"
+key "$RUN" decide_laps_worktree_discipline_check 4
+OUT=$(bash "$WORK/tree/skills/work-on/scripts/decide-first-gate.sh" --laps "$RUN"); RC=$?
+eq "decide-first-gate.sh --laps refuses the fourth arrival" 1 "$RC"
+case "$OUT" in *'"rule_id":"work-on/decide-first"'*'past the cap'*) pass "--laps's finding names the cap" ;; *) fail "--laps's finding: [$OUT]" ;; esac
 
 echo
 echo "park_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"

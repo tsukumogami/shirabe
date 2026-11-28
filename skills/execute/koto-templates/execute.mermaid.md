@@ -11,7 +11,7 @@ stateDiagram-v2
     ci_monitor --> done_blocked : gates.monitor_owned_pr.exit_code: 3
     ci_monitor --> done_blocked : gates.monitor_owned_pr.exit_code: 2
     decide_first --> park_own : decide_outcome: raised, gates.attempt_recorded.exit_code: 3, gates.waiting_steps.exit_code: 0
-    decide_first --> worktree_discipline_check : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 20
+    decide_first --> worktree_discipline_check : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 20, gates.decide_laps.exit_code: 0
     decide_first --> escalate_upstream_drift : decide_outcome: decided, decided_next: stop, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 20
     drift_facts --> worktree_sync : gates.drift_facts_recorded.matches: true, gates.plan_intent_recorded.exists: true
     drift_facts --> worktree_sync : facts_status: override, gates.drift_facts_recorded.matches: false
@@ -98,6 +98,9 @@ stateDiagram-v2
     end note
     note left of decide_first
         gate: decide_from
+    end note
+    note left of decide_first
+        gate: decide_laps
     end note
     note left of decide_first
         gate: waiting_steps

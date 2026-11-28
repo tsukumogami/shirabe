@@ -19,10 +19,14 @@ pk_tasks() {
 # pk_ctx <session> <key>: the value, empty when the key is absent; non-zero
 # when koto could not say.
 pk_ctx() {
-    local rc=0
+    local rc=0 v
     koto context exists "$1" "$2" > /dev/null || rc=$?
     case "$rc" in
-        0) koto context get "$1" "$2" ;;
+        0)
+            # An edge clears a key by assigning the literal none.
+            v=$(koto context get "$1" "$2") || return 2
+            [ "$v" = none ] || printf '%s' "$v"
+            ;;
         1) return 0 ;;
         *) return 2 ;;
     esac

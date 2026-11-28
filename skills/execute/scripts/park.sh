@@ -98,9 +98,8 @@ waiting_of() {
 }
 
 # own_question: the open question the run raised for the arrival it stands
-# at, or empty. Read from the record, not from decide_question, which the
-# attempt_recorded gate writes and which may not be written yet when this
-# gate runs beside it.
+# at, or empty. Read from the record, not from decide_question, which
+# park_own's action writes only after decide_first's gates have run.
 own_question() {
     local arrival all q h
     arrival=$(pk_ctx "$RUN" decide_arrival) || return 2
@@ -130,7 +129,7 @@ mark)
         shift
         plan_arg "$@"
         q=$(pk_ctx "$RUN" decide_question) || unreadable "could not read decide_question"
-        [ -n "$q" ] || unreadable "the run holds no decide_question; decide_first's gate writes it when the question is raised"
+        [ -n "$q" ] || unreadable "the run holds no decide_question; park_own's action records it with decide-first-gate.sh --record-question first"
         steps=$(waiting_of "$q") || unreadable "could not read the content of $q"
         [ -n "$steps" ] || steps=$(printf '%s\n' "$TASKS" | jq -r '.name')
         for s in $steps; do

@@ -633,10 +633,12 @@ states:
   # references/question-procedure.md, which the directive points to and does
   # not restate.
   decide_first:
+    # As in /work-on: the action writes decide_arrival and the lap count and
+    # captures nothing, so the directive reads the arrival from koto context.
+    # koto 0.42.0 takes a timeout on a default action only with background:
+    # true, so this foreground one has none; the gates below have theirs.
     default_action:
       command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --arrive "execute-{{PLAN_SLUG}}"'
-      capture_stdout_as: DECIDE_ARRIVAL
-      timeout: 120
       fallback: >-
         koto could not name this arrival at decide_first. Read the command's
         own output above: decide-first-gate.sh exits 2 when koto is missing,
@@ -652,6 +654,14 @@ states:
       decide_from:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --from "{{SESSION_NAME}}"'
+        timeout: 120
+        overridable: false
+      # The lap cap /work-on's decide_first keeps: past three arrivals from
+      # worktree_discipline_check, resume is refused and the run stops or
+      # raises the question.
+      decide_laps:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --laps "{{SESSION_NAME}}"'
         timeout: 120
         overridable: false
       # Every step the raised question names in `waiting` is a step of the
@@ -685,6 +695,7 @@ states:
           decided_next: resume
           gates.attempt_recorded.exit_code: 0
           gates.decide_from.exit_code: 20
+          gates.decide_laps.exit_code: 0
       - target: escalate_upstream_drift
         when:
           decide_outcome: decided
@@ -692,18 +703,20 @@ states:
           gates.attempt_recorded.exit_code: 0
           gates.decide_from.exit_code: 20
 
-  # Parks the steps the run's own question names (every step when it names
-  # none) as parked/<step>, then hands the batch to spawn_and_await, where
+  # Records the run's own open question in decide_question (the default
+  # action, as /work-on's waiting_record does; no gate writes context), then
+  # parks the steps it names (every step when it names none) as
+  # parked/<step>, and hands the batch to spawn_and_await, where
   # the steps that don't depend on the question run and parked_state ends
   # the run at done_waiting once nothing else can move.
   park_own:
     default_action:
-      command: '"{{PLUGIN_ROOT}}/skills/execute/scripts/park.sh" mark "execute-{{PLAN_SLUG}}" --own --plan "{{PLAN_DOC}}"'
-      timeout: 120
+      command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" --record-question "execute-{{PLAN_SLUG}}" && "{{PLUGIN_ROOT}}/skills/execute/scripts/park.sh" mark "execute-{{PLAN_SLUG}}" --own --plan "{{PLAN_DOC}}"'
       fallback: >-
         koto could not park the steps the question names. Read the command's
-        own output above: park.sh exits 2 when koto, the question's content
-        or the PLAN could not be read. Run it again by hand with the same
+        own output above: decide-first-gate.sh --record-question exits 1 when
+        no open question names the arrival, and park.sh exits 2 when koto,
+        the question's content or the PLAN could not be read. Run it again by hand with the same
         arguments, then tick again with nothing submitted.
     gates:
       own_parked:
@@ -814,7 +827,6 @@ states:
   escalate_parked:
     default_action:
       command: '"{{PLUGIN_ROOT}}/skills/execute/scripts/park.sh" reason "execute-{{PLAN_SLUG}}"'
-      timeout: 120
       fallback: >-
         koto could not add the open questions to the failure reason. Read the
         command's own output above, run it again by hand with the same
@@ -836,7 +848,6 @@ states:
   waiting_record:
     default_action:
       command: '"{{PLUGIN_ROOT}}/skills/execute/scripts/park.sh" questions "execute-{{PLAN_SLUG}}"'
-      timeout: 120
       fallback: >-
         koto could not record the questions this run waits on. Read the
         command's own output above, run it again by hand with the same
@@ -1994,9 +2005,9 @@ A worktree-discipline check classified the upstream impact as `intent-changing` 
 
 ## decide_first
 
-The run was about to stop on the upstream change. This is arrival
-DECIDE_ARRIVAL, the name koto just printed: pass it as `--state` to every
-command below. Follow `{{PLUGIN_ROOT}}/references/question-procedure.md`; it
+The run was about to stop on the upstream change. koto printed this
+arrival's name above (`koto context get {{SESSION_NAME}} decide_arrival` reads
+it again): pass it as `--state` to every command below. Follow `{{PLUGIN_ROOT}}/references/question-procedure.md`; it
 says when the run settles the matter itself and when it asks, and what each
 command takes. The commands here are:
 
@@ -2015,7 +2026,8 @@ Then submit:
 - `decide_outcome: decided` with `decided_next: resume` to go back to
   `worktree_discipline_check`, or `decided_next: stop` to take the
   re-evaluation exit. Needs a decided or provisional attempt for this
-  arrival.
+  arrival. From the fourth arrival from `worktree_discipline_check` on,
+  `decide_laps` refuses resume: stop, or raise the question.
 - `decide_outcome: raised` once the undecided attempt and its open question
   are on the record. The named steps are parked and the batch goes on.
 
