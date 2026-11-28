@@ -31,9 +31,40 @@
 #               result maps of the terminals are unchanged. Skipped with a
 #               reason when the clone holds no merge-base, or when the base
 #               already holds /scope's decide_first.
-#
-# The run itself (arrive, raise, continue) is decide-first-gate.sh's and
-# scope-open.sh's; their suites cover it.
+#   one script  the attempt_recorded gates of work-on.md, execute.md and
+#               scope.md run the same script path.
+#   earlier     a session opened on the merge-base's scope.md, with the
+#               branch's skill files as its plugin root, still reaches bail
+#               on a hop's `outcome: bail`. Skipped with the comparison.
+#   the walk    real sessions, opened through scope-open.sh in a scratch koto
+#               store, with a stand-in `manager` session linked as the
+#               dispatcher before anything is raised:
+#                 from hop_design, `outcome: bail`, an undecided attempt, the
+#                 raised question and `raised` end at done_waiting with
+#                 outcome waiting and the question; the work tree and HEAD
+#                 are as before the bail, no forced_artifact is recorded,
+#                 and no document carries the abandonment marker. Two
+#                 rewinds by the open land at waiting_record, then
+#                 decide_first, so the run never stood at bail.
+#                 A second open while the question is open prints waiting=
+#                 and exit 3, and the session stays at done_waiting.
+#                 Once manager answers, the open prints continued=waiting
+#                 and no replacement, the session stands at decide_first,
+#                 the first tick carries `questions`, and `decided` is held
+#                 until an attempt citing the answer is recorded. Then
+#                 `resume` delivers hop_design's own directive again, and in
+#                 a second topic `stop` reaches bail.
+#                 The same pair from full_run_blocked on `next_move:
+#                 abandon`: resume back to full_run_blocked, stop to
+#                 exit_abandonment.
+#               The walk needs a shirabe with `question precedent` (SHIRABE_BIN,
+#               else target/release/shirabe, else PATH): without one it is
+#               skipped with a reason, and under CI (GITHUB_ACTIONS) it fails.
+#               It also needs a path koto admits in a --var for the plugin
+#               root, the checkout or a symlink under TMPDIR; without one it
+#               is skipped with a reason. The answer comes from the stand-in
+#               session with `koto decisions answer --by=session`, a recorded
+#               value, not a person.
 #
 # Exit codes: 0 all cases pass (or koto or jq is absent, every case skipped);
 # 1 a case failed.
@@ -41,6 +72,9 @@
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
+unset KOTO_RUN_MODE CLAUDE_CODE_SESSION_ATTENDED CLAUDE_CONFIG_DIR CLAUDE_CODE_SESSION_ID
+unset KOTO_DECIDER KOTO_DECIDER_API_KEY KOTO_DECIDER_ENDPOINT
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SKILL_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 SRC_ROOT=$(cd "$SKILL_DIR/../.." && pwd)
@@ -56,7 +90,7 @@ REAL_KOTO=$(command -v koto || true)
 [ -n "$REAL_KOTO" ] || { echo "SKIP: koto is not on PATH -- no case ran"; exit 0; }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/scope-decide-first.XXXXXX") || { echo "FAIL: mktemp"; exit 1; }
-trap 'rm -rf "$WORK"' EXIT
+ktg_on_exit 'rm -rf "$WORK"'
 
 JSON=$("$REAL_KOTO" template compile "$SKILL_DIR/koto-templates/scope.md" 2> "$WORK/compile.err" | tail -1)
 if [ -z "$JSON" ] || [ ! -f "$JSON" ]; then
@@ -167,6 +201,301 @@ else
         for t in $(jq -r '.states | to_entries[] | select(.value.terminal == true) | .key' "$BASE_JSON"); do
             eq "the result map of $t is unchanged" "$(jq -cS --arg t "$t" '.states[$t].result' "$BASE_JSON")" "$(jq -cS --arg t "$t" '.states[$t].result' "$JSON")"
         done
+    fi
+fi
+
+# --- one script -----------------------------------------------------------------
+
+gate_script() { # gate_script <template> -- attempt_recorded's script path
+    local j
+    j=$("$REAL_KOTO" template compile "$1" 2>> "$WORK/compile.err" | tail -1)
+    [ -n "$j" ] && [ -f "$j" ] || return 1
+    jq -r '.states.decide_first.gates.attempt_recorded.command' "$j" \
+        | grep -o '{{PLUGIN_ROOT}}/[A-Za-z0-9_./-]*\.sh' | sort -u
+}
+G_SCOPE=$(gate_script "$SKILL_DIR/koto-templates/scope.md")
+G_EXEC=$(gate_script "$SRC_ROOT/skills/execute/koto-templates/execute.md")
+G_WORK=$(gate_script "$SRC_ROOT/skills/work-on/koto-templates/work-on.md")
+eq "scope.md's attempt_recorded runs /work-on's decide-first-gate.sh" \
+    "{{PLUGIN_ROOT}}/skills/work-on/scripts/decide-first-gate.sh" "$G_SCOPE"
+eq "execute.md's attempt_recorded runs the same script" "$G_SCOPE" "$G_EXEC"
+eq "work-on.md's attempt_recorded runs the same script" "$G_SCOPE" "$G_WORK"
+
+# --- the walk: setup ------------------------------------------------------------
+
+clean() { case "$1" in *[!a-zA-Z0-9._/:@\ -]*) return 1 ;; esac; return 0; }
+
+WALK_WHY=""
+SHIRABE=""
+if [ -n "${SHIRABE_BIN:-}" ] && [ -x "$SHIRABE_BIN" ]; then
+    SHIRABE=$SHIRABE_BIN
+elif [ -x "$SRC_ROOT/target/release/shirabe" ]; then
+    SHIRABE="$SRC_ROOT/target/release/shirabe"
+else
+    SHIRABE=$(command -v shirabe || true)
+fi
+case "$SHIRABE" in /*) ;; *) SHIRABE="" ;; esac
+if [ -z "$SHIRABE" ] || ! "$SHIRABE" question precedent --help > /dev/null 2>&1; then
+    WALK_WHY="no shirabe with \`question precedent\` (SHIRABE_BIN, target/release/shirabe or PATH); build the branch's with cargo build --release -p shirabe"
+fi
+PLUGIN=""
+if clean "$SRC_ROOT"; then
+    PLUGIN="$SRC_ROOT"
+elif clean "$WORK"; then
+    ln -s "$SRC_ROOT" "$WORK/plugin" && PLUGIN="$WORK/plugin"
+fi
+[ -n "$PLUGIN" ] || WALK_WHY="${WALK_WHY:+$WALK_WHY; }neither the checkout nor TMPDIR is a path koto admits in a --var"
+command -v git > /dev/null || WALK_WHY="${WALK_WHY:+$WALK_WHY; }git is not on PATH"
+
+# A scratch git identity, so the fixtures commit with no caller config.
+W="$WORK/walk"
+mkdir -p "$W/bin" || exit 1
+export GIT_CONFIG_NOSYSTEM=1
+export GIT_CEILING_DIRECTORIES="$W"
+git config --global user.email t@example.invalid
+git config --global user.name t
+git config --global init.defaultBranch main
+
+# repo <tag> -- a work tree on a named branch (branch_check needs one).
+repo() {
+    local r="$W/r-$1"
+    mkdir -p "$r/docs" && git -C "$r" init -q && git -C "$r" commit -q --allow-empty -m fixture \
+        && git -C "$r" checkout -q -b scope-fixture
+}
+
+# --- earlier --------------------------------------------------------------------
+
+if [ -n "$BASE_WHY" ]; then
+    echo "SKIP: earlier: $BASE_WHY"
+elif [ -z "$PLUGIN" ]; then
+    echo "SKIP: earlier: neither the checkout nor TMPDIR is a path koto admits in a --var"
+else
+    repo old
+    OLD_STATE=$(cd "$W/r-old" && {
+        "$REAL_KOTO" init scope-old --template "$WORK/base/scope.md" --var TOPIC=old --var PLUGIN_ROOT="$PLUGIN" \
+            --var PLUGIN_ROOT_PLACEMENT=outside --var EXEC_MODE=auto > /dev/null 2> "$WORK/old.err" || exit 0
+        "$REAL_KOTO" next scope-old --no-cleanup > /dev/null 2>> "$WORK/old.err"
+        for ev in '{"setup_result":"ready"}' '{"discovery_result":"proposed"}' '{"author_decision":"proceed"}' \
+                '{"outcome":"skipped"}' '{"outcome":"skipped"}' '{"outcome":"bail","detail":"an upstream change alters the intent"}'; do
+            "$REAL_KOTO" next scope-old --no-cleanup --with-data "$ev" > /dev/null 2>> "$WORK/old.err"
+        done
+        "$REAL_KOTO" status scope-old 2>> "$WORK/old.err" | jq -r '.current_state // ""'
+    })
+    eq "a session on the merge-base's scope.md, ticked with the branch's files, reaches bail on a hop's bail" \
+        "bail" "$OLD_STATE"
+    [ "$OLD_STATE" = bail ] || echo "  koto: $(tail -3 "$WORK/old.err")"
+fi
+
+# --- the walk -------------------------------------------------------------------
+
+if [ -n "$WALK_WHY" ]; then
+    if [ "${GITHUB_ACTIONS:-}" = true ]; then
+        fail "the walk can't run under CI: $WALK_WHY"
+    else
+        echo "SKIP: the walk: $WALK_WHY"
+    fi
+else
+    ln -s "$SHIRABE" "$W/bin/shirabe"
+    PATH="$W/bin:$PATH"
+    export PATH
+
+    # The dispatcher every walk session is linked to before it raises.
+    cat > "$W/manager.md" <<'EOF'
+---
+name: manager
+version: "1.0"
+initial_state: wait
+states:
+  wait:
+    accepts:
+      done:
+        type: enum
+        values: [yes]
+        required: true
+    transitions:
+      - target: end
+        when:
+          done: yes
+  end:
+    terminal: true
+---
+
+## wait
+
+Wait.
+
+## end
+
+Done.
+EOF
+    (cd "$W" && "$REAL_KOTO" init manager --template "$W/manager.md" > /dev/null 2> "$W/init.err") \
+        || fail "koto init manager: $(cat "$W/init.err")"
+
+    jq -n '{
+        context: "The PRD names one export format, and an upstream change now names two.",
+        problem: "The design can carry one format or both, and the two differ in what ships first.",
+        question: "Which export formats does the first release carry?",
+        options: [
+            {label: "CSV only", reason: "What the PRD named; the second format waits."},
+            {label: "CSV and JSON", reason: "What the upstream change names; the design grows."}
+        ],
+        ground: "The choice changes the feature the PRD describes.",
+        waiting: [],
+        label: "export formats"
+    }' > "$W/q.json"
+
+    STATE=""
+    RESP=""
+    # open_scope <tag> -- scope-open.sh as the skill runs it, from the tag's
+    # work tree; OPEN_OUT, OPEN_RC.
+    open_scope() {
+        local d
+        d=$(bash "$SRC_ROOT/scripts/koto-open.sh" --alloc-dir) || { fail "$1: koto-open.sh --alloc-dir"; return 1; }
+        printf '["%s","--auto"]' "$1" > "$d/args.json"
+        OPEN_OUT=$(cd "$W/r-$1" && bash "$SCRIPT_DIR/scope-open.sh" --plugin-root "$PLUGIN" "$d/args.json" 2> "$W/open.err")
+        OPEN_RC=$?
+    }
+    tick() { # tick <tag> [json] -- RESP, STATE
+        if [ -n "${2:-}" ]; then
+            RESP=$(cd "$W/r-$1" && "$REAL_KOTO" next "scope-$1" --no-cleanup --with-data "$2" 2> "$W/tick.err")
+        else
+            RESP=$(cd "$W/r-$1" && "$REAL_KOTO" next "scope-$1" --no-cleanup 2> "$W/tick.err")
+        fi
+        STATE=$(cd "$W/r-$1" && "$REAL_KOTO" status "scope-$1" 2>> "$W/tick.err" | jq -r '.current_state // ""')
+    }
+    at() { # at <label> <want>
+        if [ "$STATE" = "$2" ]; then pass "$1: at $2"; else
+            fail "$1: at [$STATE], want $2: $(printf '%s' "$RESP" | jq -c '{error, blocking_conditions}' 2> /dev/null | cut -c1-500) $(tail -2 "$W/tick.err")"
+        fi
+    }
+    ctx() { (cd "$W/r-$1" && "$REAL_KOTO" context get "scope-$1" "$2" 2> /dev/null); }
+    # reach <tag> <hop_design|full_run_blocked> -- open, link the dispatcher,
+    # walk to the origin.
+    reach() {
+        repo "$1" || { fail "$1: the fixture repository"; return 1; }
+        open_scope "$1"
+        [ "$OPEN_RC" -eq 0 ] || { fail "$1: scope-open.sh exited $OPEN_RC: $OPEN_OUT $(cat "$W/open.err")"; return 1; }
+        (cd "$W/r-$1" && "$REAL_KOTO" session link "scope-$1" --dispatched-by manager > /dev/null 2> "$W/link.err") \
+            || { fail "$1: koto session link: $(cat "$W/link.err")"; return 1; }
+        tick "$1"
+        tick "$1" '{"setup_result":"ready"}'
+        tick "$1" '{"discovery_result":"proposed"}'
+        tick "$1" '{"author_decision":"proceed"}'
+        tick "$1" '{"outcome":"skipped"}'
+        tick "$1" '{"outcome":"skipped"}'
+        if [ "$2" = full_run_blocked ]; then
+            tick "$1" '{"outcome":"skipped"}'
+            tick "$1" '{"outcome":"skipped"}'
+            tick "$1" '{"exit":"full-run"}'
+            tick "$1" '{"exit_artifacts":"present"}'
+        fi
+        at "$1: reach" "$2"
+        [ "$STATE" = "$2" ]
+    }
+    # wait_on <tag> <bail json> -- bail, attempt, raise, `raised`; Q, ARRIVAL.
+    wait_on() {
+        local t=$1 a head0
+        head0=$(git -C "$W/r-$t" rev-parse HEAD)
+        tick "$t" "$2"
+        at "$t: the bail" decide_first
+        ARRIVAL=$(ctx "$t" decide_arrival)
+        a=$(cd "$W/r-$t" && shirabe question attempt --in "scope-$t" --what "export formats" --result undecided --state "$ARRIVAL" 2> "$W/att.err" | jq -r '.id // empty')
+        [ -n "$a" ] || fail "$t: shirabe question attempt: $(cat "$W/att.err")"
+        Q=$(cd "$W/r-$t" && shirabe question raise --in "scope-$t" --content "$W/q.json" --attempt "$a" --state "$ARRIVAL" 2> "$W/raise.err" | jq -r '.identity // empty')
+        [ -n "$Q" ] || fail "$t: shirabe question raise: $(cat "$W/raise.err")"
+        tick "$t" '{"decide_outcome":"raised"}'
+        at "$t: raised" done_waiting
+        local st
+        st=$(cd "$W/r-$t" && "$REAL_KOTO" status "scope-$t" 2> /dev/null)
+        eq "$t: the result's outcome is waiting" waiting "$(printf '%s' "$st" | jq -r '.result.payload.outcome // ""')"
+        eq "$t: the result's question is the one raised" "$Q" "$(printf '%s' "$st" | jq -r '.result.payload.question // ""')"
+        eq "$t: the work tree is as it was" "" "$(git -C "$W/r-$t" status --porcelain)"
+        eq "$t: HEAD is as it was" "$head0" "$(git -C "$W/r-$t" rev-parse HEAD)"
+        if (cd "$W/r-$t" && "$REAL_KOTO" context exists "scope-$t" forced_artifact > /dev/null 2>&1); then
+            fail "$t: forced_artifact is recorded"
+        else
+            pass "$t: no forced_artifact is recorded"
+        fi
+        if grep -rl 'scope-status-block: abandonment' "$W/r-$t/docs" > /dev/null 2>&1; then
+            fail "$t: a document carries the abandonment marker"
+        else
+            pass "$t: no document carries the abandonment marker"
+        fi
+    }
+    answer() { # answer <tag> -- manager answers Q; ANS
+        local id
+        id=$(cd "$W" && "$REAL_KOTO" decisions answer --in=manager --text="CSV only" --by=session -- "scope-$1" "${Q##*/}" 2> "$W/ans.err" \
+            | jq -r '.decision.id // .id // empty')
+        [ -n "$id" ] || fail "$1: manager could not answer $Q: $(cat "$W/ans.err")"
+        ANS="manager:$id"
+    }
+    # continue_run <tag> -- the open after the answer, then the held tick and
+    # the citing attempt.
+    continue_run() {
+        local t=$1
+        open_scope "$t"
+        eq "$t: the open continues the run" continued=waiting "$(printf '%s\n' "$OPEN_OUT" | head -n 1)"
+        case "$OPEN_OUT" in
+            *replaced*|*moved_to=*) fail "$t: the open replaced the session: $OPEN_OUT" ;;
+            *) pass "$t: the open replaced nothing" ;;
+        esac
+        tick "$t"
+        at "$t: continued" decide_first
+        if printf '%s' "$RESP" | jq -e '.questions | type == "array" and length > 0' > /dev/null 2>&1; then
+            pass "$t: the first tick carries questions"
+        else
+            fail "$t: the first tick carries no questions: $(printf '%s' "$RESP" | jq -c 'del(.directive, .details)' | cut -c1-400)"
+        fi
+        ARRIVAL=$(ctx "$t" decide_arrival)
+        tick "$t" '{"decide_outcome":"decided","decided_next":"resume"}'
+        at "$t: decided with no citing attempt is held" decide_first
+        (cd "$W/r-$t" && shirabe question attempt --in "scope-$t" --what "export formats" --result decided --chosen "CSV only" \
+            --basis "$ANS" --state "$ARRIVAL") > "$W/att.out" 2> "$W/att.err" \
+            || fail "$t: the citing attempt: $(cat "$W/att.out" "$W/att.err")"
+    }
+
+    echo "--- from hop_design: wait, then resume"
+    if reach dsr hop_design; then
+        DESIGN_DIRECTIVE=$(printf '%s' "$RESP" | jq -r '.directive // ""')
+        wait_on dsr '{"outcome":"bail","detail":"an upstream change alters the PRD intent"}'
+        open_scope dsr
+        eq "dsr: an open while the question is open exits 3" 3 "$OPEN_RC"
+        eq "dsr: and prints waiting= and session=" "waiting=$Q
+session=scope-dsr" "$OPEN_OUT"
+        STATE=$(cd "$W/r-dsr" && "$REAL_KOTO" status scope-dsr 2> /dev/null | jq -r '.current_state // ""')
+        at "dsr: still waiting" done_waiting
+        answer dsr
+        continue_run dsr
+        tick dsr '{"decide_outcome":"decided","decided_next":"resume"}'
+        at "dsr: resume" hop_design
+        eq "dsr: hop_design's own directive is delivered again" "$DESIGN_DIRECTIVE" "$(printf '%s' "$RESP" | jq -r '.directive // ""')"
+    fi
+
+    echo "--- from hop_design: wait, then stop"
+    if reach dss hop_design; then
+        wait_on dss '{"outcome":"bail","detail":"an upstream change alters the PRD intent"}'
+        answer dss
+        continue_run dss
+        tick dss '{"decide_outcome":"decided","decided_next":"stop"}'
+        at "dss: stop" bail
+    fi
+
+    echo "--- from full_run_blocked: wait, then resume"
+    if reach fbr full_run_blocked; then
+        wait_on fbr '{"next_move":"abandon","detail":"the chain cannot complete without the owner"}'
+        answer fbr
+        continue_run fbr
+        tick fbr '{"decide_outcome":"decided","decided_next":"resume"}'
+        at "fbr: resume" full_run_blocked
+    fi
+
+    echo "--- from full_run_blocked: wait, then stop"
+    if reach fbs full_run_blocked; then
+        wait_on fbs '{"next_move":"abandon","detail":"the chain cannot complete without the owner"}'
+        answer fbs
+        continue_run fbs
+        tick fbs '{"decide_outcome":"decided","decided_next":"stop"}'
+        at "fbs: stop" exit_abandonment
     fi
 fi
 
