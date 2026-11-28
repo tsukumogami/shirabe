@@ -111,8 +111,9 @@
 #   0 -- the live sites and the records agree exactly
 #   1 -- at least one unenumerated site, stale record, count mismatch, or
 #        malformed record
-#   2 -- usage error (a named path does not exist, or the enumeration has no
-#        record block)
+#   2 -- usage or environment error (a named path does not exist, the
+#        enumeration has no record block, or the temporary directory could not
+#        be made, written or read back, so nothing was verified)
 
 set -uo pipefail
 
@@ -140,6 +141,28 @@ usage_error() {
 WORK=""
 cleanup() { [ -n "$WORK" ] && rm -rf "$WORK"; }
 trap cleanup EXIT
+
+# The verdict is built from files under $WORK, so a write or read-back that
+# fails there must end the run (shirabe#2222). Unchecked, a directory removed
+# mid-run turned every append and read into a "No such file or directory" on
+# stderr, the join came back empty, no finding was counted, and the run
+# printed OK with empty counts: a pass for a scan that never finished. Exit 2,
+# not 1, because the scan's result is unknown rather than a finding.
+scratch_lost() {
+  echo "FAIL: temporary directory $WORK is gone or unreadable: cannot $1" >&2
+  echo "  The scan's working files were lost mid-run, so nothing was verified." >&2
+  echo "  Run it again; if it recurs, point TMPDIR at a private directory." >&2
+  exit 2
+}
+
+# need_scratch FILE... -- each FILE under $WORK must be readable before the
+# run reads it back.
+need_scratch() {
+  local f
+  for f in "$@"; do
+    [ -r "$WORK/$f" ] || scratch_lost "read back $f"
+  done
+}
 
 # ---------------------------------------------------------------------------
 # Declared tools
@@ -468,7 +491,8 @@ scan_redirects() {
     trim "$line"
     [ -n "$TRIMMED" ] || continue
     names_declared_tool "$TRIMMED" || continue
-    printf '%s\t%s\n' "$rel" "$TRIMMED" >> "$WORK/live.raw"
+    printf '%s\t%s\n' "$rel" "$TRIMMED" >> "$WORK/live.raw" \
+      || scratch_lost "write live.raw"
   done < "$file"
 }
 
@@ -500,7 +524,8 @@ scan_unread_vars() {
     # itself cannot match, because there the name is bare.
     uses=$(grep -c "\\\$[{]\\{0,1\\}$var\\([^A-Za-z0-9_]\\|\$\\)" "$file")
     [ "$uses" -eq 0 ] || continue
-    printf '%s\t%s\n' "$rel" "$TRIMMED" >> "$WORK/live.raw"
+    printf '%s\t%s\n' "$rel" "$TRIMMED" >> "$WORK/live.raw" \
+      || scratch_lost "write live.raw"
   done < "$file"
 }
 
@@ -525,7 +550,10 @@ read_enumeration() {
   fi
 
   awk '/^```tsv$/ { inb = 1; next } inb && /^```$/ { inb = 0 } inb' "$file" \
-    > "$WORK/enum.block"
+    > "$WORK/enum.block" || scratch_lost "write enum.block"
+  # A loop whose input redirect fails runs zero times, which would read as an
+  # enumeration with no records.
+  need_scratch enum.block
 
   local lineno=0 line nf path cmd count status why cite
   while IFS= read -r line || [ -n "$line" ]; do
@@ -593,7 +621,8 @@ read_enumeration() {
       continue
     fi
 
-    printf '%s\t%s\t%s\n' "$path" "$cmd" "$count" >> "$WORK/enum.keys"
+    printf '%s\t%s\t%s\n' "$path" "$cmd" "$count" >> "$WORK/enum.keys" \
+      || scratch_lost "write enum.keys"
   done < "$WORK/enum.block"
 }
 
@@ -652,8 +681,8 @@ main() {
   fi
 
   WORK=$(mktemp -d) || usage_error "cannot make a temporary directory"
-  : > "$WORK/live.raw"
-  : > "$WORK/enum.keys"
+  : > "$WORK/live.raw" || scratch_lost "write live.raw"
+  : > "$WORK/enum.keys" || scratch_lost "write enum.keys"
 
   # Declarations: an explicit root, else whatever the scan targets carry, else
   # the repo's own skills tree. A fixture tree supplies its own requires.tsv.
@@ -687,13 +716,18 @@ EOF
   done
 
   # Collapse to the join key: path + trimmed command + occurrence count.
+  need_scratch live.raw
   awk -F'\t' '{ n[$1 FS $2]++ } END { for (k in n) print k FS n[k] }' \
-    "$WORK/live.raw" | LC_ALL=C sort > "$WORK/live.keys"
+    "$WORK/live.raw" | LC_ALL=C sort > "$WORK/live.keys" \
+    || scratch_lost "write live.keys"
 
   read_enumeration "$ENUM_FILE"
 
+  # An awk that cannot open its inputs prints nothing, which would read as a
+  # join with no findings; its status is what tells the two apart.
+  need_scratch live.keys enum.keys
   local out
-  out=$(compare)
+  out=$(compare) || scratch_lost "join live.keys with enum.keys"
 
   local kind path cmd a b
   while IFS= read -r line; do
@@ -741,9 +775,18 @@ EOF
     exit 1
   fi
 
-  local live_n enum_n
-  live_n=$(awk -F'\t' '{ n += $3 } END { print n + 0 }' "$WORK/live.keys")
-  enum_n=$(wc -l < "$WORK/enum.keys" | tr -d ' ')
+  # The OK line is printed only when every count in it is a number.
+  local live_n enum_n n
+  need_scratch live.keys enum.keys
+  live_n=$(awk -F'\t' '{ n += $3 } END { print n + 0 }' "$WORK/live.keys") \
+    || scratch_lost "count the sites in live.keys"
+  enum_n=$(wc -l < "$WORK/enum.keys" | tr -d ' ') \
+    || scratch_lost "count the records in enum.keys"
+  for n in "$files_scanned" "$live_n" "$enum_n"; do
+    case "$n" in
+      ''|*[!0-9]*) scratch_lost "count the result: got '$n' where a number belongs" ;;
+    esac
+  done
   echo "check-tool-diagnostic-discards: OK ($files_scanned file(s) scanned, $live_n site(s) in $enum_n record(s), tools:$TOOLS)"
 }
 
