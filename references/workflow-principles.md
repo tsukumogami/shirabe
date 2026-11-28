@@ -62,10 +62,13 @@ implicit in the procedure.
 
 - Decision blocks captured in the design doc carry their assumptions
   and consequences forward.
-- Under `--auto`, judgment-call gates record `confirmed` or `assumed`
-  (the latter at high review priority) rather than hard-stopping.
-  Recording is the durable home; the loud surfacing in the PR body and
-  terminal summary is the visibility.
+- Under `--auto`, a judgment-call gate the evidence settles records
+  `confirmed`. One it does not settle takes the cheap-or-costly test in
+  `references/question-procedure.md`: a cheap choice is decided
+  provisionally and recorded `assumed` (at high review priority), and a
+  costly one is raised as a question while work that does not depend on
+  it goes on. Recording is the durable home; the loud surfacing in the PR
+  body and terminal summary is the visibility.
 - An implicit decision called out in the design's Implementation
   Approach makes the assumption visible to the plan author.
 

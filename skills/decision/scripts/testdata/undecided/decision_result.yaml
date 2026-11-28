@@ -1,0 +1,18 @@
+# The result a decider returns for this fixture, under a parent whose
+# session is the one the suite loads it into. `attempt` is the id the suite
+# records; the keys are where the suite puts the other files.
+decision_result:
+  status: "UNDECIDED"
+  question: "Which licence should the package be published under?"
+  recommendation:
+    name: "MIT"
+    reason: "It matches the licence of the two libraries the package wraps"
+  alternatives:
+    - name: "MIT"
+      reason: "Matches the wrapped libraries"
+    - name: "Apache-2.0"
+      reason: "Adds a patent grant the wrapped libraries do not offer"
+  missing: "Whether the owner wants a patent grant on this package"
+  attempt: "<session>:<id>"
+  question_key: "work/decision-1/question.json"
+  report_key: "work/decision_1_report.md"

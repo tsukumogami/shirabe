@@ -45,12 +45,12 @@
       "id": 3,
       "name": "auto-mode-no-interaction",
       "prompt": "/design --auto rate-limiting",
-      "expected_output": "Design skill runs in --auto mode. Reads references/decision-protocol.md for decision points. Creates key work/decisions.md in the design-<topic> session to track decisions. No AskUserQuestion calls at any phase. Phase 1 decomposes without user confirmation. Phase 2 decision agents run without presenting recommendations to user. Phase 6 takes the recommended verdict instead of asking for approval. All choices use the auto decision protocol. Complexity assessment at the end still presented but does not block. Terminal summary lists all assumptions made.",
+      "expected_output": "Design skill runs in --auto mode. Reads references/decision-protocol.md for decision points. Creates key work/decisions.md in the design-<topic> session to track decisions. No AskUserQuestion calls at any phase. Phase 1 decomposes without user confirmation. Phase 2 decision agents run without presenting recommendations to user; a decision whose evidence does not settle it is decided provisionally when it is cheap to undo and comes back UNDECIDED and is raised as a question when it is costly. Phase 6 takes the recommended verdict instead of asking for approval. All choices use the auto decision protocol. Complexity assessment at the end still presented but does not block. Terminal summary lists all assumptions made.",
       "files": [],
       "expectations": [
         "Transcript follows ${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md at decision points and creates key work/decisions.md in the design-<topic> session",
         "Transcript makes no AskUserQuestion call at any phase",
-        "Transcript decomposes in Phase 1 and resolves the decision questions in Phase 2 without asking the user to confirm them",
+        "Transcript decomposes in Phase 1 and handles the decision questions in Phase 2 without asking the user to confirm them: each is settled, decided provisionally when cheap to undo, or raised as a question when costly",
         "Transcript takes the recommended verdict at Phase 6 and names it, and lists the assumptions it made in its summary"
       ]
     },
@@ -327,6 +327,26 @@
         "No docs/designs/DESIGN-cache-layer.md is written and no commit is made"
       ],
       "id": 25
+    },
+    {
+      "id": 26,
+      "name": "handed-back-question-raised",
+      "prompt": "/design --auto package-publishing (one of its three decisions, which licence to publish under, has no evidence that settles it and cannot be undone once a version is out)",
+      "expected_output": "Phase 2 runs its three decisions. The licence decider returns status UNDECIDED. /design does not treat it as a failure and does not retry it: it runs check-undecided.sh on design-<topic> work/decision_<N>_report.md, raises the question with `koto context get design-<topic> <question_key> | shirabe question raise --in design-<topic> --content - --attempt <id>`, records the decision as undecided in the manifest with the question's identity, and finishes the other two decisions. It writes no Considered Options entry with a chosen option and no assumption for the licence, and stops before Phase 3 with the question open, addressed to its dispatcher or to person:owner.",
+      "expectations": [
+        "Transcript treats the UNDECIDED result as neither a failure nor something to retry",
+        "Transcript runs check-undecided.sh before raising the question",
+        "Transcript raises the question from design-<topic> with the decider's attempt id",
+        "Transcript finishes the decisions that do not depend on the answer",
+        "Transcript writes no chosen option and no assumed block for the open question, and stops before Phase 3"
+      ]
+    },
+    {
+      "id": 27,
+      "name": "handoff-decision-undecided-design",
+      "grader": "script",
+      "handoff": "decision",
+      "run": "scripts/cases/decision-handoff.sh design"
     }
   ]
 }

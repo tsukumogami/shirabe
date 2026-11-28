@@ -35,6 +35,20 @@ Low-priority assumptions (2): see wip/<workflow>_<topic>_decisions.md
 Full decision log: wip/<workflow>_<topic>_decisions.md
 ```
 
+An undecided decision appears in the summary as an open question, not as
+an assumption: no choice was made, so there is nothing to accept or
+override.
+
+```
+Open questions (1), waiting on an answer:
+
+  cache-approach (undecided)
+      Question: Which cache invalidation strategy?
+      Recommendation: TTL-based (the evidence leans this way, 60/40)
+      Raised as: <identity>, addressed to person:owner
+      Waiting: Phases 3-6 of the design
+```
+
 ## PR Body Section
 
 Appended to the PR body when a PR is created. Visible to all reviewers.
@@ -99,6 +113,12 @@ Log immediately when made, not batched for the end:
 
 Only log `status="assumed"` decisions with `priority="high"`. Low-priority
 assumptions are silent during execution.
+
+An undecided decision is logged as the question it raised, when it is raised:
+
+```
+[design] Phase 2: decision 2/3 undecided -- question raised (<identity>)
+```
 
 ## Implementation Notes
 

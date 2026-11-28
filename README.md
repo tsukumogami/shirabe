@@ -495,7 +495,12 @@ the owner and at and below a session, plus answers nobody has cited yet;
 out byte-identical across runs and sessions and after the raising session has
 ended; and
 `question answer` records the owner's answer by handing koto the pointer to
-the prompt the owner answered. It never takes the answer as text. The
+the prompt the owner answered. It never takes the answer as text.
+`question attempt` records what came of an attempt to decide, `decided`,
+`undecided` or `provisional`. It takes `provisional` only from a session that
+declares itself unattended and calls the choice cheap to undo; it checks that
+those declarations are consistent, not that they are true. An undecided attempt is what `raise --attempt` rests a question
+on. The
 arguments, output fields, exit codes and stored format are in
 [docs/guides/question-commands.md](docs/guides/question-commands.md), and
 what a session does with a question is in

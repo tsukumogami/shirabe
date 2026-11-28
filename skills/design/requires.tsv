@@ -24,3 +24,15 @@ koto	context get	-	always
 koto	context exists	-	always
 koto	context remove	-	always
 koto	context list	--prefix	always
+#
+# Phase 2 raises the question a decider hands back UNDECIDED with
+# `shirabe question raise --attempt`, presents it in an attended turn with
+# `shirabe question render` and records the reply with `shirabe question
+# answer --in`; after the answer it records a decided attempt with
+# `shirabe question attempt`, and reads the answer with `koto decisions
+# history`.
+shirabe	question attempt	--in,--what,--result	always
+shirabe	question raise	--in,--content,--attempt	always
+shirabe	question render	-	always
+shirabe	question answer	--in	always
+koto	decisions history	-	always

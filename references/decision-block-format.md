@@ -35,7 +35,7 @@ adds 8ms latency. Consistency requirements are eventual (30s acceptable).
 | Attribute | Required | Values | Purpose |
 |-----------|----------|--------|---------|
 | `id` | Yes | kebab-case, unique within artifact | Cross-referencing, invalidation targeting |
-| `status` | Yes | `confirmed`, `assumed`, `escalated` | Review triage |
+| `status` | Yes | `confirmed`, `assumed`, `escalated`, `undecided` | Review triage |
 
 ## Required Fields
 
@@ -78,13 +78,20 @@ contradicting evidence.
 
 ### assumed
 
-Best guess, pending review. Assigned when:
+A choice the evidence clearly favours that rests on stated assumptions, or a
+provisional decision, pending review. Assigned when:
 
 | Category | Condition |
 |----------|-----------|
-| Researchable | Agent couldn't find the answer, made best guess |
-| Judgment call | Heuristic was close (no clear winner), or contradicting evidence exists |
+| Researchable | The evidence clearly favours one option, and a fact the choice does not turn on couldn't be found; the assumption is stated |
+| Judgment call | A provisional decision: an unattended run's close call that is cheap to undo (`references/question-procedure.md`) |
 | Approval gate | Always -- auto-approval assumes the artifact meets the user's standards |
+
+A close call (no clear winner, or contradicting evidence) or a fact the
+choice turns on that couldn't be found is not settled by the evidence. It is
+never written as an `assumed` best guess. An attended run asks the person
+and records the reply as `confirmed`; otherwise it is decided provisionally
+under the cheap-or-costly test, in an unattended run, or it ends `undecided`.
 
 ### escalated
 
@@ -92,6 +99,20 @@ Lightweight decision upgraded to heavyweight. The agent started the 3-step
 micro-protocol but determined during gather (Step 2) that the decision needs
 deeper evaluation. The partial block's Question and Evidence carry forward
 as seed context for the decision skill.
+
+### undecided
+
+No option was chosen. The evidence did not settle the question (no clear
+winner, or a fact the choice rests on could not be found), and nobody could be
+asked in the turn. The block holds the Question, a Recommendation with its
+reason, the Alternatives with a reason each and What Would Settle It, and no
+Choice; the question is raised on the record and the caller waits on its
+answer. An undecided block is the one block with no Choice field. When the
+answer arrives, the caller writes a new block with the answer as its Choice
+and `confirmed` status, citing the answer.
+
+A provisional decision (an unattended run's cheap-to-undo choice, see
+`references/question-procedure.md`) is written as `assumed`.
 
 ## Review Priority
 

@@ -36,11 +36,11 @@
       "id": 3,
       "name": "design-multi-decision-auto",
       "prompt": "/design --auto caching-layer",
-      "expected_output": "Design skill runs in --auto mode. Phase 0 sets up. Phase 1 decomposes the problem into 2-4 independent decision questions (e.g., cache invalidation strategy, storage backend, TTL policy). Phase 2 spawns one decider agent per question in parallel via Task tool. Each decider reads the decision SKILL.md and runs its phases. Phase 3 cross-validates assumptions across decisions. Progress lines emitted during Phase 2 as each agent completes. No AskUserQuestion calls anywhere. All choices recorded as decision blocks with status='assumed' or 'confirmed'. Terminal summary at end with actionable next steps per assumption.",
+      "expected_output": "Design skill runs in --auto mode. Phase 0 sets up. Phase 1 decomposes the problem into 2-4 independent decision questions (e.g., cache invalidation strategy, storage backend, TTL policy). Phase 2 spawns one decider agent per question in parallel via Task tool. Each decider reads the decision SKILL.md and runs its phases. Phase 3 cross-validates assumptions across decisions. Progress lines emitted during Phase 2 as each agent completes. No AskUserQuestion calls anywhere. A choice the evidence settles is recorded as a decision block with status='assumed' or 'confirmed'; one it does not settle goes through the cheap-or-costly test in references/question-procedure.md, so a cheap one is decided provisionally (an assumed block) and a costly one comes back UNDECIDED and is raised as a question, with no chosen option written for it. Terminal summary at end with actionable next steps per assumption.",
       "assertions": [
         "Between 2 and 4 independent decision questions are identified for the caching layer",
         "No AskUserQuestion calls are made anywhere (--auto mode)",
-        "Decision blocks appear in the output with status='assumed' or status='confirmed'",
+        "Decision blocks appear in the output with status='assumed' or status='confirmed', or status='undecided' for a question the evidence does not settle and whose choice is costly to undo",
         "Progress markers are emitted as each decision completes",
         "A terminal summary is produced listing assumptions and next steps",
         "Each decision is handled using the decision skill's tier/phase framework"
@@ -77,7 +77,7 @@
       "id": 6,
       "name": "lightweight-protocol-during-plan",
       "prompt": "/plan --auto docs/designs/DESIGN-caching-layer.md",
-      "expected_output": "Plan skill runs in --auto mode. Hits the decomposition strategy decision (walking skeleton vs horizontal). Instead of AskUserQuestion, the agent: (1) frames the question, (2) gathers evidence from the design doc's component coupling, (3) picks the strategy with strongest evidence, (4) writes a decision block with the choice and assumptions inline in the decomposition artifact. The decision block uses the compact variant if the choice is clear. Records in the consolidated decisions file.",
+      "expected_output": "Plan skill runs in --auto mode. Hits the decomposition strategy decision (walking skeleton vs horizontal). Instead of AskUserQuestion, the agent: (1) frames the question, (2) gathers evidence from the design doc's component coupling, (3) picks the strategy the evidence clearly favours (were it a close call, it would apply the cheap-or-costly test instead of taking its recommendation), (4) writes a decision block with the choice and assumptions inline in the decomposition artifact. The decision block uses the compact variant if the choice is clear. Records in the consolidated decisions file.",
       "assertions": [
         "No AskUserQuestion calls are made (--auto mode)",
         "A decomposition strategy decision is encountered during planning",
@@ -170,6 +170,75 @@
         "The conflict and resolution are explicitly documented in the consolidated decisions file"
       ],
       "files": []
+    },
+    {
+      "id": 13,
+      "name": "undecided-result-costly-unattended",
+      "prompt": "/decision --auto \"Which licence should this package be published under?\" (the repository is about to publish for the first time, wraps two MIT-licensed libraries, and nothing in it names a licence or says whether a patent grant is wanted)",
+      "expected_output": "The decision runs its research and alternatives as usual. The evidence does not settle it: the fact the choice rests on (whether the owner wants a patent grant) is not in the repository. The session reads as unattended and the choice is costly to undo, since a published version keeps its licence. The run records an undecided attempt with `shirabe question attempt --result undecided --undo costly --undo-reason ...`, writes a report whose block has status=\"undecided\" with Context, Question, Recommendation with its reason, Alternatives Considered with a reason each, and What Would Settle It, and no Chosen section. It writes question.json, runs check-undecided.sh, and since nobody called it raises the question to person:owner with `shirabe question raise --attempt <id>`. decision_result has status UNDECIDED. The research keys stay readable.",
+      "assertions": [
+        "The run records an undecided attempt with shirabe question attempt, holding the word costly and its reason",
+        "The report's decision block has status=\"undecided\" and no Chosen section",
+        "What Would Settle It names the fact or answer someone could supply (whether a patent grant is wanted)",
+        "No decision block with status='assumed' is written for the licence question",
+        "The question is raised with shirabe question raise naming the attempt, and is addressed to person:owner",
+        "context.md, research.md and alternatives.md are not removed",
+        "decision_result has status UNDECIDED with question, recommendation, alternatives, missing, attempt, question_key and report_key"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "unattended-cheap-choice-decided-provisionally",
+      "prompt": "/decision --auto \"What should the local test helper in this branch be called: build_fixture, make_fixture or fixture_for?\" (the helper is new on this unpublished branch and used only by its own tests)",
+      "expected_output": "The evidence is a close call; no option is a clear winner. The session reads as unattended, and undoing the choice needs only changes inside the session's own unpublished work, so it is cheap. The run decides: it records `shirabe question attempt --result provisional --undo cheap --undo-reason ... --chosen <name>`, writes a settled report with an assumed block, returns status COMPLETE with provisional: true and the attempt id, raises no question, and carries on.",
+      "assertions": [
+        "One provisional attempt is recorded, with the word cheap and what undoing would take",
+        "The decision block is status='assumed' with a Chosen section",
+        "decision_result has status COMPLETE with provisional: true and attempt",
+        "No question is raised and nothing waits on a person",
+        "The run does not end UNDECIDED"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "unattended-costly-choice-raised",
+      "prompt": "/decision --auto \"Should the public API's error responses move from plain strings to a structured error object?\" (released clients parse the current strings; the evidence is split)",
+      "expected_output": "The evidence does not settle the choice, the session reads as unattended, and undoing it reaches outside the session's unpublished work (released clients depend on the format), so it is costly. Nothing is decided: the run records an undecided attempt with --undo costly and its reason, writes the undecided report and question.json, and raises the question with the attempt as its basis. No chosen option is written into any document, and no provisional attempt is recorded.",
+      "assertions": [
+        "An undecided attempt is recorded holding the word costly and its reason",
+        "No provisional attempt is recorded",
+        "An open question is raised whose basis names the undecided attempt",
+        "No document holds a chosen option or an assumed block for this question"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "attended-run-decides-nothing-provisionally",
+      "prompt": "/decision \"Which cache store should the build runner use: SQLite or Postgres?\" (an attended session; the evidence is a close call)",
+      "expected_output": "The session reads as attended. The run does not apply the cheap-or-costly test to decide on its own: it puts the alternatives and its recommendation to the person in the turn the person started, as it does today, and records the outcome. Where it cannot ask, it ends UNDECIDED. No provisional attempt is recorded in either case.",
+      "assertions": [
+        "No attempt with result provisional is recorded",
+        "The person is asked to choose, with the recommendation and the alternatives",
+        "If the run cannot ask, it ends with status UNDECIDED rather than choosing"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "handoff-decision-undecided-direct",
+      "grader": "script",
+      "handoff": "decision",
+      "run": "scripts/cases/decision-handoff.sh decision"
+    },
+    {
+      "id": 18,
+      "name": "answering-run-resumes-open-session",
+      "prompt": "/decision package licence (an earlier /explore run handed this decision back UNDECIDED; decision-package-licence is still open, its work/context.md names explore-package-licence as the attempt session, and the owner has since answered the question raised from it)",
+      "expected_output": "The run opens decision-package-licence, which is still live, so skill-session.sh attaches it and its keys are there; it does not start a fresh Phase 0. The Resume Logic row for an undecided report brings it to Phase 6 step 6.7. It reads the attempt session from work/context.md, finds the answer with `shirabe question pending --in explore-package-licence` or `koto decisions history`, records `shirabe question attempt --in explore-package-licence --result decided --chosen <the answered option> --basis <answer session>:<id>`, rewrites work/report.md as a settled report with status confirmed whose Rationale cites the answer, and closes decision-package-licence done.",
+      "expectations": [
+        "Transcript attaches the existing decision-package-licence session rather than starting at Phase 0",
+        "Transcript records the decided attempt in explore-package-licence, the session the question was raised from, with --basis naming the answer",
+        "Transcript rewrites work/report.md with status confirmed and closes decision-package-licence only after that"
+      ]
     }
   ]
 }

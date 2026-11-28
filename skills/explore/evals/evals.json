@@ -73,11 +73,11 @@
       "id": 6,
       "name": "auto-mode-no-blocking",
       "prompt": "/explore --auto authentication overhaul",
-      "expected_output": "Detects --auto flag. Never blocks on user input. At each decision point (scope leads, converge loop, crystallize confirmation), follows research-first decision protocol: gathers evidence, forms recommendation, follows it, documents as a decision block. Tracks all auto-decisions in key work/decisions.md of session explore-authentication-overhaul. Defaults to max 3 discover-converge rounds. Completes full workflow autonomously.",
+      "expected_output": "Detects --auto flag. Never blocks on user input. At each decision point (scope leads, converge loop, crystallize confirmation), follows research-first decision protocol: gathers evidence and forms a recommendation; a choice the evidence settles is decided and documented as a decision block, and one it does not settle goes through the cheap-or-costly test (decided provisionally when cheap to undo, raised as a question when costly). Tracks all auto-decisions in key work/decisions.md of session explore-authentication-overhaul. Defaults to max 3 discover-converge rounds. Completes full workflow autonomously.",
       "files": [],
       "expectations": [
         "Plan detects --auto and never blocks on user input at any decision point",
-        "Plan follows the research-first decision protocol at scope leads, the converge loop and the crystallize confirmation: evidence, recommendation, follow it, document it as a decision block",
+        "Plan follows the research-first decision protocol at scope leads, the converge loop and the crystallize confirmation: evidence and a recommendation, then a decision block when the evidence settles it, or the cheap-or-costly test when it does not",
         "Plan tracks every autonomous decision in the run's decisions ledger",
         "Plan defaults to at most 3 discover-converge rounds and completes the workflow autonomously"
       ]
@@ -207,6 +207,27 @@
         "Transcript proceeds to Phase 1 regardless of which category the assessment reached",
         "Transcript does NOT assign a needs-* label, stop the skill, or route the author to another command from this step"
       ]
+    },
+    {
+      "id": 16,
+      "name": "handed-back-question-raised",
+      "prompt": "/explore --auto package licence (crystallizes to a decision; the evidence cannot say whether the owner wants a patent grant, and a published licence cannot be taken back)",
+      "expected_output": "Phase 5 writes the decision brief with an Attempt Session section naming explore-<topic>, and hands off to /decision. The decision returns UNDECIDED, which /explore does not treat as a failure. It runs check-undecided.sh on decision-<topic> work/report.md and raises the question from explore-<topic> with `shirabe question raise --in explore-<topic> --content - --attempt <id>`. It writes no decision record with a chosen option, and the session's close leaves the question open and the research keys readable. It does not close decision-<topic>: the decision left it open while the question waits, so a later /decision attaches it with its report and keys. On check-undecided exit 3 it handles the report as settled and raises nothing; on exit 2 or 4 it raises nothing and reports a failed hand-back.",
+      "expectations": [
+        "Transcript names explore-<topic> as the attempt session in the decision brief",
+        "Transcript treats the UNDECIDED return as neither a failure nor a reason to retry",
+        "Transcript runs check-undecided.sh and raises the question from explore-<topic> with the attempt id",
+        "Transcript writes no chosen option for the open question",
+        "Transcript leaves the research keys readable after the close",
+        "Transcript leaves decision-<topic> open after the hand-back rather than closing it done"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "handoff-decision-undecided-explore",
+      "grader": "script",
+      "handoff": "decision",
+      "run": "scripts/cases/decision-handoff.sh explore"
     }
   ]
 }

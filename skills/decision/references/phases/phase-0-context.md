@@ -62,7 +62,16 @@ Write key `<key_dir>/context.md` in `<session>` (`koto context add <session>
 
 ## Background
 <relevant context>
+
+## Attempt Session
+<the session the attempt is recorded in and a handed-back question is
+raised from: the caller's `<session>` under a parent skill, the one a
+starting skill's brief names (`explore-<topic>` under `/explore`), or
+`decision-<topic>` in a direct run nobody called>
 ```
+
+The Attempt Session section is what Phase 6 step 6.7 reads when a later run
+answers a question this decision handed back.
 
 ## Quality Checklist
 

@@ -1,0 +1,12 @@
+{
+  "context": "The package wraps two MIT-licensed libraries and is about to be published to a public registry for the first time.",
+  "problem": "Nothing in the repository names a licence, and the evidence does not separate MIT from Apache-2.0; a published version's licence cannot be taken back.",
+  "question": "Which licence should the package be published under?",
+  "options": [
+    {"label": "MIT", "reason": "Matches the licence of the two libraries the package wraps, so users read one licence across the stack."},
+    {"label": "Apache-2.0", "reason": "Adds a patent grant that protects users, which the wrapped libraries do not offer."}
+  ],
+  "ground": "Publishing under a licence is outward-facing and cannot be undone for a released version.",
+  "waiting": [],
+  "label": "package licence"
+}

@@ -40,8 +40,11 @@ Agent tool:
 
     For unknowns you can't resolve:
     - In interactive mode: note them for user clarification
-    - In non-interactive mode: make a reasonable assumption and document it
-      explicitly ("Assumed: <X>. If wrong: <consequence>")
+    - In non-interactive mode: an unknown the outcome does not turn on may
+      be assumed, documented explicitly ("Assumed: <X>. If wrong:
+      <consequence>"). One the choice turns on is not assumed: list it
+      under Findings as unresolved, so the evidence does not settle the
+      choice and Phase 6 step 6.2a applies
 
     Write your findings to <research-dir>/research.md, and nowhere else,
     with sections:

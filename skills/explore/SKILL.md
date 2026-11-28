@@ -167,8 +167,12 @@ Check `$ARGUMENTS` for `--auto` or `--interactive` flags. Also check for
 
 In `--auto` mode, the agent never blocks on user input. At decision points,
 follow the research-first protocol in `references/decision-protocol.md`:
-gather evidence, form recommendation, follow it, document as a decision
-block. Track all decisions in key `work/decisions.md`.
+gather evidence, form a recommendation, take it when the evidence settles it,
+document as a decision block. When it doesn't and nobody can be asked, the
+protocol's cheap-or-costly test decides whether the choice is made
+provisionally or raised as a question from `explore-<topic>`
+(`references/question-procedure.md`). Track all decisions in key
+`work/decisions.md`.
 
 Default max rounds in --auto: 3. Override with `--max-rounds=N`.
 

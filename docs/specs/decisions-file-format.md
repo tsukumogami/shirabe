@@ -42,9 +42,15 @@ assumption invalidation, only the consolidated file is updated.
 | ID | Yes | The `id` from the decision block's delimiter |
 | Artifact | Yes | Path to the wip/ file containing the inline block |
 | Tier | Yes | 1-4 (from manifest pre-classification or checklist) |
-| Status | Yes | confirmed, assumed, or escalated |
-| Priority | For assumed | high or low; `--` for confirmed decisions |
+| Status | Yes | confirmed, assumed, escalated, or undecided |
+| Priority | For assumed | high or low; `--` for confirmed and undecided decisions |
 | Question | Yes | Abbreviated form of the decision question |
+
+An `undecided` row is a decision that ended with no option chosen (the
+`UNDECIDED` result in `references/decision-report-format.md`): its question
+was raised on the record and waits on an answer. It gets no assumption detail
+entry, since nothing was assumed; the row's Question is the raised question,
+and the row stays until the answer is written as a new `confirmed` row.
 
 ## Assumption Detail Entries
 
