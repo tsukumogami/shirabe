@@ -1578,9 +1578,9 @@ else
 fi
 
 wait_open ""
-if printf '%s\n' "$OUT" | head -n 1 | grep -qx 'continued=waiting' \
+if [ "${OUT%%$'\n'*}" = "continued=waiting" ] \
     && grep -q '^rewind execute-wait --rationale ' "$WORK/wait.log" \
-    && ! printf '%s\n' "$OUT" | grep -q 'replaced_result\|moved_to=' \
+    && ! grep -q 'replaced_result\|moved_to=' <<< "$OUT" \
     && ! grep -q '^init ' "$WORK/wait.log" \
     && [ ! -s "$WORK/shirabe.log" ]; then
     pass "done_waiting with every question closed: rewound in place, continued=waiting, no replacement, no koto init, no question tool call"
