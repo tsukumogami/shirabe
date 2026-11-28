@@ -310,7 +310,10 @@ exp=$(jq -cn --arg o "$tpl_outcome" --arg s "$tpl_step" '["done", "done_blocked"
     && pass "e2e-plan-escalate: the bare tick lands on done_blocked with escalate's outcome and step" \
     || fail "e2e-plan-escalate tick $got, template gives $exp"
 
-reason_tpl=$(sed -n 's/^ *failure_reason: "\(spawn_and_await: .*\)"$/\1/p' "$TEMPLATE")
+# The first spawn_and_await reason is the escalate edge's; escalate_parked's
+# copy of it and the parked-stop reason follow it.
+reason_tpl=$(awk '/^ *failure_reason: "spawn_and_await: / && !n { n = 1; v = $0
+    sub(/^ *failure_reason: "/, "", v); sub(/"$/, "", v); print v }' "$TEMPLATE")
 counts=$(jq -r '[([.children[] | select(.outcome == "failure")] | length),
                  ([.children[] | select(.outcome == "skipped")] | length)] | "\(.[0]) \(.[1])"' \
     "$FIXTURES/scenarios/e2e-plan-escalate/koto-context-batch-final-view.json")

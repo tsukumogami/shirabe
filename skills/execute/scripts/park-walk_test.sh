@@ -279,6 +279,7 @@ content() {
             {label: "Postgres", reason: "Shared across runners, but a server to keep up."}
         ],
         ground: "Picking a server changes what the team operates.",
+        waiting: ["the step that needs the store"],
         label: $label
     }' > "$1"
 }

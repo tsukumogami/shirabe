@@ -115,7 +115,10 @@ fi
 # The opener adds the rest: a `["<VAR>", ...]` pair in the variables it writes,
 # on a line that isn't a comment.
 for var in $OPENER_ADDS; do
-    if ! grep -v '^[[:space:]]*#' "$OPENER" | grep -qF "[\"${var}\","; then
+    # Not `grep -q` at the end of the pipe: under pipefail it stops reading at
+    # its first match, and the first grep, killed writing the rest of an
+    # opener larger than a pipe holds, fails the pipeline.
+    if ! grep -v '^[[:space:]]*#' "$OPENER" | grep -F "[\"${var}\"," > /dev/null; then
         note_failure "$OPENER no longer adds required variable $var, which the $SKILL_DOC open sites leave to it"
     fi
 done

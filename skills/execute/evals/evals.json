@@ -1658,6 +1658,7 @@
       "id": 95,
       "name": "decide-first-park-walk",
       "grader": "script",
+      "handoff": "work-on",
       "run": "scripts/cases/execute-decide-first.sh walk"
     },
     {
