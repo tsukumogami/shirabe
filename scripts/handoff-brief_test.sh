@@ -375,21 +375,28 @@ else
 # its events in <session>/seq, and each key write is a line of
 # <session>/writes (seq, timestamp, key, state), which `context history`
 # prints as koto does. Each event is also a line of the session's event log,
-# <session>/koto-<session>.state.jsonl, in the directory `session dir`
-# prints, which the compaction hooks read.
+# <session>/koto-<session>.state.jsonl, in koto's own shape (a header line,
+# then events whose payloads carry the fields koto's reader requires): the
+# compaction hooks read it through koto's session reader, with
+# KOTO_SESSIONS_BASE naming this store.
 S="$KOTO_STUB_STORE"
 bump() {
     n=$(cat "$S/$1/seq" 2>/dev/null) || n=0; n=$((n + 1)); echo "$n" >"$S/$1/seq"
-    printf '{"seq":%s,"timestamp":"%s","type":"%s","payload":{}}\n' "$n" "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$2" \
-        >>"$S/$1/koto-$1.state.jsonl"
+    log="$S/$1/koto-$1.state.jsonl"
+    [ -f "$log" ] || printf '{"schema_version":1,"workflow":"%s","template_hash":"00","created_at":"%s"}\n' \
+        "$1" "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >"$log"
+    case "$2" in
+        workflow_initialized) p='{"template_path":"/t/template.json"}' ;;
+        transitioned) p='{"from":"open","to":"done","condition_type":"auto"}' ;;
+        context_added) p=$(printf '{"key":"%s","hash":"00","size":1}' "$3") ;;
+    esac
+    printf '{"seq":%s,"timestamp":"%s","type":"%s","payload":%s}\n' "$n" "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$2" "$p" \
+        >>"$log"
 }
 case "$1" in
     init)
         [ -d "$S/$2" ] && { echo "{\"error\":\"workflow '$2' already exists\"}"; exit 1; }
         mkdir -p "$S/$2/ctx" && echo open >"$S/$2/state" && bump "$2" workflow_initialized && echo "{\"name\":\"$2\",\"state\":\"open\"}" ;;
-    session)
-        [ "$2" = dir ] && [ -d "$S/$3" ] || exit 2
-        printf '%s\n' "$S/$3" ;;
     next)
         [ -d "$S/$2" ] || exit 2
         case "$*" in *'"close":"done"'*) echo done >"$S/$2/state"; bump "$2" transitioned ;; esac
@@ -410,7 +417,7 @@ case "$1" in
                 [ "$n" -le 1048576 ] || { echo '{"error":"value over 1 MiB"}'; exit 1; }
                 mkdir -p "$(dirname "$S/$s/ctx/$k")"
                 cat "$src" >"$S/$s/ctx/$k"
-                bump "$s" context_added
+                bump "$s" context_added "$k"
                 printf '%s\t%s\t%s\t%s\n' "$(cat "$S/$s/seq")" "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$k" "$(cat "$S/$s/state")" >>"$S/$s/writes"
                 # A later store failure: after this key, a directory goes read-only.
                 case "${KOTO_STUB_RO_AFTER-}" in "$k:"*) chmod 555 "${KOTO_STUB_RO_AFTER#*:}" ;; esac ;;
@@ -1168,7 +1175,7 @@ sn() {
 # pc [PATH] -- pre-compact from the repository, with a gh stand-in that logs.
 pc() {
     printf '{"session_id":"%s"}' "$STALE_SID" | (cd "$SR" && PATH="${1:-$B/bin-k:$B/bin-g:$B/tools}" \
-        KOTO_STUB_STORE="$B/kstore" XDG_STATE_HOME="$B/state" GH_STUB_LOG="$B/gh-pc.log" KOTO_SESSION= \
+        KOTO_STUB_STORE="$B/kstore" KOTO_SESSIONS_BASE="$B/kstore" XDG_STATE_HOME="$B/state" GH_STUB_LOG="$B/gh-pc.log" KOTO_SESSION= \
         "$SHIRABE" compaction pre-compact)
 }
 OUT=$(sn 2>&1); rc=$?
@@ -1198,7 +1205,7 @@ if [ -n "$SHIRABE" ]; then
     # finds the branch.
     mkdir -p "$B/hook-cwd" || exit 1
     PC=$(printf '{"session_id":"%s"}' "$STALE_SID" | (cd "$B/hook-cwd" && PATH="$B/bin-k:$B/bin-g:$B/tools" \
-        KOTO_STUB_STORE="$B/kstore" XDG_STATE_HOME="$B/state" GH_STUB_LOG="$B/gh-pc.log" KOTO_SESSION= \
+        KOTO_STUB_STORE="$B/kstore" KOTO_SESSIONS_BASE="$B/kstore" XDG_STATE_HOME="$B/state" GH_STUB_LOG="$B/gh-pc.log" KOTO_SESSION= \
         "$SHIRABE" compaction pre-compact)); rc=$?
     check "from outside the repository, the commit still makes it stale" \
         '[ "$rc" -eq 0 ] && grep -qF "repo: " "$STALE_ENTRY" && [ "$(grep -c "The compaction note is stale" <<<"$PC")" -eq 1 ]'
