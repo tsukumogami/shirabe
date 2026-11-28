@@ -67,7 +67,9 @@
 #      exit other than 0, 2 or a schema-only 4; an envelope that isn't a
 #      complete shirabe-validate/v1 verdict; an exit 2 with no error finding;
 #      a symlink, non-regular or empty file at a topic path, or one resolving
-#      outside the repository; an error-level code with no registry entry.
+#      outside the repository; an error-level code with no registry entry;
+#      the private temporary directory or a file in it gone or unreadable
+#      ("is gone or unreadable"), which is never read as an empty list.
 #      A fault prints no finding for any document: it prints one
 #      `::koto-finding::` under docs/check-environment whose message is the
 #      fault's reason (also on stderr), and never runs the escalation ladder,
@@ -221,6 +223,22 @@ cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 trap 'cleanup; exit 2' INT TERM HUP
 
+# scratch_lost <what>: the temporary directory can't be written or read back.
+# Files that can't be read are not empty files, so this is a fault, never a
+# pass. The reason is built to never end in the word the pass line ends in.
+scratch_lost() {
+    undecided "temporary directory $WORK is gone or unreadable: cannot $1"
+}
+
+# need_scratch <file>...: each file in the temporary directory exists and is
+# readable, checked right before a loop or a command reads it.
+need_scratch() {
+    local f
+    for f in "$@"; do
+        [ -f "$WORK/$f" ] && [ -r "$WORK/$f" ] || scratch_lost "read back $f"
+    done
+}
+
 # --- the canary ---------------------------------------------------------------
 
 dv_canary "$WORK" || undecided "$DV_REASON"
@@ -231,7 +249,7 @@ dv_canary "$WORK" || undecided "$DV_REASON"
 # visibility as it does in CI.
 VIS=$(declared_visibility)
 
-: > "$WORK/checked"
+: > "$WORK/checked" || scratch_lost "write checked"
 n=0
 for p in $PATHS; do
     if [ ! -e "$p" ] && [ ! -L "$p" ]; then
@@ -242,7 +260,7 @@ for p in $PATHS; do
     dv_validate "$p" "$WORK/$n.json" "$WORK/$n.err" "$VIS" || undecided "$DV_REASON"
     dv_select_violations "$WORK/$n.json" >> "$WORK/hits" 2>/dev/null \
         || undecided "cannot read shirabe validate's output on $p"
-    printf '%s\n' "$p" >> "$WORK/checked"
+    printf '%s\n' "$p" >> "$WORK/checked" || scratch_lost "write checked"
 done
 
 if [ "$n" -eq 0 ]; then
@@ -288,20 +306,24 @@ code_to_id() {
 # rf_require caches each rule's stage as it resolves, so resolving late still
 # prints every finding at its stage.
 # check-rule-registry.sh in CI is what keeps every anchor resolvable.
-[ -f "$WORK/hits" ] || : > "$WORK/hits"
-: > "$WORK/ids"
+[ -f "$WORK/hits" ] || : > "$WORK/hits" || scratch_lost "write hits"
+: > "$WORK/ids" || scratch_lost "write ids"
+need_scratch hits ids checked
 while IFS= read -r hit; do
     [ -n "$hit" ] || continue
     code=$(printf '%s' "$hit" | jq -r '.code // ""')
     id=$(code_to_id "$code")
     [ -n "$id" ] \
         || undecided "the validator reported error-level code [$code], which no registry entry aliases"
-    printf '%s\n' "$id" >> "$WORK/ids"
+    printf '%s\n' "$id" >> "$WORK/ids" || scratch_lost "write ids"
 done < "$WORK/hits"
-for id in $(sort -u "$WORK/ids"); do
+need_scratch ids
+sorted_ids=$(sort -u "$WORK/ids") || scratch_lost "read back ids"
+for id in $sorted_ids; do
     rf_require "$id"
 done
 
+need_scratch hits
 while IFS= read -r hit; do
     [ -n "$hit" ] || continue
     code=$(printf '%s' "$hit" | jq -r '.code // ""')
@@ -314,7 +336,9 @@ while IFS= read -r hit; do
     rf_finding "$(code_to_id "$code")" "$msg" "$file" "$line"
 done < "$WORK/hits"
 
-checked=$(awk 'NR > 1 { printf ", " } { printf "%s", $0 }' "$WORK/checked")
+need_scratch checked
+checked=$(awk 'NR > 1 { printf ", " } { printf "%s", $0 }' "$WORK/checked") \
+    || scratch_lost "read back checked"
 # Only a finding of a rule at block holds the hop; one below block printed at
 # its stage's level and leaves the gate passing, and one at retired printed
 # nothing, so RF_PRINTED, not the number of violations, says whether any

@@ -193,8 +193,9 @@
 #     2  usage: a missing, unknown or malformed argument; no edge routes it,
 #        so pr_creation holds
 #     3  a repository lookup failed other than with a 404, or ran out of
-#        time; no edge routes it either, so pr_creation holds. The reason
-#        goes to stderr.
+#        time, or its temporary file was gone or unreadable when read back;
+#        no edge routes it either, so pr_creation holds. The reason goes to
+#        stderr.
 #   --issue N --non-closing [--repo R]
 #     0  the body refers to the issue and nothing in the pull request closes
 #        it
@@ -487,7 +488,7 @@ other_names() {
 # the time ran out. The error is kept apart from the answer, so a warning gh
 # writes on a lookup that worked can't change the name it answered.
 lookup() {
-    local out err pid st end
+    local out err pid st end lost
     end=$((SECONDS + $2))
     out=$(mktemp) || return 125
     err=$(mktemp) || { rm -f "$out"; return 125; }
@@ -505,7 +506,18 @@ lookup() {
     done
     wait "$pid"
     st=$?
-    if [ "$st" -eq 0 ]; then cat "$out"; else cat "$out" "$err"; fi
+    # A file that can't be read back is not an empty answer: 125, which the
+    # callers treat as any other failed lookup (exit 3), never as a name.
+    lost=0
+    if [ "$st" -eq 0 ]; then
+        cat "$out" || lost=1
+    else
+        cat "$out" "$err" || lost=1
+    fi
+    if [ "$lost" -eq 1 ]; then
+        st=125
+        echo "check-closing-keyword: temporary file $out is gone or unreadable: cannot read back the lookup" >&2
+    fi
     rm -f "$out" "$err"
     return "$st"
 }

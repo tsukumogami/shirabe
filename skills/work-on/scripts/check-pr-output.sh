@@ -222,7 +222,10 @@
 #      --hosted-record: not a draft, or a body line missing or wrong (stderr
 #      only, no finding)
 #   2  could not decide: a usage error, a missing tool, a read that failed
-#      (a koto context read included), a validator that failed to run
+#      (a koto context read included), a validator that failed to run;
+#      --pr-body also when its temporary directory or a file in it is gone or
+#      unreadable ("is gone or unreadable", under pr-body/read-failed), which
+#      is never read as an empty list of workflow records
 #   3  --owned-pr only: the lookup answered, and the answer is not one PR
 #
 # --pr-body findings are koto's finding shape, built with jq, with the rule
@@ -304,6 +307,22 @@ pr_undecided() {
         pr-body/pr-missing|pr-body/body-missing) printf '::koto-not-ready::\n' ;;
     esac
     exit 2
+}
+
+# pr_scratch_lost <what>: --pr-body's temporary directory can't be written or
+# read back. A file that can't be read is not an empty one, so this is a
+# could-not-decide under pr-body/read-failed, never a pass.
+pr_scratch_lost() {
+    pr_undecided pr-body/read-failed "temporary directory $WORK is gone or unreadable: cannot $1"
+}
+
+# pr_need_scratch <file>...: each file in the temporary directory exists and is
+# readable, checked right before it is read.
+pr_need_scratch() {
+    local f
+    for f in "$@"; do
+        [ -f "$WORK/$f" ] && [ -r "$WORK/$f" ] || pr_scratch_lost "read back $f"
+    done
 }
 
 WORK=""
@@ -476,12 +495,13 @@ check_pr_body() {
         "$WORK/pr.json" >/dev/null 2>&1 \
         || pr_undecided pr-body/body-missing "gh pr view did not return a title and a body"
     title=$(jq -r '.title' "$WORK/pr.json")
-    jq -j '.body' "$WORK/pr.json" > "$WORK/body.md"
+    jq -j '.body' "$WORK/pr.json" > "$WORK/body.md" \
+        || { [ -d "$WORK" ] || pr_scratch_lost "write body.md"; }
 
     # Workflow records, unless the repository opts in to them. workflow_content
     # runs in a subshell, so its own refusal reaches stderr there and the
     # finding is printed here.
-    : > "$WORK/records"
+    : > "$WORK/records" || pr_scratch_lost "write records"
     content=$(workflow_content) \
         || pr_undecided pr-body/read-failed "could not tell whether the repository opts in to workflow content"
     if [ "$content" = omit ]; then
@@ -494,6 +514,9 @@ check_pr_body() {
         --writing-style "$rules_file" \
         > "$WORK/out" 2> "$WORK/err" < /dev/null
     rc=$?
+    # The records and the validator's answer are read back below: a directory
+    # lost since they were written is a fault, not an empty list of records.
+    pr_need_scratch records out err
     # A clean validator result still reports the workflow records the scan
     # found, so 0 falls through to the findings below when there are any; the
     # validator's own findings (and its fallback) are read only on its 2.
@@ -525,6 +548,7 @@ check_pr_body() {
             finding "$rule" "$msg"
         done < "$WORK/messages"
     fi
+    pr_need_scratch records
     while IFS= read -r rec; do
         [ -n "$rec" ] || continue
         finding pr-body/workflow-content "$rec; the repository doesn't declare ## PR Workflow Content: include, so it belongs in the run's session, not the body"
