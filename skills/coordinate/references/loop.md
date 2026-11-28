@@ -270,8 +270,8 @@ its entry when that worker's report comes in.
 Closing is held too: the handover gate at `reconcile` fails while a question
 addressed to this run has no entry, or one that is neither escalated, queued
 nor held (`question-unhandled`), and its report lists every open question
-with its age. Dispatching other units stays open on purpose: one open
-question never stalls the rest.
+with its age. Dispatching other units stays open on purpose:
+one open question never stalls the rest.
 
 The limits: a question from a message-path worker, or a session further down,
 isn't brought in through a leg; it gets its entry when its raiser's report
