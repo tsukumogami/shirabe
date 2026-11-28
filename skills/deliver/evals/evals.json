@@ -519,6 +519,28 @@
       "grader": "script",
       "handoff": "scope",
       "run": "scripts/check-handoff.sh deliver scope"
+    },
+    {
+      "id": 36,
+      "name": "execute-leg-waiting",
+      "prompt": "/deliver some-topic --auto -- the execute leg resolves with outcome waiting and question naming one open question. Where does /deliver end and what does it print?",
+      "expected_output": "execute_run takes the waiting edge to done_stopped, /deliver's existing stop, with outcome waiting, copying the question and setting next to /deliver some-topic; /deliver adds no state for it. deliver-report.sh prints outcome=waiting, one question= line, and next=/deliver some-topic. Invoking /deliver again continues the same /execute run once the question is closed.",
+      "files": [],
+      "expectations": [
+        "The run ends at done_stopped with outcome waiting, not done_error with deliver:child-outcome",
+        "The report has outcome=waiting, a question= line and next="
+      ]
+    },
+    {
+      "id": 37,
+      "name": "execute-reinvoked-while-waiting",
+      "prompt": "/deliver some-topic --auto -- a previous /deliver ended waiting on one question; the question is still open and /deliver some-topic is run again. /execute returns without opening anything. Where does the run end and what does it print?",
+      "expected_output": "/execute's setup refuses to continue a run at done_waiting while its question is open, so the execute leg stays open and unbound and the tick carries child_returned yes. execute_returned runs deliver-execute-leg.sh waiting, which finds execute-some-topic at done_waiting with the question still open, and the run ends at done_stopped with outcome waiting, the question, and next=/deliver some-topic. The report has no pr= line. It does not end at done_error with deliver:child-absent.",
+      "files": [],
+      "expectations": [
+        "The run ends waiting with a question= line, not error with step=deliver:child-absent",
+        "The report prints no pr= line"
+      ]
     }
   ]
 }

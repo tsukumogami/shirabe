@@ -34,26 +34,46 @@
 #              `absent` when koto answers that no such session exists here,
 #              and `unreadable` for anything else. It prints
 #                execute_state=<value>
+#   waiting    execute_returned's default action, when /execute returned and
+#              the execute leg is still open and unbound. /execute invoked on
+#              a run at done_waiting whose questions are still open opens
+#              nothing (execute-open.sh exits 3), and koto can't bind a leg
+#              to a session at a terminal (session_terminal), so the leg stays
+#              open. This mode reads `koto status execute-<topic>` and each
+#              question in its result (`koto decisions history`), all read
+#              only. When the session stands at done_waiting with outcome
+#              waiting and at least one of its questions is still open, it
+#              writes those questions to this session's `question` key,
+#              space-separated, and `execute_waiting` = yes, and prints
+#                execute_waiting=yes
+#                question=<identity>   (one line each)
+#              Anything else (another state, no open question, a question
+#              outside the identity pattern, a read that fails) writes
+#              `execute_waiting` = no and prints execute_waiting=no: the run
+#              then records the child-absent result as before.
 #
 # Usage:
 #   deliver-execute-leg.sh handover --topic <slug> [--session <name>] [--store github|session|""]
 #   deliver-execute-leg.sh lost --topic <slug> [--session <name>]
+#   deliver-execute-leg.sh waiting --topic <slug> [--session <name>]
 #
 # The session is koto's $KOTO_TICK_SESSION when koto set it, else --session,
 # as deliver-probe.sh takes it.
 #
 # Exit codes:
-#   0   handover: a line was printed; lost: execute_state was written
+#   0   handover: a line was printed; lost: execute_state was written;
+#       waiting: execute_waiting (and on yes, question) was written
 #   64  usage error (a topic, session or store outside its pattern); nothing
 #       read or written
 #   66  handover: a `koto context` read failed, or on a coordinated PLAN the
 #       session holds no checked_pr or one outside the PR-URL pattern
 #       (scoped_check's gate guarantees one, so this is a broken run, stopped
 #       loudly rather than handed to /execute without its PR); lost: the
-#       `koto context add` failed
+#       `koto context add` failed; waiting: a `koto context add` failed
 #
-# Reads koto's context and status and the PLAN's frontmatter; writes only this
-# session's execute_state. bash 3.2.
+# Reads koto's context, status and decision history and the PLAN's
+# frontmatter; writes only this session's execute_state, execute_waiting and
+# question. bash 3.2.
 set -uo pipefail
 
 PROG=deliver-execute-leg
@@ -66,18 +86,20 @@ RE_SESSION='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 RE_STORE='^(github|session)?$'
 RE_PR_URL='^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[1-9][0-9]*$'
 RE_STATE='^[a-z][a-z0-9_]*$'
+RE_QUESTION='^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$'
 
 usage() {
     printf '%s: %s\n' "$PROG" "$1" >&2
     printf 'usage: deliver-execute-leg.sh handover --topic <slug> [--session <name>] [--store github|session]\n' >&2
     printf '       deliver-execute-leg.sh lost --topic <slug> [--session <name>]\n' >&2
+    printf '       deliver-execute-leg.sh waiting --topic <slug> [--session <name>]\n' >&2
     exit 64
 }
 
 MODE="${1:-}"
 case "$MODE" in
-    handover|lost) shift ;;
-    *) usage "the first argument must be handover or lost" ;;
+    handover|lost|waiting) shift ;;
+    *) usage "the first argument must be handover, lost or waiting" ;;
 esac
 TOPIC=""; SESSION_ARG=""; STORE=""; SEEN=" "
 while [ "$#" -gt 0 ]; do
@@ -153,6 +175,53 @@ lost)
         exit 66
     }
     printf 'execute_state=%s\n' "$STATE"
+    exit 0
+    ;;
+waiting)
+    # Every read that fails leaves OPEN empty, which reads as "not waiting":
+    # the run then records child-absent, as it did before this read existed.
+    # The key is cleared first, so a write that fails below leaves it absent
+    # (no edge out) rather than holding an earlier answer.
+    erc=0
+    koto context exists "$SESSION" execute_waiting </dev/null >/dev/null || erc=$?
+    case "$erc" in
+        0) koto context remove "$SESSION" execute_waiting </dev/null >/dev/null || {
+               printf '%s: koto context remove failed for execute_waiting\n' "$PROG" >&2
+               exit 66
+           } ;;
+        1) ;;
+        *) printf '%s: koto context exists failed for execute_waiting\n' "$PROG" >&2
+           exit 66 ;;
+    esac
+    OPEN=""
+    src=0
+    ST=$(koto status "execute-$TOPIC" </dev/null) || src=$?
+    if [ "$src" -eq 0 ]; then
+        QS=$(printf '%s' "$ST" | jq -r 'select(.current_state == "done_waiting" and .result.payload.outcome == "waiting")
+            | .result.payload.question // "" | strings') || QS=""
+        for q in $QS; do
+            [[ "$q" =~ $RE_QUESTION ]] || { OPEN=""; break; }
+            h=$(koto decisions history -- "$q" </dev/null) || { OPEN=""; break; }
+            if printf '%s' "$h" | jq -e '.open == true' >/dev/null; then
+                OPEN="${OPEN:+$OPEN }$q"
+            fi
+        done
+    fi
+    if [ -n "$OPEN" ]; then
+        printf '%s' "$OPEN" | koto context add "$SESSION" question >/dev/null || {
+            printf '%s: koto context add failed for question\n' "$PROG" >&2
+            exit 66
+        }
+        W=yes
+    else
+        W=no
+    fi
+    printf '%s' "$W" | koto context add "$SESSION" execute_waiting >/dev/null || {
+        printf '%s: koto context add failed for execute_waiting\n' "$PROG" >&2
+        exit 66
+    }
+    printf 'execute_waiting=%s\n' "$W"
+    for q in $OPEN; do printf 'question=%s\n' "$q"; done
     exit 0
     ;;
 esac

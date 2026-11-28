@@ -1648,6 +1648,20 @@
       "run": "scripts/check-handoff.sh execute work-on"
     },
     {
+      "id": 91,
+      "name": "decide-first-routes",
+      "grader": "script",
+      "handoff": "work-on",
+      "run": "scripts/cases/execute-decide-first.sh routes"
+    },
+    {
+      "id": 95,
+      "name": "decide-first-park-walk",
+      "grader": "script",
+      "handoff": "work-on",
+      "run": "scripts/cases/execute-decide-first.sh walk"
+    },
+    {
       "id": 87,
       "name": "hosted-route-child-and-parent-read",
       "tier": 1,
@@ -1677,6 +1691,76 @@
         "The agent runs build-output-end.sh as the directive writes it and does not delete build output by hand",
         "A later cleanup uses the pinned run/cleanup/single base, not a merge base taken after the PR merged"
       ]
+    },
+    {
+      "id": 89,
+      "name": "intent-changing-drift-decides-first",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md --auto -- worktree_discipline_check judges main's change intent-changing. What does the run do before it may stop?",
+      "expected_output": "The intent-changing edge goes to decide_first, assigning decide_origin worktree_discipline_check, and keeping the failure_reason with the rationale. koto names the arrival (worktree_discipline_check:1). The run follows references/question-procedure.md: it records an attempt with shirabe question attempt for that arrival. A decided attempt with decided_next resume goes back to worktree_discipline_check; with stop it goes through escalate_upstream_drift to done_blocked with step execute:re-evaluation. A matter the evidence does not settle and that is costly is raised as one question whose waiting list names the affected PLAN steps; decide_outcome raised then parks those steps (park_own) and the batch goes on with the others.",
+      "expectations": [
+        "The run does not reach done_blocked before recording an attempt for the arrival",
+        "A decided stop ends at done_blocked with step execute:re-evaluation",
+        "A raised question names PLAN steps in waiting, and only those steps are parked"
+      ],
+      "tier": 1,
+      "mode": "plan_only",
+      "files": []
+    },
+    {
+      "id": 90,
+      "name": "parked-steps-end-waiting",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md --auto -- one child raised a question at its decide_first and ended at done_waiting; every other step that does not wait on it has landed. How does the run end, and what does a second /execute invocation do while the question is open and after it is answered?",
+      "expected_output": "The owner session runs park.sh mark --child for the child, parking its step on the question. Once every step that has not landed is parked or waits on a parked step, the parked_state gate exits 3 and the run ends at done_waiting through waiting_record, a failure terminal whose result is outcome waiting and question naming the open identity; print-exit.sh prints outcome=waiting and a question= line. A second invocation while the question is open makes no koto init: execute-open.sh prints waiting=<identity> and session=, exiting 3. Once it is answered, the opener rewinds the session to waiting_record, prints continued=waiting and attaches; the next tick returns to spawn_and_await. The owner rewinds the child to its decide_first, a step agent records an attempt citing the answer, park.sh clear removes the key, and the same tasks are submitted again.",
+      "expectations": [
+        "The run ends at done_waiting, not done_blocked or escalate",
+        "No parked step is handed to a step agent while its question is open",
+        "park.sh clear refuses while the question is open and before a decision cites the answer"
+      ],
+      "tier": 1,
+      "mode": "plan_only",
+      "files": []
+    },
+    {
+      "id": 92,
+      "name": "run-question-parks-one-step-while-another-lands",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md --auto -- worktree_discipline_check judges main's change intent-changing for one step only; the evidence doesn't settle it and the choice is costly to undo. What happens to that step and to the others?",
+      "expected_output": "The run records an undecided attempt for the arrival and raises one question whose waiting list names the affected step, then submits decide_outcome raised. park_own runs park.sh mark for the run's own question, writing parked/<step> with the question's identity, and the run goes to spawn_and_await, not a terminal. The tasks are submitted as usual; the steps that don't depend on the parked one are handed to step agents and land. The parked step gets no step agent while its question is open, and a step that waits on it isn't started. park.sh list prints the parked step with the identity and open.",
+      "expectations": [
+        "The run reaches spawn_and_await after raised, not done_blocked",
+        "Only the step the question names is parked; the independent steps land",
+        "No step agent is started for the parked step or a step that waits on it"
+      ],
+      "tier": 1,
+      "mode": "plan_only",
+      "files": []
+    },
+    {
+      "id": 93,
+      "name": "child-ending-waiting-is-parked-not-failed",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md --auto -- one step's /work-on child raised a question at its decide_first and ended at done_waiting. Another step waits on it. What does the owning session do with that child and the step that waits on it?",
+      "expected_output": "A child at done_waiting is a parked issue, not a failed one. The owning session runs park.sh mark <run> --child <run>.<step>, which writes parked/<step> with the identity from the child's result; it refuses a child at any other terminal and a child whose question is already closed. The batch doesn't route to escalate or done_blocked for it. The step that waits on the parked one isn't released: it stays absent or at koto's skip marker, and no step agent is started for it. The child's question was addressed to the session that dispatched the /execute run, or person:owner when there is none, never to /execute itself.",
+      "expectations": [
+        "park.sh mark --child is run for the waiting child",
+        "The run does not go to escalate or done_blocked because of the waiting child",
+        "The dependent step is not started"
+      ],
+      "tier": 1,
+      "mode": "plan_only",
+      "files": []
+    },
+    {
+      "id": 94,
+      "name": "answer-takes-parked-child-up-again",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md --auto -- the run ended at done_waiting with one step's child parked on its question. The dispatcher has answered the question. /execute is run again. How does the parked step resume, and what happens to the step that waited on it?",
+      "expected_output": "execute-open.sh finds every question closed, rewinds the session from done_waiting (it lands at waiting_record) and attaches to it, printing continued=waiting and the same session name with no replaced_result. The tick goes to spawn_and_await. The owning session resubmits the parked child with retry_failed naming it and include_skipped true, then submits the same tasks again; koto sends the child back to its first state with its context kept, and it moves to resume_waiting. The step agent records an attempt citing the answer and submits decided with resume, so the child goes back to the state it left (implementation) and on to done. park.sh clear for the step then succeeds, since the answer carries authority and a decision cites it. The skipped dependent is spawned again and runs. The run never uses a bare koto rewind on the child, which would leave the dependent skipped.",
+      "expectations": [
+        "The same session is continued, not replaced",
+        "The parked child is resumed through retry_failed with include_skipped, then the tasks again",
+        "The dependent step runs after the parked child reaches done"
+      ],
+      "tier": 1,
+      "mode": "plan_only",
+      "files": []
     }
   ]
 }

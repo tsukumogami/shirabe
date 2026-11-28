@@ -692,7 +692,7 @@ states:
         request: "{{REQ}}"
         leg: execute
         expect:
-          outcome: [merged, ready-awaiting-merge, paused-for-review, paused-awaiting-merges, error]
+          outcome: [merged, ready-awaiting-merge, paused-for-review, paused-awaiting-merges, waiting, error]
         overridable: false
     accepts:
       child_returned:
@@ -759,6 +759,26 @@ states:
           waiting: "${gates.exec_leg.payload.waiting}"
           reason: "${gates.exec_leg.payload.reason}"
           next: ""
+      # /execute ended at done_waiting: its parked steps wait on open
+      # questions. /deliver gains no state for it: the wait is forwarded
+      # through done_stopped with outcome waiting and the questions copied,
+      # and /deliver invoked again continues the same /execute run once they
+      # are closed.
+      - target: done_stopped
+        when:
+          gates.exec_leg.disposition: resolved
+          gates.exec_leg.source: promoted
+          gates.exec_leg.valid: true
+          gates.exec_leg.payload.outcome: waiting
+        context_assignments:
+          outcome: waiting
+          pr: "${gates.exec_leg.payload.pr}"
+          repos: "${gates.exec_leg.payload.repos}"
+          resume: "${gates.exec_leg.payload.resume}"
+          waiting: "${gates.exec_leg.payload.waiting}"
+          reason: "${gates.exec_leg.payload.reason}"
+          question: "${gates.exec_leg.payload.question}"
+          next: "/deliver {{TOPIC}}"
       - target: done_error
         when:
           gates.exec_leg.disposition: resolved
@@ -853,7 +873,11 @@ states:
           waiting: ""
           reason: "execute-leg-lost:request_not_found"
           next: ""
-      - target: execute_absent
+      # /execute returned with the leg still open and unbound. A run still
+      # waiting on an open question opens nothing on re-invocation, and koto
+      # can't bind a leg to a session at a terminal, so execute_returned reads
+      # the execute session before child-absent is recorded.
+      - target: execute_returned
         when:
           child_returned: "yes"
           gates.exec_leg.disposition: open
@@ -865,6 +889,42 @@ states:
           waiting: "${gates.exec_leg.payload.waiting}"
           reason: "${gates.exec_leg.payload.reason}"
           next: ""
+
+  # Writes execute_waiting (yes or no) and, on yes, question: the execute
+  # session's still-open questions. yes ends the run waiting, as /execute's
+  # own waiting outcome does; no (anything else, a failed read included)
+  # records child-absent as before. A failed write leaves the key absent:
+  # no edge matches, and the run holds here rather than guessing.
+  execute_returned:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-execute-leg.sh" waiting --topic "{{TOPIC}}" --session "{{SESSION_NAME}}"'
+      fallback: >-
+        koto could not read whether /execute is still waiting on its
+        questions. Read the command's own output above, run it again by hand
+        with the same arguments, and tick again with nothing submitted.
+    gates:
+      waiting_read:
+        type: context-exists
+        key: execute_waiting
+      still_waiting:
+        type: context-matches
+        key: execute_waiting
+        pattern: '^yes$'
+    transitions:
+      - target: done_stopped
+        when:
+          gates.waiting_read.exists: true
+          gates.still_waiting.matches: true
+        context_assignments:
+          outcome: waiting
+          step: ""
+          reason: ""
+          pr: ""
+          next: "/deliver {{TOPIC}}"
+      - target: execute_absent
+        when:
+          gates.waiting_read.exists: true
+          gates.still_waiting.matches: false
 
   execute_absent:
     # As scope_absent, for the execute leg.
@@ -1039,6 +1099,7 @@ states:
       execute_state: "${context.execute_state}"
       worktree_repo: "${context.worktree_repo}"
       other_repos: "${context.other_repos}"
+      question: "${context.question}"
 
   done_stopped:
     terminal: true
@@ -1056,6 +1117,7 @@ states:
       execute_state: "${context.execute_state}"
       worktree_repo: "${context.worktree_repo}"
       other_repos: "${context.other_repos}"
+      question: "${context.question}"
 
   done_error:
     terminal: true
@@ -1074,6 +1136,7 @@ states:
       execute_state: "${context.execute_state}"
       worktree_repo: "${context.worktree_repo}"
       other_repos: "${context.other_repos}"
+      question: "${context.question}"
 ---
 
 ## open_request
@@ -1265,6 +1328,21 @@ Skill call has returned and the leg is still open. That reaches only an error,
 Evidence schema:
 - `child_returned`: `yes`, only in the case above
 
+## execute_returned
+
+Reading whether /execute is still waiting on open questions. koto does this
+itself; you only see this state if the action failed.
+
+<!-- details -->
+
+/execute invoked on a run that stopped at `done_waiting` opens nothing while
+a question it waits on is still open, so it returns without answering the
+execute leg. This state reads the execute session: at `done_waiting` with a
+question still open, the run ends waiting, with the questions, as it would
+had /execute answered the leg with its own waiting outcome. Otherwise it goes
+on to record that /execute returned without a result. Read the output above
+and tick again.
+
 ## execute_absent
 
 Recording that /execute returned without a result. koto does this itself; you
@@ -1327,8 +1405,10 @@ koto status {{SESSION_NAME}} | "{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-r
 ## done_stopped
 
 The run stopped at a named point: a confirmation declined, a multi-pr PLAN
-handed off, /scope ending early, or /execute pausing. Print its report,
-verbatim:
+handed off, /scope ending early, /execute pausing, or /execute waiting on open
+questions (`outcome=waiting`, one `question=` line each, and a `next=` that
+continues this run once they are answered or withdrawn; do not start the work
+again fresh). Print its report, verbatim:
 
 ```bash
 koto status {{SESSION_NAME}} | "{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-report.sh"

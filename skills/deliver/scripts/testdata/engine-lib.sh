@@ -60,6 +60,8 @@ states:
         type: string
       waiting:
         type: string
+      question:
+        type: string
       intent:
         type: string
     transitions:
@@ -79,6 +81,7 @@ states:
           repos: "\${evidence.repos}"
           resume: "\${evidence.resume}"
           waiting: "\${evidence.waiting}"
+          question: "\${evidence.question}"
           intent: "\${evidence.intent}"
   done:
     terminal: true
@@ -95,6 +98,7 @@ states:
       repos: "\${context.repos}"
       resume: "\${context.resume}"
       waiting: "\${context.waiting}"
+      question: "\${context.question}"
       intent: "\${context.intent}"
 ---
 ## work
@@ -213,7 +217,8 @@ child_attach() {
 child_finish() {
     local sess="scope-$TOPIC"
     [ "$1" = scope ] || sess="execute-$TOPIC"
-    k next "$sess" --no-cleanup --with-data "$(jq -c '. + {finish: "go"}' <<<"$2")" >/dev/null 2>"$T/child-next.err"
+    k next "$sess" --no-cleanup --with-data "$(jq -c '. + {finish: "go"}' <<<"$2")" >"$T/child-next.out" 2>"$T/child-next.err" \
+        || { fail "$TOPIC: the $1 child finishes" "$(head -c 400 "$T/child-next.out") $(cat "$T/child-next.err")"; return 1; }
 }
 expect() { # expect <label> <state> <key=value>...
     local label="$1" want="$2" kv key val got ok=1

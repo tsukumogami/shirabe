@@ -610,10 +610,11 @@ present a summary of the features that will be turned into issues (count,
 names, the planned milestone). Stop for the author's approval. On
 approval, invoke the subcommand. On rejection, abort without calling it.
 
-**`--auto` runs.** Record an `assumed` approval decision block per
-`${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` at high review
-priority (the block surfaces in the terminal summary and the PR body),
-then invoke the subcommand. The non-interactive guarantee is preserved.
+**`--auto` runs.** Creating issues is outward-facing, so the approval is
+not the run's to assume: it follows
+`${CLAUDE_PLUGIN_ROOT}/references/question-procedure.md`. An earlier answer
+of the owner's that covers it settles it; otherwise the run raises the
+question and invokes the subcommand only once the answer approves it.
 
 A separate `--dry-run` invocation is available for the skill to inspect
 what the subcommand will write before the gate is reached; under

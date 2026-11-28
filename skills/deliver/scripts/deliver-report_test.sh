@@ -64,6 +64,19 @@ pr=$URL waiting=human
 pr=$URL2 waiting=predecessor
 resume=/execute docs/plans/PLAN-t.md --merge"
 
+case_ "waiting prints one question= per well-formed identity and next=, dropping the rest" \
+    "{outcome: \"waiting\", question: \"q1-aaaa/000000000001 not-an-id q2-bbbb/000000000002\", next: \"/deliver t\"}" \
+    "outcome=waiting
+question=q1-aaaa/000000000001
+question=q2-bbbb/000000000002
+next=/deliver t"
+
+case_ "waiting prints no pr= line, as /execute's print-exit.sh doesn't, even when the result names one" \
+    "{outcome: \"waiting\", pr: \"$URL\", question: \"q1-aaaa/000000000001\", next: \"/deliver t\"}" \
+    "outcome=waiting
+question=q1-aaaa/000000000001
+next=/deliver t"
+
 case_ "paused-for-review prints the PR and the resume command" \
     "{outcome: \"paused-for-review\", pr: \"$URL\", resume: \"/execute docs/plans/PLAN-t.md\"}" \
     "outcome=paused-for-review

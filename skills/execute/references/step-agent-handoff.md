@@ -24,11 +24,13 @@ commands, tool calls, files to read or scope.
 | `{{PLUGIN_ROOT}}` | the resolved plugin root, `${CLAUDE_PLUGIN_ROOT}` |
 | `{{OWNER_SESSION}}` | the owning session, `execute-<plan-slug>`, as the owning session itself is named (single-pr template) |
 | `{{LAND_BRANCH}}` | empty, except for the fix round that lands a step (`step-group.sh land` or `check` answered `round`): then that step's branch, as `step-group.sh cut` printed it (single-pr template) |
+| `{{QUESTION_TO}}` | where a question the child raises goes, the same recipient the owning session's own questions go to: `session:<dispatcher>` when `koto session origin execute-<plan-slug>` reports it dispatched (`anchor:<dispatcher>` when its `dispatcher_kind` is `anchor`), else `person:owner`. A batch child has no origin of its own, so `raise` would otherwise address the owner unlinked (single-pr template) |
 | `{{NEXT_STEPS}}` | the step ids of the PLAN's outlined steps whose only `waits_on` is this step, space-separated, each matching `^[a-z0-9][a-z0-9-]{0,62}$`; empty when there are none or when the run's `STEP_DRAFTS` is `off` (single-pr template) |
 
 The owning session fills each one from a value it computed itself (koto's child
 name, its own checkout, the settled branch, the resolved plugin path, its own
-session name, and the worktree and branch `step-group.sh cut` printed),
+session name, the recipient koto's origin record names, and the worktree and
+branch `step-group.sh cut` printed),
 never from PLAN or issue text. The one exception is
 `{{NEXT_STEPS}}`, read from the PLAN's `waits_on` structure: each id goes in only
 after `step-draft.sh id <step>` accepts it, and none of the PLAN's prose does. It
@@ -77,6 +79,11 @@ How to drive it:
   implementation state run `git merge --ff-only {{LAND_BRANCH}}` before
   anything else, commit nothing of your own before it, and afterwards fix only
   what the child's checks call for. This is the one merge you make.
+- If the child arrives at `decide_first` and the procedure in
+  `{{PLUGIN_ROOT}}/references/question-procedure.md` says to raise its
+  question, pass `--to {{QUESTION_TO}}` to `shirabe question raise`. The child
+  then ends at `done_waiting`, a terminal: report it as one. Present no
+  question prompt yourself.
 - You may spawn your step's review seats: the panels your review level calls
   for. The seats spawn nothing themselves. If you cannot spawn seats at all,
   stop and report `seats=unavailable`.

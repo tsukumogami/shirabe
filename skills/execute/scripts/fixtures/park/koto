@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# A koto stand-in for park_test.sh: serves context, children, status and the
+# decision records from the directory KOTO_STUB_DIR, which each case writes
+# from recorded fixtures. It answers only the calls park.sh, parked-state.sh
+# and decide-first-gate.sh --from make; anything else exits 70 naming it.
+set -u
+D="${KOTO_STUB_DIR:?KOTO_STUB_DIR is not set}"
+enc() { printf '%s' "$1" | sed 's|/|%2F|g'; }
+[ -n "${KOTO_STUB_LOG:-}" ] && printf '%s\n' "$*" >> "$KOTO_STUB_LOG"
+case "${1:-} ${2:-}" in
+"context list")
+    mkdir -p "$D/ctx/$3"
+    ls "$D/ctx/$3" | sed 's|%2F|/|g' | jq -R -s -c 'split("\n") | map(select(. != ""))'
+    ;;
+"context exists")
+    [ -f "$D/ctx/$3/$(enc "$4")" ] && exit 0
+    exit 1
+    ;;
+"context get")
+    f="$D/ctx/$3/$(enc "$4")"
+    [ -f "$f" ] || { echo "no key $4" >&2; exit 1; }
+    cat "$f"
+    ;;
+"context add")
+    mkdir -p "$D/ctx/$3"
+    cat > "$D/ctx/$3/$(enc "$4")"
+    ;;
+"context remove")
+    rm -f "$D/ctx/$3/$(enc "$4")"
+    ;;
+"workflows --children")
+    f="$D/children/$3.json"
+    if [ -f "$f" ]; then cat "$f"; else echo '[]'; fi
+    ;;
+"status "*)
+    f="$D/status/$2.json"
+    [ -f "$f" ] || { echo '{"error":"not found"}'; exit 1; }
+    cat "$f"
+    ;;
+"decisions history")
+    f="$D/history/$(enc "$4").json"
+    [ -f "$f" ] || { echo "no question $4" >&2; exit 1; }
+    cat "$f"
+    ;;
+"decisions content")
+    f="$D/content/$(enc "$5").json"
+    [ -f "$f" ] || { echo "no content for $5" >&2; exit 1; }
+    cat "$f"
+    ;;
+"decisions list")
+    f="$D/list/$3.json"
+    if [ -f "$f" ]; then cat "$f"; else echo '{"decisions":[]}'; fi
+    ;;
+"decisions attempts")
+    s="${3#--in=}"
+    f="$D/attempts/$s.json"
+    if [ -f "$f" ]; then cat "$f"; else echo '{"attempts":[]}'; fi
+    ;;
+*)
+    echo "koto stand-in: no answer for: $*" >&2
+    exit 70
+    ;;
+esac

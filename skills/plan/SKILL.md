@@ -532,7 +532,9 @@ step 7.6 closes nothing (`/plan` never closes its own session under a parent;
 question and its `gh issue edit` are skipped. This is
 shape 6, Parent-owned-publishing, in `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`,
 recorded in `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
-Under `--auto` it takes the recommended verdict and names it in its output.
+Under `--auto` it takes the recommended verdict, a choice cheap to undo since
+nothing is published (`${CLAUDE_PLUGIN_ROOT}/references/question-procedure.md`,
+"Cheap or costly"), and names it in its output.
 
 ### Workflow Phases
 

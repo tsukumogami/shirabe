@@ -1724,8 +1724,8 @@ fi
 # change, the way the coordinate cases read the real tree: a skill's own cases,
 # then every other skill's whose handoff names it.
 for c in \
-    "execute|execute 86 handoff-work-on-contract;coordinate 71 handoff-execute-contract;deliver 34 handoff-execute-contract" \
-    "work-on|work-on 86 decide-first-gate;work-on 87 decide-first-routes;coordinate 73 handoff-work-on-contract;execute 86 handoff-work-on-contract" \
+    "execute|execute 86 handoff-work-on-contract;execute 91 decide-first-routes;execute 95 decide-first-park-walk;coordinate 71 handoff-execute-contract;deliver 34 handoff-execute-contract" \
+    "work-on|work-on 86 decide-first-gate;work-on 87 decide-first-routes;coordinate 73 handoff-work-on-contract;execute 86 handoff-work-on-contract;execute 91 decide-first-routes;execute 95 decide-first-park-walk" \
     "scope|coordinate 72 handoff-scope-contract;deliver 35 handoff-scope-contract" \
     "deliver|deliver 34 handoff-execute-contract;deliver 35 handoff-scope-contract;coordinate 70 handoff-deliver-contract" \
     "coordinate|coordinate 70 handoff-deliver-contract;coordinate 71 handoff-execute-contract;coordinate 72 handoff-scope-contract;coordinate 73 handoff-work-on-contract" \
@@ -1787,8 +1787,8 @@ else
     : > "$SHIRABE_LOG"
     : > "$CLAUDE_LOG"
     run_copy execute
-    if [ "$RC" = 0 ] && out_has "ok: script cases (3 of 3 passed)" && ! out_has "FAIL: $MERGED_CASE"; then
-        pass "real-tree copy, unchanged: execute's check passes deliver 34 among its 3 script cases"
+    if [ "$RC" = 0 ] && out_has "ok: script cases (5 of 5 passed)" && ! out_has "FAIL: $MERGED_CASE"; then
+        pass "real-tree copy, unchanged: execute's check passes deliver 34 among its 5 script cases"
     else
         fail "real-tree copy, unchanged: execute's check: exit $RC"
         printf '%s\n' "$OUT" | sed 's/^/    /'

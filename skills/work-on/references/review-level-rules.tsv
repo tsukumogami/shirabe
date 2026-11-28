@@ -136,6 +136,9 @@ class	engine	skills/deliver/scripts/deliver-probe.sh
 class	engine	skills/execute/scripts/ci-fix-tests.sh
 class	engine	skills/execute/scripts/drift-facts.sh
 class	engine	skills/execute/scripts/owned-pr.sh
+class	engine	skills/execute/scripts/park-lib.sh
+class	engine	skills/execute/scripts/park.sh
+class	engine	skills/execute/scripts/parked-state.sh
 class	engine	skills/execute/scripts/record-coordination-verdict.sh
 class	engine	skills/execute/scripts/record-merge-verdict.sh
 class	engine	skills/execute/scripts/record-settled-branch.sh

@@ -26,7 +26,8 @@
 #
 #   outcome=<token>      always: merged, ready-awaiting-merge,
 #                        paused-awaiting-merges, paused-for-review, scoped,
-#                        handed-off-multi-pr, scope-ended-early, or error. A
+#                        handed-off-multi-pr, scope-ended-early, waiting, or
+#                        error. A
 #                        refusal (`refused` in the payload) prints error; an
 #                        unreadable outcome prints error with
 #                        step=deliver:child-outcome.
@@ -50,7 +51,9 @@
 #                        doesn't), then a fixed message built from them that
 #                        says what to do
 #   repos=<owner/repo[,owner/repo...]>
-#   pr=<url>             on merged, and on every outcome that names one PR
+#   pr=<url>             on merged, and on every outcome but waiting that
+#                        names one PR (a waiting run's PR stays a draft, and
+#                        /execute's print-exit.sh prints none either)
 #   pr=<url> waiting=<human|predecessor> [reason=<condition>]
 #                        on ready-awaiting-merge and paused-awaiting-merges,
 #                        one line per unmerged PR; a result that names a PR
@@ -58,7 +61,10 @@
 #                        human
 #   pr_state=<merged|open>
 #   resume=<command>     on paused-awaiting-merges and paused-for-review
-#   next=<command>       on scoped and handed-off-multi-pr
+#   question=<identity>  on waiting, one line per open question the run
+#                        waits on; an identity outside <session>/<id> is
+#                        dropped
+#   next=<command>       on scoped, handed-off-multi-pr and waiting
 #   #<N> <title>         on handed-off-multi-pr, each startable item
 #
 # What each outcome means:
@@ -102,7 +108,8 @@ set -uo pipefail
 
 PROG=deliver-report
 
-RE_OUTCOME='^(merged|ready-awaiting-merge|paused-awaiting-merges|paused-for-review|scoped|handed-off-multi-pr|scope-ended-early|error)$'
+RE_OUTCOME='^(merged|ready-awaiting-merge|paused-awaiting-merges|paused-for-review|scoped|handed-off-multi-pr|scope-ended-early|waiting|error)$'
+RE_QUESTION='^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$'
 RE_STEP='^(scope:(push|pr-create|intake|resume-probe|refused)|execute:[a-z][a-z0-9_-]*|deliver:(intent-mismatch|child-outcome|child-absent|request-abandoned|refused|worktree-isolated))$'
 RE_REASON='^(re-evaluation|abandonment|cancelled|intent-mismatch|upstream-(wip|untracked|outside|basename)|plan-active|plan-done|(invalid-var|duplicate-var|unknown-var|var-mismatch):[A-Z][A-Z0-9_]*|template-mismatch|origin-mismatch|input-mismatch|session-terminal|session-live|leg-[a-z]+(-[a-z]+)*|merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|predecessor-unmerged|gate-unverified|worktree-isolated|execute-leg-lost:[a-z][a-z0-9_-]*(:[A-Z][A-Z0-9_]*)?)$'
 RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
@@ -158,6 +165,7 @@ REPOS=$(pattern "$(field repos)" "$RE_REPO_LIST")
 RESUME=$(pattern "$(field resume)" "$RE_RESUME")
 NEXT=$(pattern "$(field next)" "$RE_NEXT")
 WAITING=$(field waiting)
+QUESTIONS=$(field question)
 EXECUTE_STATE=$(pattern "$(field execute_state)" "$RE_EXECUTE_STATE")
 WORKTREE_REPO=$(pattern "$(field worktree_repo)" "$RE_REPO")
 OTHER_REPOS=$(pattern "$(field other_repos)" "$RE_REPO_LIST")
@@ -230,6 +238,10 @@ case "$OUTCOME" in
             printf '%s\n' "$line"
         fi
         ;;
+    waiting)
+        # As /execute's print-exit.sh: a waiting run's draft pull request
+        # stays a draft, and a pr= line would read as one ready for a person.
+        ;;
     *)
         [ -n "$PR" ] && printf 'pr=%s\n' "$PR"
         ;;
@@ -242,6 +254,12 @@ case "$OUTCOME" in
         [ -n "$RESUME" ] && printf 'resume=%s\n' "$RESUME"
         ;;
     scoped|handed-off-multi-pr)
+        [ -n "$NEXT" ] && printf 'next=%s\n' "$NEXT"
+        ;;
+    waiting)
+        for q in $QUESTIONS; do
+            [[ $q =~ $RE_QUESTION ]] && printf 'question=%s\n' "$q"
+        done
         [ -n "$NEXT" ] && printf 'next=%s\n' "$NEXT"
         ;;
 esac

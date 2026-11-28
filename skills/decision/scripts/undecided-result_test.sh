@@ -38,7 +38,9 @@
 #   every consumer that branches on a decision's status names the third one,
 #     and no other file under skills/ or references/ names the settled status
 #     without it
-#   the three phrases this step removed stay gone
+#   the three phrases this step removed stay gone, and no file under skills/
+#     or references/ (tests and evals aside) says a decision follows the
+#     recommendation or the recommended default
 #
 # Usage: bash skills/decision/scripts/undecided-result_test.sh [<caller>]
 #   <caller> (decision, design or explore) adds the hand-off from that
@@ -138,6 +140,16 @@ if grep -rn "follow the recommendation" "$REPO/skills/decision/references/phases
     fail "a decision phase file still says: follow the recommendation"; phrase_ok=0
 fi
 [ "$phrase_ok" -eq 1 ] && pass "the three removed phrases are gone"
+
+# The rule an unattended run once followed: take the recommendation. A matter
+# the evidence doesn't settle is handled by references/decision-protocol.md
+# instead, so none of its phrasings may come back in prose.
+follow_ok=1
+if grep -rnEi "follows? (the|its) recommend(ation|ed)|decisions follow the recommended" \
+    "$REPO/skills" "$REPO/references" --include='*.md' --exclude-dir=evals; then
+    fail "a file under skills/ or references/ says to follow the recommendation"; follow_ok=0
+fi
+[ "$follow_ok" -eq 1 ] && pass "no skill or reference says to follow the recommendation"
 
 # The rule that wrote a close call or a missing deciding fact as an assumed
 # best guess stays gone from the decision skill and the shared references.

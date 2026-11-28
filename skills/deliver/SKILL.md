@@ -243,6 +243,20 @@ nothing else.
    with the leg still open takes the same `child_returned: yes` path as a
    `/scope` call that does.
 
+   An `/execute` that returns with its leg still open goes first through
+   `execute_returned`, which koto runs itself
+   (`deliver-execute-leg.sh waiting`). That is the case of a `/deliver <topic>`
+   re-invoked while the execute run still stands at `done_waiting` with a
+   question open: `/execute` opens nothing then, and koto can't bind a leg to
+   a session at a terminal. When the read finds the execute session at
+   `done_waiting` with at least one question still open, the run ends
+   `outcome=waiting` with those questions and `next=/deliver <topic>`, as it
+   would had `/execute` answered the leg itself; the leg stays open and the
+   next `/deliver <topic>` abandons it with the request. Anything else, a
+   failed read included, records the child-absent result as before. The read
+   only sees this machine's store, so a question answered elsewhere and not
+   yet imported still reads as open.
+
 4. **Report.** When `koto next` answers `"action": "done"`, print the report,
    verbatim, and compose no line of your own:
 

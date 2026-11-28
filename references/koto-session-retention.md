@@ -34,7 +34,13 @@ A session is kept when any of these holds:
   or without `--no-cleanup`. `/work-on`'s `done_waiting` is one: a run waiting
   on its question is kept so a later run can continue it, and `koto session
   cleanup` refuses it (`holds_question`) until the question is answered or
-  withdrawn;
+  withdrawn. `/execute`'s `done_waiting` is another, kept as a failure terminal, and
+  `koto session cleanup` refuses it while a question the run raised itself is
+  open; `/execute` continues it in place
+  with `koto rewind` rather than a successor, since its children are named
+  after it. `/deliver` adds no terminal: it forwards the wait through
+  `done_stopped`, which its `--no-cleanup` ticks keep as they keep its
+  other stops;
 - a hierarchy still holds the session, with or without `--no-cleanup`: it has a
   live dispatcher or parent, a `chain/parent` link, or another session names
   it (koto 0.23.0 and later; on 0.22.x this case doesn't exist, and such a

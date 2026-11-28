@@ -1254,7 +1254,7 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "issue_612 ended at done_waiting on a question to its manager. The user invokes /work-on #612 again. How does the agent pick the run up, what does it do if the question is still open, and what if it has been answered?",
-      "expected_output": "The agent does not start the work fresh. It opens the run through work-on-open.sh --workflow issue_612 with its usual --var flags and --continue-waiting. If the question is still open the script exits 3 printing waiting=<identity> and session=<head>, and the agent reports that the run is still waiting on that question and stops, unless the user started this turn and the question is addressed to them, in which case it presents the question first and opens again once it is answered. Once it is answered, the script opens a successor that continues the waiting session (issue_612-r2), printing opened=continued; the agent ticks it, it moves from entry to resume_waiting, whose decide_resume gate holds until the agent records a deciding attempt citing the answer (shirabe question attempt --in issue_612-r2 --result decided --basis <answer>). The run then goes back to the state the question came from and carries on, its arrivals counting on from the earlier session. If the answer is no longer needed the run's question is withdrawn with shirabe question withdraw <identity> --in <session> --reason <why>; a withdrawn question is refused with refused=withdrawn, and the agent starts the work fresh rather than continuing. Under --koto-leg the flag is refused, since koto's succession can't be combined with a leg.",
+      "expected_output": "The agent does not start the work fresh. It opens the run through work-on-open.sh --workflow issue_612 with its usual --var flags and --continue-waiting. If the question is still open the script exits 3 printing waiting=<identity> and session=<head>, and the agent reports that the run is still waiting on that question and stops, unless the user started this turn and the question is addressed to them, in which case it presents the question first and opens again once it is answered. Once it is answered, the script opens a successor that continues the waiting session (issue_612-r2), printing opened=continued; the agent ticks it, it moves from entry to resume_waiting, whose decide_resume gate holds until the agent records a deciding attempt citing the answer (shirabe question attempt --in issue_612-r2 --result decided --basis <answer>). The run then goes back to the state the question came from and carries on, its arrivals counting on from the earlier session. If the answer is no longer needed the run's question is withdrawn with shirabe question withdraw <identity> --in <session> --reason <why>; a withdrawn question is refused with refused=withdrawn, and the agent starts the work fresh rather than continuing. Under --koto-leg, once answered, the opener checks the answer's authority with decide-first-gate.sh --answer, rewinds the waiting session to waiting_record, prints continued=waiting and attaches it under the new leg; the agent ticks it back to decide_first and cites the answer there.",
       "files": [],
       "expectations": [
         "Agent continues the run with work-on-open.sh --continue-waiting rather than a fresh open",
@@ -1353,6 +1353,19 @@
         "Agent submits approval_decision: needs_answer",
         "Agent settles the new deferral at decide_first under its new arrival"
       ]
+    },
+    {
+      "id": 92,
+      "name": "decide-first-gate-knows-execute-exit",
+      "prompt": "An /execute run arrives at its decide_first from worktree_discipline_check. What does decide-first-gate.sh --from answer, and what does a deciding attempt need when the run was rewound after its question was answered?",
+      "expected_output": "decide-first-gate.sh --from exits 20 for worktree_discipline_check, the code /execute's decide_first routes resume and stop on. When the session holds a question raised for the current arrival that has since been answered, the check holds the deciding attempt until one in effect cites that answer in its basis, naming the shirabe question attempt command to run.",
+      "expectations": [
+        "--from exits 20 for worktree_discipline_check",
+        "A deciding attempt that does not cite the answer is held with a finding"
+      ],
+      "tier": 1,
+      "mode": "plan_only",
+      "files": []
     }
   ]
 }

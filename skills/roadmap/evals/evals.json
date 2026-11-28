@@ -137,7 +137,7 @@
       ],
       "expectations": [
         "Transcript identifies 'populate' as the input mode from the arguments",
-        "Transcript stops for R14 approval before invoking the subcommand in an interactive run (or records an assumed approval decision block under --auto)",
+        "Transcript stops for R14 approval before invoking the subcommand in an interactive run (or, under --auto, raises the approval as a question unless an earlier owner answer covers it)",
         "Transcript plans to run the `shirabe roadmap populate` subcommand against the named roadmap with the `--issues` flag passed explicitly, not left to the subcommand's default",
         "Transcript describes invoking gh as a primitive with discrete arguments (not re-driving the plan workflow)",
         "Transcript describes structural section replacement for the Implementation Issues and Dependency Graph sections (not prose string substitution)"

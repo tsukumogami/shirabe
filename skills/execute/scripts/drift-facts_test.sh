@@ -801,7 +801,9 @@ else
     fail "overlap: informational reached [$STATE]"
 fi
 
-# Deletion: the run stops at the question, and intent-changing ends the run.
+# Deletion: the run stops at the question, and intent-changing goes to
+# decide_first, where the run decides before it stops (decide-first-routes_test
+# checks the stop route out of it to escalate_upstream_drift).
 fixture e-deletion
 plan "$PLAN_CODE"
 upstream 'git rm -q src/a.go' 'drop a'
@@ -815,25 +817,19 @@ else
     fail "deletion: state [$STATE], facts [$facts]"
 fi
 tick execute-e-deletion '{"impact":"intent-changing","rationale":"src/a.go is gone"}'
-if [ "$STATE" = "done_blocked" ]; then
-    pass "deletion: impact intent-changing with a rationale ends at done_blocked"
+if [ "$STATE" = "decide_first" ]; then
+    pass "deletion: impact intent-changing with a rationale goes to decide_first"
 else
     fail "deletion: intent-changing reached [$STATE]"
 fi
-# The tick chains through escalate_upstream_drift, where the submitted
-# evidence doesn't carry, so the reason worktree_discipline_check assigned is
-# the only one that holds the rationale. Nothing later may overwrite it.
-reason=$(cd "$FX/repo" && koto context get execute-e-deletion failure_reason 2>/dev/null)
+# The intent-changing edge writes the reason, where the rationale is; the
+# stop route out of decide_first chains through escalate_upstream_drift,
+# which writes none, so this is the reason the run would stop with.
+reason=$(cd "$FX/repo" && koto context get execute-e-deletion failure_reason 2>"$FX/reason.err")
 if [ "$reason" = "worktree_discipline_check: upstream-drift detected (intent-changing): src/a.go is gone" ]; then
     pass "deletion: failure_reason names worktree_discipline_check and carries the rationale"
 else
-    fail "deletion: failure_reason [$reason]"
-fi
-step=$(cd "$FX/repo" && koto context get execute-e-deletion step 2>/dev/null)
-if [ "$step" = "execute:re-evaluation" ]; then
-    pass "deletion: step is execute:re-evaluation"
-else
-    fail "deletion: step [$step]"
+    fail "deletion: failure_reason [$reason] $(cat "$FX/reason.err")"
 fi
 
 # The question offers exactly two answers.

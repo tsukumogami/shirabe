@@ -694,16 +694,25 @@ cp "$TPL/child.md" "$GATE/child.md"
     printf '%s\n' '---' 'name: step-group-gate-fixture' 'version: "1.0"' \
         'description: spawn_and_await as shipped, between two stub terminals.' \
         'initial_state: spawn_and_await' 'variables:' \
-        '  PLUGIN_ROOT:' '    description: plugin root' '    required: true' 'states:'
+        '  PLUGIN_ROOT:' '    description: plugin root' '    required: true' \
+        '  PLAN_DOC:' '    description: the PLAN parked_state reads' '    default: ""' 'states:'
     awk '
         $0 == "  spawn_and_await:" { found = 1; print; next }
         found && /^  [a-zA-Z_][a-zA-Z0-9_]*:$/ { exit }
         found && /^---$/ { exit }
         found { print }
     ' "$TEMPLATE" | sed 's|default_template: .*|default_template: ./child.md|'
-    printf '%s\n' '  pr_finalization:' '    terminal: true' '  escalate:' '    terminal: true' \
-        '---' '' '## spawn_and_await' '' 'The state under test.' '' \
+    # The parked-step targets are stubs too: no step here is parked, so
+    # parked_state.sh exits 0 and none of them is reached.
+    printf '%s\n' '  pr_finalization:' '    terminal: true' '  escalate:' '    terminal: true'
+    for st in escalate_parked waiting_record escalate_upstream_drift; do
+        printf '%s\n' "  $st:" '    terminal: true'
+    done
+    printf '%s\n' '---' '' '## spawn_and_await' '' 'The state under test.' '' \
         '## pr_finalization' '' 'Stub.' '' '## escalate' '' 'Stub.'
+    for st in escalate_parked waiting_record escalate_upstream_drift; do
+        printf '%s\n' '' "## $st" '' 'Stub.'
+    done
 } > "$GATE/fixture.md"
 mkdir -p "$GATE/repo"
 git -C "$GATE/repo" init -q -b "$SHARED" .
@@ -744,7 +753,7 @@ gate_run gate-none ok
 check "the gate: every child done and no step ever cut goes to pr_finalization" '[ "$STATE" = pr_finalization ]'
 gate_run gate-held ok "$CUT_A"
 check "the gate: every child done with a cut step not landed holds at spawn_and_await on steps_landed" \
-    '[ "$STATE" = spawn_and_await ] && [ "$BLOCK" = steps_landed ]'
+    '[ "$STATE" = spawn_and_await ] && case ",$BLOCK," in *,steps_landed,*) case ",$BLOCK," in *,parked_state,*) false ;; *) true ;; esac ;; *) false ;; esac'
 printf '%s\n' "$CUT_A" "$LANDED_A" | (cd "$GATE/repo" && koto context add gate-held step_group.jsonl >/dev/null 2>&1)
 gate_tick gate-held
 check "the gate: the same run goes to pr_finalization once the step is recorded as landed" '[ "$STATE" = pr_finalization ]'

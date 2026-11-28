@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# decide-first-gate.sh -- for /work-on: what koto holds for the run's arrival at
-# decide_first, the state in front of every covered exit.
+# decide-first-gate.sh -- for /work-on, and /execute's decide_first: what koto
+# holds for the run's arrival at decide_first, the state in front of every
+# covered exit.
 #
 # A covered exit is one the run used to take straight to done_blocked or
 # validation_exit when it could not settle something. The run now arrives at
@@ -19,6 +20,9 @@
 #   decide-first-gate.sh --recorded <session>         waiting_record's gate
 #   decide-first-gate.sh --approval <session>         deferral_approval's answer gate
 #   decide-first-gate.sh --resume <session>           resume_waiting's decide_resume gate
+#   decide-first-gate.sh --answer <session> <identity>
+#                                                     the answer with authority,
+#                                                     for /execute's park.sh
 #
 # Only the two default actions, --arrive and --record-question, write to
 # context. The gates read it and exit; a gate's output never reaches context.
@@ -48,7 +52,11 @@
 #
 # attempt_recorded (no option) exits:
 #   0  an attempt with result decided or provisional is recorded in the
-#      session for this arrival, and no question for the arrival is open
+#      session for this arrival, and no question for the arrival is open.
+#      In a session rewound to the arrival it waited from (/execute's
+#      continuation), whose decide_question was raised for this arrival and
+#      has since been answered, the attempt must also cite that answer in
+#      its basis, or the gate is at 1.
 #   3  a question for the arrival is open, tied to an undecided attempt or
 #      an open need; a deciding attempt beside it prints a finding too, since
 #      the run can't carry on past its own open question
@@ -60,7 +68,10 @@
 # is not open and does not count.
 #
 # --record-question removes decide_question, then writes the identity of the
-# open question for the arrival into it, and exits 0 whether or not one is
+# open question for the arrival into it; when none is open and the value it
+# removed names one of the arrival's questions (a session rewound from
+# done_waiting), it writes that value back, so decide_first still requires
+# the answer to be cited. It exits 0 whether or not one is
 # open: koto judges no gate after a failed action, so a question answered or
 # withdrawn since `raised` must not hold the run here. 2 when the record
 # cannot be read.
@@ -74,8 +85,9 @@
 # --from exits with the code of the arrival's origin, so decide_first's edges
 # can pair it with the submitted outcome: 10 analysis, 11 implementation,
 # 12 introspection, 13 task_validation, 14 post_research_validation,
-# 15 plan_validation, 16 deferral_approval; 2 when there is no arrival or its
-# origin is no covered state.
+# 15 plan_validation, 16 deferral_approval, and /execute's
+# 20 worktree_discipline_check; 2 when there is no arrival or its origin is no
+# covered state.
 #
 # --laps exits 0 while the arrivals from the origin number at most 3, and 1,
 # with a finding, from the fourth: the resume edges need 0.
@@ -106,9 +118,22 @@
 # so a fresh run never calls it. It exits the origin code of the question's
 # state (10 to 16, as --from) once a deciding attempt in this session cites
 # the question's answer in its basis, and 1, with a finding, while the
-# question is open, after it was withdrawn, or before the answer is cited; 2
-# when the record cannot be read. Run directly in a session with no
+# question is open, after it was withdrawn, when its answer carries no
+# authority over the run (as --answer reads it), or before the answer is
+# cited; 2 when the record cannot be read. Run directly in a session with no
 # decide_question, it exits 0 and calls nothing.
+#
+# --answer prints the question's answer in effect as <session>:<id> when it
+# carries authority over <session>'s run, by the rules --approval applies (a
+# verified person's answer, a session answer from the raiser's dispatcher
+# linked before the raise, or a settle whose basis holds a verified person's
+# answer), and nothing otherwise; it exits 0 either way, and 2 when the record
+# cannot be read. An answer from <session>'s own lineage never counts.
+# <session> is the run the answer has to carry authority over: the raiser, or
+# for a step's question /execute's run, the step's batch parent. A batch
+# child has no dispatcher of its own, so its question counts its parent's
+# dispatcher, never the parent. /execute's park.sh calls it, so the rule has
+# one copy.
 #
 # Nothing here writes a decision. stdout carries the finding or the arrival
 # name; koto's and jq's own messages reach stderr unchanged.
@@ -122,9 +147,17 @@ ROOT_SELF=$(cd "$SELF_DIR/../../.." && pwd -P) || exit 2
 MODE=check
 case "${1:-}" in
     --arrive|--from|--laps|--record-question|--recorded|--approval|--resume) MODE="${1#--}"; shift ;;
+    --answer) MODE=answer; shift ;;
 esac
 WF="${1:-}"
-if [ -z "$WF" ] || [ "$#" -ne 1 ]; then
+IDENTITY=""
+if [ "$MODE" = answer ]; then
+    IDENTITY="${2:-}"
+    if [ -z "$WF" ] || [ -z "$IDENTITY" ] || [ "$#" -ne 2 ]; then
+        echo "usage: decide-first-gate.sh --answer <session> <identity>" >&2
+        exit 2
+    fi
+elif [ -z "$WF" ] || [ "$#" -ne 1 ]; then
     echo "usage: decide-first-gate.sh [--arrive|--from|--laps|--record-question|--recorded|--approval|--resume] <session>" >&2
     exit 2
 fi
@@ -141,17 +174,21 @@ finding() {
     exit 1
 }
 
+# The covered states of every template whose decide_first runs this script,
+# with the code --from exits with: one table, so the arrival derive() reads and
+# the code decide_first's edges pair it with can't name different sets.
+# /work-on's seven, then /execute's covered exit.
+COVERED_CODES="analysis:10 implementation:11 introspection:12 task_validation:13
+post_research_validation:14 plan_validation:15 deferral_approval:16
+worktree_discipline_check:20"
+COVERED=$(printf '%s\n' $COVERED_CODES | sed 's/:.*//')
+
 code_of() {
-    case "$1" in
-        analysis) echo 10 ;;
-        implementation) echo 11 ;;
-        introspection) echo 12 ;;
-        task_validation) echo 13 ;;
-        post_research_validation) echo 14 ;;
-        plan_validation) echo 15 ;;
-        deferral_approval) echo 16 ;;
-        *) return 1 ;;
-    esac
+    local e
+    for e in $COVERED_CODES; do
+        [ "${e%%:*}" = "$1" ] && { echo "${e#*:}"; return 0; }
+    done
+    return 1
 }
 
 need_tools() {
@@ -234,8 +271,6 @@ writes() {
         || unreadable "could not read the history of $2 in $1"
 }
 
-COVERED="analysis implementation introspection task_validation post_research_validation plan_validation deferral_approval"
-
 # derive: the run's arrivals, from koto's record (see the header). Sets ORIGIN
 # (the newest arrival's covered state, empty when its value names none), N
 # (the run's arrivals), LAPS (those from ORIGIN) and ARRIVAL (<ORIGIN>:<N>,
@@ -288,25 +323,47 @@ link_first() {
     printf '%s\n' "$h" | jq -r --arg f "$3" '.[0][$f] // empty | tostring' || unreadable "could not read $1's link to $2"
 }
 
+# parent_of <session>: the batch parent koto spawned the session under, or
+# nothing.
+parent_of() {
+    local out
+    out=$(koto session hierarchy --json "$1") || unreadable "koto session hierarchy $1 failed"
+    printf '%s\n' "$out" | jq -r --arg s "$1" \
+        '[.members[]? | select(.name == $s) | .joined_by[]? | select(.via == "parent_workflow" and .holder == $s and .named != $s) | .named][0] // empty' \
+        || unreadable "could not read the hierarchy of $1"
+}
+
 # above_at_raise <identity>: the sessions above the run whose session answer to
 # the question counts, one per line (see --approval in the header): the
 # raiser's dispatcher, linked before the question was raised, then each
 # dispatcher above it linked before the raise; nothing when the raiser had no
-# dispatcher then, or a newer session of the lineage names another.
+# dispatcher then, or a newer session of the lineage names another. A batch
+# child (an /execute step) has no dispatcher of its own: its question is read
+# against its parent run's dispatcher, linked before the raise by timestamp,
+# since the two sessions' log positions don't compare. The parent run itself
+# is never among them.
 above_at_raise() {
-    local h r t shown e d first lin l s i
+    local h r t shown e d first lin l s i p
     h=$(history "$1") || exit 2
     r=$(printf '%s\n' "$h" | jq -r '.raiser.name // empty')
     t=$(printf '%s\n' "$h" | jq -r '[.entries[]? | select(.entry == "raise")][0].time // empty')
     [ -n "$r" ] && [ -n "$t" ] || unreadable "the history of $1 names no raiser or raise time"
-    shown=$(show "$r" "${1##*/}") || exit 2
-    e=$(printf '%s\n' "$shown" | jq -r '.decision.log_seq // empty')
-    case "$e" in ''|*[!0-9]*) unreadable "the escalate entry of $1 has no log position" ;; esac
     d=$(dispatcher_of "$r") || exit 2
-    [ -n "$d" ] || return 0
-    first=$(link_first "$r" "$d" seq) || exit 2
-    case "$first" in ''|*[!0-9]*) return 0 ;; esac
-    [ "$first" -lt "$e" ] || return 0
+    if [ -n "$d" ]; then
+        shown=$(show "$r" "${1##*/}") || exit 2
+        e=$(printf '%s\n' "$shown" | jq -r '.decision.log_seq // empty')
+        case "$e" in ''|*[!0-9]*) unreadable "the escalate entry of $1 has no log position" ;; esac
+        first=$(link_first "$r" "$d" seq) || exit 2
+        case "$first" in ''|*[!0-9]*) return 0 ;; esac
+        [ "$first" -lt "$e" ] || return 0
+    else
+        p=$(parent_of "$r") || exit 2
+        [ -n "$p" ] || return 0
+        d=$(dispatcher_of "$p") || exit 2
+        [ -n "$d" ] || return 0
+        first=$(link_first "$p" "$d" timestamp) || exit 2
+        [ -n "$first" ] && [[ "$first" < "$t" ]] || return 0
+    fi
     lin=$(lineage) || exit 2
     for l in $lin; do
         [ "$l" = "$r" ] && break
@@ -456,6 +513,11 @@ laps)
     [ "$LAPS" -le "$LAP_CAP" ] && exit 0
     finding "this is arrival $LAPS from $ORIGIN, past the cap of $LAP_CAP: resume is refused; stop with decided_next: stop, or raise the question"
     ;;
+answer)
+    command -v jq > /dev/null || unreadable "jq is not on PATH"
+    authoritative_answer "$IDENTITY" || exit 2
+    exit 0
+    ;;
 resume)
     # A run that continues no waiting run is a fresh one: nothing else is
     # read, and no shirabe call is made.
@@ -474,8 +536,12 @@ check|record-question|recorded)
     [ -n "$arrival" ] || unreadable "no arrival is recorded at decide_first"
     mine=$(printf '%s\n' "$ALL" | jq -c --arg a "$arrival" 'select(.state == $a)') || unreadable "could not read the attempts"
     # The key is cleared before the questions are read, so an earlier value,
-    # whatever it holds, is never read as one of them.
+    # whatever it holds, is never read as one of them. The one exception is
+    # below: an earlier value that koto's record lists as a question of this
+    # arrival is kept once that question has closed.
+    prior=""
     if [ "$MODE" = record-question ]; then
+        prior=$(ctx decide_question) || exit 2
         rc=0
         koto context exists "$WF" decide_question > /dev/null || rc=$?
         case "$rc" in
@@ -491,6 +557,16 @@ check|record-question|recorded)
     done
     if [ "$MODE" = record-question ]; then
         if [ -z "$open" ]; then
+            # A session rewound from done_waiting to this state (a leg-bound
+            # run continued under a new leg, work-on-open.sh --continue-waiting)
+            # held the question it waited on. Kept, it is what decide_first
+            # reads to require that the deciding attempt cite its answer;
+            # cleared, the run could decide around the answer it waited for.
+            if [ -n "$prior" ] && in_lines "$prior" "$qs"; then
+                put decide_question "$prior"
+                echo "decide-first-gate: $prior, the question $arrival waited on, has closed; decide_question keeps it and waiting_record's gate sends the run back to decide_first"
+                exit 0
+            fi
             echo "decide-first-gate: no open question names $arrival now; waiting_record's gate sends the run back to decide_first"
             exit 0
         fi
@@ -511,6 +587,37 @@ check|record-question|recorded)
         exit 3
     fi
     if [ -n "$(printf '%s\n' "$mine" | deciding)" ]; then
+        # A session rewound to the arrival it waited from still holds that
+        # arrival's question. Once the question is closed with an answer, the
+        # deciding attempt must cite it: the run resumes on the answer to the
+        # question it raised for this stop, not on a decision of its own
+        # made around it. A question withdrawn without an answer leaves the
+        # session's own deciding attempt standing. An answer without authority
+        # over the run (its own, or a session's that is not its dispatcher
+        # linked before the raise) is no answer to resume on, and does not
+        # leave the run free to decide around it either.
+        question=$(ctx decide_question) || exit 2
+        if [ -n "$question" ]; then
+            h=$(history "$question") || exit 2
+            answer=""
+            if printf '%s\n' "$h" | jq -e --arg a "$arrival" '.question.state == $a and .open != true' > /dev/null; then
+                answer=$(authoritative_answer "$question") || exit 2
+                raw=$(printf '%s\n' "$h" | jq -r '.answer | select(. != null) | "\(.session):\(.id)"') \
+                    || unreadable "could not read the history of $question"
+                if [ -z "$answer" ] && [ -n "$raw" ]; then
+                    finding "the answer $raw to $question carries no authority over this run (its own, or from a session that is not its dispatcher linked before the raise): raise the question again for $arrival"
+                fi
+            fi
+            if [ -n "$answer" ]; then
+                for a in $(printf '%s\n' "$mine" | deciding | jq -r '.id'); do
+                    bases=$(basis_of "$a") || exit 2
+                    for b in $bases; do
+                        [ "$b" = "$answer" ] && exit 0
+                    done
+                done
+                finding "the question $question raised for $arrival was answered ($answer): record shirabe question attempt --in $WF --state $arrival --result decided --basis $answer before leaving decide_first"
+            fi
+        fi
         exit 0
     fi
     if [ -n "$(printf '%s\n' "$mine" | jq -c 'select(.result == "undecided")')" ]; then
@@ -542,8 +649,11 @@ resume)
     if printf '%s\n' "$h" | jq -e '.open == true' > /dev/null; then
         finding "the question $question is still open: this run continues once it is answered"
     fi
-    answer=$(printf '%s\n' "$h" | jq -r '.answer | select(. != null and (.outcome == "answered" or .outcome == "settled")) | "\(.session):\(.id)"')
-    [ -n "$answer" ] || finding "the question $question was closed without an answer: there is nothing to continue from; start the work fresh"
+    raw=$(printf '%s\n' "$h" | jq -r '.answer | select(. != null) | "\(.session):\(.id)"') \
+        || unreadable "could not read the history of $question"
+    [ -n "$raw" ] || finding "the question $question was closed without an answer: there is nothing to continue from; start the work fresh"
+    answer=$(authoritative_answer "$question") || exit 2
+    [ -n "$answer" ] || finding "the answer $raw to $question carries no authority over this run (its own, or from a session that is not its dispatcher linked before the raise): raise the question again"
     cited "$answer" && exit "$c"
     finding "the answer $answer is not cited yet: record shirabe question attempt --in $WF --result decided --basis $answer before going back to ${state%%:*}"
     ;;

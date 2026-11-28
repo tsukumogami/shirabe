@@ -1116,9 +1116,19 @@ to `resume_waiting` instead.
    `--dispatched-by` with a dispatcher other than the waiting session's is
    refused with `refused=dispatcher_differs`, printing `dispatcher=` (the
    waiting session's, or `none`) and `session=`: open again naming that
-   dispatcher, since an answer counts only under the one the run raised under. Under
-   `--koto-leg` the flag is refused: koto's succession can't be combined with a
-   leg. When the answer is no longer needed, withdraw the question with
+   dispatcher, since an answer counts only under the one the run raised under. A run opened
+   under `--koto-leg` is continued under the new request's leg: put that
+   `--koto-leg` in the tokens as for any leg-bound open. koto's succession
+   can't take a leg, so the opener checks the answer's authority
+   (`decide-first-gate.sh --answer`; one without it is refused with
+   `refused=answer_without_authority`), rewinds the waiting session to
+   `waiting_record`, prints `continued=waiting` and `question=`, and attaches
+   it under the new leg (`opened=attached`, `session=<WF>`). Tick it: it goes
+   back to `decide_first`, which holds until a deciding attempt cites the
+   answer. koto refuses the attach while the request the run answered is
+   still open, since a session answers one live leg; the dispatcher closes or
+   abandons that request first, and on a refused attach the opener puts the
+   session back at `done_waiting` and prints `restored=done_waiting`. When the answer is no longer needed, withdraw the question with
    `shirabe question withdraw <identity> --in <session> --reason <why>`. A
    withdrawal takes the question off its addressee's open list for good, and
    the waiting run is then refused with `refused=withdrawn`, printing

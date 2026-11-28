@@ -34,6 +34,11 @@
 #     goes ahead
 #     the lock: one a live opener holds is error=session-busy; one whose
 #     holder is gone is taken over and released at exit
+#     a session at done_waiting: while a question its result names is open,
+#     waiting=<identity> per open one and session=, exit 3, no rewind and no
+#     init; once every one is closed, `koto rewind` and continued=waiting,
+#     with no replaced_result, no moved_to=, no init and no call to the
+#     question tool; a rewind koto refuses is failed=waiting, exit 70
 #     a deleted PLAN: execute-coordinated.md when the session's run/setup
 #     says coordinated, when only the opener's snapshot does, and when only
 #     git history does (the PLAN's version before the commit that deleted
@@ -1025,7 +1030,14 @@ WALK_ROOT="$WORK/walk-plugin"
 mkdir -p "$WALK_ROOT/skills/work-on/scripts" "$WALK_ROOT/skills/execute/scripts"
 printf '#!/usr/bin/env bash\necho https://github.com/o/r/pull/1\n' > "$WALK_ROOT/skills/work-on/scripts/check-pr-output.sh"
 printf '#!/usr/bin/env bash\necho 00112233445566778899aabbccddeeff\n' > "$WALK_ROOT/skills/execute/scripts/run-id.sh"
-chmod +x "$WALK_ROOT/skills/work-on/scripts/check-pr-output.sh" "$WALK_ROOT/skills/execute/scripts/run-id.sh"
+# spawn_and_await's parked_state and parked_stop gates are overridable: false,
+# so koto refuses the walk's directed hop out of it unless parked_state reads
+# 0 (no step parked) as an edge needs; parked_stop's park.sh cited exits 1
+# (no decision cites an answer).
+printf '#!/usr/bin/env bash\nexit 0\n' > "$WALK_ROOT/skills/execute/scripts/parked-state.sh"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$WALK_ROOT/skills/execute/scripts/park.sh"
+chmod +x "$WALK_ROOT/skills/work-on/scripts/check-pr-output.sh" "$WALK_ROOT/skills/execute/scripts/run-id.sh" \
+    "$WALK_ROOT/skills/execute/scripts/parked-state.sh" "$WALK_ROOT/skills/execute/scripts/park.sh"
 
 # session_var <session> <VAR> — the variable's effective value from the log.
 session_var() {
@@ -1521,6 +1533,79 @@ if [ "$RC" -eq 0 ] && [ "$(built_from execute-cbound)" = execute-coordinated.md 
     pass "a coordinated PLAN with --review-floor=light: execute-coordinated.md, REVIEW_FLOOR=light"
 else
     fail "coordinated bound: exit $RC, template [$(built_from execute-cbound)], floor [$(session_var execute-cbound REVIEW_FLOOR)]; $ERR"
+fi
+
+# --- a run waiting on its questions ---------------------------------------------
+#
+# A stub koto answers `koto status` with a session at done_waiting until a
+# `koto rewind` is logged, and with the session at spawn_and_await after it;
+# `koto decisions history` answers each question open or closed as
+# KOTO_STUB_OPEN lists it. A shirabe stand-in logs any call.
+
+WAIT_BIN="$WORK/wait-bin"
+mkdir -p "$WAIT_BIN"
+cat > "$WAIT_BIN/koto" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${KOTO_STUB_LOG:?}"
+case "${1-} ${2-}" in
+"status "*)
+    if grep -q '^rewind ' "$KOTO_STUB_LOG"; then
+        printf '%s\n' '{"name":"execute-wait","current_state":"spawn_and_await","is_terminal":false}'
+    else
+        printf '%s\n' '{"name":"execute-wait","current_state":"done_waiting","is_terminal":true,"result":{"status":"failure","payload":{"outcome":"waiting","question":"q1-aaaa/000000000001 q2-bbbb/000000000002"}}}'
+    fi
+    exit 0 ;;
+"decisions history")
+    q="${4-}"
+    case " ${KOTO_STUB_OPEN-} " in *" $q "*) echo '{"open":true}' ;; *) echo '{"open":false}' ;; esac
+    exit 0 ;;
+"rewind "*) exit "${KOTO_STUB_REWIND_RC:-0}" ;;
+"init "*)
+    # The rewound session is live, so koto attaches to it.
+    printf '%s\n' '{"name":"execute-wait","outcome":"attached","rebound":{}}'
+    exit 0 ;;
+esac
+exit 1
+STUB
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "${SHIRABE_STUB_LOG:?}"\nexit 70\n' > "$WAIT_BIN/shirabe"
+chmod +x "$WAIT_BIN/koto" "$WAIT_BIN/shirabe"
+printf -- '---\nschema: plan/v1\nstatus: Active\nexecution_mode: single-pr\n---\n\n# PLAN: wait\n' \
+    > "$FIXREPO/docs/plans/PLAN-wait.md"
+wait_open() { # wait_open <open questions> [rewind exit]
+    : > "$WORK/wait.log"
+    : > "$WORK/shirabe.log"
+    tokens '["docs/plans/PLAN-wait.md"]'
+    OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/wait.log" SHIRABE_STUB_LOG="$WORK/shirabe.log" KOTO_STUB_OPEN="$1" \
+        KOTO_STUB_REWIND_RC="${2:-0}" PATH="$WAIT_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
+    RC=$?
+}
+
+wait_open "q2-bbbb/000000000002"
+if [ "$RC" -eq 3 ] && [ "$OUT" = "waiting=q2-bbbb/000000000002
+session=execute-wait" ] && ! grep -q '^rewind \|^init ' "$WORK/wait.log"; then
+    pass "done_waiting with a question still open: waiting= per open question, session=, exit 3, no rewind and no init"
+else
+    fail "done_waiting, one open: exit $RC, out [$OUT], koto [$(tr '\n' ';' < "$WORK/wait.log")]"
+fi
+
+wait_open ""
+if [ "${OUT%%$'\n'*}" = "continued=waiting" ] \
+    && grep -q '^rewind execute-wait --rationale ' "$WORK/wait.log" \
+    && grep -qx 'opened=attached' <<< "$OUT" \
+    && ! grep -q 'replaced_result\|moved_to=' <<< "$OUT" \
+    && [ "$(grep -c '^init execute-wait .*--attach-live' "$WORK/wait.log")" = 1 ] \
+    && [ "$(grep -n '^rewind ' "$WORK/wait.log" | cut -d: -f1)" -lt "$(grep -n '^init ' "$WORK/wait.log" | cut -d: -f1)" ] \
+    && [ ! -s "$WORK/shirabe.log" ]; then
+    pass "done_waiting with every question closed: rewound in place, then attached to the live session (continued=waiting, opened=attached), no replacement, no question tool call"
+else
+    fail "done_waiting, all closed: exit $RC, out [$OUT], koto [$(tr '\n' ';' < "$WORK/wait.log")], shirabe [$(cat "$WORK/shirabe.log")]"
+fi
+
+wait_open "" 1
+if [ "$RC" -eq 70 ] && [ "$OUT" = "failed=waiting" ]; then
+    pass "a rewind koto refuses: failed=waiting, exit 70"
+else
+    fail "refused rewind: exit $RC, out [$OUT]"
 fi
 
 echo

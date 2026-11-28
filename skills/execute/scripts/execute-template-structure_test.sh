@@ -32,7 +32,11 @@
 #   every edge into a terminal assigns `outcome` as a literal, no assignment
 #     reads `${context.`, and a `step` or `reason` assignment is a literal
 #   every terminal declares the result map, with step and reason read from
-#     context
+#     context; done_waiting's adds question, the open identities, and nothing
+#     else
+#   a child at the waiting terminal routes the batch (parked_state 3) through
+#     waiting_record to done_waiting; a child at done_blocked still routes it
+#     to escalate, which now also needs parked_state 0
 #   only the merged and ready_awaiting_merge directives run
 #     build-output-end.sh (no other state's directive, details, default
 #     action or gate names it)
@@ -149,7 +153,9 @@ CHECKS=(
 "every edge into a terminal assigns a literal outcome|[.states as \$all | .states[] | (.transitions // [])[] | select(\$all[.target].terminal == true) | ((.context_assignments.outcome // \"\") | (length > 0 and (contains(\"\${\") | not) and (contains(\"{{\") | not)))] | length > 0 and all"
 "no assignment reads \${context.|[.states[] | (.transitions // [])[] | (.context_assignments // {}) | .[] | contains(\"\${context.\")] | any | not"
 "step and reason are assigned only as literals|[.states[] | (.transitions // [])[] | (.context_assignments // {}) | to_entries[] | select(.key == \"step\" or .key == \"reason\") | .value | (contains(\"\${\") or contains(\"{{\"))] | any | not"
-"every terminal declares the full result map|[.states[] | select(.terminal == true) | (.result // {}) | keys == [\"outcome\",\"pr\",\"reason\",\"repos\",\"resume\",\"step\",\"waiting\"]] | length >= 5 and all"
+"every terminal declares the full result map|[.states | to_entries[] | select(.value.terminal == true) | (if .key == \"done_waiting\" then (.value.result // {} | del(.question)) else (.value.result // {}) end) | keys == [\"outcome\",\"pr\",\"reason\",\"repos\",\"resume\",\"step\",\"waiting\"]] | length >= 5 and all"
+"done_waiting's result adds only question, the open identities|.states.done_waiting.result.question == \"\${context.waiting_questions}\" and (.states.done_waiting.result | keys | length) == 8"
+"a waiting child routes the batch to done_waiting through waiting_record, a blocked one to escalate|([.states.spawn_and_await.transitions[] | select(.when[\"gates.parked_state.exit_code\"] == 3) | .target] == [\"waiting_record\"]) and ([.states.waiting_record.transitions[] | select(.target == \"done_waiting\")] | length == 1) and ([.states.spawn_and_await.transitions[] | select(.target == \"escalate\") | .when[\"gates.parked_state.exit_code\"]] == [0])"
 "every terminal reads step and reason from context|[.states[] | select(.terminal == true) | .result.step == \"\${context.step}\" and .result.reason == \"\${context.reason}\"] | all"
 "the legacy done terminal's outcome is ready-awaiting-merge|.states.done.result.outcome == \"ready-awaiting-merge\""
 "only the merged and ready_awaiting_merge directives run build-output-end.sh|[.states | to_entries[] | select([.value.directive, .value.details, .value.default_action.command, ((.value.gates // {})[] | .command)] | map(. // \"\") | join(\"\\n\") | contains(\"build-output-end.sh\")) | .key] | sort == [\"merged\", \"ready_awaiting_merge\"]"

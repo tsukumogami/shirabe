@@ -13,6 +13,7 @@
 #   done_blocked via DIRTY                           abandonment-forced  ready-awaiting-merge
 #   done_blocked via a verdict error / a blocker     abandonment-forced  error + step
 #   re-evaluation                                    re-evaluation error, execute:re-evaluation
+#   done_waiting                                     (unset)       waiting + question= lines
 #   coordinated: merged / nothing left / a node waits on a predecessor / a
 #     coord_setup stop (its reason on a line of its own) / a body the last
 #     render couldn't post (body=stale, body=full) / the merge refusals /
@@ -98,6 +99,18 @@ check "paused_for_review" \
 repos=o/r
 pr=$URL waiting=human
 resume=/execute docs/plans/PLAN-topic.md"
+
+check "done_waiting: one question= line per open question, no exit= and no pr= line" \
+    "$(result failure '{outcome: "waiting", step: "execute:waiting", reason: "open-questions", pr: "https://github.com/o/r/pull/7", repos: "o/r", resume: "", waiting: "", question: "11111111-aaaa/000000000001 22222222-bbbb/000000000002"}')" \
+"outcome=waiting
+repos=o/r
+question=11111111-aaaa/000000000001
+question=22222222-bbbb/000000000002"
+
+check "done_waiting: a question outside the identity pattern is dropped" \
+    "$(result failure '{outcome: "waiting", step: "execute:waiting", reason: "open-questions", question: "11111111-aaaa/000000000001 ../etc/passwd"}')" \
+"outcome=waiting
+question=11111111-aaaa/000000000001"
 
 check "done_blocked via DIRTY" \
     "$(result failure '{outcome: "ready-awaiting-merge", step: "", reason: "merge-state:DIRTY", pr: "https://github.com/o/r/pull/7", repos: "o/r", waiting: "https://github.com/o/r/pull/7:human"}')" \

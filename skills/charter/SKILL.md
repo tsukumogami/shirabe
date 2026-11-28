@@ -114,8 +114,11 @@ of the positional slot.
 
 `/charter` parses three execution-mode flags from `$ARGUMENTS`:
 
-- `--auto` — non-interactive mode. Decisions follow the recommended
-  default based on context; the run does not block on user input.
+- `--auto` — non-interactive mode. The run does not block on user
+  input: a decision the evidence settles is made and recorded, and one it
+  doesn't settle is handled as `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` says (a
+  cheap one decided provisionally, a costly one raised as a question that
+  the run then waits on, per `${CLAUDE_PLUGIN_ROOT}/references/question-procedure.md`).
 - `--interactive` (default) — the run blocks on user-input prompts at
   decision points.
 - `--max-rounds=N` — caps the number of re-evaluation re-entries
