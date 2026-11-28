@@ -591,4 +591,20 @@ case "$REFUSED" in
 esac
 eq "the batch holds on answers without authority" spawn_and_await "$(state "$RUN")"
 
+# A history that reads neither open nor closed keeps the step parked: koto,
+# wrapped, answers x's history with no `open` field.
+REAL_KOTO_BIN=$(command -v koto)
+mkdir -p "$T/oddbin"
+printf '%s\n' '#!/usr/bin/env bash' \
+    "if [ \"\$1 \$2\" = 'decisions history' ]; then echo '{\"events\":[]}'; exit 0; fi" \
+    "exec \"$REAL_KOTO_BIN\" \"\$@\"" > "$T/oddbin/koto"
+chmod +x "$T/oddbin/koto"
+PATH="$T/oddbin:$PATH" park clear "$RUN" x
+if [ "$PARK_RC" -eq 2 ] && grep -q "reads neither open nor closed" "$T/park.err"; then
+    pass "park.sh clear keeps x parked on a history that reads neither open nor closed"
+else
+    fail "park.sh clear on an odd history: exit $PARK_RC: $(cat "$T/park.out" "$T/park.err")"
+fi
+eq "x's key is still there" "$Q_x" "$(koto context get "$RUN" parked/x 2> "$T/ctx.err" || cat "$T/ctx.err")"
+
 finish

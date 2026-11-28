@@ -102,7 +102,13 @@ pk_cites() {
 
 # pk_open_questions <session>: each open question the run's steps are parked
 # on, from parked/<step> keys and from children at done_waiting, once each,
-# separated by a space.
+# separated by a space. A history koto can't give fails (2); one it gives
+# that doesn't read `.open == true` counts as closed. That is the safe
+# direction here: this list only names what a run waits on, so a question
+# missing from it keeps no run waiting on nothing, and it releases no step,
+# since `park.sh clear` takes a step up only on a history that reads
+# `.open == false`, and an answer only when decide-first-gate.sh --answer
+# accepts it.
 pk_open_questions() {
     local parked children q h out="" step
     parked=$(pk_parked "$1") || return 2

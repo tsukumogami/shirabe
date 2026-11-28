@@ -183,7 +183,14 @@ clear)
     q=$(pk_ctx "$RUN" "parked/$step") || unreadable "could not read parked/$step"
     [ -n "$q" ] || refuse "$step is not parked"
     h=$(pk_history "$q") || unreadable "koto decisions history $q failed"
-    printf '%s\n' "$h" | jq -e '.open == true' > /dev/null && refuse "the question $q is still open; $step stays parked"
+    # Only a history that reads closed takes a step up: one that reads neither
+    # way could pass for a withdrawal below.
+    o=$(printf '%s\n' "$h" | jq -r '.open') || unreadable "could not read the history of $q"
+    case "$o" in
+        true) refuse "the question $q is still open; $step stays parked" ;;
+        false) ;;
+        *) unreadable "the history of $q reads neither open nor closed; $step stays parked" ;;
+    esac
     answer=$(pk_answer "$RUN" "$q") || unreadable "could not read the answer to $q"
     raw=$(pk_raw_answer "$h") || unreadable "could not read the history of $q"
     if [ -z "$answer" ] && [ -n "$raw" ]; then
