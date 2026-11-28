@@ -46,7 +46,9 @@
 #     the tool test rather than dropping the line, so a line that probes and
 #     then calls the tool for real still counts.
 #   - Tool names come from skills/*/requires.tsv, never a hardcoded list, so
-#     the scan's scope grows with the declarations.
+#     the scan's scope grows with the declarations. The scan target and the
+#     declaration source are separate questions: a run narrowed to one skill
+#     still reads every skill's requires.tsv (see Declarations under Usage).
 #   - Test files are out of scope: *_test.sh and anything under evals/.
 #   - A tool called through a variable is charged to the tool the variable's
 #     assignment resolves to (shirabe#418), in both arms. The assignment is
@@ -106,6 +108,15 @@
 #   scripts/check-tool-diagnostic-discards.sh PATH [PATH...] # files or directories
 #   scripts/check-tool-diagnostic-discards.sh --enumeration FILE [PATH...]
 #   scripts/check-tool-diagnostic-discards.sh --declarations DIR [PATH...]
+#
+# Declarations, the requires.tsv files that say which tools are declared:
+#   - --declarations DIR reads those under DIR, whatever the targets are.
+#   - Otherwise, when every PATH is inside this repository (compared as
+#     physical paths), those under <repo>/skills: the same set the
+#     whole-repository run reads, so `... skills/decision` reports a discard
+#     of a tool only skills/coordinate declares.
+#   - Otherwise (any PATH outside the repository, mixed targets included),
+#     those under the PATHs, and <repo>/skills when the PATHs hold none.
 #
 # Exit codes:
 #   0 -- the live sites and the records agree exactly
@@ -203,6 +214,26 @@ $(find "$root" -type f -name 'requires.tsv' ! -path '*/evals/*' | LC_ALL=C sort)
 EOF
   done
   return $((1 - found))
+}
+
+# Does every scan target lie inside this repository? Both sides are compared
+# as physical paths (`pwd -P`), so a symlinked work tree, a target reached
+# through a symlink, or macOS's /var and /private/var give the same answer. A
+# file target is judged by its directory. A target that doesn't exist answers
+# no here and is reported by the scan loop as a usage error.
+targets_inside_repo() {
+  local root t dir
+  root=$(cd "$REPO_ROOT" && pwd -P) || return 1
+  for t in "$@"; do
+    [ -e "$t" ] || return 1
+    if [ -d "$t" ]; then dir="$t"; else dir=$(dirname "$t"); fi
+    dir=$(cd "$dir" && pwd -P) || return 1
+    case "$dir/" in
+      "$root"/*) ;;
+      *) return 1 ;;
+    esac
+  done
+  return 0
 }
 
 # An alternation that matches a tool name as a word, with `/`, `.` and `-`
@@ -684,10 +715,17 @@ main() {
   : > "$WORK/live.raw" || scratch_lost "write live.raw"
   : > "$WORK/enum.keys" || scratch_lost "write enum.keys"
 
-  # Declarations: an explicit root, else whatever the scan targets carry, else
-  # the repo's own skills tree. A fixture tree supplies its own requires.tsv.
+  # Declarations: an explicit root; else, when every target is inside this
+  # repository, the repo's whole skills tree, so a run narrowed to one skill
+  # still knows the tools other skills declare and agrees with the
+  # whole-repository run (shirabe#2221); else whatever the scan targets carry,
+  # which is how a fixture tree outside the repository supplies its own
+  # requires.tsv; else the repo's skills tree.
   if [ -n "$DECL_DIR" ]; then
     collect_tools "$DECL_DIR" || usage_error "no requires.tsv under $DECL_DIR"
+  elif targets_inside_repo "${targets[@]}"; then
+    collect_tools "$REPO_ROOT/skills" \
+      || usage_error "no requires.tsv under $REPO_ROOT/skills"
   elif ! collect_tools "${targets[@]}"; then
     collect_tools "$REPO_ROOT/skills" \
       || usage_error "no requires.tsv found; nothing declares a tool to scan for"
