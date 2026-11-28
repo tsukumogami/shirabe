@@ -121,27 +121,29 @@ The check runs the three-phase flow defined in
   classification (`resolved-in-place` or `escalated`) and the
   reason.
 
-  An escalation goes to whoever holds deciding power over the
-  run. Running solo and interactive, it goes to the author as a
-  three-option prompt (re-author affected artifacts; proceed
-  against original intent, recorded in `worktree_divergences:`;
-  bail per R8's bail-handling rule). In the other two setups
-  nobody can be asked, so the escalation stops the run: submit
-  `outcome: bail` at the hop and `bail_ack: force_materialize`
-  at `bail`, with `detail` naming the escalated change, so the
-  run ends at the abandonment exit with the chain's work kept
-  for a resumed run (no child is in flight, so the marker goes on
-  the last document the chain produced, and no PLAN is written).
-  Before the first child has produced a document there is nothing
-  to keep: submit `bail_ack: cancel` instead, and the run ends at
-  the clean cancel Phase 3 describes, with the escalation's
-  decision record in the session. Under a coordinator (a run opened with
-  `--koto-leg`) that abandonment outcome is what the coordinator
-  reads on the leg, and the escalation's decision record stays
-  in the session, which the run keeps; the coordinator decides
-  and re-dispatches. Under `--auto` with no coordinator the stop
-  is the escalation: nothing is answered on the author's
-  behalf.
+  A change the agent cannot settle goes to whoever holds deciding
+  power over the run. Running solo and interactive, it goes to the
+  author as a three-option prompt (re-author affected artifacts;
+  proceed against original intent, recorded in
+  `worktree_divergences:`; bail per R8's bail-handling rule). In
+  the other two setups nobody can be asked in the session, so the
+  run raises the question and ends waiting on it: submit
+  `outcome: bail` at the hop, with `detail` naming the change. The
+  run arrives at `decide_first`, where it records an undecided
+  attempt, raises the one question with `shirabe question raise`
+  and submits `decide_outcome: raised`; it ends at `done_waiting`
+  with the question in its result, and its documents as they
+  were: nothing is written for an abandonment and no PLAN is
+  written. Under a coordinator (a run opened with `--koto-leg`)
+  the leg carries `outcome: waiting` and the question, and the
+  question goes to the session that dispatched the run.
+  Under `--auto` with no coordinator it goes to `person:owner`: nothing
+  is answered on the author's behalf. `/scope <topic>` run again
+  after the answer continues the same session at `decide_first`,
+  where an attempt citing the answer is recorded and the run goes
+  back to the hop or stops at `bail`. The question is addressed
+  by name; the address is a declared link, not a check that the
+  answering session holds authority over the run.
 
 The check's recording fields follow the canonical schema. The
 field `worktree_rebases:` and its `rebased_at` key keep their

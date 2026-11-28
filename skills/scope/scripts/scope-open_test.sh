@@ -746,6 +746,92 @@ printf 'not json' >"$T/garbage.json"
 eq "an args file that is not a JSON array: usage exit 64" "64" "$RC"
 if [ -e "$T/garbage.json" ]; then bad "a malformed args file is removed too"; else ok "a malformed args file is removed too"; fi
 
+# --- a run waiting on its question --------------------------------------------------
+#
+# A stub koto, set as KOTO_BIN, answers `koto status scope-wait` with a session
+# at done_waiting until a `koto rewind` is logged (KOTO_STUB_STATUS names
+# another answer: `missing` is koto's not-found, `broken` a failed read), and
+# with the session at decide_first after it; `koto decisions history` answers
+# the question open when KOTO_STUB_OPEN is set; `koto rewind` exits
+# KOTO_STUB_REWIND_RC on its first call and KOTO_STUB_REWIND2_RC on its second.
+# It logs and refuses `init`, so nothing is opened, and hands every other call
+# to the real koto.
+
+STUB="$T/wait-bin/koto"
+mkdir -p "$T/wait-bin"
+cat >"$STUB" <<'STUBEOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${KOTO_STUB_LOG:?}"
+case "${1-} ${2-}" in
+"status scope-wait")
+    case "${KOTO_STUB_STATUS-}" in
+        missing) echo '{"command":"status","error":"workflow '"'"'scope-wait'"'"' not found"}'; exit 2 ;;
+        broken) echo '{"command":"status","error":"io error"}'; exit 1 ;;
+        noquestion) echo '{"name":"scope-wait","current_state":"done_waiting","is_terminal":true,"result":{"status":"failure","payload":{"outcome":"waiting"}}}'; exit 0 ;;
+    esac
+    if grep -q '^rewind ' "$KOTO_STUB_LOG"; then
+        echo '{"name":"scope-wait","current_state":"waiting_record","is_terminal":false}'
+    else
+        echo '{"name":"scope-wait","current_state":"done_waiting","is_terminal":true,"result":{"status":"failure","payload":{"outcome":"waiting","question":"q1-aaaa/000000000001"}}}'
+    fi
+    exit 0 ;;
+"decisions history")
+    if [ -n "${KOTO_STUB_OPEN-}" ]; then echo '{"open":true}'; else echo '{"open":false}'; fi
+    exit 0 ;;
+"rewind scope-wait") exit "${KOTO_STUB_REWIND_RC:-0}" ;;
+"init "*) exit 1 ;;
+esac
+exec "${SCOPE_TEST_REAL_KOTO:?}" "$@"
+STUBEOF
+chmod +x "$STUB"
+
+# wait_scope [VAR=value...] -- scope-open for topic `wait` through the stub.
+wait_scope() {
+    ARGS_DIR=$(bash "$KOTO_OPEN" --alloc-dir)
+    ARGS="$ARGS_DIR/args.json"
+    printf '%s' '["wait"]' >"$ARGS"
+    : >"$T/wait.log"
+    (cd "$R" && env HOME="$KH" KOTO_BIN="$STUB" KOTO_STUB_LOG="$T/wait.log" "$@" \
+        bash "$OPEN" --plugin-root "$PLUGIN" "$ARGS" >"$T/out" 2>"$T/err")
+    RC=$?
+    STDOUT=$(cat "$T/out")
+    STDERR=$(cat "$T/err")
+}
+rewinds() { grep -c '^rewind scope-wait --rationale ' "$T/wait.log"; }
+
+wait_scope KOTO_STUB_OPEN=1
+eq "a waiting run whose question is open: exit 3" "3" "$RC"
+eq "a waiting run whose question is open: waiting= and session=, nothing else" "waiting=q1-aaaa/000000000001
+session=scope-wait" "$STDOUT"
+eq "a waiting run whose question is open: no rewind" "0" "$(rewinds)"
+hasnt "a waiting run whose question is open: no koto init" "init " "$(cat "$T/wait.log")"
+
+wait_scope
+eq "a waiting run whose question is closed: continued=waiting first" "continued=waiting" "${STDOUT%%$'\n'*}"
+eq "a waiting run whose question is closed: rewound once, to waiting_record" "1" "$(rewinds)"
+has "a waiting run whose question is closed: attached as a live session" "--attach-live" "$(grep '^init ' "$T/wait.log")"
+hasnt "a waiting run whose question is closed: the session is never replaced" "--replace-terminal" "$(cat "$T/wait.log")"
+hasnt "a waiting run whose question is closed: no moved_to" "moved_to=" "$STDOUT"
+
+wait_scope KOTO_STUB_REWIND_RC=1
+eq "a rewind koto refuses: exit 70" "70" "$RC"
+eq "a rewind koto refuses: failed=waiting" "failed=waiting" "$STDOUT"
+hasnt "a rewind koto refuses: no koto init" "init " "$(cat "$T/wait.log")"
+
+wait_scope KOTO_STUB_STATUS=broken
+eq "a status koto fails to read: exit 70, fail closed" "70" "$RC"
+eq "a status koto fails to read: failed=waiting" "failed=waiting" "$STDOUT"
+hasnt "a status koto fails to read: no koto init" "init " "$(cat "$T/wait.log")"
+
+wait_scope KOTO_STUB_STATUS=noquestion
+eq "done_waiting with no question in its result: exit 70" "70" "$RC"
+eq "done_waiting with no question in its result: failed=waiting" "failed=waiting" "$STDOUT"
+
+wait_scope KOTO_STUB_STATUS=missing
+hasnt "no session: nothing about waiting is printed" "waiting" "$STDOUT"
+eq "no session: no rewind" "0" "$(rewinds)"
+has "no session: the open goes on to koto init" "init " "$(cat "$T/wait.log")"
+
 EVAL_HITS=$(grep -n 'eval' "$OPEN" | grep -v '^[0-9]*:[[:space:]]*#')
 if grep -q . <<<"$EVAL_HITS"; then
     bad "scope-open.sh uses eval" "$(grep -n eval "$OPEN")"

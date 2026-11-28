@@ -1166,6 +1166,43 @@
       "tier": 1,
       "mode": "plan_only",
       "files": []
+    },
+    {
+      "id": 70,
+      "name": "unattended-hop-bail-waits-on-question",
+      "prompt": "/scope some-topic --koto-leg=<req>:scope -- at hop_design the worktree check finds an upstream change that alters the PRD's intent, and nobody in the session can be asked. What does the run do?",
+      "expected_output": "It submits outcome: bail at the hop, which takes it to decide_first rather than to bail. There it records an undecided attempt for the arrival, raises the one question with shirabe question raise, and submits decide_outcome: raised. koto records the question at waiting_record and the run ends at done_waiting with outcome waiting and the question in its result; the documents stay as they were, nothing is written for an abandonment and no PLAN is written.",
+      "expectations": [
+        "The hop's bail goes to decide_first, not straight to the abandonment exit",
+        "An undecided attempt is recorded before the question is raised",
+        "The run ends at done_waiting with outcome waiting and the question's identity in its result",
+        "Nothing is force-materialized and no PLAN is written"
+      ],
+      "tier": 1,
+      "mode": "plan_only",
+      "files": []
+    },
+    {
+      "id": 71,
+      "name": "waiting-run-continues-after-answer",
+      "prompt": "/scope some-topic -- the last run of this topic ended at done_waiting, and its question has since been answered. What happens on this invocation?",
+      "expected_output": "scope-open.sh sees the session at done_waiting, reads the question closed, and rewinds the session in place to decide_first, printing continued=waiting; it does not replace the session or start over at intake. At decide_first the run reads the answer with shirabe question precedent, records an attempt citing it, and submits decided with resume to go back to the hop it left, or stop to take the bail exit. Had the question still been open, the open would print waiting= with the identity and stop with nothing opened.",
+      "expectations": [
+        "The waiting session is continued in place, not replaced",
+        "The run stands at decide_first, not at the hop, until an attempt citing the answer is recorded",
+        "Resume goes back to the hop the run left; stop goes to bail",
+        "A still-open question leaves the run waiting and opens nothing"
+      ],
+      "tier": 1,
+      "mode": "plan_only",
+      "files": []
+    },
+    {
+      "id": 72,
+      "name": "decide-first-routes",
+      "grader": "script",
+      "handoff": "work-on",
+      "run": "scripts/cases/scope-decide-first.sh routes"
     }
   ],
   "substrate_scenarios": {

@@ -157,13 +157,13 @@ eq "done_error's result carries the coordinator's keys" \
 
 # --- terminals and their results -----------------------------------------------------
 
-TERMINALS='["done_abandonment","done_cancelled","done_error","done_executed","done_full_run","done_re_evaluation","done_refused","done_republished"]'
-eq "the eight terminals" "$TERMINALS" "$(q '[.states | to_entries[] | select(.value.terminal == true) | .key] | sort')"
+TERMINALS='["done_abandonment","done_cancelled","done_error","done_executed","done_full_run","done_re_evaluation","done_refused","done_republished","done_waiting"]'
+eq "the nine terminals" "$TERMINALS" "$(q '[.states | to_entries[] | select(.value.terminal == true) | .key] | sort')"
 eq "every terminal declares a result with outcome" '[]' \
     "$(q '[.states | to_entries[] | select(.value.terminal == true) | select((.value.result.outcome // "") == "") | .key]')"
 eq "every result key is drawn from the documented set" '[]' \
     "$(q '[.states[] | select(.terminal == true) | .result | keys[]] | unique
-          - ["outcome","exit","intent","next","pr","pr_state","plan_path","plan_execution_mode","startable","boundary","via","reason","recorded","requested","step","forced_artifact"]')"
+          - ["outcome","exit","intent","next","pr","pr_state","plan_path","plan_execution_mode","startable","boundary","via","reason","recorded","requested","step","forced_artifact","question"]')"
 
 # Walk every edge into every terminal. A terminal whose result reads
 # ${context.outcome} needs every edge landing there to assign outcome, from the
@@ -174,7 +174,7 @@ EDGES=$(q '[.states | to_entries[] | .key as $from | (.value.transitions // [])[
 eq "every edge into a terminal assigns outcome" '[]' \
     "$(printf '%s' "$EDGES" | jq -c '[.[] | select(.outcome == "") | "\(.from)->\(.to)"]')"
 eq "every assigned outcome is in the closed set" '[]' \
-    "$(printf '%s' "$EDGES" | jq -c '[.[] | select(.outcome | IN("scoped","handed-off-multi-pr","executed","re-evaluation","abandonment","cancelled","refused","error") | not) | "\(.from)->\(.to)=\(.outcome)"]')"
+    "$(printf '%s' "$EDGES" | jq -c '[.[] | select(.outcome | IN("scoped","handed-off-multi-pr","executed","re-evaluation","abandonment","cancelled","refused","error","waiting") | not) | "\(.from)->\(.to)=\(.outcome)"]')"
 eq "each terminal receives only its own outcome" '[]' \
     "$(printf '%s' "$EDGES" | jq -c '[.[] | select(
         (.to == "done_full_run" and (.outcome | IN("scoped","handed-off-multi-pr") | not))
@@ -184,7 +184,8 @@ eq "each terminal receives only its own outcome" '[]' \
         or (.to == "done_abandonment" and .outcome != "abandonment")
         or (.to == "done_cancelled" and .outcome != "cancelled")
         or (.to == "done_refused" and .outcome != "refused")
-        or (.to == "done_error" and .outcome != "error")) | "\(.from)->\(.to)"]')"
+        or (.to == "done_error" and .outcome != "error")
+        or (.to == "done_waiting" and .outcome != "waiting")) | "\(.from)->\(.to)"]')"
 eq "every edge into done_error and done_refused assigns a step from the closed set" '[]' \
     "$(printf '%s' "$EDGES" | jq -c '[.[] | select(.to == "done_error" or .to == "done_refused")
         | select(.step | IN("scope:push","scope:pr-create","scope:intake","scope:resume-probe","scope:refused") | not) | "\(.from)->\(.to)"]')"
@@ -391,7 +392,7 @@ eq "publish-scoping-pr.sh reads a PR body only to carry its run marker" "" "$HIT
 # decision, with a concrete escalation target for every way a run is set up.
 ESC=$(awk '/^- \*\*Escalation phase\.\*\*/{f=1} f&&/^The check.s recording fields/{exit} f' \
     "$HERE/../references/phases/phase-2-chain-orchestration.md")
-for want in 'koto decisions record' '`--koto-leg`' 'coordinator' 'Running solo' 'Under `--auto` with no' 'escalation stops the run'; do
+for want in 'koto decisions record' '`--koto-leg`' 'coordinator' 'Running solo' 'Under `--auto` with no' 'ends waiting on it' '`decide_first`'; do
     case "$ESC" in
         *"$want"*) ok "Phase 2's escalation names: $want" ;;
         *) bad "Phase 2's escalation names: $want" "Escalation phase text missing it" ;;

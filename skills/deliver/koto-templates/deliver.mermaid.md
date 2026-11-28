@@ -43,6 +43,7 @@ stateDiagram-v2
     scope_run --> done_stopped : gates.scope_leg.disposition: resolved, gates.scope_leg.payload.outcome: re-evaluation, gates.scope_leg.source: promoted, gates.scope_leg.valid: true
     scope_run --> done_stopped : gates.scope_leg.disposition: resolved, gates.scope_leg.payload.outcome: abandonment, gates.scope_leg.source: promoted, gates.scope_leg.valid: true
     scope_run --> done_stopped : gates.scope_leg.disposition: resolved, gates.scope_leg.payload.outcome: cancelled, gates.scope_leg.source: promoted, gates.scope_leg.valid: true
+    scope_run --> done_stopped : gates.scope_leg.disposition: resolved, gates.scope_leg.payload.outcome: waiting, gates.scope_leg.source: promoted, gates.scope_leg.valid: true
     scope_run --> done_error : gates.scope_leg.disposition: resolved, gates.scope_leg.payload.outcome: error, gates.scope_leg.source: promoted, gates.scope_leg.valid: true
     scope_run --> done_error : gates.scope_intent.valid: true, gates.scope_leg.disposition: resolved, gates.scope_leg.payload.outcome: refused, gates.scope_leg.source: promoted, gates.scope_leg.valid: true
     scope_run --> done_error : gates.scope_intent.valid: false, gates.scope_leg.disposition: resolved, gates.scope_leg.payload.outcome: refused, gates.scope_leg.source: promoted, gates.scope_leg.valid: true

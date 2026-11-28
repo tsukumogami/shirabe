@@ -15,9 +15,16 @@
 #   next=<command>                                full-run (and a refusal that
 #                                                 names where to go instead)
 #   pr=<url>                                      intent runs only
+#   question=<identity>                           waiting only
 #   pr_state=<merged|open>                        executed only
 #   #<N> <title>                                  multi-pr startable items,
 #   <one closing line>                            then one closing line
+#
+# A run waiting on its question (done_waiting) prints
+# `/scope waiting: nothing was written for an exit`, intent=, outcome=waiting
+# and question=<identity>, the identity dropped unless it is two names of
+# letters, digits, `_`, `.` and `-` joined by one `/`, and the command that
+# continues the run.
 #
 # Re-evaluation, abandonment and cancel print today's exit record with no
 # outcome= line. A refusal prints today's refusal text, then intent=,
@@ -106,7 +113,8 @@ get() {
     if [ -n "$v" ] && [[ "$v" =~ $2 ]]; then printf '%s' "$v"; fi
 }
 
-OUTCOME=$(get outcome '^(scoped|handed-off-multi-pr|executed|re-evaluation|abandonment|cancelled|refused|error)$')
+OUTCOME=$(get outcome '^(scoped|handed-off-multi-pr|executed|re-evaluation|abandonment|cancelled|refused|error|waiting)$')
+QUESTION=$(get question '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$')
 EXITV=$(get exit '^(full-run|re-evaluation|abandonment-forced)$')
 INTENT=$(get intent '^(continue|stop|none)$')
 STEP=$(get step '^scope:(push|pr-create|intake|resume-probe|refused)$')
@@ -128,7 +136,7 @@ STARTABLE=$(printf '%s' "$PAYLOAD" | jq -r '.startable // "" | strings' \
     | LC_ALL=C grep -E '^#[1-9][0-9]* [^[:cntrl:]]+$' || true)
 
 case "$STATE" in
-    done_full_run|done_republished|done_executed|done_re_evaluation|done_abandonment|done_cancelled|done_refused|done_error) ;;
+    done_full_run|done_republished|done_executed|done_re_evaluation|done_abandonment|done_cancelled|done_refused|done_error|done_waiting) ;;
     *) echo "$PROG: [$STATE] is not a /scope terminal" >&2; exit 1 ;;
 esac
 
@@ -214,6 +222,13 @@ case "$STATE" in
     done_cancelled)
         printf '/scope cancelled: no exit was recorded and nothing was force-materialized\n'
         intent_line
+        ;;
+    done_waiting)
+        printf '/scope waiting: nothing was written for an exit\n'
+        intent_line
+        printf 'outcome=waiting\n'
+        line question "$QUESTION"
+        printf 'next=/scope %s\n' "$TOPIC"
         ;;
     done_refused)
         refusal_text

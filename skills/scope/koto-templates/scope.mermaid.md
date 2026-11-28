@@ -20,6 +20,17 @@ stateDiagram-v2
     cleanup_full_run --> done_error : cleanup_result: done, gates.exit_recorded.matches: false
     cleanup_re_evaluation --> done_re_evaluation : cleanup_result: done, gates.exit_recorded.matches: true
     cleanup_re_evaluation --> done_error : cleanup_result: done, gates.exit_recorded.matches: false
+    decide_first --> waiting_record : decide_outcome: raised, gates.attempt_recorded.exit_code: 3
+    decide_first --> hop_brief : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 30, gates.decide_laps.exit_code: 0
+    decide_first --> hop_prd : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 31, gates.decide_laps.exit_code: 0
+    decide_first --> hop_design : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 32, gates.decide_laps.exit_code: 0
+    decide_first --> hop_plan : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 33, gates.decide_laps.exit_code: 0
+    decide_first --> full_run_blocked : decide_outcome: decided, decided_next: resume, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 34, gates.decide_laps.exit_code: 0
+    decide_first --> bail : decide_outcome: decided, decided_next: stop, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 30
+    decide_first --> bail : decide_outcome: decided, decided_next: stop, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 31
+    decide_first --> bail : decide_outcome: decided, decided_next: stop, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 32
+    decide_first --> bail : decide_outcome: decided, decided_next: stop, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 33
+    decide_first --> exit_abandonment : decide_outcome: decided, decided_next: stop, gates.attempt_recorded.exit_code: 0, gates.decide_from.exit_code: 34
     discovery --> chain_proposal : discovery_result: proposed
     discovery --> bail : discovery_result: blocked
     executed_report --> done_executed : gates.executed_live.matches: true, gates.executed_one.matches: true
@@ -60,17 +71,17 @@ stateDiagram-v2
     full_run_blocked --> cleanup_full_run : gates.chain_complete.exit_code: 0, gates.intent_declared.exit_code: 1, next_move: recheck
     full_run_blocked --> full_run_blocked : gates.chain_complete.exit_code: 1, next_move: recheck
     full_run_blocked --> full_run_blocked : gates.chain_complete.exit_code: 2, next_move: recheck
-    full_run_blocked --> exit_abandonment : next_move: abandon
+    full_run_blocked --> decide_first : next_move: abandon
     hop_brief --> check_exit : gates.brief_document.exit_code: 1, outcome: check_unsatisfiable
     hop_brief --> hop_prd : gates.brief_complete.exit_code: 0, gates.brief_document.exit_code: 0, outcome: landed
     hop_brief --> hop_prd : outcome: skipped
     hop_brief --> exit_re_evaluation : outcome: rejected
-    hop_brief --> bail : outcome: bail
+    hop_brief --> decide_first : outcome: bail
     hop_design --> check_exit : gates.design_document.exit_code: 1, outcome: check_unsatisfiable
     hop_design --> fold : gates.design_complete.exit_code: 0, gates.design_document.exit_code: 0, outcome: landed
     hop_design --> hop_plan : outcome: skipped
     hop_design --> exit_re_evaluation : outcome: rejected
-    hop_design --> bail : outcome: bail
+    hop_design --> decide_first : outcome: bail
     hop_plan --> check_exit : gates.plan_document.exit_code: 1, outcome: check_unsatisfiable
     hop_plan --> fold : gates.plan_complete.exit_code: 0, gates.plan_document.exit_code: 0, gates.plan_filing.exit_code: 0, gates.plan_mode_consistent.exit_code: 0, outcome: landed
     hop_plan --> fold : gates.filing_approval.matches: true, gates.plan_complete.exit_code: 0, gates.plan_document.exit_code: 0, gates.plan_filing.exit_code: 3, gates.plan_mode_consistent.exit_code: 0, outcome: landed
@@ -78,12 +89,12 @@ stateDiagram-v2
     hop_plan --> bail : gates.plan_complete.exit_code: 0, gates.plan_filing.exit_code: 1, gates.plan_mode_consistent.exit_code: 0, outcome: landed
     hop_plan --> bail : gates.plan_complete.exit_code: 0, gates.plan_mode_consistent.exit_code: 1, outcome: landed
     hop_plan --> finalize : outcome: skipped
-    hop_plan --> bail : outcome: bail
+    hop_plan --> decide_first : outcome: bail
     hop_prd --> check_exit : gates.prd_document.exit_code: 1, outcome: check_unsatisfiable
     hop_prd --> fold : gates.prd_complete.exit_code: 0, gates.prd_document.exit_code: 0, outcome: landed
     hop_prd --> hop_design : outcome: skipped
     hop_prd --> exit_re_evaluation : outcome: rejected
-    hop_prd --> bail : outcome: bail
+    hop_prd --> decide_first : outcome: bail
     hop_select --> hop_brief : gates.sel_brief.matches: true
     hop_select --> hop_prd : gates.sel_brief.matches: false, gates.sel_prd.matches: true
     hop_select --> hop_design : gates.sel_brief.matches: false, gates.sel_design.matches: true, gates.sel_prd.matches: false
@@ -166,6 +177,8 @@ stateDiagram-v2
     setup --> hop_select : gates.resume_hop_set.matches: true, setup_result: ready
     setup --> discovery : gates.resume_hop_set.matches: false, setup_result: ready
     setup --> bail : setup_result: blocked
+    waiting_record --> done_waiting : gates.question_recorded.exit_code: 0
+    waiting_record --> decide_first : gates.question_recorded.exit_code: 1
     done_abandonment --> [*]
     done_cancelled --> [*]
     done_error --> [*]
@@ -174,6 +187,7 @@ stateDiagram-v2
     done_re_evaluation --> [*]
     done_refused --> [*]
     done_republished --> [*]
+    done_waiting --> [*]
     note left of bail
         gate: child_intermediate_present
     end note
@@ -191,6 +205,15 @@ stateDiagram-v2
     end note
     note left of cleanup_re_evaluation
         gate: exit_recorded
+    end note
+    note left of decide_first
+        gate: attempt_recorded
+    end note
+    note left of decide_first
+        gate: decide_from
+    end note
+    note left of decide_first
+        gate: decide_laps
     end note
     note left of executed_report
         gate: executed_live
@@ -323,5 +346,8 @@ stateDiagram-v2
     end note
     note left of setup
         gate: resume_hop_set
+    end note
+    note left of waiting_record
+        gate: question_recorded
     end note
 ```

@@ -478,6 +478,15 @@ if section "scope" "/scope's other outcomes"; then
         expect "/scope ended at $which" done_stopped outcome=scope-ended-early "reason=$which"
     done
 
+    fixture scope-waiting single-pr
+    start auto
+    child scope '{"outcome":"waiting","intent":"continue","question":"q1-aaaa/000000000001"}'
+    tick
+    expect "/scope waiting on its question" done_stopped outcome=waiting reason=waiting "question=q1-aaaa/000000000001" "next=/deliver scope-waiting"
+    eq "scope-waiting: no pr is relayed" "" "$(result pr)"
+    eq "scope-waiting: never read as a child-outcome error" "" "$(result step | grep -x 'deliver:child-outcome')"
+    if k request get "$REQ" | jq -e '.legs.execute.bound_child == null' >/dev/null; then pass "scope-waiting: /execute never started"; else fail "scope-waiting: /execute never started"; fi
+
     fixture scope-error single-pr
     start auto
     child scope '{"outcome":"error","step":"scope:push"}'
