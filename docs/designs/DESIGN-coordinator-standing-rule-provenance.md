@@ -14,8 +14,10 @@ decision: |
   Standing gains a `rule` kind and one optional Source column that cites a
   koto decision, a skill line, a document, a pinned file, or names the rule
   inferred. No column stores a class: one schema function works it out at
-  read, and owner-said means a cited person decision entered at a root
-  coordinator, which a manager reaches only by citing its director's. A cited
+  read, and owner-said means a cited person decision that koto reads
+  verified, answering a question that carries the standing mark on the
+  question or on the option the owner chose, wherever it was given
+  (amended 2026-11-28; it replaces a test of entry at a root coordinator). A cited
   rule's status is koto's, so an owner's reversal reads superseded wherever
   the rule was copied. Rows written before the change are read in place as
   relayed, keeping their owner, time and recording entry, and brief rules come
@@ -255,11 +257,26 @@ Key assumptions:
 
 #### Chosen: Owner-said is read from the cited decision, and only a root coordinator enters the owner's word
 
+Amended 2026-11-28 by DESIGN-decision-escalation-ladder.md: owner-said is
+read from evidence, not from where the decision was entered. The root test
+below (a person decision entered in a session whose frozen chain names no
+coordinator record and that has no `reports-to` row) is replaced by an
+evidence test: the cited decision is the owner's answer, koto reads it
+`verified`, and the question it answers carries the standing mark, on the
+question or on the option the owner chose. `standing-provenance.sh` prints
+koto's `reading` and the mark, through read calls only, and `rule_class`
+decides from those two fields. Any other person decision, a person judgment
+recorded at the top coordinator among them, reads inferred; a cited session
+decision keeps the class it read before. The bullets below record the
+replaced test.
+
 The row stores no class and the writer takes no class flag. The same
 `rule_class` function that readers use to label a row is what the writer
 uses to refuse one. A cited row reads:
 
-- **owner-said** when the cited decision's decider is a person and the
+- **owner-said** (replaced 2026-11-28, see above: now a person:owner
+  answer reading `verified` with the standing mark) when the cited
+  decision's decider is a person and the
   decision was entered in a root coordinator's session. A session is a root
   only when neither the chain koto froze into the decision when it was
   recorded names a session holding a coordinator record, nor the session
@@ -354,10 +371,13 @@ session: it reaches owner-said only by citing the decision its director
 already recorded. Reversal then stays with a person under koto's rule, and a
 director can't lift one lane's copy of the owner's ruling on its own.
 
-"Only at the root" is one named test in `rule_class`. It is expected
+"Only at the root" was to be one named test in `rule_class`. It is expected
 behaviour, hardcoded where the owner's framing puts expectations, and it
 grants nobody anything; if the authority model later names another place the
-owner may speak, that test is the one thing it replaces.
+owner may speak, that test is the one thing it replaces. On 2026-11-28
+DESIGN-decision-escalation-ladder.md replaced it with the evidence test: the
+owner's verified answer to a question marked standing, wherever it was
+given.
 
 The accepted trade-off: a root coordinator can still record `--by
 person:<owner> --surface terminal` about its own prose. Neither shirabe nor
@@ -1102,7 +1122,7 @@ writes `record/decisions` or `record/reversals`.
   | Source | Class |
   |---|---|
   | none (an event row) | relayed |
-  | `decision`, person decider entered at a root coordinator | owner-said |
+  | `decision`, the owner's answer koto reads `verified`, to a question marked standing on the question or on the option chosen | owner-said |
   | `decision`, a session decider the writer's frozen koto chain reaches through a `leg` link, or a later member of that session's run | dispatcher-said |
   | any other `decision` (the writer's own run, a person entered in a bound run) | inferred |
   | `decision`, not readable | unreadable |
@@ -2444,3 +2464,33 @@ entries kept in the session.
   the reader release on refuse cleanly before the fence.
 - The intake runs once per brief digest, and confirming an inferred rule is
   one citation; the restatement work decides how hard inferred rules block.
+
+## Amendment — 2026-11-28
+
+DESIGN-decision-escalation-ladder.md replaces the root test with an evidence
+test. The root test made a cited person decision owner-said when it was
+entered in a root coordinator's session: one whose frozen koto chain names no
+session holding a coordinator record and whose Run section has no
+`reports-to` row. The evidence test makes a cited decision owner-said only
+when it's the owner's answer (decider `person:owner`), koto reads it
+`verified`, and the question it answers carries the standing mark, on the
+question or on the option the owner chose. `standing-provenance.sh` prints
+koto's `reading` and whether the mark is there, through `koto decisions
+show` and `koto decisions content read` alone, opening no harness record;
+`rule_class` decides from those two fields. Any other person decision reads
+inferred: an answer to an unmarked question, one choosing an unmarked
+option, a remote session's answer, and a person judgment the top coordinator
+records with no answered prompt behind it. A cited session decision keeps
+the class it read before, unreadable, so a `shirabe question settle
+--owner-note` decision is never owner-said. Being the top coordinator, with
+no dispatcher, makes no decision the owner's. The writer now accepts a
+`decision` Source only when it reads owner-said; it doesn't compare the
+row's What with the question's text.
+
+`rule_class` never applied the root test: before this change every
+`decision` row read unreadable, so no rule ever read owner-said. Its inputs
+had shipped, though: `standing-provenance.sh` printed `bound` and
+`bound_by`, read from the decision's frozen chain and the entering session's
+Run section, and nothing consumed them. This change removes those two fields
+and their reads; no class a reader saw changes except that a `decision` row
+can now read owner-said or inferred.

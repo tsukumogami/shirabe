@@ -26,13 +26,22 @@ The upstream design is Planned and its brief is Accepted. The reviewer
 accepted both on this plan, which carries the five changes asked for before
 acceptance.
 
+Amended 2026-11-28 by DESIGN-decision-escalation-ladder.md: owner-said is read
+from evidence, not from entry at a root coordinator. A cited decision reads
+owner-said only when it's the owner's answer that koto reads `verified`, to a
+question carrying the standing mark on the question or on the option chosen;
+any other person decision reads inferred, and a cited session decision keeps
+the class it read before. The root test was never built; its unread inputs in
+`standing-provenance.sh` are removed.
+
 ## Scope Summary
 
 The design gives a coordinator's Standing section a `rule` kind and one
 optional Source column that cites a koto decision, a skill line, a document,
 a pinned file, or names the rule inferred. No column stores a class:
-`rule_class` works it out at read, owner-said means a cited person decision
-entered at a root coordinator, and a cited rule's status is koto's, so an
+`rule_class` works it out at read, owner-said means the owner's answer that
+koto reads verified, to a question marked standing on the question or on the
+option chosen, wherever it was given, and a cited rule's status is koto's, so an
 owner's reversal reads superseded wherever the rule was copied. Rows written
 before the change read in place as relayed, brief rules come in once as
 flagged inferred rows, and a continuing successor reverses with exactly the
@@ -245,13 +254,13 @@ The headings are fixed strings:
 
 **Files**: `skills/coordinate/scripts/standing-provenance.sh` (new), `skills/coordinate/scripts/standing-provenance_engine_test.sh` (new), `skills/coordinate/SKILL.md` (Reference Files table, if it lists scripts), `skills/coordinate/koto-templates/coordinate.compat.json` (only if a digest it records changes)
 
-### Step 10: a decision row reads owner-said, dispatcher-said or inferred by the root and leg tests, and the writer refuses a citation that wouldn't
+### Step 10: a decision row reads owner-said, dispatcher-said or inferred by the evidence and leg tests, and the writer refuses a citation that wouldn't
 
-shirabe, gated as step 9 plus the supersede hop, with only its dispatcher-said criterion also waiting on koto's cross-session decision read (with the read failing, a citation of the dispatcher's decision reads unreadable and the writer records the ruling as an `inferred` rule row quoting it, flagged for confirmation, and its tests cover both paths): the `decision` form, `rule_class`'s fixed-order tests (unreadable, person to the root test, own run, then a leg to a coordinator outside the writer's run created before the writer), the writer's refusals (What not equal to the decision's whole reason, Owner not koto's decider, a person in Owner uncited once the koto floor is met), and the koto version-floor check that turns citations on; it ships in the same plugin release as step 14, because that refusal covers the carry acknowledgement every handover writes.
+shirabe, gated as step 9 plus the supersede hop, with only its dispatcher-said criterion also waiting on koto's cross-session decision read (with the read failing, a citation of the dispatcher's decision reads unreadable and the writer records the ruling as an `inferred` rule row quoting it, flagged for confirmation, and its tests cover both paths): the `decision` form, `rule_class`'s fixed-order tests (unreadable, person to the evidence test (the owner's answer koto reads verified, to a question marked standing on the question or on the option chosen), own run, then a leg to a coordinator outside the writer's run created before the writer), the writer's refusals (What not equal to the decision's whole reason, Owner not koto's decider, a person in Owner uncited once the koto floor is met), and the koto version-floor check that turns citations on; it ships in the same plugin release as step 14, because that refusal covers the carry acknowledgement every handover writes.
 
-### Step 11: a manager's row citing its director's person decision reads owner-said, and reads as a flagged inferred quote while the cross-session read fails
+### Step 11: a manager's row citing the owner's verified standing answer reads owner-said, and reads as a flagged inferred quote while the cross-session read fails
 
-shirabe, gated as step 10, with only its owner-said criterion also waiting on koto's cross-session decision read on one host: a manager on the same host as its director cites the decision the director recorded and reads owner-said one level down; with the read failing, the citation reads unreadable and the manager writes an `inferred` rule row quoting the ruling, flagged for confirmation, and its tests cover both paths.
+shirabe, gated as step 10, with only its owner-said criterion also waiting on koto's cross-session decision read on one host: a manager cites the owner's verified answer to a question marked standing, wherever it was given, and reads owner-said by the evidence test, not by where the decision was entered; with the read failing, the citation reads unreadable and the manager writes an `inferred` rule row quoting the ruling, flagged for confirmation, and its tests cover both paths.
 
 ### Step 12: a reversed cited pause holds nothing and a reversed cited go-ahead lets nothing through, inside the pause read's bounds
 
@@ -263,15 +272,15 @@ shirabe, gated as step 10: `--confirm` keeps id, kind, On, Until, What and Set a
 
 ### Step 14: each kind of successor writes a carry acknowledgement that satisfies the handover gate, and only a director's taken-over successor reads owner-said
 
-shirabe, gated on the supersede hop: a director's taken-over successor cites a person decision it records and reads owner-said; a carried run cites one in its own session, reads inferred with `confirm` true, satisfies the gate and nothing else, and is listed for its next fenced member; a manager's successor, never a root and never entering a person decision, cites a session decision its director records acknowledging the carry, which reads dispatcher-said through a leg, and otherwise, including while koto's cross-session decision read is missing, writes today's uncited event row naming the director's session as Owner, which reads relayed.
+shirabe, gated on the supersede hop: a successor reads owner-said only by citing the owner's verified answer to a question marked standing (the evidence test), and a person decision a director's taken-over successor records itself reads inferred; a carried run cites one in its own session, reads inferred with `confirm` true, satisfies the gate and nothing else, and is listed for its next fenced member; a manager's successor, never a root and never entering a person decision, cites a session decision its director records acknowledging the carry, which reads dispatcher-said through a leg, and otherwise, including while koto's cross-session decision read is missing, writes today's uncited event row naming the director's session as Owner, which reads relayed.
 
 ### Step 15: every tick's gate output lists the rule ids in force, after a reversal no tick lists the reversed rule as in force, and the gate refuses a tick from a session that isn't the record's driver
 
 shirabe, gated as step 12: the coordinate template's tick runs `--rules --in-force` as a gate whose output koto records in the session log, so the reversal check reads ticks from koto's log rather than from entries naming a Standing id; the template's compat number moves with it. The same gate carries the gate half of the design's driver check, which step 19 leaves out: it refuses a tick whose driving Claude session isn't the record's driver, judging a run with no driver as step 19's writer does. That half depends on koto setting the tick's driver id on every gate, which it doesn't today (tsukumogami/koto#600).
 
-### Step 16: SKILL.md tells a root to record the owner's word before writing the row and a manager to cite its director's
+### Step 16: SKILL.md tells a coordinator to raise the owner's typed rule as a question marked standing and cite the verified answer
 
-shirabe, after steps 5, 8, 11 and 14: the owner-said procedure, the manager rule, the replacement for "record a person's word found on the record's thread or anywhere else", the dropped "yourself as relayer", and the restrict-only rule for rows `rule_grants` refuses, on the same passages tsukumogami/shirabe#1449 changes.
+shirabe, after steps 5, 8, 11 and 14: the owner-said procedure (raise the owner's typed rule as a question marked standing, present it in that turn, and cite the answer once `shirabe question answer` exits 0), the manager rule, the replacement for "record a person's word found on the record's thread or anywhere else", the dropped "yourself as relayer", and the restrict-only rule for rows `rule_grants` refuses, on the same passages tsukumogami/shirabe#1449 changes.
 
 ### Step 17: on a fixture lineage, the five outcome checks each hold, and the unsourced count rises within its threshold
 
